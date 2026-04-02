@@ -8,3 +8,9 @@ dependencies = [
     "pygit2>=1.19.2",
     "pyside6>=6.11.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-qt>=4.5.0",
+]
