@@ -139,3 +139,104 @@ class Pygit2Repository:
             status, delta = _map_status(flags)
             files.append(FileStatus(path=path, status=status, delta=delta))
         return files
+
+    # ----------------------------------------------------------------- writes
+
+    def stage(self, paths: list[str]) -> None:
+        for path in paths:
+            self._repo.index.add(path)
+        self._repo.index.write()
+
+    def unstage(self, paths: list[str]) -> None:
+        if self._repo.head_is_unborn:
+            for path in paths:
+                self._repo.index.remove(path)
+            self._repo.index.write()
+        else:
+            head_commit = self._repo.head.peel(pygit2.Commit)
+            for path in paths:
+                if path in head_commit.tree:
+                    entry = head_commit.tree[path]
+                    self._repo.index.add(
+                        pygit2.IndexEntry(path, entry.id, entry.filemode)
+                    )
+                else:
+                    self._repo.index.remove(path)
+            self._repo.index.write()
+
+    def commit(self, message: str) -> "Commit":
+        self._repo.index.write()
+        tree = self._repo.index.write_tree()
+        try:
+            sig = self._repo.default_signature
+        except pygit2.GitError:
+            sig = pygit2.Signature("Test", "test@test.com")
+        parents = [] if self._repo.head_is_unborn else [self._repo.head.target]
+        oid = self._repo.create_commit("HEAD", sig, sig, message, tree, parents)
+        return _commit_to_entity(self._repo.get(oid))
+
+    def create_branch(self, name: str, from_oid: str) -> "Branch":
+        commit = self._repo.get(from_oid)
+        self._repo.create_branch(name, commit, False)
+        return Branch(name=name, is_remote=False, is_head=False, target_oid=from_oid)
+
+    def checkout(self, branch: str) -> None:
+        ref = self._repo.branches.local[branch]
+        self._repo.checkout(ref)
+
+    def delete_branch(self, name: str) -> None:
+        self._repo.branches.local[name].delete()
+
+    def merge(self, branch: str) -> None:
+        ref = self._repo.branches.local[branch]
+        merge_result, _ = self._repo.merge_analysis(ref.target)
+        if merge_result & pygit2.GIT_MERGE_ANALYSIS_FASTFORWARD:
+            self._repo.checkout_tree(self._repo.get(ref.target))
+            self._repo.head.set_target(ref.target)
+        elif merge_result & pygit2.GIT_MERGE_ANALYSIS_NORMAL:
+            self._repo.merge(ref.target)
+            if not self._repo.index.conflicts:
+                self._repo.index.write()
+                tree = self._repo.index.write_tree()
+                try:
+                    sig = self._repo.default_signature
+                except pygit2.GitError:
+                    sig = pygit2.Signature("Test", "test@test.com")
+                self._repo.create_commit(
+                    "HEAD", sig, sig,
+                    f"Merge branch '{branch}'",
+                    tree,
+                    [self._repo.head.target, ref.target],
+                )
+                self._repo.state_cleanup()
+
+    def rebase(self, branch: str) -> None:
+        onto_ref = self._repo.branches.local[branch]
+        rebase = self._repo.rebase(onto=onto_ref.target)
+        while True:
+            op = rebase.next()
+            if op is None:
+                break
+        rebase.finish(self._repo.default_signature)
+
+    def push(self, remote: str, branch: str) -> None:
+        self._repo.remotes[remote].push(
+            [f"refs/heads/{branch}:refs/heads/{branch}"]
+        )
+
+    def pull(self, remote: str, branch: str) -> None:
+        self.fetch(remote)
+        self.merge(f"{remote}/{branch}")
+
+    def fetch(self, remote: str) -> None:
+        self._repo.remotes[remote].fetch()
+
+    def stash(self, message: str) -> None:
+        try:
+            sig = self._repo.default_signature
+        except pygit2.GitError:
+            sig = pygit2.Signature("Test", "test@test.com")
+        self._repo.stash(sig, message=message, include_untracked=True)
+
+    def pop_stash(self, index: int) -> None:
+        self._repo.stash_pop(index=index)
