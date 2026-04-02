@@ -1,0 +1,107 @@
+from __future__ import annotations
+from git_gui.domain.entities import Branch, Commit
+from git_gui.domain.ports import IRepositoryWriter
+
+
+class StageFiles:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, paths: list[str]) -> None:
+        self._writer.stage(paths)
+
+
+class UnstageFiles:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, paths: list[str]) -> None:
+        self._writer.unstage(paths)
+
+
+class CreateCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, message: str) -> Commit:
+        return self._writer.commit(message)
+
+
+class Checkout:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, branch: str) -> None:
+        self._writer.checkout(branch)
+
+
+class CreateBranch:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, from_oid: str) -> Branch:
+        return self._writer.create_branch(name, from_oid)
+
+
+class DeleteBranch:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str) -> None:
+        self._writer.delete_branch(name)
+
+
+class Merge:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, branch: str) -> None:
+        self._writer.merge(branch)
+
+
+class Rebase:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, branch: str) -> None:
+        self._writer.rebase(branch)
+
+
+class Push:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, branch: str) -> None:
+        self._writer.push(remote, branch)
+
+
+class Pull:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, branch: str) -> None:
+        self._writer.pull(remote, branch)
+
+
+class Fetch:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str) -> None:
+        self._writer.fetch(remote)
+
+
+class Stash:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, message: str) -> None:
+        self._writer.stash(message)
+
+
+class PopStash:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, index: int) -> None:
+        self._writer.pop_stash(index)
