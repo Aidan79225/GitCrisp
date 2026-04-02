@@ -140,6 +140,14 @@ class Pygit2Repository:
             files.append(FileStatus(path=path, status=status, delta=delta))
         return files
 
+    # ----------------------------------------------------------------- helpers
+
+    def _get_signature(self) -> pygit2.Signature:
+        try:
+            return self._repo.default_signature
+        except pygit2.GitError:
+            return pygit2.Signature("Git GUI", "gitgui@localhost")
+
     # ----------------------------------------------------------------- writes
 
     def stage(self, paths: list[str]) -> None:
@@ -167,10 +175,7 @@ class Pygit2Repository:
     def commit(self, message: str) -> "Commit":
         self._repo.index.write()
         tree = self._repo.index.write_tree()
-        try:
-            sig = self._repo.default_signature
-        except pygit2.GitError:
-            sig = pygit2.Signature("Test", "test@test.com")
+        sig = self._get_signature()
         parents = [] if self._repo.head_is_unborn else [self._repo.head.target]
         oid = self._repo.create_commit("HEAD", sig, sig, message, tree, parents)
         return _commit_to_entity(self._repo.get(oid))
@@ -188,7 +193,11 @@ class Pygit2Repository:
         self._repo.branches.local[name].delete()
 
     def merge(self, branch: str) -> None:
-        ref = self._repo.branches.local[branch]
+        # Support both local ("main") and remote-tracking ("origin/main") branches
+        if branch in self._repo.branches.local:
+            ref = self._repo.branches.local[branch]
+        else:
+            ref = self._repo.branches.remote[branch]
         merge_result, _ = self._repo.merge_analysis(ref.target)
         if merge_result & pygit2.GIT_MERGE_ANALYSIS_FASTFORWARD:
             self._repo.checkout_tree(self._repo.get(ref.target))
@@ -198,10 +207,7 @@ class Pygit2Repository:
             if not self._repo.index.conflicts:
                 self._repo.index.write()
                 tree = self._repo.index.write_tree()
-                try:
-                    sig = self._repo.default_signature
-                except pygit2.GitError:
-                    sig = pygit2.Signature("Test", "test@test.com")
+                sig = self._get_signature()
                 self._repo.create_commit(
                     "HEAD", sig, sig,
                     f"Merge branch '{branch}'",
@@ -217,7 +223,7 @@ class Pygit2Repository:
             op = rebase.next()
             if op is None:
                 break
-        rebase.finish(self._repo.default_signature)
+        rebase.finish(self._get_signature())
 
     def push(self, remote: str, branch: str) -> None:
         self._repo.remotes[remote].push(
@@ -232,10 +238,7 @@ class Pygit2Repository:
         self._repo.remotes[remote].fetch()
 
     def stash(self, message: str) -> None:
-        try:
-            sig = self._repo.default_signature
-        except pygit2.GitError:
-            sig = pygit2.Signature("Test", "test@test.com")
+        sig = self._get_signature()
         self._repo.stash(sig, message=message, include_untracked=True)
 
     def pop_stash(self, index: int) -> None:
