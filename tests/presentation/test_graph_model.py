@@ -1,12 +1,12 @@
 from datetime import datetime
 from git_gui.domain.entities import Commit
-from git_gui.presentation.models.graph_model import GraphModel, LaneData
+from git_gui.presentation.models.graph_model import CommitInfo, GraphModel, LaneData
 from PySide6.QtCore import Qt
 
 
 def _make_commit(oid="abc", msg="Initial commit", parents=None):
     return Commit(oid=oid, message=msg, author="Alice <a@a.com>",
-                  timestamp=datetime(2026, 1, 1), parents=parents or [])
+                  timestamp=datetime(2026, 1, 1, 14, 32), parents=parents or [])
 
 
 def test_row_count_matches_commits(qtbot):
@@ -17,25 +17,7 @@ def test_row_count_matches_commits(qtbot):
 
 def test_column_count(qtbot):
     model = GraphModel([], {})
-    assert model.columnCount() == 5  # graph, refs, message, author, date
-
-
-def test_message_column(qtbot):
-    model = GraphModel([_make_commit("a", "feat: thing\n\nBody text")], {})
-    idx = model.index(0, 2)
-    assert model.data(idx, Qt.DisplayRole) == "feat: thing"
-
-
-def test_author_column(qtbot):
-    model = GraphModel([_make_commit()], {})
-    idx = model.index(0, 3)
-    assert model.data(idx, Qt.DisplayRole) == "Alice <a@a.com>"
-
-
-def test_date_column(qtbot):
-    model = GraphModel([_make_commit()], {})
-    idx = model.index(0, 4)
-    assert "2026-01-01" in model.data(idx, Qt.DisplayRole)
+    assert model.columnCount() == 2  # graph, info
 
 
 def test_user_role_returns_oid(qtbot):
@@ -44,20 +26,49 @@ def test_user_role_returns_oid(qtbot):
     assert model.data(idx, Qt.UserRole) == "deadbeef"
 
 
-def test_hash_column_shows_short_oid(qtbot):
+def test_commit_info_is_instance(qtbot):
+    model = GraphModel([_make_commit("abc")], {})
+    idx = model.index(0, 1)
+    info = model.data(idx, Qt.UserRole + 1)
+    assert isinstance(info, CommitInfo)
+
+
+def test_commit_info_message(qtbot):
+    model = GraphModel([_make_commit("a", "feat: thing\n\nBody text")], {})
+    idx = model.index(0, 1)
+    info = model.data(idx, Qt.UserRole + 1)
+    assert info.message == "feat: thing"
+
+
+def test_commit_info_author(qtbot):
+    model = GraphModel([_make_commit()], {})
+    idx = model.index(0, 1)
+    info = model.data(idx, Qt.UserRole + 1)
+    assert info.author == "Alice <a@a.com>"
+
+
+def test_commit_info_timestamp(qtbot):
+    model = GraphModel([_make_commit()], {})
+    idx = model.index(0, 1)
+    info = model.data(idx, Qt.UserRole + 1)
+    assert "2026-01-01" in info.timestamp
+
+
+def test_commit_info_short_oid(qtbot):
     commits = [_make_commit("abcdef1234")]
     model = GraphModel(commits, {})
     idx = model.index(0, 1)
-    assert model.data(idx, Qt.DisplayRole) == "abcdef12"
+    info = model.data(idx, Qt.UserRole + 1)
+    assert info.short_oid == "abcdef12"
 
 
-def test_message_userrole_returns_branch_names(qtbot):
+def test_commit_info_branch_names(qtbot):
     commits = [_make_commit("abc")]
     refs = {"abc": ["main", "origin/main"]}
     model = GraphModel(commits, refs)
-    idx = model.index(0, 2)
-    names = model.data(idx, Qt.UserRole + 1)
-    assert names == ["main", "origin/main"]
+    idx = model.index(0, 1)
+    info = model.data(idx, Qt.UserRole + 1)
+    assert info.branch_names == ["main", "origin/main"]
 
 
 def test_lane_data_is_instance(qtbot):
@@ -80,7 +91,6 @@ def test_linear_history_all_lane_zero(qtbot):
 
 
 def test_branch_tip_opens_second_lane(qtbot):
-    # b1 takes lane 0 (first seen), b2 gets lane 1 (lane 0 is waiting for "base")
     commits = [
         _make_commit("b1", parents=["base"]),
         _make_commit("b2", parents=["base"]),
@@ -94,8 +104,6 @@ def test_branch_tip_opens_second_lane(qtbot):
 
 
 def test_merge_commit_has_diagonal_edge(qtbot):
-    # "m" merges p1 (first parent, lane 0) and p2 (second parent, opens lane 1)
-    # edges_out for row 0 must include (0, 1, ...) diagonal
     commits = [
         _make_commit("m", parents=["p1", "p2"]),
         _make_commit("p1", parents=[]),
