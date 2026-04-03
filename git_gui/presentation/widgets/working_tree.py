@@ -13,6 +13,7 @@ from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
 
 class WorkingTreeWidget(QWidget):
     reload_requested = Signal()
+    commit_completed = Signal(str)  # emits first line of commit message
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -129,7 +130,9 @@ class WorkingTreeWidget(QWidget):
         if not msg:
             return
         self._commands.create_commit.execute(msg)
+        first_line = msg.split("\n")[0]
         self._msg_edit.clear()
+        self.commit_completed.emit(first_line)
         self.reload_requested.emit()
         self.reload()
 
