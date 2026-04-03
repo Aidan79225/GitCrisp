@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._sidebar)
         splitter.addWidget(self._graph)
         splitter.addWidget(self._diff)
-        splitter.setSizes([220, 560, 620])
+        splitter.setSizes([220, 230, 950])
         self._toolbar = QToolBar("Main")
         self._reload_action = QAction("Reload", self)
         self._reload_action.setShortcut(QKeySequence(Qt.Key_F5))

@@ -2,7 +2,7 @@
 from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
+from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 LANE_W = 16   # pixels per lane column
 NODE_R = 4    # commit node circle radius
@@ -35,6 +35,11 @@ class GraphLaneDelegate(QStyledItemDelegate):
         painter.setRenderHint(QPainter.Antialiasing)
 
         rect = option.rect
+
+        # ── Selection highlight ───────────────────────────────────────────────
+        if option.state & QStyle.State_Selected:
+            painter.fillRect(rect, QColor("#264f78"))
+
         left = rect.left()
         top = rect.top()
         bot = rect.bottom()
@@ -62,5 +67,9 @@ class GraphLaneDelegate(QStyledItemDelegate):
         painter.setBrush(node_color)
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(lx - NODE_R, mid - NODE_R, NODE_R * 2, NODE_R * 2)
+
+        # ── Bottom divider ────────────────────────────────────────────────────
+        painter.setPen(QColor("#30363d"))
+        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
 
         painter.restore()

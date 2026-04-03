@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import (
     QColor, QStandardItem, QStandardItemModel,
-    QTextCharFormat, QTextCursor,
+    QTextBlockFormat, QTextCharFormat, QTextCursor,
 )
 from PySide6.QtWidgets import (
     QLabel, QListView, QPlainTextEdit, QSplitter, QStackedWidget,
@@ -92,12 +92,20 @@ class DiffWidget(QWidget):
 
         # Diff render formats (created once, reused per render)
         self._fmt_added = QTextCharFormat()
-        self._fmt_added.setForeground(QColor("#2ea043"))
+        self._fmt_added.setForeground(QColor("white"))
         self._fmt_removed = QTextCharFormat()
-        self._fmt_removed.setForeground(QColor("#f85149"))
+        self._fmt_removed.setForeground(QColor("white"))
         self._fmt_header = QTextCharFormat()
         self._fmt_header.setForeground(QColor("#58a6ff"))
         self._fmt_default = QTextCharFormat()
+        self._fmt_default.setForeground(QColor("white"))
+
+        # Block formats for full-row background highlighting
+        self._blk_added = QTextBlockFormat()
+        self._blk_added.setBackground(QColor(35, 134, 54, 80))
+        self._blk_removed = QTextBlockFormat()
+        self._blk_removed.setBackground(QColor(248, 81, 73, 80))
+        self._blk_default = QTextBlockFormat()
 
     # ── public ───────────────────────────────────────────────────────────────
 
@@ -177,14 +185,18 @@ class DiffWidget(QWidget):
         editor.clear()
         cursor = editor.textCursor()
         for hunk in hunks:
+            cursor.setBlockFormat(self._blk_default)
             cursor.setCharFormat(self._fmt_header)
             cursor.insertText(hunk.header + "\n")
             for origin, content in hunk.lines:
                 if origin == "+":
+                    cursor.setBlockFormat(self._blk_added)
                     cursor.setCharFormat(self._fmt_added)
                 elif origin == "-":
+                    cursor.setBlockFormat(self._blk_removed)
                     cursor.setCharFormat(self._fmt_removed)
                 else:
+                    cursor.setBlockFormat(self._blk_default)
                     cursor.setCharFormat(self._fmt_default)
                 cursor.insertText(content if content.endswith("\n") else content + "\n")
         editor.setTextCursor(cursor)
