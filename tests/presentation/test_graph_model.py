@@ -110,3 +110,27 @@ def test_merge_commit_has_diagonal_edge(qtbot):
 def test_invalid_index_returns_none(qtbot):
     model = GraphModel([], {})
     assert model.data(model.index(99, 0), Qt.DisplayRole) is None
+
+
+def test_badge_color_head():
+    from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
+    color = _badge_color("HEAD")
+    assert color.name().lower() == "#238636"
+
+
+def test_badge_color_head_arrow():
+    from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
+    color = _badge_color("HEAD -> main")
+    assert color.name().lower() == "#238636"
+
+
+def test_badge_color_remote():
+    from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
+    color = _badge_color("origin/main")
+    assert color.name().lower() == "#1f4287"
+
+
+def test_badge_color_local():
+    from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
+    color = _badge_color("main")
+    assert color.name().lower() == "#0d6efd"

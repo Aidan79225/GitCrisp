@@ -15,6 +15,7 @@ COLOR_LOCAL = "#0d6efd"   # blue — local branch
 
 
 def _badge_color(name: str) -> QColor:
+    # "HEAD -> branch" is the git decoration format for the current branch pointer
     if name == "HEAD" or name.startswith("HEAD ->"):
         return QColor(COLOR_HEAD)
     if "/" in name:
@@ -50,7 +51,7 @@ class RefBadgeDelegate(QStyledItemDelegate):
             x += badge_w + BADGE_GAP
 
         # Draw commit message text after the badges
-        text_rect = QRect(x, rect.top(), rect.right() - x, rect.height())
+        text_rect = QRect(x, rect.top(), max(0, rect.right() - x), rect.height())
         painter.setPen(option.palette.text().color())
         painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, message)
 
