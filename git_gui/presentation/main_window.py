@@ -2,7 +2,6 @@
 from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMainWindow, QSplitter
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
@@ -10,15 +9,12 @@ from git_gui.presentation.widgets.sidebar import SidebarWidget
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, repo_path: str, parent=None) -> None:
+    def __init__(self, queries: QueryBus, commands: CommandBus, repo_path: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"git gui — {repo_path}")
         self.resize(1400, 800)
 
-        repo = Pygit2Repository(repo_path)
-        queries = QueryBus.from_reader(repo)
-        commands = CommandBus.from_writer(repo)
-
+        self._commands = commands
         self._sidebar = SidebarWidget(queries, commands)
         self._graph = GraphWidget(queries, commands)
         self._diff = DiffWidget(queries, commands)
@@ -41,6 +37,8 @@ class MainWindow(QMainWindow):
             lambda b: (commands.delete_branch.execute(b), self._reload()))
         self._sidebar.fetch_requested.connect(
             lambda r: (commands.fetch.execute(r), self._reload()))
+        self._sidebar.branch_push_requested.connect(
+            lambda b: (commands.push.execute("origin", b), self._reload()))
 
         self._reload()
 

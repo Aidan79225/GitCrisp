@@ -79,7 +79,8 @@ class SidebarWidget(QWidget):
         menu = QMenu(self)
         if kind == "branch":
             menu.addAction("Checkout").triggered.connect(
-                lambda: self.branch_checkout_requested.emit(value))
+                lambda: (self._commands.checkout.execute(value),
+                         self.branch_checkout_requested.emit(value)))
             menu.addAction("Merge into current").triggered.connect(
                 lambda: self.branch_merge_requested.emit(value))
             menu.addAction("Rebase onto").triggered.connect(
