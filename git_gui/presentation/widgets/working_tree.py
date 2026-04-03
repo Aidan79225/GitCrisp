@@ -56,7 +56,10 @@ class WorkingTreeWidget(QWidget):
         splitter.addWidget(toolbar)
         splitter.addWidget(self._file_view)
         splitter.addWidget(self._hunk_diff)
-        splitter.setSizes([80, 200, 400])
+        splitter.setSizes([80, 120, 10000])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 0)
+        splitter.setStretchFactor(2, 1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -131,14 +134,24 @@ class WorkingTreeWidget(QWidget):
         self.reload()
 
     def _on_files_changed(self) -> None:
-        files = self._queries.get_working_tree.execute()
-        partial = self._detect_partial(files)
-        self._file_model.reload(files, partial)
-        # Re-render hunk diff for currently selected file
+        # Remember selected path before reload clears selection
+        selected_path = None
         idx = self._file_view.currentIndex()
         if idx.isValid():
             fs = self._file_model.data(idx, Qt.UserRole)
             if fs:
-                self._hunk_diff.load_file(fs.path)
-            else:
-                self._hunk_diff.clear()
+                selected_path = fs.path
+
+        files = self._queries.get_working_tree.execute()
+        partial = self._detect_partial(files)
+        self._file_model.reload(files, partial)
+
+        # Restore selection by path and refresh hunk diff
+        if selected_path:
+            for row in range(self._file_model.rowCount()):
+                fs = self._file_model.data(self._file_model.index(row), Qt.UserRole)
+                if fs and fs.path == selected_path:
+                    self._file_view.setCurrentIndex(self._file_model.index(row))
+                    self._hunk_diff.load_file(selected_path)
+                    return
+        self._hunk_diff.clear()

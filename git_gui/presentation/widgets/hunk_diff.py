@@ -85,10 +85,11 @@ class HunkDiffWidget(QWidget):
         editor = QPlainTextEdit()
         editor.setReadOnly(True)
         editor.setLineWrapMode(QPlainTextEdit.NoWrap)
+        editor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         font = editor.font()
         font.setFamily("Courier New")
         editor.setFont(font)
-        editor.setMaximumHeight(len(hunk.lines) * editor.fontMetrics().height() + 16)
 
         cursor = editor.textCursor()
         for origin, content in hunk.lines:
@@ -103,6 +104,13 @@ class HunkDiffWidget(QWidget):
                 cursor.setCharFormat(self._fmt_default)
             cursor.insertText(content if content.endswith("\n") else content + "\n")
         editor.setTextCursor(cursor)
+
+        # Size to fit all lines — calculated from line count + font metrics
+        line_height = editor.fontMetrics().lineSpacing()
+        margins = editor.contentsMargins()
+        doc_margin = editor.document().documentMargin() * 2
+        total_height = int(len(hunk.lines) * line_height + doc_margin + margins.top() + margins.bottom() + 4)
+        editor.setFixedHeight(total_height)
 
         self._layout.addWidget(checkbox)
         self._layout.addWidget(editor)
