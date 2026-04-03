@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from git_gui.domain.entities import Commit
 
-COLUMNS = ["graph", "refs", "message", "author", "date"]
+COLUMNS = ["graph", "hash", "message", "author", "date"]
 
 LANE_COLORS = [
     "#4fc1ff",  # blue
@@ -53,7 +53,7 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
         else:
             my_lane = len(active)
             active.append(oid)
-            colors.append(next_color % 8)
+            colors.append(next_color % len(LANE_COLORS))
             next_color += 1
             has_incoming = False
 
@@ -72,11 +72,13 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
             elif None in new_active:
                 slot = new_active.index(None)
                 new_active[slot] = p
+                new_colors[slot] = next_color % len(LANE_COLORS)
+                next_color += 1
                 extra_parent_lanes.append(slot)
             else:
                 slot = len(new_active)
                 new_active.append(p)
-                new_colors.append(next_color % 8)
+                new_colors.append(next_color % len(LANE_COLORS))
                 next_color += 1
                 extra_parent_lanes.append(slot)
 
@@ -133,7 +135,7 @@ class GraphModel(QAbstractTableModel):
         return len(COLUMNS)
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
-        if not index.isValid() or index.row() >= len(self._commits):
+        if not index.isValid() or index.row() >= len(self._commits) or index.column() >= len(COLUMNS):
             return None
         commit = self._commits[index.row()]
         col = index.column()
