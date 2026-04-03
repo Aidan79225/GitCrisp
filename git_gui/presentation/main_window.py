@@ -1,7 +1,8 @@
 # git_gui/presentation/main_window.py
 from __future__ import annotations
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QSplitter
+from PySide6.QtCore import Qt, QKeySequence
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMainWindow, QSplitter, QToolBar
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
@@ -24,6 +25,12 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._graph)
         splitter.addWidget(self._diff)
         splitter.setSizes([220, 560, 620])
+        self._toolbar = QToolBar("Main")
+        self._reload_action = QAction("Reload", self)
+        self._reload_action.setShortcut(QKeySequence(Qt.Key_F5))
+        self._reload_action.triggered.connect(self._reload)
+        self._toolbar.addAction(self._reload_action)
+        self.addToolBar(self._toolbar)
         self.setCentralWidget(splitter)
 
         # Wire cross-widget signals
