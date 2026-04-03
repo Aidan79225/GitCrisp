@@ -69,3 +69,12 @@ def test_get_stashes_delegates_to_reader():
     result = GetStashes(reader).execute()
     reader.get_stashes.assert_called_once()
     assert result[0].index == 0
+
+
+def test_get_staged_diff_delegates_to_reader():
+    reader = _reader()
+    reader.get_staged_diff.return_value = [Hunk("@@ -1,1 +1,2 @@", [("+", "line\n")])]
+    from git_gui.application.queries import GetStagedDiff
+    result = GetStagedDiff(reader).execute("a.py")
+    reader.get_staged_diff.assert_called_once_with("a.py")
+    assert len(result) == 1

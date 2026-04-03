@@ -43,6 +43,14 @@ class GetFileDiff:
         return self._reader.get_file_diff(oid, path)
 
 
+class GetStagedDiff:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, path: str) -> list[Hunk]:
+        return self._reader.get_staged_diff(path)
+
+
 class GetWorkingTree:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader

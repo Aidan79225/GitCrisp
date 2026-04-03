@@ -131,6 +131,21 @@ class Pygit2Repository:
                 return _diff_to_hunks(patch)
         return []
 
+    def get_staged_diff(self, path: str) -> list[Hunk]:
+        # Diff the index against HEAD tree to show what is staged for commit.
+        # For unborn HEAD (no commits yet), diff against an empty tree.
+        if self._repo.head_is_unborn:
+            empty_tree_oid = self._repo.TreeBuilder().write()
+            empty_tree = self._repo.get(empty_tree_oid)
+            diff = self._repo.index.diff_to_tree(empty_tree)
+        else:
+            head_commit = self._repo.head.peel(pygit2.Commit)
+            diff = self._repo.index.diff_to_tree(head_commit.tree)
+        for patch in diff:
+            if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
+                return _diff_to_hunks(patch)
+        return []
+
     def get_working_tree(self) -> list[FileStatus]:
         files = []
         for path, flags in self._repo.status().items():

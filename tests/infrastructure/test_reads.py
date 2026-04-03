@@ -90,3 +90,34 @@ def test_get_file_diff_initial_commit(repo_impl):
     all_lines = [line for h in hunks for line in h.lines]
     added_lines = [content for origin, content in all_lines if origin == "+"]
     assert any("Test Repo" in line for line in added_lines)
+
+
+def test_get_staged_diff_empty_when_nothing_staged(repo_impl):
+    hunks = repo_impl.get_staged_diff("README.md")
+    assert hunks == []
+
+
+def test_get_staged_diff_returns_hunks_after_staging(repo_path, repo_impl):
+    (repo_path / "README.md").write_text("# Test Repo\nnew line\n")
+    repo_impl.stage(["README.md"])
+    hunks = repo_impl.get_staged_diff("README.md")
+    assert len(hunks) >= 1
+    all_lines = [line for h in hunks for line in h.lines]
+    added_lines = [content for origin, content in all_lines if origin == "+"]
+    assert any("new line" in line for line in added_lines)
+
+
+def test_get_staged_diff_new_file_unborn_head(tmp_path):
+    """get_staged_diff on a brand-new repo (no commits yet) shows staged new file."""
+    import pygit2
+    from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+    repo = pygit2.init_repository(str(tmp_path))
+    (tmp_path / "new.txt").write_text("hello\n")
+    repo.index.add("new.txt")
+    repo.index.write()
+    impl = Pygit2Repository(str(tmp_path))
+    hunks = impl.get_staged_diff("new.txt")
+    assert len(hunks) >= 1
+    all_lines = [line for h in hunks for line in h.lines]
+    added_lines = [content for origin, content in all_lines if origin == "+"]
+    assert any("hello" in line for line in added_lines)
