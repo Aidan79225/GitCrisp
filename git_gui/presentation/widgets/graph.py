@@ -61,7 +61,7 @@ class GraphWidget(QWidget):
                 message="Uncommitted Changes",
                 author="",
                 timestamp=datetime.now(),
-                parents=[commits[0].oid] if commits else [],
+                parents=[all_commits[0].oid] if all_commits else [],
             )
             all_commits.insert(0, synthetic)
 
