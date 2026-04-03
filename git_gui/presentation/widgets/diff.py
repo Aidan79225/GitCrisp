@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.diff_model import DiffModel
+from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 
 _DELTA_BADGE = {
     "modified": ("M", "#1f6feb"),   # blue
@@ -28,17 +29,14 @@ class _FileDeltaDelegate(QStyledItemDelegate):
 
         rect = option.rect
 
-        # Selection highlight
         from PySide6.QtWidgets import QStyle
         if option.state & QStyle.State_Selected:
             painter.fillRect(rect, QColor("#264f78"))
 
-        # Get delta type from FileStatus
         fs = index.data(Qt.UserRole)
         delta = fs.delta if fs else "unknown"
         label, color = _DELTA_BADGE.get(delta, ("?", "#8b949e"))
 
-        # Draw badge
         badge_x = rect.left() + 4
         badge_y = rect.top() + (rect.height() - BADGE_SIZE) // 2
         badge_rect = QRect(badge_x, badge_y, BADGE_SIZE, BADGE_SIZE)
@@ -46,11 +44,9 @@ class _FileDeltaDelegate(QStyledItemDelegate):
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
 
-        # Badge text
         painter.setPen(QColor("white"))
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 
-        # File path
         text_x = badge_x + BADGE_SIZE + BADGE_GAP
         text_rect = QRect(text_x, rect.top(), rect.right() - text_x, rect.height())
         painter.setPen(option.palette.text().color())
@@ -68,6 +64,20 @@ class DiffWidget(QWidget):
         self._queries = queries
         self._current_oid: str | None = None
 
+        # ── Row 1: commit detail (3-line metadata) ──────────────────────────
+        self._detail = CommitDetailWidget()
+
+        # ── Row 2: full commit message ──────────────────────────────────────
+        self._msg_view = QPlainTextEdit()
+        self._msg_view.setReadOnly(True)
+        self._msg_view.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self._msg_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._msg_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        font = self._msg_view.font()
+        font.setFamily("Courier New")
+        self._msg_view.setFont(font)
+
+        # ── Row 3: file list ────────────────────────────────────────────────
         self._file_view = QListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDeltaDelegate(self._file_view))
@@ -78,10 +88,17 @@ class DiffWidget(QWidget):
             self._on_file_selected
         )
 
+        # ── Row 4: diff view ────────────────────────────────────────────────
         splitter = QSplitter(Qt.Vertical)
+        splitter.addWidget(self._detail)
+        splitter.addWidget(self._msg_view)
         splitter.addWidget(self._file_view)
         splitter.addWidget(self._diff_view)
-        splitter.setSizes([200, 400])
+        splitter.setSizes([80, 60, 160, 400])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 0)
+        splitter.setStretchFactor(2, 0)
+        splitter.setStretchFactor(3, 1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -105,6 +122,19 @@ class DiffWidget(QWidget):
 
     def load_commit(self, oid: str) -> None:
         self._current_oid = oid
+
+        # Fetch commit detail + refs
+        commit = self._queries.get_commit_detail.execute(oid)
+        branches = self._queries.get_branches.execute()
+        refs = [b.name for b in branches if b.target_oid == oid]
+        self._detail.set_commit(commit, refs)
+
+        # Full commit message
+        self._msg_view.setPlainText(commit.message)
+        doc_h = self._msg_view.document().size().toSize().height() + 10
+        self._msg_view.setFixedHeight(min(doc_h, 120))
+
+        # Files
         files = self._queries.get_commit_files.execute(oid)
         self._diff_model.reload(files)
         self._diff_view.clear()
@@ -131,7 +161,6 @@ class DiffWidget(QWidget):
 
     @staticmethod
     def _parse_hunk_header(header: str) -> tuple[int, int]:
-        """Parse '@@ -old_start,old_count +new_start,new_count @@' into (old_start, new_start)."""
         import re
         m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", header)
         if m:
