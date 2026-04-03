@@ -2,11 +2,13 @@
 from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QMainWindow, QSplitter, QToolBar
+from PySide6.QtWidgets import QMainWindow, QSplitter, QStackedWidget, QToolBar
+from git_gui.domain.entities import WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.sidebar import SidebarWidget
+from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 
 
 class MainWindow(QMainWindow):
@@ -19,12 +21,18 @@ class MainWindow(QMainWindow):
         self._sidebar = SidebarWidget(queries, commands)
         self._graph = GraphWidget(queries, commands)
         self._diff = DiffWidget(queries, commands)
+        self._working_tree = WorkingTreeWidget(queries, commands)
+
+        self._right_stack = QStackedWidget()
+        self._right_stack.addWidget(self._diff)           # index 0: commit mode
+        self._right_stack.addWidget(self._working_tree)    # index 1: working tree
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self._sidebar)
         splitter.addWidget(self._graph)
-        splitter.addWidget(self._diff)
+        splitter.addWidget(self._right_stack)
         splitter.setSizes([220, 230, 950])
+
         self._toolbar = QToolBar("Main")
         self._reload_action = QAction("Reload", self)
         self._reload_action.setShortcut(QKeySequence(Qt.Key_F5))
@@ -34,7 +42,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         # Wire cross-widget signals
-        self._graph.commit_selected.connect(self._diff.load_commit)
+        self._graph.commit_selected.connect(self._on_commit_selected)
+        self._working_tree.reload_requested.connect(self._reload)
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
         self._sidebar.branch_merge_requested.connect(
             lambda b: (commands.merge.execute(b), self._reload()))
@@ -48,6 +57,14 @@ class MainWindow(QMainWindow):
             lambda b: (commands.push.execute("origin", b), self._reload()))
 
         self._reload()
+
+    def _on_commit_selected(self, oid: str) -> None:
+        if oid == WORKING_TREE_OID:
+            self._right_stack.setCurrentIndex(1)
+            self._working_tree.reload()
+        else:
+            self._right_stack.setCurrentIndex(0)
+            self._diff.load_commit(oid)
 
     def _reload(self) -> None:
         self._sidebar.reload()
