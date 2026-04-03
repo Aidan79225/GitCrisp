@@ -1,6 +1,6 @@
 # git_gui/presentation/widgets/diff.py
 from __future__ import annotations
-from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QRect, QSize, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QTextBlockFormat, QTextCharFormat
 from PySide6.QtWidgets import (
     QListView, QPlainTextEdit, QSplitter, QStyledItemDelegate,
@@ -73,6 +73,8 @@ class DiffWidget(QWidget):
         self._msg_view.setLineWrapMode(QPlainTextEdit.WidgetWidth)
         self._msg_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._msg_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._msg_view.viewport().installEventFilter(self)
+        self._msg_view.document().setDocumentMargin(8)
         font = self._msg_view.font()
         font.setFamily("Courier New")
         self._msg_view.setFont(font)
@@ -88,21 +90,20 @@ class DiffWidget(QWidget):
             self._on_file_selected
         )
 
-        # ── Row 4: diff view ────────────────────────────────────────────────
+        # ── Row 3+4: file list + diff in splitter ───────────────────────────
         splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(self._detail)
-        splitter.addWidget(self._msg_view)
         splitter.addWidget(self._file_view)
         splitter.addWidget(self._diff_view)
-        splitter.setSizes([80, 60, 160, 400])
+        splitter.setSizes([160, 400])
         splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 0)
-        splitter.setStretchFactor(2, 0)
-        splitter.setStretchFactor(3, 1)
+        splitter.setStretchFactor(1, 1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(splitter)
+        layout.setSpacing(0)
+        layout.addWidget(self._detail, 0)
+        layout.addWidget(self._msg_view, 0)
+        layout.addWidget(splitter, 1)
 
         # Diff render formats
         self._fmt_added = QTextCharFormat()
@@ -120,6 +121,14 @@ class DiffWidget(QWidget):
         self._blk_removed.setBackground(QColor(248, 81, 73, 80))
         self._blk_default = QTextBlockFormat()
 
+    def eventFilter(self, obj, event):
+        if obj is self._msg_view.viewport() and event.type() in (
+            QEvent.Wheel, QEvent.MouseButtonPress,
+            QEvent.MouseButtonRelease, QEvent.MouseMove,
+        ):
+            return True  # block all mouse interaction on commit message
+        return super().eventFilter(obj, event)
+
     def load_commit(self, oid: str) -> None:
         self._current_oid = oid
 
@@ -129,10 +138,16 @@ class DiffWidget(QWidget):
         refs = [b.name for b in branches if b.target_oid == oid]
         self._detail.set_commit(commit, refs)
 
-        # Full commit message
-        self._msg_view.setPlainText(commit.message)
-        doc_h = self._msg_view.document().size().toSize().height() + 10
-        self._msg_view.setFixedHeight(min(doc_h, 120))
+        # Full commit message — add trailing newline so last line is always visible
+        msg = commit.message
+        if not msg.endswith("\n"):
+            msg += "\n"
+        self._msg_view.setPlainText(msg)
+        line_count = msg.count("\n") + 1
+        line_h = self._msg_view.fontMetrics().lineSpacing()
+        doc_margin = self._msg_view.document().documentMargin() * 2
+        msg_h = int(line_count * line_h + doc_margin)
+        self._msg_view.setFixedHeight(msg_h)
 
         # Files
         files = self._queries.get_commit_files.execute(oid)
