@@ -121,3 +121,12 @@ def test_get_staged_diff_new_file_unborn_head(tmp_path):
     all_lines = [line for h in hunks for line in h.lines]
     added_lines = [content for origin, content in all_lines if origin == "+"]
     assert any("hello" in line for line in added_lines)
+
+
+def test_get_commit_returns_commit(repo_impl):
+    commits = repo_impl.get_commits(limit=1)
+    oid = commits[0].oid
+    commit = repo_impl.get_commit(oid)
+    assert commit.oid == oid
+    assert commit.message == "Initial commit"
+    assert "Test User" in commit.author

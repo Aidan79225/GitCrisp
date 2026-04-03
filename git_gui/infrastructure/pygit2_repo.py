@@ -65,6 +65,9 @@ class Pygit2Repository:
         )
         return [_commit_to_entity(c) for c, _ in zip(walker, range(limit))]
 
+    def get_commit(self, oid: str) -> Commit:
+        return _commit_to_entity(self._repo.get(oid))
+
     def get_branches(self) -> list[Branch]:
         branches: list[Branch] = []
         head_target = None if self._repo.head_is_unborn else str(self._repo.head.target)

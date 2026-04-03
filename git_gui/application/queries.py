@@ -57,3 +57,11 @@ class GetWorkingTree:
 
     def execute(self) -> list[FileStatus]:
         return self._reader.get_working_tree()
+
+
+class GetCommitDetail:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, oid: str) -> Commit:
+        return self._reader.get_commit(oid)
