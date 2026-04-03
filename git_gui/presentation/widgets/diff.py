@@ -18,6 +18,7 @@ class DiffWidget(QWidget):
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
         self._queries = queries
+        self._commands = commands
         self._current_oid: str | None = None
 
         # ── commit mode (stack page 0) ──────────────────────────────────────
@@ -89,6 +90,15 @@ class DiffWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._stack)
 
+        # Diff render formats (created once, reused per render)
+        self._fmt_added = QTextCharFormat()
+        self._fmt_added.setForeground(QColor("#2ea043"))
+        self._fmt_removed = QTextCharFormat()
+        self._fmt_removed.setForeground(QColor("#f85149"))
+        self._fmt_header = QTextCharFormat()
+        self._fmt_header.setForeground(QColor("#58a6ff"))
+        self._fmt_default = QTextCharFormat()
+
     # ── public ───────────────────────────────────────────────────────────────
 
     def load_commit(self, oid: str) -> None:
@@ -125,6 +135,7 @@ class DiffWidget(QWidget):
             header = QStandardItem(title)
             header.setEditable(False)
             header.setSelectable(False)
+            header.setData("header", Qt.UserRole + 1)
             for f in section_files:
                 item = QStandardItem(f.path)
                 item.setEditable(False)
@@ -156,6 +167,7 @@ class DiffWidget(QWidget):
             self._staged_diff_view,
             self._queries.get_staged_diff.execute(path),
         )
+        # get_file_diff(WORKING_TREE_OID, path) diffs the working tree against the index (unstaged changes)
         self._render_diff(
             self._unstaged_diff_view,
             self._queries.get_file_diff.execute(WORKING_TREE_OID, path),
@@ -164,24 +176,15 @@ class DiffWidget(QWidget):
     def _render_diff(self, editor: QPlainTextEdit, hunks) -> None:
         editor.clear()
         cursor = editor.textCursor()
-        added_fmt = QTextCharFormat()
-        added_fmt.setForeground(QColor("#2ea043"))
-        removed_fmt = QTextCharFormat()
-        removed_fmt.setForeground(QColor("#f85149"))
-        header_fmt = QTextCharFormat()
-        header_fmt.setForeground(QColor("#58a6ff"))
-        default_fmt = QTextCharFormat()
-
         for hunk in hunks:
-            cursor.setCharFormat(header_fmt)
+            cursor.setCharFormat(self._fmt_header)
             cursor.insertText(hunk.header + "\n")
             for origin, content in hunk.lines:
                 if origin == "+":
-                    cursor.setCharFormat(added_fmt)
+                    cursor.setCharFormat(self._fmt_added)
                 elif origin == "-":
-                    cursor.setCharFormat(removed_fmt)
+                    cursor.setCharFormat(self._fmt_removed)
                 else:
-                    cursor.setCharFormat(default_fmt)
+                    cursor.setCharFormat(self._fmt_default)
                 cursor.insertText(content if content.endswith("\n") else content + "\n")
-
         editor.setTextCursor(cursor)
