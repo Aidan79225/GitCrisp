@@ -1,7 +1,7 @@
 # git_gui/presentation/main_window.py
 from __future__ import annotations
-from PySide6.QtCore import Qt, QKeySequence
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QMainWindow, QSplitter, QToolBar
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.diff import DiffWidget
