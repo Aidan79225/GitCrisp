@@ -91,18 +91,27 @@ class HunkDiffWidget(QWidget):
         font.setFamily("Courier New")
         editor.setFont(font)
 
+        old_line, new_line = self._parse_hunk_header(hunk.header)
         cursor = editor.textCursor()
         for origin, content in hunk.lines:
             if origin == "+":
                 cursor.setBlockFormat(self._blk_added)
                 cursor.setCharFormat(self._fmt_added)
+                prefix = f"     {new_line:>4}  "
+                new_line += 1
             elif origin == "-":
                 cursor.setBlockFormat(self._blk_removed)
                 cursor.setCharFormat(self._fmt_removed)
+                prefix = f"{old_line:>4}       "
+                old_line += 1
             else:
                 cursor.setBlockFormat(self._blk_default)
                 cursor.setCharFormat(self._fmt_default)
-            cursor.insertText(content if content.endswith("\n") else content + "\n")
+                prefix = f"{old_line:>4} {new_line:>4}  "
+                old_line += 1
+                new_line += 1
+            line = content if content.endswith("\n") else content + "\n"
+            cursor.insertText(prefix + line)
         editor.setTextCursor(cursor)
 
         # Size to fit all lines — calculated from line count + font metrics
@@ -114,6 +123,14 @@ class HunkDiffWidget(QWidget):
 
         self._layout.addWidget(checkbox)
         self._layout.addWidget(editor)
+
+    @staticmethod
+    def _parse_hunk_header(header: str) -> tuple[int, int]:
+        import re
+        m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", header)
+        if m:
+            return int(m.group(1)), int(m.group(2))
+        return 1, 1
 
     def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool) -> None:
         if checked:

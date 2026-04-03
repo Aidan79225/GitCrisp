@@ -75,6 +75,15 @@ class DiffWidget(QWidget):
         hunks = self._queries.get_file_diff.execute(self._current_oid, file_status.path)
         self._render_diff(hunks)
 
+    @staticmethod
+    def _parse_hunk_header(header: str) -> tuple[int, int]:
+        """Parse '@@ -old_start,old_count +new_start,new_count @@' into (old_start, new_start)."""
+        import re
+        m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", header)
+        if m:
+            return int(m.group(1)), int(m.group(2))
+        return 1, 1
+
     def _render_diff(self, hunks) -> None:
         self._diff_view.clear()
         cursor = self._diff_view.textCursor()
@@ -82,15 +91,25 @@ class DiffWidget(QWidget):
             cursor.setBlockFormat(self._blk_default)
             cursor.setCharFormat(self._fmt_header)
             cursor.insertText(hunk.header + "\n")
+
+            old_line, new_line = self._parse_hunk_header(hunk.header)
             for origin, content in hunk.lines:
                 if origin == "+":
                     cursor.setBlockFormat(self._blk_added)
                     cursor.setCharFormat(self._fmt_added)
+                    prefix = f"     {new_line:>4}  "
+                    new_line += 1
                 elif origin == "-":
                     cursor.setBlockFormat(self._blk_removed)
                     cursor.setCharFormat(self._fmt_removed)
+                    prefix = f"{old_line:>4}       "
+                    old_line += 1
                 else:
                     cursor.setBlockFormat(self._blk_default)
                     cursor.setCharFormat(self._fmt_default)
-                cursor.insertText(content if content.endswith("\n") else content + "\n")
+                    prefix = f"{old_line:>4} {new_line:>4}  "
+                    old_line += 1
+                    new_line += 1
+                line = content if content.endswith("\n") else content + "\n"
+                cursor.insertText(prefix + line)
         self._diff_view.setTextCursor(cursor)
