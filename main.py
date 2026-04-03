@@ -9,7 +9,11 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("git gui")
 
-    repo_path = QFileDialog.getExistingDirectory(None, "Open Repository", "")
+    # Accept path as CLI argument, otherwise show dialog
+    if len(sys.argv) > 1:
+        repo_path = sys.argv[1]
+    else:
+        repo_path = QFileDialog.getExistingDirectory(None, "Open Repository", "")
     if not repo_path:
         sys.exit(0)
 
