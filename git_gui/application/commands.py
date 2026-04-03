@@ -91,6 +91,14 @@ class Fetch:
         self._writer.fetch(remote)
 
 
+class FetchAllPrune:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.fetch_all_prune()
+
+
 class Stash:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer

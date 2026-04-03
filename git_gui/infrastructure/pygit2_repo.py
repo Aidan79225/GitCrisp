@@ -301,6 +301,10 @@ class Pygit2Repository:
     def fetch(self, remote: str) -> None:
         self._repo.remotes[remote].fetch()
 
+    def fetch_all_prune(self) -> None:
+        for remote in self._repo.remotes:
+            remote.fetch(prune=pygit2.GIT_FETCH_PRUNE)
+
     def stash(self, message: str) -> None:
         sig = self._get_signature()
         self._repo.stash(sig, message=message, include_untracked=True)

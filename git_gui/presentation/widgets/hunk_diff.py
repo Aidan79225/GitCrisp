@@ -24,7 +24,7 @@ class HunkDiffWidget(QWidget):
 
         self._container = QWidget()
         self._layout = QVBoxLayout(self._container)
-        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setContentsMargins(4, 8, 4, 4)
         self._scroll.setWidget(self._container)
 
         outer = QVBoxLayout(self)

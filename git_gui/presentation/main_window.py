@@ -33,11 +33,26 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._right_stack)
         splitter.setSizes([220, 230, 950])
 
+        self._queries = queries
+
         self._toolbar = QToolBar("Main")
         self._reload_action = QAction("Reload", self)
         self._reload_action.setShortcut(QKeySequence(Qt.Key_F5))
         self._reload_action.triggered.connect(self._reload)
         self._toolbar.addAction(self._reload_action)
+
+        self._push_action = QAction("Push", self)
+        self._push_action.triggered.connect(self._on_push)
+        self._toolbar.addAction(self._push_action)
+
+        self._pull_action = QAction("Pull", self)
+        self._pull_action.triggered.connect(self._on_pull)
+        self._toolbar.addAction(self._pull_action)
+
+        self._fetch_all_action = QAction("Fetch All -p", self)
+        self._fetch_all_action.triggered.connect(self._on_fetch_all_prune)
+        self._toolbar.addAction(self._fetch_all_action)
+
         self.addToolBar(self._toolbar)
         self.setCentralWidget(splitter)
 
@@ -71,4 +86,27 @@ class MainWindow(QMainWindow):
         self._graph.reload()
 
     def _on_branch_changed(self, branch: str) -> None:
+        self._reload()
+
+    def _get_current_branch(self) -> str | None:
+        branches = self._queries.get_branches.execute()
+        for b in branches:
+            if b.is_head and not b.is_remote:
+                return b.name
+        return None
+
+    def _on_push(self) -> None:
+        branch = self._get_current_branch()
+        if branch:
+            self._commands.push.execute("origin", branch)
+            self._reload()
+
+    def _on_pull(self) -> None:
+        branch = self._get_current_branch()
+        if branch:
+            self._commands.pull.execute("origin", branch)
+            self._reload()
+
+    def _on_fetch_all_prune(self) -> None:
+        self._commands.fetch_all_prune.execute()
         self._reload()
