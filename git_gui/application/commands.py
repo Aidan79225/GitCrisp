@@ -105,3 +105,19 @@ class PopStash:
 
     def execute(self, index: int) -> None:
         self._writer.pop_stash(index)
+
+
+class StageHunk:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, hunk_header: str) -> None:
+        self._writer.stage_hunk(path, hunk_header)
+
+
+class UnstageHunk:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, hunk_header: str) -> None:
+        self._writer.unstage_hunk(path, hunk_header)

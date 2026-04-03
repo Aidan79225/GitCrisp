@@ -10,7 +10,7 @@ from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
     Checkout, CreateBranch, DeleteBranch,
     Merge, Rebase, Push, Pull, Fetch,
-    Stash, PopStash,
+    Stash, PopStash, StageHunk, UnstageHunk,
 )
 
 
@@ -52,6 +52,8 @@ class CommandBus:
     fetch: Fetch
     stash: Stash
     pop_stash: PopStash
+    stage_hunk: StageHunk
+    unstage_hunk: UnstageHunk
 
     @classmethod
     def from_writer(cls, writer: IRepositoryWriter) -> "CommandBus":
@@ -69,4 +71,6 @@ class CommandBus:
             fetch=Fetch(writer),
             stash=Stash(writer),
             pop_stash=PopStash(writer),
+            stage_hunk=StageHunk(writer),
+            unstage_hunk=UnstageHunk(writer),
         )
