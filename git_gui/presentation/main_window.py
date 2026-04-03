@@ -1,6 +1,6 @@
 # git_gui/presentation/main_window.py
 from __future__ import annotations
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QMainWindow, QSplitter, QStackedWidget, QToolBar, QVBoxLayout, QWidget,
@@ -12,6 +12,23 @@ from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
 from git_gui.presentation.widgets.sidebar import SidebarWidget
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
+
+
+class _RemoteWorker(QObject):
+    finished = Signal(str)       # emits operation name on success
+    failed = Signal(str, str)    # emits (operation name, error message)
+
+    def __init__(self, name: str, fn) -> None:
+        super().__init__()
+        self._name = name
+        self._fn = fn
+
+    def run(self) -> None:
+        try:
+            self._fn()
+            self.finished.emit(self._name)
+        except Exception as e:
+            self.failed.emit(self._name, str(e))
 
 
 class MainWindow(QMainWindow):
@@ -27,6 +44,7 @@ class MainWindow(QMainWindow):
         self._diff = DiffWidget(queries, commands)
         self._working_tree = WorkingTreeWidget(queries, commands)
         self._log_panel = LogPanel()
+        self._remote_thread: QThread | None = None
 
         self._right_stack = QStackedWidget()
         self._right_stack.addWidget(self._diff)           # index 0: commit mode
@@ -73,6 +91,9 @@ class MainWindow(QMainWindow):
         self._working_tree.commit_completed.connect(
             lambda msg: self._log_panel.log(f'Commit: "{msg}"')
         )
+        self._working_tree.commit_failed.connect(
+            lambda reason: (self._log_panel.expand(), self._log_panel.log_error(reason))
+        )
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
         self._sidebar.branch_merge_requested.connect(
             lambda b: (commands.merge.execute(b), self._reload()))
@@ -109,15 +130,52 @@ class MainWindow(QMainWindow):
                 return b.name
         return None
 
+    def _set_remote_buttons_enabled(self, enabled: bool) -> None:
+        self._push_action.setEnabled(enabled)
+        self._pull_action.setEnabled(enabled)
+        self._fetch_all_action.setEnabled(enabled)
+
     def _run_remote_op(self, name: str, fn) -> None:
+        if self._remote_thread is not None:
+            return  # already running a remote op
+
         self._log_panel.expand()
         self._log_panel.log(f"{name} — started...")
-        try:
-            fn()
-            self._log_panel.log(f"{name} — done")
-        except Exception as e:
-            self._log_panel.log_error(f"{name} — ERROR: {e}")
+        self._set_remote_buttons_enabled(False)
+
+        thread = QThread()
+        worker = _RemoteWorker(name, fn)
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(lambda n: self._on_remote_done(n))
+        worker.failed.connect(lambda n, e: self._on_remote_error(n, e))
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(self._on_thread_finished)
+
+        self._remote_thread = thread
+        self._remote_worker = worker  # prevent GC
+        thread.start()
+
+    def _on_remote_done(self, name: str) -> None:
+        self._log_panel.log(f"{name} — done")
+        self._set_remote_buttons_enabled(True)
         self._reload()
+
+    def _on_remote_error(self, name: str, error: str) -> None:
+        self._log_panel.log_error(f"{name} — ERROR: {error}")
+        self._set_remote_buttons_enabled(True)
+        self._reload()
+
+    def _on_thread_finished(self) -> None:
+        # Clean up after thread has fully stopped
+        if self._remote_thread is not None:
+            self._remote_thread.deleteLater()
+            self._remote_thread = None
+        if self._remote_worker is not None:
+            self._remote_worker.deleteLater()
+            self._remote_worker = None
 
     def _on_push(self) -> None:
         branch = self._get_current_branch()
