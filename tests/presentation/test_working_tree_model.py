@@ -29,13 +29,13 @@ def test_display_role(qtbot):
 def test_check_state_staged(qtbot):
     model = WorkingTreeModel(MagicMock())
     model.reload(_make_files())
-    assert model.data(model.index(0), Qt.CheckStateRole) == Qt.Checked
+    assert model.data(model.index(0), Qt.CheckStateRole) == Qt.CheckState.Checked
 
 
 def test_check_state_unstaged(qtbot):
     model = WorkingTreeModel(MagicMock())
     model.reload(_make_files())
-    assert model.data(model.index(1), Qt.CheckStateRole) == Qt.Unchecked
+    assert model.data(model.index(1), Qt.CheckStateRole) == Qt.CheckState.Unchecked
 
 
 def test_user_role_returns_file_status(qtbot):
@@ -50,7 +50,7 @@ def test_toggle_checkbox_calls_stage(qtbot):
     commands = MagicMock()
     model = WorkingTreeModel(commands)
     model.reload(_make_files())
-    model.setData(model.index(1), Qt.Checked, Qt.CheckStateRole)
+    model.setData(model.index(1), Qt.CheckState.Checked, Qt.CheckStateRole)
     commands.stage_files.execute.assert_called_once_with(["src/bar.py"])
 
 
@@ -58,7 +58,7 @@ def test_toggle_checkbox_calls_unstage(qtbot):
     commands = MagicMock()
     model = WorkingTreeModel(commands)
     model.reload(_make_files())
-    model.setData(model.index(0), Qt.Unchecked, Qt.CheckStateRole)
+    model.setData(model.index(0), Qt.CheckState.Unchecked, Qt.CheckStateRole)
     commands.unstage_files.execute.assert_called_once_with(["src/foo.py"])
 
 

@@ -1,6 +1,6 @@
 # git_gui/presentation/widgets/hunk_diff.py
 from __future__ import annotations
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat
 from PySide6.QtWidgets import (
     QCheckBox, QPlainTextEdit, QScrollArea, QVBoxLayout, QWidget,
@@ -11,6 +11,8 @@ from git_gui.domain.entities import WORKING_TREE_OID
 
 
 class HunkDiffWidget(QWidget):
+    hunk_toggled = Signal()
+
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
         self._queries = queries
@@ -111,6 +113,7 @@ class HunkDiffWidget(QWidget):
         else:
             self._commands.unstage_hunk.execute(path, hunk_header)
         self._render()
+        self.hunk_toggled.emit()
 
     def _clear_layout(self) -> None:
         while self._layout.count():
