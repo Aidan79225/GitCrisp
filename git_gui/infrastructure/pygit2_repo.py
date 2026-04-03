@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
+import subprocess
 
 import pygit2
 
@@ -186,6 +187,54 @@ class Pygit2Repository:
                 else:
                     self._repo.index.remove(path)
             self._repo.index.write()
+
+    def stage_hunk(self, path: str, hunk_header: str) -> None:
+        patch = self._build_hunk_patch(path, hunk_header, staged=False)
+        if patch:
+            subprocess.run(
+                ["git", "apply", "--cached"],
+                input=patch.encode("utf-8"), cwd=self._repo.workdir,
+                check=True, capture_output=True,
+            )
+            self._repo.index.read()
+
+    def unstage_hunk(self, path: str, hunk_header: str) -> None:
+        patch = self._build_hunk_patch(path, hunk_header, staged=True)
+        if patch:
+            subprocess.run(
+                ["git", "apply", "--cached", "--reverse"],
+                input=patch.encode("utf-8"), cwd=self._repo.workdir,
+                check=True, capture_output=True,
+            )
+            self._repo.index.read()
+
+    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> str | None:
+        if staged:
+            if self._repo.head_is_unborn:
+                empty_tree_oid = self._repo.TreeBuilder().write()
+                empty_tree = self._repo.get(empty_tree_oid)
+                diff = self._repo.index.diff_to_tree(empty_tree)
+            else:
+                head_commit = self._repo.head.peel(pygit2.Commit)
+                diff = self._repo.index.diff_to_tree(head_commit.tree)
+        else:
+            diff = self._repo.diff()
+
+        for patch in diff:
+            if patch.delta.new_file.path != path and patch.delta.old_file.path != path:
+                continue
+            for hunk in patch.hunks:
+                if hunk.header == hunk_header:
+                    # Build minimal patch: diff header + single hunk
+                    lines = [f"--- a/{path}\n", f"+++ b/{path}\n"]
+                    lines.append(hunk.header)
+                    for line in hunk.lines:
+                        lines.append(f"{line.origin}{line.content}")
+                    # Ensure last line ends with newline
+                    if lines and not lines[-1].endswith("\n"):
+                        lines[-1] += "\n"
+                    return "".join(lines)
+        return None
 
     def commit(self, message: str) -> "Commit":
         self._repo.index.write()
