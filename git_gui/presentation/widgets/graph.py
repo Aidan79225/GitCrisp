@@ -2,10 +2,12 @@
 from __future__ import annotations
 from datetime import datetime
 from PySide6.QtCore import QModelIndex, Qt, Signal
-from PySide6.QtWidgets import QTableView, QVBoxLayout, QWidget, QHeaderView
+from PySide6.QtWidgets import QHeaderView, QTableView, QVBoxLayout, QWidget
 from git_gui.domain.entities import Commit, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import GraphModel
+from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate
+from git_gui.presentation.widgets.ref_badge_delegate import RefBadgeDelegate
 
 
 class GraphWidget(QWidget):
@@ -20,8 +22,20 @@ class GraphWidget(QWidget):
         self._view.setSelectionMode(QTableView.SingleSelection)
         self._view.setShowGrid(False)
         self._view.verticalHeader().setVisible(False)
-        self._view.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self._view.setEditTriggers(QTableView.NoEditTriggers)
+
+        # Column widths — column 2 (message) stretches; all others are fixed
+        header = self._view.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        self._view.setColumnWidth(0, 120)   # graph lanes
+        self._view.setColumnWidth(1, 80)    # short hash
+        self._view.setColumnWidth(3, 140)   # author
+        self._view.setColumnWidth(4, 130)   # date
+
+        # Delegates
+        self._view.setItemDelegateForColumn(0, GraphLaneDelegate(self._view))
+        self._view.setItemDelegateForColumn(2, RefBadgeDelegate(self._view))
 
         self._model = GraphModel([], {})
         self._view.setModel(self._model)
