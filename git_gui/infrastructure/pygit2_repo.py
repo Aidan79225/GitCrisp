@@ -56,13 +56,19 @@ class Pygit2Repository:
 
     # ------------------------------------------------------------------ reads
 
-    def get_commits(self, limit: int) -> list[Commit]:
+    def get_commits(self, limit: int, skip: int = 0) -> list[Commit]:
         if self._repo.head_is_unborn:
             return []
         walker = self._repo.walk(
             self._repo.head.target,
             pygit2.GIT_SORT_TOPOLOGICAL | pygit2.GIT_SORT_TIME,
         )
+        # Skip first N commits
+        for _ in range(skip):
+            try:
+                next(walker)
+            except StopIteration:
+                return []
         return [_commit_to_entity(c) for c, _ in zip(walker, range(limit))]
 
     def get_commit(self, oid: str) -> Commit:

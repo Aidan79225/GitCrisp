@@ -7,8 +7,8 @@ class GetCommitGraph:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
 
-    def execute(self, limit: int = 1000) -> list[Commit]:
-        return self._reader.get_commits(limit)
+    def execute(self, limit: int = 200, skip: int = 0) -> list[Commit]:
+        return self._reader.get_commits(limit, skip)
 
 
 class GetBranches:

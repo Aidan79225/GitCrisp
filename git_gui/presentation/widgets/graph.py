@@ -12,12 +12,17 @@ from git_gui.presentation.widgets.commit_info_delegate import (
 )
 
 
+PAGE_SIZE = 200
+
+
 class GraphWidget(QWidget):
     commit_selected = Signal(str)  # emits oid (or WORKING_TREE_OID)
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
         self._queries = queries
+        self._loaded_count = 0  # how many commits loaded (excluding synthetic)
+        self._has_more = True
 
         self._view = QTableView()
         self._view.setSelectionBehavior(QTableView.SelectRows)
@@ -47,14 +52,19 @@ class GraphWidget(QWidget):
         self._view.setColumnWidth(0, LANE_W)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
 
+        self._view.verticalScrollBar().valueChanged.connect(self._on_scroll)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._view)
 
     def reload(self) -> None:
-        commits = self._queries.get_commit_graph.execute()
+        commits = self._queries.get_commit_graph.execute(limit=PAGE_SIZE)
         branches = self._queries.get_branches.execute()
         working_tree = self._queries.get_working_tree.execute()
+
+        self._loaded_count = len(commits)
+        self._has_more = len(commits) == PAGE_SIZE
 
         refs: dict[str, list[str]] = {}
         for b in branches:
@@ -104,6 +114,27 @@ class GraphWidget(QWidget):
         min_info_w += gap
         graph_w = max_lanes * LANE_W + LANE_W
         self._view.setMinimumWidth(graph_w + min_info_w)
+
+    def _on_scroll(self, value: int) -> None:
+        scrollbar = self._view.verticalScrollBar()
+        if self._has_more and value >= scrollbar.maximum() - 1:
+            self._load_more()
+
+    def _load_more(self) -> None:
+        more = self._queries.get_commit_graph.execute(limit=PAGE_SIZE, skip=self._loaded_count)
+        if not more:
+            self._has_more = False
+            return
+
+        self._has_more = len(more) == PAGE_SIZE
+        self._loaded_count += len(more)
+
+        branches = self._queries.get_branches.execute()
+        refs: dict[str, list[str]] = {}
+        for b in branches:
+            refs.setdefault(b.target_oid, []).append(b.name)
+
+        self._model.append(more, refs)
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)

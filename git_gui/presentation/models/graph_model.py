@@ -176,3 +176,13 @@ class GraphModel(QAbstractTableModel):
         self._refs = refs
         self._lane_data = _compute_lanes(commits)
         self.endResetModel()
+
+    def append(self, commits: list[Commit], refs: dict[str, list[str]]) -> None:
+        if not commits:
+            return
+        start = len(self._commits)
+        self.beginInsertRows(QModelIndex(), start, start + len(commits) - 1)
+        self._commits.extend(commits)
+        self._refs.update(refs)
+        self._lane_data = _compute_lanes(self._commits)
+        self.endInsertRows()

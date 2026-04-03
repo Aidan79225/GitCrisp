@@ -5,6 +5,17 @@ from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
 
 
+def _pick_repo() -> str:
+    dialog = QFileDialog()
+    dialog.setWindowTitle("Open Repository")
+    dialog.setFileMode(QFileDialog.Directory)
+    dialog.setOption(QFileDialog.ShowDirsOnly, True)
+    if dialog.exec() == QFileDialog.Accepted:
+        dirs = dialog.selectedFiles()
+        return dirs[0] if dirs else ""
+    return ""
+
+
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("git gui")
@@ -13,7 +24,7 @@ def main() -> None:
     if len(sys.argv) > 1:
         repo_path = sys.argv[1]
     else:
-        repo_path = QFileDialog.getExistingDirectory(None, "Open Repository", "")
+        repo_path = _pick_repo()
     if not repo_path:
         sys.exit(0)
 
