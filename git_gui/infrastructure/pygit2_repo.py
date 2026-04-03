@@ -290,20 +290,28 @@ class Pygit2Repository:
         rebase.finish(self._get_signature())
 
     def push(self, remote: str, branch: str) -> None:
-        self._repo.remotes[remote].push(
-            [f"refs/heads/{branch}:refs/heads/{branch}"]
+        subprocess.run(
+            ["git", "push", remote, branch],
+            cwd=self._repo.workdir, check=True, capture_output=True,
         )
 
     def pull(self, remote: str, branch: str) -> None:
-        self.fetch(remote)
-        self.merge(f"{remote}/{branch}")
+        subprocess.run(
+            ["git", "pull", remote, branch],
+            cwd=self._repo.workdir, check=True, capture_output=True,
+        )
 
     def fetch(self, remote: str) -> None:
-        self._repo.remotes[remote].fetch()
+        subprocess.run(
+            ["git", "fetch", remote],
+            cwd=self._repo.workdir, check=True, capture_output=True,
+        )
 
     def fetch_all_prune(self) -> None:
-        for remote in self._repo.remotes:
-            remote.fetch(prune=pygit2.GIT_FETCH_PRUNE)
+        subprocess.run(
+            ["git", "fetch", "--all", "--prune"],
+            cwd=self._repo.workdir, check=True, capture_output=True,
+        )
 
     def stash(self, message: str) -> None:
         sig = self._get_signature()
