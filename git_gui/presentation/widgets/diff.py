@@ -1,12 +1,65 @@
 # git_gui/presentation/widgets/diff.py
 from __future__ import annotations
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat
+from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QTextBlockFormat, QTextCharFormat
 from PySide6.QtWidgets import (
-    QListView, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget,
+    QListView, QPlainTextEdit, QSplitter, QStyledItemDelegate,
+    QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.diff_model import DiffModel
+
+_DELTA_BADGE = {
+    "modified": ("M", "#1f6feb"),   # blue
+    "added":    ("A", "#238636"),   # green
+    "deleted":  ("D", "#da3633"),   # red
+    "renamed":  ("R", "#f0883e"),   # orange
+    "unknown":  ("?", "#8b949e"),   # gray
+}
+
+BADGE_SIZE = 20
+BADGE_GAP = 6
+
+
+class _FileDeltaDelegate(QStyledItemDelegate):
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = option.rect
+
+        # Selection highlight
+        from PySide6.QtWidgets import QStyle
+        if option.state & QStyle.State_Selected:
+            painter.fillRect(rect, QColor("#264f78"))
+
+        # Get delta type from FileStatus
+        fs = index.data(Qt.UserRole)
+        delta = fs.delta if fs else "unknown"
+        label, color = _DELTA_BADGE.get(delta, ("?", "#8b949e"))
+
+        # Draw badge
+        badge_x = rect.left() + 4
+        badge_y = rect.top() + (rect.height() - BADGE_SIZE) // 2
+        badge_rect = QRect(badge_x, badge_y, BADGE_SIZE, BADGE_SIZE)
+        painter.setBrush(QBrush(QColor(color)))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(badge_rect, 3, 3)
+
+        # Badge text
+        painter.setPen(QColor("white"))
+        painter.drawText(badge_rect, Qt.AlignCenter, label)
+
+        # File path
+        text_x = badge_x + BADGE_SIZE + BADGE_GAP
+        text_rect = QRect(text_x, rect.top(), rect.right() - text_x, rect.height())
+        painter.setPen(option.palette.text().color())
+        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, index.data(Qt.DisplayRole) or "")
+
+        painter.restore()
+
+    def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
+        return QSize(option.rect.width(), max(BADGE_SIZE + 8, option.fontMetrics.height() + 8))
 
 
 class DiffWidget(QWidget):
@@ -17,6 +70,7 @@ class DiffWidget(QWidget):
 
         self._file_view = QListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
+        self._file_view.setItemDelegate(_FileDeltaDelegate(self._file_view))
         self._diff_view = self._make_diff_editor()
         self._diff_model = DiffModel([])
         self._file_view.setModel(self._diff_model)

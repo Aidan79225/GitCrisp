@@ -1,14 +1,65 @@
 # git_gui/presentation/widgets/working_tree.py
 from __future__ import annotations
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRect, QSize, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout, QListView, QPlainTextEdit, QPushButton,
-    QSplitter, QVBoxLayout, QWidget,
+    QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
+    QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import FileStatus, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
+
+_DELTA_BADGE = {
+    "modified": ("M", "#1f6feb"),
+    "added":    ("A", "#238636"),
+    "deleted":  ("D", "#da3633"),
+    "renamed":  ("R", "#f0883e"),
+    "unknown":  ("?", "#8b949e"),
+}
+_BADGE_SIZE = 20
+_BADGE_GAP = 6
+
+
+class _FileDelegate(QStyledItemDelegate):
+    """Adds a delta badge between the native checkbox and filename."""
+
+    def initStyleOption(self, option: QStyleOptionViewItem, index) -> None:
+        super().initStyleOption(option, index)
+        # Prefix badge letter to display text so Qt reserves space;
+        # we'll paint the badge over this prefix area
+        fs = index.data(Qt.UserRole)
+        delta = fs.delta if fs else "unknown"
+        label, _ = _DELTA_BADGE.get(delta, ("?", "#8b949e"))
+        # Add padding spaces to make room for the badge we'll paint
+        option.text = "        " + (option.text or "")
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        # Let Qt draw checkbox + text normally
+        super().paint(painter, option, index)
+
+        # Now paint the delta badge in the gap we reserved
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = option.rect
+        fs = index.data(Qt.UserRole)
+        delta = fs.delta if fs else "unknown"
+        label, color = _DELTA_BADGE.get(delta, ("?", "#8b949e"))
+
+        # Position badge after the checkbox area (~30px from left)
+        badge_x = rect.left() + 30
+        badge_y = rect.top() + (rect.height() - _BADGE_SIZE) // 2
+        badge_rect = QRect(badge_x, badge_y, _BADGE_SIZE, _BADGE_SIZE)
+        painter.setBrush(QBrush(QColor(color)))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(badge_rect, 3, 3)
+        painter.setPen(QColor("white"))
+        painter.drawText(badge_rect, Qt.AlignCenter, label)
+
+        painter.restore()
 
 
 class WorkingTreeWidget(QWidget):
@@ -45,6 +96,7 @@ class WorkingTreeWidget(QWidget):
         # ── Row 2: file list ─────────────────────────────────────────────────
         self._file_view = QListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
+        self._file_view.setItemDelegate(_FileDelegate(self._file_view))
 
         self._file_model = WorkingTreeModel(commands, self)
         self._file_view.setModel(self._file_model)

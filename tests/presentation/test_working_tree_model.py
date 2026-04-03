@@ -22,8 +22,7 @@ def test_display_role(qtbot):
     model = WorkingTreeModel(MagicMock())
     model.reload(_make_files())
     text = model.data(model.index(0), Qt.DisplayRole)
-    assert "src/foo.py" in text
-    assert "modified" in text
+    assert text == "src/foo.py"
 
 
 def test_check_state_staged(qtbot):

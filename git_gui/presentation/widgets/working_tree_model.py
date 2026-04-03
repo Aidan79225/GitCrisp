@@ -27,7 +27,7 @@ class WorkingTreeModel(QAbstractListModel):
             return None
         fs = self._files[index.row()]
         if role == Qt.DisplayRole:
-            return f"{fs.path}  ({fs.delta})"
+            return fs.path
         if role == Qt.CheckStateRole:
             if fs.path in self._partial:
                 return Qt.CheckState.PartiallyChecked
