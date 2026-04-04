@@ -203,44 +203,39 @@ class GraphWidget(QWidget):
             all_commits.insert(0, synthetic)
 
         self._model.reload(all_commits, refs, head_branch)
-
-        # Auto-fit graph column width to the max lane count
-        max_lanes = max(
-            (self._model.data(self._model.index(r, 0), Qt.UserRole + 1).n_lanes
-             for r in range(self._model.rowCount())),
-            default=1,
-        )
-        self._view.setColumnWidth(0, max_lanes * LANE_W + LANE_W)
-
-        # Auto-fit info column minimum width to content
-        fm = self._view.fontMetrics()
-        gap = CELL_PAD * 2
-        spacing = fm.horizontalAdvance("  ")  # space between left/right items
-        min_info_w = 0
-        for r in range(self._model.rowCount()):
-            info = self._model.data(self._model.index(r, 1), Qt.UserRole + 1)
-            if info is None:
-                continue
-            author = info.author.split("<")[0].strip() if "<" in info.author else info.author
-            # Row 1: author + timestamp
-            w1 = fm.horizontalAdvance(author) + fm.horizontalAdvance(info.timestamp) + spacing
-            # Row 2: badges + hash
-            badges_w = sum(
-                fm.horizontalAdvance(n) + BADGE_H_PAD * 2 + BADGE_GAP
-                for n in info.branch_names
-            )
-            w2 = badges_w + fm.horizontalAdvance(info.short_oid) + spacing
-            min_info_w = max(min_info_w, w1, w2)
-
-        min_info_w += gap
-        graph_w = max_lanes * LANE_W + LANE_W
-        self._view.setMinimumWidth(graph_w + min_info_w)
+        self._update_column_widths()
 
         if self._pending_scroll_oid:
             self.scroll_to_oid(self._pending_scroll_oid)
             self._pending_scroll_oid = None
 
+    def _get_visible_rows(self) -> tuple[int, int]:
+        """Return (first_visible_row, last_visible_row) indices."""
+        vp = self._view.viewport()
+        first = self._view.rowAt(0)
+        last = self._view.rowAt(vp.height())
+        if first < 0:
+            first = 0
+        if last < 0:
+            last = self._model.rowCount() - 1
+        return first, last
+
+    def _update_column_widths(self) -> None:
+        if self._model.rowCount() == 0:
+            return
+        first, last = self._get_visible_rows()
+
+        max_lanes = max(
+            (self._model.data(self._model.index(r, 0), Qt.UserRole + 1).n_lanes
+             for r in range(first, last + 1)
+             if self._model.data(self._model.index(r, 0), Qt.UserRole + 1) is not None),
+            default=1,
+        )
+        graph_w = max_lanes * LANE_W + LANE_W
+        self._view.setColumnWidth(0, graph_w)
+
     def _on_scroll(self, value: int) -> None:
+        self._update_column_widths()
         scrollbar = self._view.verticalScrollBar()
         if self._has_more and not self._loading and value >= scrollbar.maximum() - 1:
             self._load_more()
