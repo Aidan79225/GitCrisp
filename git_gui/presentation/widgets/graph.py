@@ -101,9 +101,8 @@ class GraphWidget(QWidget):
         # Hide column header — "Graph" / "Info" labels add no value
         self._view.horizontalHeader().setVisible(False)
 
-        # Row height: 2 header rows + up to 3 message lines + padding
-        fm = self._view.fontMetrics()
-        self._view.verticalHeader().setDefaultSectionSize(fm.height() * 5 + 24)
+        # Let delegates control row height via sizeHint
+        self._view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
 
         # Delegates
         self._view.setItemDelegateForColumn(0, GraphLaneDelegate(self._view))
