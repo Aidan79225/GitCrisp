@@ -228,6 +228,11 @@ class WorkingTreeWidget(QWidget):
             return
         self._file_model.reload(files, partial)
 
+        if not files:
+            self._hunk_diff.clear()
+            self.working_tree_empty.emit()
+            return
+
         # Restore selection by path and refresh hunk diff
         if selected_path:
             for row in range(self._file_model.rowCount()):
