@@ -5,7 +5,7 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QMenu, QPushButton,
-    QStyledItemDelegate, QStyleOptionViewItem, QTreeView,
+    QStyle, QStyleOptionViewItem, QTreeView,
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.ports import IRepoStore
@@ -15,16 +15,21 @@ _IS_ACTIVE_ROLE = Qt.UserRole + 2
 _ROW_HEIGHT = 28
 
 
-class _RepoItemDelegate(QStyledItemDelegate):
-    """Paints full-row blue background for the active repo."""
+class _RepoTree(QTreeView):
+    """QTreeView that paints full-row hover and active repo highlight."""
 
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+    def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         if index.data(_IS_ACTIVE_ROLE):
             painter.save()
-            bg_rect = option.rect.adjusted(-option.rect.x(), 0, 0, 0)
-            painter.fillRect(bg_rect, _ACTIVE_BG)
+            painter.fillRect(option.rect, _ACTIVE_BG)
             painter.restore()
-        super().paint(painter, option, index)
+        elif option.state & QStyle.State_MouseOver:
+            painter.save()
+            hover_color = option.palette.highlight().color()
+            hover_color.setAlpha(30)
+            painter.fillRect(option.rect, hover_color)
+            painter.restore()
+        super().drawRow(painter, option, index)
 
 
 class RepoListWidget(QWidget):
@@ -62,16 +67,16 @@ class RepoListWidget(QWidget):
         header_layout.addWidget(self._btn_clone)
 
         # Tree view
-        self._tree = QTreeView()
+        self._tree = _RepoTree()
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(False)
+        self._tree.setMouseTracking(True)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.clicked.connect(self._on_item_clicked)
 
         self._model = QStandardItemModel()
         self._tree.setModel(self._model)
-        self._tree.setItemDelegate(_RepoItemDelegate(self._tree))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
