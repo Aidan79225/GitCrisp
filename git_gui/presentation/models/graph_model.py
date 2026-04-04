@@ -25,6 +25,8 @@ class LaneData:
     n_lanes: int                                 # total lane count (used to size column)
     lines: list[tuple[int, int, int]] = field(default_factory=list)
     # (top_lane, bot_lane, color_idx) — pass-through lines spanning full row height
+    edges_in: list[tuple[int, int, int]] = field(default_factory=list)
+    # (from_lane, to_lane, color_idx) — lines from top of row to commit node center
     edges_out: list[tuple[int, int, int]] = field(default_factory=list)
     # (from_lane, to_lane, color_idx) — lines from commit node center to bottom of row
     has_incoming: bool = False
@@ -53,14 +55,16 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
         parents = commit.parents
 
         # ── 1. Find or open this commit's lane ──────────────────────────────
+        edges_in: list[tuple[int, int, int]] = []
         if oid in active:
             my_lane = active.index(oid)
             has_incoming = True
             # Merge duplicate lanes: other lanes targeting the same oid
-            # must converge here (e.g. after a merge's two parents reach
-            # a common ancestor).
+            # must converge here. Draw incoming edges from duplicate lanes
+            # to the commit node so the lines visually connect.
             for i in range(len(active)):
                 if i != my_lane and active[i] == oid:
+                    edges_in.append((i, my_lane, colors[i]))
                     active[i] = None
         elif None in active:
             my_lane = active.index(None)
@@ -133,6 +137,7 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
             color_idx=color_idx,
             n_lanes=n_lanes,
             lines=lines,
+            edges_in=edges_in,
             edges_out=edges_out,
             has_incoming=has_incoming,
         ))
