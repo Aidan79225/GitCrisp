@@ -4,25 +4,30 @@ import threading
 from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QMenu, QStyledItemDelegate, QStyleOptionViewItem, QTreeView,
+    QMenu, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTreeView,
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Branch, Stash
 from git_gui.presentation.bus import CommandBus, QueryBus
 
 _HEAD_BG = QColor("#264f78")
+_HOVER_BG = QColor("#2a2d2e")
 _ROW_HEIGHT = 28
 _IS_HEAD_ROLE = Qt.UserRole + 2
 
 
 class _BranchDelegate(QStyledItemDelegate):
-    """Paints full-row blue background for HEAD branch."""
+    """Paints full-row backgrounds for HEAD branch and hover state."""
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        full_rect = option.rect.adjusted(-option.rect.x(), 0, 0, 0)
         if index.data(_IS_HEAD_ROLE):
             painter.save()
-            bg_rect = option.rect.adjusted(-option.rect.x(), 0, 0, 0)
-            painter.fillRect(bg_rect, _HEAD_BG)
+            painter.fillRect(full_rect, _HEAD_BG)
+            painter.restore()
+        elif option.state & QStyle.State_MouseOver:
+            painter.save()
+            painter.fillRect(full_rect, _HOVER_BG)
             painter.restore()
         super().paint(painter, option, index)
 
@@ -49,6 +54,7 @@ class SidebarWidget(QWidget):
 
         self._tree = QTreeView()
         self._tree.setHeaderHidden(True)
+        self._tree.setMouseTracking(True)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.doubleClicked.connect(self._on_double_click)
