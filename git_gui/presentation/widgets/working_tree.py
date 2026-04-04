@@ -149,8 +149,8 @@ class WorkingTreeWidget(QWidget):
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            files = queries.get_working_tree.execute()
-            partial = _detect_partial(files)
+            raw_files = queries.get_working_tree.execute()
+            files, partial = _deduplicate(raw_files)
             signals.done.emit(files, partial)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -172,16 +172,16 @@ class WorkingTreeWidget(QWidget):
         self._hunk_diff.load_file(fs.path)
 
     def _on_stage_all(self) -> None:
-        files = self._queries.get_working_tree.execute()
-        partial = _detect_partial(files)
+        raw_files = self._queries.get_working_tree.execute()
+        files, partial = _deduplicate(raw_files)
         paths = list({f.path for f in files if f.status != "staged"} | partial)
         if paths:
             self._commands.stage_files.execute(paths)
             self._on_files_changed()
 
     def _on_unstage_all(self) -> None:
-        files = self._queries.get_working_tree.execute()
-        partial = _detect_partial(files)
+        raw_files = self._queries.get_working_tree.execute()
+        files, partial = _deduplicate(raw_files)
         paths = list({f.path for f in files if f.status == "staged"} | partial)
         if paths:
             self._commands.unstage_files.execute(paths)
@@ -216,8 +216,8 @@ class WorkingTreeWidget(QWidget):
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            files = queries.get_working_tree.execute()
-            partial = _detect_partial(files)
+            raw_files = queries.get_working_tree.execute()
+            files, partial = _deduplicate(raw_files)
             signals.done.emit(files, partial)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -244,12 +244,28 @@ class WorkingTreeWidget(QWidget):
         self._hunk_diff.clear()
 
 
-def _detect_partial(files: list[FileStatus]) -> set[str]:
-    """Detect files with partial staging (same path in both staged and unstaged)."""
+def _deduplicate(files: list[FileStatus]) -> tuple[list[FileStatus], set[str]]:
+    """Deduplicate files and detect partial staging.
+
+    Returns (deduped_files, partial_paths). For partial staged files,
+    keeps the staged entry so the checkbox starts as checked / "-".
+    """
     partial: set[str] = set()
     seen: set[str] = set()
     for f in files:
         if f.path in seen:
             partial.add(f.path)
         seen.add(f.path)
-    return partial
+
+    deduped: list[FileStatus] = []
+    added: set[str] = set()
+    # First pass: add staged entries (preferred for partial files)
+    for f in files:
+        if f.path in partial:
+            if f.status == "staged" and f.path not in added:
+                deduped.append(f)
+                added.add(f.path)
+        elif f.path not in added:
+            deduped.append(f)
+            added.add(f.path)
+    return deduped, partial
