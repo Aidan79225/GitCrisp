@@ -21,10 +21,8 @@ class _BranchDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         if index.data(_IS_HEAD_ROLE):
             painter.save()
-            # Fill from the tree view's left edge to the full width
-            full_rect = option.rect
-            full_rect.setX(0)
-            painter.fillRect(full_rect, _HEAD_BG)
+            bg_rect = option.rect.adjusted(-option.rect.x(), 0, 0, 0)
+            painter.fillRect(bg_rect, _HEAD_BG)
             painter.restore()
         super().paint(painter, option, index)
 
