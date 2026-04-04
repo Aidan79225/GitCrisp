@@ -59,10 +59,20 @@ class Pygit2Repository:
     def get_commits(self, limit: int, skip: int = 0) -> list[Commit]:
         if self._repo.head_is_unborn:
             return []
+
         walker = self._repo.walk(
             self._repo.head.target,
             pygit2.GIT_SORT_TOPOLOGICAL | pygit2.GIT_SORT_TIME,
         )
+
+        # Also push all branch tips so remote-only commits are included
+        for name in self._repo.branches.local:
+            ref = self._repo.branches.local[name]
+            walker.push(ref.target)
+        for name in self._repo.branches.remote:
+            ref = self._repo.branches.remote[name]
+            walker.push(ref.target)
+
         # Skip first N commits
         for _ in range(skip):
             try:
