@@ -4,7 +4,7 @@ A desktop Git GUI client built with Python and PySide6 (Qt), designed for everyd
 
 ## Screenshot
 
-*(coming soon)*
+![GitStack](docs/screenshot/basic-view.png)
 
 ## Features
 
