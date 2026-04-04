@@ -107,6 +107,7 @@ class MainWindow(QMainWindow):
         self._sidebar.stash_pop_requested.connect(self._on_stash_pop)
         self._sidebar.stash_apply_requested.connect(self._on_stash_apply)
         self._sidebar.stash_drop_requested.connect(self._on_stash_drop)
+        self._sidebar.stash_clicked.connect(self._on_stash_clicked)
 
         # Graph context menu signals
         self._graph.create_branch_requested.connect(self._on_create_branch)
@@ -140,7 +141,13 @@ class MainWindow(QMainWindow):
             self._right_stack.setCurrentIndex(0)
             self._diff.load_commit(oid)
 
+    def _on_stash_clicked(self, oid: str) -> None:
+        self._graph.clear_selection()
+        self._right_stack.setCurrentIndex(0)
+        self._diff.load_commit(oid)
+
     def _on_commit_selected(self, oid: str) -> None:
+        self._sidebar.clear_stash_selection()
         self._selected_oid = oid
         if oid == WORKING_TREE_OID:
             self._right_stack.setCurrentIndex(1)
