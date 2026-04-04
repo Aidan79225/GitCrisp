@@ -47,7 +47,9 @@ jobs:
 
       - name: Run tests (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run uv run pytest -v
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest -v
 
       - name: Run tests
         if: runner.os != 'Linux'
