@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QVBoxLayout, QWidget,
 )
-from git_gui.domain.entities import FileStatus, WORKING_TREE_OID
+from git_gui.domain.entities import FileStatus
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
@@ -149,7 +149,7 @@ class WorkingTreeWidget(QWidget):
 
         def _worker():
             files = queries.get_working_tree.execute()
-            partial = _detect_partial(queries, files)
+            partial = _detect_partial(files)
             signals.done.emit(files, partial)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -214,7 +214,7 @@ class WorkingTreeWidget(QWidget):
 
         def _worker():
             files = queries.get_working_tree.execute()
-            partial = _detect_partial(queries, files)
+            partial = _detect_partial(files)
             signals.done.emit(files, partial)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -236,20 +236,12 @@ class WorkingTreeWidget(QWidget):
         self._hunk_diff.clear()
 
 
-def _detect_partial(queries: QueryBus, files: list[FileStatus]) -> set[str]:
-    """Detect files with partial staging (some hunks staged, some not)."""
+def _detect_partial(files: list[FileStatus]) -> set[str]:
+    """Detect files with partial staging (same path in both staged and unstaged)."""
     partial: set[str] = set()
-    seen = set()
+    seen: set[str] = set()
     for f in files:
         if f.path in seen:
             partial.add(f.path)
         seen.add(f.path)
-    staged_paths = {f.path for f in files if f.status == "staged"}
-    unstaged_paths = {f.path for f in files if f.status != "staged"}
-    for path in staged_paths - partial:
-        if queries.get_file_diff.execute(WORKING_TREE_OID, path):
-            partial.add(path)
-    for path in unstaged_paths - partial:
-        if queries.get_staged_diff.execute(path):
-            partial.add(path)
     return partial
