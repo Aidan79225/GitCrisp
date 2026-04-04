@@ -2,12 +2,28 @@
 from __future__ import annotations
 from pathlib import Path
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QMenu, QPushButton,
-    QTreeView, QVBoxLayout, QWidget,
+    QStyledItemDelegate, QStyleOptionViewItem, QTreeView,
+    QVBoxLayout, QWidget,
 )
 from git_gui.domain.ports import IRepoStore
+
+_ACTIVE_BG = QColor("#264f78")
+_IS_ACTIVE_ROLE = Qt.UserRole + 2
+
+
+class _RepoItemDelegate(QStyledItemDelegate):
+    """Paints full-row blue background for the active repo."""
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        if index.data(_IS_ACTIVE_ROLE):
+            painter.save()
+            bg_rect = option.rect.adjusted(-option.rect.x(), 0, 0, 0)
+            painter.fillRect(bg_rect, _ACTIVE_BG)
+            painter.restore()
+        super().paint(painter, option, index)
 
 
 class RepoListWidget(QWidget):
@@ -46,6 +62,7 @@ class RepoListWidget(QWidget):
 
         self._model = QStandardItemModel()
         self._tree.setModel(self._model)
+        self._tree.setItemDelegate(_RepoItemDelegate(self._tree))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -94,6 +111,7 @@ class RepoListWidget(QWidget):
             font = item.font()
             font.setBold(True)
             item.setFont(font)
+            item.setData(True, _IS_ACTIVE_ROLE)
         return item
 
     def _on_item_clicked(self, index) -> None:
