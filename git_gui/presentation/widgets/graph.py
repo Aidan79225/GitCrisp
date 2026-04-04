@@ -2,7 +2,7 @@
 from __future__ import annotations
 import threading
 from datetime import datetime
-from pathlib import Path
+from git_gui.resources import get_resource_path
 from PySide6.QtCore import QModelIndex, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
@@ -63,7 +63,7 @@ class _LoadSignals(QObject):
     append_done = Signal(list, list)             # more_commits, branches
 
 
-_ARTS = Path(__file__).resolve().parent.parent.parent.parent / "arts"
+_ARTS = get_resource_path("arts")
 _BTN_STYLE = (
     "QPushButton { border: none; border-radius: 4px; min-width: 36px; min-height: 36px; }"
     "QPushButton:hover { background-color: rgba(255, 255, 255, 30); }"
