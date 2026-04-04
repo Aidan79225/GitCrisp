@@ -56,6 +56,12 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
         if oid in active:
             my_lane = active.index(oid)
             has_incoming = True
+            # Merge duplicate lanes: other lanes targeting the same oid
+            # must converge here (e.g. after a merge's two parents reach
+            # a common ancestor).
+            for i in range(len(active)):
+                if i != my_lane and active[i] == oid:
+                    active[i] = None
         elif None in active:
             my_lane = active.index(None)
             active[my_lane] = oid
