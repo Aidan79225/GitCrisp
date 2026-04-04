@@ -68,10 +68,10 @@ class Pygit2Repository:
         # Also push all branch tips so remote-only commits are included
         for name in self._repo.branches.local:
             ref = self._repo.branches.local[name]
-            walker.push(ref.target)
+            walker.push(ref.resolve().target)
         for name in self._repo.branches.remote:
             ref = self._repo.branches.remote[name]
-            walker.push(ref.target)
+            walker.push(ref.resolve().target)
 
         # Skip first N commits
         for _ in range(skip):
