@@ -81,7 +81,10 @@ class MainWindow(QMainWindow):
         self._toolbar.setMovable(False)
         self._toolbar.setIconSize(QSize(28, 28))
         self._toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
-        self._toolbar.setStyleSheet("QToolButton { min-width: 36px; min-height: 36px; }")
+        self._toolbar.setStyleSheet(
+            "QToolButton { min-width: 36px; min-height: 36px; border-radius: 4px; }"
+            "QToolButton:hover { background-color: rgba(255, 255, 255, 30); }"
+        )
 
         self._reload_action = QAction(QIcon(str(arts / "ic_reload.svg")), "", self)
         self._reload_action.setToolTip("Reload (F5)")
