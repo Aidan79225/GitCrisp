@@ -344,7 +344,7 @@ class Pygit2Repository:
 
     def pull(self, remote: str, branch: str) -> None:
         subprocess.run(
-            ["git", "pull", remote, branch],
+            ["git", "pull", "--rebase", remote, branch],
             cwd=self._repo.workdir, check=True, capture_output=True,
         )
 
