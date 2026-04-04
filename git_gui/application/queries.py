@@ -67,6 +67,14 @@ class IsDirty:
         return self._reader.is_dirty()
 
 
+class GetHeadOid:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> str | None:
+        return self._reader.get_head_oid()
+
+
 class GetCommitDetail:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader

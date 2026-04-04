@@ -17,8 +17,8 @@ PAGE_SIZE = 50
 
 
 class _LoadSignals(QObject):
-    reload_done = Signal(list, list, bool)   # commits, branches, is_dirty
-    append_done = Signal(list, list)         # more_commits, branches
+    reload_done = Signal(list, list, bool, str)  # commits, branches, is_dirty, head_oid
+    append_done = Signal(list, list)             # more_commits, branches
 
 
 class GraphWidget(QWidget):
@@ -91,12 +91,13 @@ class GraphWidget(QWidget):
             commits = queries.get_commit_graph.execute(limit=PAGE_SIZE)
             branches = queries.get_branches.execute()
             dirty = queries.is_dirty.execute()
-            signals.reload_done.emit(commits, branches, dirty)
+            head_oid = queries.get_head_oid.execute() or ""
+            signals.reload_done.emit(commits, branches, dirty, head_oid)
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
-                        is_dirty: bool) -> None:
+                        is_dirty: bool, head_oid: str) -> None:
         self._loading = False
         if self._queries is None:
             return
@@ -107,6 +108,10 @@ class GraphWidget(QWidget):
         refs: dict[str, list[str]] = {}
         for b in branches:
             refs.setdefault(b.target_oid, []).append(b.name)
+
+        # Add HEAD indicator to the commit HEAD points to
+        if head_oid:
+            refs.setdefault(head_oid, []).insert(0, "HEAD")
 
         all_commits = list(commits)
         if is_dirty:
