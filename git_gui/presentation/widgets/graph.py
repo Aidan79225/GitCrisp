@@ -377,6 +377,10 @@ class GraphWidget(QWidget):
                 self._view.scrollTo(index, QTableView.PositionAtTop)
                 return
 
+    def clear_selection(self) -> None:
+        self._view.clearSelection()
+        self._view.setCurrentIndex(self._model.index(-1, 0))
+
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)
         if oid:
