@@ -4,7 +4,7 @@ import threading
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QInputDialog, QMainWindow, QSplitter, QStackedWidget,
+    QInputDialog, QMainWindow, QMessageBox, QSplitter, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import WORKING_TREE_OID
@@ -118,6 +118,7 @@ class MainWindow(QMainWindow):
         self._graph.push_requested.connect(self._on_push)
         self._graph.pull_requested.connect(self._on_pull)
         self._graph.fetch_all_requested.connect(self._on_fetch_all_prune)
+        self._graph.stash_requested.connect(self._on_stash_requested)
 
         # Repo list signals
         self._repo_list.repo_switch_requested.connect(self._switch_repo)
@@ -226,6 +227,24 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Stash drop @{{{index}}} — ERROR: {e}")
+        self._reload()
+
+    def _on_stash_requested(self) -> None:
+        result = QMessageBox.question(
+            self,
+            "Stash Changes",
+            "Would you like to stash all uncommitted changes?\n\n"
+            "This will save your modifications and revert the working directory to a clean state.",
+        )
+        if result != QMessageBox.Yes:
+            return
+        branch = self._get_current_branch() or "unknown"
+        try:
+            self._commands.stash.execute(f"WIP on {branch}")
+            self._log_panel.log(f"Stash: WIP on {branch}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Stash — ERROR: {e}")
         self._reload()
 
     def _on_create_branch(self, oid: str) -> None:
