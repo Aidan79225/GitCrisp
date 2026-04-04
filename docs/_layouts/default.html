@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ site.title }}</title>
+  <meta name="description" content="{{ site.description }}">
+  <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
+</head>
+<body>
+
+  <!-- Hero -->
+  <section class="hero">
+    <h1>GitStack</h1>
+    <p class="tagline">A clean, focused Git GUI</p>
+    <p class="subtitle">Visual commit graph, per-hunk staging, and streamlined remote operations — built with Python and Qt.</p>
+    <div class="hero-actions">
+      <a href="https://github.com/Aidan79225/GitStack/releases/latest" class="btn btn-primary">Download</a>
+      <a href="https://github.com/Aidan79225/GitStack" class="btn btn-secondary">View on GitHub</a>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <h2>Features</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4CA;</div>
+        <h3>Visual Commit Graph</h3>
+        <p>Lane-based graph showing branching and merging history with lazy pagination and branch navigation.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F9E9;</div>
+        <h3>Per-Hunk Staging</h3>
+        <p>Stage or unstage individual diff hunks within a file. See exactly what goes into each commit.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4E6;</div>
+        <h3>Stash Management</h3>
+        <p>One-click stash with confirmation, view stash contents inline, pop, apply, or drop from context menu.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F310;</div>
+        <h3>Remote Operations</h3>
+        <p>Push, pull, and fetch run in background threads with real-time status logging. No UI freezes.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4C2;</div>
+        <h3>Multi-Repository</h3>
+        <p>Switch between repositories with persistent open and recent lists. Clone new repos from URL.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section class="architecture">
+    <h2>Architecture</h2>
+    <p>GitStack follows <strong>Clean Architecture</strong> with strict layer separation and protocol-based dependency injection.</p>
+    <div class="arch-layers">
+      <div class="arch-layer layer-domain">
+        <strong>Domain</strong>
+        <span>Entities &amp; Protocols</span>
+      </div>
+      <div class="arch-layer layer-application">
+        <strong>Application</strong>
+        <span>Commands &amp; Queries</span>
+      </div>
+      <div class="arch-layer layer-infrastructure">
+        <strong>Infrastructure</strong>
+        <span>pygit2 Adapter &amp; Repo Store</span>
+      </div>
+      <div class="arch-layer layer-presentation">
+        <strong>Presentation</strong>
+        <span>Qt Widgets &amp; Signal Bus</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Philosophy -->
+  <section class="philosophy">
+    <h2>Design Philosophy</h2>
+    <p>Some Git operations are intentionally left out. This is not a limitation — it is a design choice.</p>
+    <div class="philosophy-grid">
+      <div class="philosophy-card">
+        <h3>No Merge Button</h3>
+        <p>Branch merging in a team workflow is best done through <strong>pull requests</strong>, where code review, CI checks, and approval gates provide a safer and more traceable process.</p>
+      </div>
+      <div class="philosophy-card">
+        <h3>No Rebase or Cherry-Pick</h3>
+        <p>These operations frequently involve <strong>merge conflicts</strong> that require manual resolution. No GUI can match the flexibility of a CLI paired with your preferred editor.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="footer-content">
+      <p>
+        <a href="https://github.com/Aidan79225/GitStack">GitHub</a>
+        &middot; MIT License
+        &middot; <a href="https://github.com/Aidan79225/GitStack/releases/latest">Download</a>
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>
