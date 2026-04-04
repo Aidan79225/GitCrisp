@@ -56,6 +56,11 @@ class GraphLaneDelegate(QStyledItemDelegate):
             lx = _lx(left, lane_data.lane)
             painter.drawLine(lx, top, lx, mid)
 
+        # 2b. Incoming edges from converging lanes (top of cell → commit node, diagonal)
+        for from_lane, to_lane, ci in lane_data.edges_in:
+            painter.setPen(QPen(QColor(LANE_COLORS[ci % len(LANE_COLORS)]), 2))
+            painter.drawLine(_lx(left, from_lane), top, _lx(left, to_lane), mid)
+
         # 3. Outgoing edges (commit node → bottom of cell, straight or diagonal)
         for from_lane, to_lane, ci in lane_data.edges_out:
             painter.setPen(QPen(QColor(LANE_COLORS[ci % len(LANE_COLORS)]), 2))
