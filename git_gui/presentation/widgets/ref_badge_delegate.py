@@ -14,9 +14,10 @@ COLOR_REMOTE = "#1f4287"  # dark blue — remote-tracking branch (contains "/")
 COLOR_LOCAL = "#0d6efd"   # blue — local branch
 
 
-def _badge_color(name: str) -> QColor:
-    # "HEAD -> branch" is the git decoration format for the current branch pointer
+def _badge_color(name: str, head_branch: str | None = None) -> QColor:
     if name == "HEAD" or name.startswith("HEAD ->"):
+        return QColor(COLOR_HEAD)
+    if head_branch and name == head_branch:
         return QColor(COLOR_HEAD)
     if "/" in name:
         return QColor(COLOR_REMOTE)
