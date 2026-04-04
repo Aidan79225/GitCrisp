@@ -123,12 +123,11 @@ class DiffWidget(QWidget):
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
-        if queries is None:
-            self._current_oid = None
-            self._detail.clear()
-            self._msg_view.clear()
-            self._diff_model.reload([])
-            self._diff_view.clear()
+        self._current_oid = None
+        self._detail.clear()
+        self._msg_view.clear()
+        self._diff_model.reload([])
+        self._diff_view.clear()
 
     def eventFilter(self, obj, event):
         if obj is self._msg_view.viewport() and event.type() in (
