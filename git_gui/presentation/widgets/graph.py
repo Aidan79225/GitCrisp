@@ -114,6 +114,7 @@ class GraphWidget(QWidget):
         header = self._view.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Fixed)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setMinimumSectionSize(250)
         self._view.setColumnWidth(0, LANE_W)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
 

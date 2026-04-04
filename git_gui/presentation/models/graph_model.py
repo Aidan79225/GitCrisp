@@ -177,7 +177,7 @@ class GraphModel(QAbstractTableModel):
             if col == 1:
                 return CommitInfo(
                     author=commit.author,
-                    timestamp=commit.timestamp.strftime("%Y-%m-%d %H:%M"),
+                    timestamp=commit.timestamp.strftime("%Y-%m-%d"),
                     short_oid=commit.oid[:8],
                     branch_names=self._refs.get(commit.oid, []),
                     head_branch=self._head_branch,
