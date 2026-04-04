@@ -86,15 +86,20 @@ class Pygit2Repository:
 
     def get_branches(self) -> list[Branch]:
         branches: list[Branch] = []
-        head_target = None if self._repo.head_is_unborn else str(self._repo.head.target)
+        # Compare HEAD's ref name (e.g. "refs/heads/main"), not target oid,
+        # so only the actual checked-out branch is marked as head.
+        try:
+            head_ref_name = self._repo.head.name if not self._repo.head_is_unborn else None
+        except Exception:
+            head_ref_name = None
 
         for name in self._repo.branches.local:
             ref = self._repo.branches.local[name]
             branches.append(Branch(
                 name=name,
                 is_remote=False,
-                is_head=(str(ref.target) == head_target),
-                target_oid=str(ref.target),
+                is_head=(ref.name == head_ref_name),
+                target_oid=str(ref.resolve().target),
             ))
         for name in self._repo.branches.remote:
             ref = self._repo.branches.remote[name]
