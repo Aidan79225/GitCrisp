@@ -13,6 +13,7 @@ _HEAD_BG = QColor("#264f78")
 _HOVER_BG = QColor("#2a2d2e")
 _ROW_HEIGHT = 28
 _IS_HEAD_ROLE = Qt.UserRole + 2
+_TARGET_OID_ROLE = Qt.UserRole + 3
 
 
 class _SidebarTree(QTreeView):
@@ -45,6 +46,7 @@ class SidebarWidget(QWidget):
     branch_delete_requested = Signal(str)
     branch_push_requested = Signal(str)
     fetch_requested = Signal(str)             # remote name
+    branch_clicked = Signal(str)              # target oid
     stash_pop_requested = Signal(int)
     stash_apply_requested = Signal(int)
     stash_drop_requested = Signal(int)
@@ -59,6 +61,7 @@ class SidebarWidget(QWidget):
         self._tree.setMouseTracking(True)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
+        self._tree.clicked.connect(self._on_click)
         self._tree.doubleClicked.connect(self._on_double_click)
 
         self._model = QStandardItemModel()
@@ -109,6 +112,7 @@ class SidebarWidget(QWidget):
             child.setEditable(False)
             child.setData(b.name, Qt.UserRole)
             child.setData("branch", Qt.UserRole + 1)
+            child.setData(b.target_oid, _TARGET_OID_ROLE)
             child.setSizeHint(QSize(0, _ROW_HEIGHT))
             if b.is_head:
                 child.setData(True, _IS_HEAD_ROLE)
@@ -117,7 +121,7 @@ class SidebarWidget(QWidget):
 
         # Remote branches
         self._add_section("REMOTE BRANCHES", [
-            (b.name, b.name, "remote_branch") for b in remote
+            (b.name, b.name, "remote_branch", b.target_oid) for b in remote
         ])
 
         # Stashes
@@ -127,19 +131,28 @@ class SidebarWidget(QWidget):
 
         self._tree.expandAll()
 
-    def _add_section(self, title: str, items: list[tuple[str, str, str]]) -> None:
+    def _add_section(self, title: str, items: list[tuple]) -> None:
         header = QStandardItem(title)
         header.setEditable(False)
         header.setData("header", Qt.UserRole + 1)
         header.setSizeHint(QSize(0, _ROW_HEIGHT))
-        for label, value, kind in items:
+        for item in items:
+            label, value, kind = item[0], item[1], item[2]
+            oid = item[3] if len(item) > 3 else None
             child = QStandardItem(label)
             child.setEditable(False)
             child.setData(value, Qt.UserRole)
             child.setData(kind, Qt.UserRole + 1)
+            if oid:
+                child.setData(oid, _TARGET_OID_ROLE)
             child.setSizeHint(QSize(0, _ROW_HEIGHT))
             header.appendRow(child)
         self._model.appendRow(header)
+
+    def _on_click(self, index) -> None:
+        oid = index.data(_TARGET_OID_ROLE)
+        if oid:
+            self.branch_clicked.emit(oid)
 
     def _on_double_click(self, index) -> None:
         kind = index.data(Qt.UserRole + 1)

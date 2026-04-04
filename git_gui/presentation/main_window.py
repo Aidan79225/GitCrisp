@@ -90,6 +90,7 @@ class MainWindow(QMainWindow):
         )
         self._working_tree.working_tree_empty.connect(self._on_working_tree_empty)
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
+        self._sidebar.branch_clicked.connect(self._graph.scroll_to_oid)
         self._sidebar.branch_merge_requested.connect(self._on_merge)
         self._sidebar.branch_rebase_requested.connect(self._on_rebase)
         self._sidebar.branch_delete_requested.connect(self._on_delete_branch)
