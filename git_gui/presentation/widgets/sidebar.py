@@ -1,9 +1,15 @@
 # git_gui/presentation/widgets/sidebar.py
 from __future__ import annotations
-from PySide6.QtCore import Qt, Signal
+import threading
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QMenu, QTreeView, QVBoxLayout, QWidget
+from git_gui.domain.entities import Branch, Stash
 from git_gui.presentation.bus import CommandBus, QueryBus
+
+
+class _LoadSignals(QObject):
+    done = Signal(list, list)  # branches, stashes
 
 
 class SidebarWidget(QWidget):
@@ -41,9 +47,24 @@ class SidebarWidget(QWidget):
             self.reload()
 
     def reload(self) -> None:
+        queries = self._queries
+
+        signals = _LoadSignals()
+        signals.done.connect(self._on_load_done)
+        self._load_signals = signals  # prevent GC
+
+        def _worker():
+            branches = queries.get_branches.execute()
+            stashes = queries.get_stashes.execute()
+            signals.done.emit(branches, stashes)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_load_done(self, branches: list[Branch], stashes: list[Stash]) -> None:
+        if self._queries is None:
+            return
+
         self._model.clear()
-        branches = self._queries.get_branches.execute()
-        stashes = self._queries.get_stashes.execute()
 
         local = [b for b in branches if not b.is_remote]
         remote = [b for b in branches if b.is_remote]
