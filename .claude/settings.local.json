@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv init:*)",
+      "Bash(uv add:*)",
+      "Bash(/c/Users/Aidan/.local/bin/uv run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(uv run:*)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(git -C /c/Users/Aidan/git-gui diff d78bb4b..a11a24e -- pyproject.toml uv.lock)",
+      "Bash(git:*)",
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(python -m pytest tests/domain/ -v)",
+      "Bash(python -m pytest tests/domain/test_ports.py -v --tb=short)",
+      "Bash(python:*)"
+    ]
+  }
+}
