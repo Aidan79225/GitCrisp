@@ -58,7 +58,7 @@ class Pygit2Repository:
 
     # ------------------------------------------------------------------ reads
 
-    def get_commits(self, limit: int, skip: int = 0) -> list[Commit]:
+    def get_commits(self, limit: int, skip: int = 0, extra_tips: list[str] | None = None) -> list[Commit]:
         if self._repo.head_is_unborn:
             return []
 
@@ -79,6 +79,13 @@ class Pygit2Repository:
                     walker.push(local_branch.upstream.resolve().target)
         except (KeyError, Exception):
             pass
+
+        # Push extra tips (e.g. clicked branch)
+        for tip in (extra_tips or []):
+            try:
+                walker.push(pygit2.Oid(hex=tip))
+            except (ValueError, Exception):
+                pass
 
         # Skip first N commits
         for _ in range(skip):
