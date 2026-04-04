@@ -123,10 +123,10 @@ class MainWindow(QMainWindow):
         self._repo_list.reload()
 
     def _on_working_tree_empty(self) -> None:
-        """Working tree has no changes — switch back to commit info."""
+        """Working tree has no changes — switch back to commit info and refresh graph."""
+        self._graph.reload()
         oid = self._selected_oid
         if not oid or oid == WORKING_TREE_OID:
-            # No commit selected or was on working tree — show HEAD
             if self._queries:
                 oid = self._queries.get_head_oid.execute()
         if oid and oid != WORKING_TREE_OID:
