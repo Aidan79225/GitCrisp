@@ -1,3 +1,4 @@
+import subprocess
 import sys
 from pathlib import Path
 
@@ -10,3 +11,10 @@ def get_resource_path(relative: str) -> Path:
     if getattr(sys, "_MEIPASS", None):
         return Path(sys._MEIPASS) / relative
     return _PROJECT_ROOT / relative
+
+
+def subprocess_kwargs() -> dict:
+    """Extra kwargs for subprocess calls to suppress console windows on Windows."""
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}

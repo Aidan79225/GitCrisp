@@ -6,6 +6,8 @@ import threading
 from dataclasses import dataclass
 from typing import Callable
 
+from git_gui.resources import subprocess_kwargs
+
 
 @dataclass
 class CloneProgress:
@@ -30,6 +32,7 @@ def clone_repo(
         ["git", "clone", "--progress", url, dest],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        **subprocess_kwargs(),
     )
 
     # git clone writes progress to stderr

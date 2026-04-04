@@ -5,6 +5,7 @@ import subprocess
 
 import pygit2
 
+from git_gui.resources import subprocess_kwargs
 from git_gui.domain.entities import (
     Branch, Commit, FileStatus, Hunk, Stash, WORKING_TREE_OID,
 )
@@ -198,7 +199,7 @@ class Pygit2Repository:
         result = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True, text=True,
-            cwd=self._repo.workdir,
+            cwd=self._repo.workdir, **subprocess_kwargs(),
         )
         return bool(result.stdout.strip())
 
@@ -245,7 +246,7 @@ class Pygit2Repository:
             subprocess.run(
                 ["git", "apply", "--cached"],
                 input=patch.encode("utf-8"), cwd=self._repo.workdir,
-                check=True, capture_output=True,
+                check=True, capture_output=True, **subprocess_kwargs(),
             )
             self._repo.index.read()
 
@@ -255,7 +256,7 @@ class Pygit2Repository:
             subprocess.run(
                 ["git", "apply", "--cached", "--reverse"],
                 input=patch.encode("utf-8"), cwd=self._repo.workdir,
-                check=True, capture_output=True,
+                check=True, capture_output=True, **subprocess_kwargs(),
             )
             self._repo.index.read()
 
@@ -371,6 +372,7 @@ class Pygit2Repository:
         result = subprocess.run(
             ["git", *args],
             cwd=self._repo.workdir, capture_output=True, text=True,
+            **subprocess_kwargs(),
         )
         if result.returncode != 0:
             msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
