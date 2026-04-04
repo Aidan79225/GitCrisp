@@ -21,15 +21,20 @@ class _BranchDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         full_rect = option.rect.adjusted(-option.rect.x(), 0, 0, 0)
+        is_hover = bool(option.state & QStyle.State_MouseOver)
         if index.data(_IS_HEAD_ROLE):
             painter.save()
             painter.fillRect(full_rect, _HEAD_BG)
             painter.restore()
-        elif option.state & QStyle.State_MouseOver:
+        elif is_hover:
             painter.save()
             painter.fillRect(full_rect, _HOVER_BG)
             painter.restore()
-        super().paint(painter, option, index)
+        # Clear hover/selection state so Qt doesn't paint its own partial highlight
+        opt = QStyleOptionViewItem(option)
+        opt.state &= ~QStyle.State_MouseOver
+        opt.state &= ~QStyle.State_Selected
+        super().paint(painter, opt, index)
 
 
 class _LoadSignals(QObject):
