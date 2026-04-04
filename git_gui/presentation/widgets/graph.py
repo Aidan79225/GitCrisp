@@ -88,6 +88,7 @@ class GraphWidget(QWidget):
         self._loaded_count = 0  # how many commits loaded (excluding synthetic)
         self._has_more = True
         self._loading = False
+        self._reload_limit = PAGE_SIZE
         self._pending_scroll_oid: str | None = None
         self._extra_tips: list[str] | None = None
 
@@ -165,11 +166,12 @@ class GraphWidget(QWidget):
         else:
             self.reload()
 
-    def reload(self, extra_tips: list[str] | None = None) -> None:
+    def reload(self, extra_tips: list[str] | None = None, limit: int = PAGE_SIZE) -> None:
         if self._loading:
             return
         self._loading = True
         self._extra_tips = extra_tips
+        self._reload_limit = limit
         queries = self._queries
 
         signals = _LoadSignals()
@@ -177,7 +179,7 @@ class GraphWidget(QWidget):
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            commits = queries.get_commit_graph.execute(limit=PAGE_SIZE, extra_tips=extra_tips)
+            commits = queries.get_commit_graph.execute(limit=limit, extra_tips=extra_tips)
             branches = queries.get_branches.execute()
             dirty = queries.is_dirty.execute()
             head_oid = queries.get_head_oid.execute() or ""
@@ -187,11 +189,11 @@ class GraphWidget(QWidget):
 
     def reload_with_extra_tip(self, oid: str) -> None:
         """Reload graph including the given oid as an extra walker tip, then scroll to it."""
-        # If oid is already in the current commit list, just scroll
+        # If oid is already in the current commit list, just scroll and select
         for row in range(self._model.rowCount()):
             row_oid = self._model.data(self._model.index(row, 0), Qt.UserRole)
             if row_oid == oid:
-                self.scroll_to_oid(oid)
+                self.scroll_to_oid(oid, select=True)
                 return
         # Otherwise reload with extra tip and scroll after load
         self._pending_scroll_oid = oid
@@ -205,7 +207,7 @@ class GraphWidget(QWidget):
             return
 
         self._loaded_count = len(commits)
-        self._has_more = len(commits) == PAGE_SIZE
+        self._has_more = len(commits) == self._reload_limit
 
         refs: dict[str, list[str]] = {}
         head_branch: str | None = None
@@ -233,8 +235,25 @@ class GraphWidget(QWidget):
         self._update_column_widths()
 
         if self._pending_scroll_oid:
-            self.scroll_to_oid(self._pending_scroll_oid)
-            self._pending_scroll_oid = None
+            # Check if the target oid was found in loaded commits
+            found = any(
+                self._model.data(self._model.index(r, 0), Qt.UserRole) == self._pending_scroll_oid
+                for r in range(self._model.rowCount())
+            )
+            if found:
+                self.scroll_to_oid(self._pending_scroll_oid, select=True)
+                self._pending_scroll_oid = None
+            elif self._has_more:
+                # Target not found yet — retry with double the limit
+                oid = self._pending_scroll_oid
+                tips = self._extra_tips
+                new_limit = self._reload_limit * 2
+                self._pending_scroll_oid = oid
+                self._loading = False
+                self.reload(extra_tips=tips, limit=new_limit)
+            else:
+                # No more commits to load — give up
+                self._pending_scroll_oid = None
 
     def _get_visible_rows(self) -> tuple[int, int]:
         """Return (first_visible_row, last_visible_row) indices."""
@@ -379,13 +398,15 @@ class GraphWidget(QWidget):
         self._pending_scroll_oid = oid
         self.reload()
 
-    def scroll_to_oid(self, oid: str) -> None:
+    def scroll_to_oid(self, oid: str, select: bool = False) -> None:
         """Scroll so the row with the given oid is the first visible item."""
         for row in range(self._model.rowCount()):
             row_oid = self._model.data(self._model.index(row, 0), Qt.UserRole)
             if row_oid == oid:
                 index = self._model.index(row, 0)
                 self._view.scrollTo(index, QTableView.PositionAtTop)
+                if select:
+                    self._view.setCurrentIndex(index)
                 return
 
     def clear_selection(self) -> None:
