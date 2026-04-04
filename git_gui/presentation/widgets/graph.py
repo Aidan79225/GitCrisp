@@ -80,6 +80,7 @@ class GraphWidget(QWidget):
     push_requested = Signal()
     pull_requested = Signal()
     fetch_all_requested = Signal()
+    stash_requested = Signal()
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -126,7 +127,6 @@ class GraphWidget(QWidget):
         # Header bar with action buttons
         header_bar = QHBoxLayout()
         header_bar.setContentsMargins(4, 4, 4, 4)
-        header_bar.addStretch()
         for icon_name, tooltip, signal in [
             ("ic_reload", "Reload (F5)", self.reload_requested),
             ("ic_push", "Push", self.push_requested),
@@ -140,6 +140,17 @@ class GraphWidget(QWidget):
             btn.setStyleSheet(_BTN_STYLE)
             btn.clicked.connect(signal.emit)
             header_bar.addWidget(btn)
+
+        header_bar.addStretch()
+
+        self._stash_btn = QPushButton()
+        self._stash_btn.setIcon(QIcon(str(_ARTS / "ic_stash.svg")))
+        self._stash_btn.setIconSize(QSize(28, 28))
+        self._stash_btn.setToolTip("Stash")
+        self._stash_btn.setStyleSheet(_BTN_STYLE)
+        self._stash_btn.clicked.connect(self.stash_requested.emit)
+        self._stash_btn.setVisible(False)
+        header_bar.addWidget(self._stash_btn)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -190,6 +201,7 @@ class GraphWidget(QWidget):
     def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
                         is_dirty: bool, head_oid: str) -> None:
         self._loading = False
+        self._stash_btn.setVisible(is_dirty)
         if self._queries is None:
             return
 
@@ -380,6 +392,9 @@ class GraphWidget(QWidget):
     def clear_selection(self) -> None:
         self._view.clearSelection()
         self._view.setCurrentIndex(self._model.index(-1, 0))
+
+    def set_stash_visible(self, visible: bool) -> None:
+        self._stash_btn.setVisible(visible)
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)
