@@ -48,6 +48,7 @@ class MainWindow(QMainWindow):
         self._repo_list = RepoListWidget(repo_store)
         self._log_panel = LogPanel()
         self._remote_running = False
+        self._selected_oid: str | None = None
 
         self._right_stack = QStackedWidget()
         self._right_stack.addWidget(self._diff)           # index 0: commit mode
@@ -87,6 +88,7 @@ class MainWindow(QMainWindow):
         self._working_tree.commit_failed.connect(
             lambda reason: (self._log_panel.expand(), self._log_panel.log_error(reason))
         )
+        self._working_tree.working_tree_empty.connect(self._on_working_tree_empty)
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
         self._sidebar.branch_merge_requested.connect(self._on_merge)
         self._sidebar.branch_rebase_requested.connect(self._on_rebase)
@@ -120,7 +122,19 @@ class MainWindow(QMainWindow):
             self._reload()
         self._repo_list.reload()
 
+    def _on_working_tree_empty(self) -> None:
+        """Working tree has no changes — switch back to commit info."""
+        oid = self._selected_oid
+        if not oid or oid == WORKING_TREE_OID:
+            # No commit selected or was on working tree — show HEAD
+            if self._queries:
+                oid = self._queries.get_head_oid.execute()
+        if oid and oid != WORKING_TREE_OID:
+            self._right_stack.setCurrentIndex(0)
+            self._diff.load_commit(oid)
+
     def _on_commit_selected(self, oid: str) -> None:
+        self._selected_oid = oid
         if oid == WORKING_TREE_OID:
             self._right_stack.setCurrentIndex(1)
             self._working_tree.reload()
