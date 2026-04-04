@@ -280,6 +280,21 @@ class Pygit2Repository:
         ref = self._repo.branches.local[branch]
         self._repo.checkout(ref)
 
+    def checkout_commit(self, oid: str) -> None:
+        commit = self._repo.get(oid)
+        self._repo.checkout_tree(commit)
+        self._repo.set_head(commit.id)
+
+    def checkout_remote_branch(self, remote_branch: str) -> None:
+        # "origin/feature" → local branch "feature" tracking "origin/feature"
+        parts = remote_branch.split("/", 1)
+        local_name = parts[1] if len(parts) > 1 else remote_branch
+        remote_ref = self._repo.branches.remote[remote_branch]
+        # Create local branch at the same commit
+        local_ref = self._repo.branches.local.create(local_name, self._repo.get(remote_ref.target))
+        local_ref.upstream = remote_ref
+        self._repo.checkout(local_ref)
+
     def delete_branch(self, name: str) -> None:
         self._repo.branches.local[name].delete()
 

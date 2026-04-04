@@ -35,6 +35,22 @@ class Checkout:
         self._writer.checkout(branch)
 
 
+class CheckoutCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str) -> None:
+        self._writer.checkout_commit(oid)
+
+
+class CheckoutRemoteBranch:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote_branch: str) -> None:
+        self._writer.checkout_remote_branch(remote_branch)
+
+
 class CreateBranch:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
