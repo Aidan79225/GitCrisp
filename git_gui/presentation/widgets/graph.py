@@ -110,9 +110,10 @@ class GraphWidget(QWidget):
         self._model = GraphModel([], {})
         self._view.setModel(self._model)
 
-        # Column widths — both fixed, managed by _update_column_widths
+        # Column widths — col 0 fixed by lane count, col 1 stretches to fill
         header = self._view.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Fixed)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
         self._view.setColumnWidth(0, LANE_W)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
@@ -257,7 +258,8 @@ class GraphWidget(QWidget):
         graph_w = max_lanes * LANE_W + LANE_W
         info_w = self._compute_info_width(first, last)
         self._view.setColumnWidth(0, graph_w)
-        self._view.setColumnWidth(1, info_w)
+        # Info column stretches to fill, but set minimumWidth so
+        # the splitter gives us enough total space
         self.setMinimumWidth(graph_w + info_w)
 
     def _on_scroll(self, value: int) -> None:
