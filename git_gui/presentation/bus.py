@@ -5,7 +5,7 @@ from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
 from git_gui.application.queries import (
     GetCommitGraph, GetBranches, GetStashes,
     GetCommitFiles, GetFileDiff, GetStagedDiff, GetWorkingTree,
-    GetCommitDetail, IsDirty,
+    GetCommitDetail, IsDirty, GetHeadOid,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
@@ -27,6 +27,7 @@ class QueryBus:
     get_working_tree: GetWorkingTree
     get_commit_detail: GetCommitDetail
     is_dirty: IsDirty
+    get_head_oid: GetHeadOid
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
@@ -40,6 +41,7 @@ class QueryBus:
             get_working_tree=GetWorkingTree(reader),
             get_commit_detail=GetCommitDetail(reader),
             is_dirty=IsDirty(reader),
+            get_head_oid=GetHeadOid(reader),
         )
 
 

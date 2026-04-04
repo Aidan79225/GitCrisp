@@ -204,9 +204,11 @@ class MainWindow(QMainWindow):
         name, ok = QInputDialog.getText(self, "Create Branch", "Branch name:")
         if not ok or not name.strip():
             return
+        branch_name = name.strip()
         try:
-            self._commands.create_branch.execute(name.strip(), oid)
-            self._log_panel.log(f"Created branch: {name.strip()} at {oid[:8]}")
+            self._commands.create_branch.execute(branch_name, oid)
+            self._commands.checkout.execute(branch_name)
+            self._log_panel.log(f"Created and checked out branch: {branch_name}")
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Create branch — ERROR: {e}")

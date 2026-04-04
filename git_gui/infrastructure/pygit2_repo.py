@@ -183,6 +183,11 @@ class Pygit2Repository:
         )
         return bool(result.stdout.strip())
 
+    def get_head_oid(self) -> str | None:
+        if self._repo.head_is_unborn:
+            return None
+        return str(self._repo.head.target)
+
     # ----------------------------------------------------------------- helpers
 
     def _get_signature(self) -> pygit2.Signature:
