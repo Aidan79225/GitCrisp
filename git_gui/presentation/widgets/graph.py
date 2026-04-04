@@ -109,8 +109,9 @@ class GraphWidget(QWidget):
         for b in branches:
             refs.setdefault(b.target_oid, []).append(b.name)
 
-        # Add HEAD indicator to the commit HEAD points to
-        if head_oid:
+        # Show HEAD badge only when detached (no local branch is HEAD)
+        is_detached = not any(b.is_head for b in branches if not b.is_remote)
+        if head_oid and is_detached:
             refs.setdefault(head_oid, []).insert(0, "HEAD")
 
         all_commits = list(commits)
