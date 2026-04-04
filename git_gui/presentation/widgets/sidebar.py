@@ -50,6 +50,7 @@ class SidebarWidget(QWidget):
     stash_pop_requested = Signal(int)
     stash_apply_requested = Signal(int)
     stash_drop_requested = Signal(int)
+    stash_clicked = Signal(str)              # stash oid
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -78,6 +79,10 @@ class SidebarWidget(QWidget):
             self._model.clear()
         else:
             self.reload()
+
+    def clear_stash_selection(self) -> None:
+        self._tree.clearSelection()
+        self._tree.setCurrentIndex(self._model.index(-1, 0))
 
     def reload(self) -> None:
         queries = self._queries
@@ -126,7 +131,7 @@ class SidebarWidget(QWidget):
 
         # Stashes
         self._add_section("STASHES", [
-            (s.message, str(s.index), "stash") for s in stashes
+            (s.message, str(s.index), "stash", s.oid) for s in stashes
         ])
 
         self._tree.expandAll()
@@ -150,8 +155,11 @@ class SidebarWidget(QWidget):
         self._model.appendRow(header)
 
     def _on_click(self, index) -> None:
+        kind = index.data(Qt.UserRole + 1)
         oid = index.data(_TARGET_OID_ROLE)
-        if oid:
+        if kind == "stash" and oid:
+            self.stash_clicked.emit(oid)
+        elif oid:
             self.branch_clicked.emit(oid)
 
     def _on_double_click(self, index) -> None:
