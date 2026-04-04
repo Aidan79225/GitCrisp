@@ -32,7 +32,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libxkbcommon0 libxcb-cursor0
+          sudo apt-get install -y libegl1 libxkbcommon0 libxcb-cursor0 xvfb
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -45,7 +45,12 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run uv run pytest -v
+
       - name: Run tests
+        if: runner.os != 'Linux'
         run: uv run pytest -v
 
       - name: Install PyInstaller
