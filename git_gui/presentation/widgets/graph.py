@@ -88,6 +88,7 @@ class GraphWidget(QWidget):
         self._has_more = True
         self._loading = False
         self._pending_scroll_oid: str | None = None
+        self._extra_tips: list[str] | None = None
 
         self._view = _GraphTableView()
         self._view.setSelectionBehavior(QTableView.SelectRows)
@@ -154,10 +155,11 @@ class GraphWidget(QWidget):
         else:
             self.reload()
 
-    def reload(self) -> None:
+    def reload(self, extra_tips: list[str] | None = None) -> None:
         if self._loading:
             return
         self._loading = True
+        self._extra_tips = extra_tips
         queries = self._queries
 
         signals = _LoadSignals()
@@ -165,13 +167,25 @@ class GraphWidget(QWidget):
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            commits = queries.get_commit_graph.execute(limit=PAGE_SIZE)
+            commits = queries.get_commit_graph.execute(limit=PAGE_SIZE, extra_tips=extra_tips)
             branches = queries.get_branches.execute()
             dirty = queries.is_dirty.execute()
             head_oid = queries.get_head_oid.execute() or ""
             signals.reload_done.emit(commits, branches, dirty, head_oid)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def reload_with_extra_tip(self, oid: str) -> None:
+        """Reload graph including the given oid as an extra walker tip, then scroll to it."""
+        # If oid is already in the current commit list, just scroll
+        for row in range(self._model.rowCount()):
+            row_oid = self._model.data(self._model.index(row, 0), Qt.UserRole)
+            if row_oid == oid:
+                self.scroll_to_oid(oid)
+                return
+        # Otherwise reload with extra tip and scroll after load
+        self._pending_scroll_oid = oid
+        self.reload(extra_tips=[oid])
 
     def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
                         is_dirty: bool, head_oid: str) -> None:
@@ -278,7 +292,7 @@ class GraphWidget(QWidget):
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            more = queries.get_commit_graph.execute(limit=PAGE_SIZE, skip=skip)
+            more = queries.get_commit_graph.execute(limit=PAGE_SIZE, skip=skip, extra_tips=self._extra_tips)
             branches = queries.get_branches.execute()
             signals.append_done.emit(more, branches)
 
