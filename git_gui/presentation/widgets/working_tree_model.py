@@ -2,6 +2,7 @@
 from __future__ import annotations
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, Signal
 from git_gui.domain.entities import FileStatus
+from git_gui.presentation.bus import CommandBus
 
 
 class WorkingTreeModel(QAbstractListModel):
@@ -12,6 +13,9 @@ class WorkingTreeModel(QAbstractListModel):
         self._commands = commands
         self._files: list[FileStatus] = []
         self._partial: set[str] = set()
+
+    def set_commands(self, commands: CommandBus | None) -> None:
+        self._commands = commands
 
     def reload(self, files: list[FileStatus], partial: set[str] | None = None) -> None:
         self.beginResetModel()

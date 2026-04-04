@@ -121,6 +121,15 @@ class DiffWidget(QWidget):
         self._blk_removed.setBackground(QColor(248, 81, 73, 80))
         self._blk_default = QTextBlockFormat()
 
+    def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
+        self._queries = queries
+        if queries is None:
+            self._current_oid = None
+            self._detail.clear()
+            self._msg_view.clear()
+            self._diff_model.reload([])
+            self._diff_view.clear()
+
     def eventFilter(self, obj, event):
         if obj is self._msg_view.viewport() and event.type() in (
             QEvent.Wheel, QEvent.MouseButtonPress,
