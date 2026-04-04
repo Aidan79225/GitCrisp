@@ -24,11 +24,13 @@ _STATUS_MAP: dict[int, tuple[Literal["staged","unstaged","untracked","conflicted
 }
 
 
-def _map_status(flags: int) -> tuple[str, str]:
+def _map_statuses(flags: int) -> list[tuple[str, str]]:
+    """Return all matching statuses for the given flags (can be multiple for partial staging)."""
+    results = []
     for flag, mapping in _STATUS_MAP.items():
         if flags & flag:
-            return mapping
-    return ("unstaged", "unknown")
+            results.append(mapping)
+    return results or [("unstaged", "unknown")]
 
 
 def _commit_to_entity(c: pygit2.Commit) -> Commit:
@@ -176,8 +178,8 @@ class Pygit2Repository:
         for path, flags in self._repo.status().items():
             if flags == pygit2.GIT_STATUS_CURRENT:
                 continue
-            status, delta = _map_status(flags)
-            files.append(FileStatus(path=path, status=status, delta=delta))
+            for status, delta in _map_statuses(flags):
+                files.append(FileStatus(path=path, status=status, delta=delta))
         return files
 
     def is_dirty(self) -> bool:
