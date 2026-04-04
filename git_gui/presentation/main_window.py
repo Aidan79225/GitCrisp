@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
         arts = Path(__file__).resolve().parent.parent.parent / "arts"
 
         self._toolbar = QToolBar("Main")
+        self._toolbar.setMovable(False)
         self._toolbar.setIconSize(QSize(28, 28))
         self._toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self._toolbar.setStyleSheet("QToolButton { min-width: 36px; min-height: 36px; }")
