@@ -7,10 +7,13 @@ from PySide6.QtWidgets import (
     QMainWindow, QSplitter, QStackedWidget, QToolBar, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import WORKING_TREE_OID
+from git_gui.domain.ports import IRepoStore
+from git_gui.infrastructure.pygit2_repo import Pygit2Repository
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
+from git_gui.presentation.widgets.repo_list import RepoListWidget
 from git_gui.presentation.widgets.sidebar import SidebarWidget
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 
@@ -22,17 +25,20 @@ class _RemoteSignals(QObject):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, queries: QueryBus, commands: CommandBus, repo_path: str, parent=None) -> None:
+    def __init__(self, queries: QueryBus | None, commands: CommandBus | None,
+                 repo_store: IRepoStore, repo_path: str | None = None, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"git gui — {repo_path}")
+        self.setWindowTitle(f"GitStack — {repo_path}" if repo_path else "GitStack")
         self.resize(1400, 800)
 
         self._queries = queries
         self._commands = commands
+        self._repo_store = repo_store
         self._sidebar = SidebarWidget(queries, commands)
         self._graph = GraphWidget(queries, commands)
         self._diff = DiffWidget(queries, commands)
         self._working_tree = WorkingTreeWidget(queries, commands)
+        self._repo_list = RepoListWidget(repo_store)
         self._log_panel = LogPanel()
         self._remote_running = False
 
@@ -40,8 +46,14 @@ class MainWindow(QMainWindow):
         self._right_stack.addWidget(self._diff)           # index 0: commit mode
         self._right_stack.addWidget(self._working_tree)    # index 1: working tree
 
+        # Vertical splitter for sidebar: branches on top, repos on bottom
+        sidebar_splitter = QSplitter(Qt.Vertical)
+        sidebar_splitter.addWidget(self._sidebar)
+        sidebar_splitter.addWidget(self._repo_list)
+        sidebar_splitter.setSizes([400, 400])
+
         splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self._sidebar)
+        splitter.addWidget(sidebar_splitter)
         splitter.addWidget(self._graph)
         splitter.addWidget(self._right_stack)
         splitter.setSizes([220, 230, 950])
@@ -86,17 +98,25 @@ class MainWindow(QMainWindow):
         )
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
         self._sidebar.branch_merge_requested.connect(
-            lambda b: (commands.merge.execute(b), self._reload()))
+            lambda b: (self._commands.merge.execute(b), self._reload()))
         self._sidebar.branch_rebase_requested.connect(
-            lambda b: (commands.rebase.execute(b), self._reload()))
+            lambda b: (self._commands.rebase.execute(b), self._reload()))
         self._sidebar.branch_delete_requested.connect(
-            lambda b: (commands.delete_branch.execute(b), self._reload()))
+            lambda b: (self._commands.delete_branch.execute(b), self._reload()))
         self._sidebar.fetch_requested.connect(
-            lambda r: self._run_remote_op(f"Fetch {r}", lambda: commands.fetch.execute(r)))
+            lambda r: self._run_remote_op(f"Fetch {r}", lambda: self._commands.fetch.execute(r)))
         self._sidebar.branch_push_requested.connect(
-            lambda b: self._run_remote_op(f"Push origin/{b}", lambda: commands.push.execute("origin", b)))
+            lambda b: self._run_remote_op(f"Push origin/{b}", lambda: self._commands.push.execute("origin", b)))
 
-        self._reload()
+        # Repo list signals
+        self._repo_list.repo_switch_requested.connect(self._switch_repo)
+        self._repo_list.repo_open_requested.connect(self._on_repo_open)
+        self._repo_list.repo_close_requested.connect(self._on_repo_close)
+        self._repo_list.repo_remove_recent_requested.connect(self._on_repo_remove_recent)
+
+        if self._queries is not None:
+            self._reload()
+        self._repo_list.reload()
 
     def _on_commit_selected(self, oid: str) -> None:
         if oid == WORKING_TREE_OID:
@@ -107,13 +127,60 @@ class MainWindow(QMainWindow):
             self._diff.load_commit(oid)
 
     def _reload(self) -> None:
+        if self._queries is None:
+            return
         self._sidebar.reload()
         self._graph.reload()
 
     def _on_branch_changed(self, branch: str) -> None:
         self._reload()
 
+    def _switch_repo(self, path: str) -> None:
+        repo = Pygit2Repository(path)
+        self._queries = QueryBus.from_reader(repo)
+        self._commands = CommandBus.from_writer(repo)
+        self._sidebar.set_buses(self._queries, self._commands)
+        self._graph.set_buses(self._queries, self._commands)
+        self._diff.set_buses(self._queries, self._commands)
+        self._working_tree.set_buses(self._queries, self._commands)
+        self._repo_store.set_active(path)
+        self._repo_store.save()
+        self._repo_list.reload()
+        self.setWindowTitle(f"GitStack — {path}")
+        self._right_stack.setCurrentIndex(0)
+
+    def _enter_empty_state(self) -> None:
+        self._queries = None
+        self._commands = None
+        self._sidebar.set_buses(None, None)
+        self._graph.set_buses(None, None)
+        self._diff.set_buses(None, None)
+        self._working_tree.set_buses(None, None)
+        self._repo_list.reload()
+        self.setWindowTitle("GitStack")
+
+    def _on_repo_open(self, path: str) -> None:
+        self._repo_store.add_open(path)
+        self._repo_store.save()
+        self._switch_repo(path)
+
+    def _on_repo_close(self, path: str) -> None:
+        self._repo_store.close_repo(path)
+        self._repo_store.save()
+        open_repos = self._repo_store.get_open_repos()
+        if open_repos:
+            self._switch_repo(open_repos[0])
+        else:
+            self._enter_empty_state()
+
+    def _on_repo_remove_recent(self, path: str) -> None:
+        self._repo_store.remove_recent(path)
+        self._repo_store.save()
+        self._repo_list.reload()
+
     def _get_current_branch(self) -> str | None:
+        if self._queries is None:
+            return None
         branches = self._queries.get_branches.execute()
         for b in branches:
             if b.is_head and not b.is_remote:
