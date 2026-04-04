@@ -11,7 +11,8 @@ from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
     Checkout, CreateBranch, DeleteBranch,
     Merge, Rebase, Push, Pull, Fetch,
-    Stash, PopStash, StageHunk, UnstageHunk, FetchAllPrune,
+    Stash, PopStash, ApplyStash, DropStash,
+    StageHunk, UnstageHunk, FetchAllPrune,
 )
 
 
@@ -57,6 +58,8 @@ class CommandBus:
     fetch: Fetch
     stash: Stash
     pop_stash: PopStash
+    apply_stash: ApplyStash
+    drop_stash: DropStash
     stage_hunk: StageHunk
     unstage_hunk: UnstageHunk
     fetch_all_prune: FetchAllPrune
@@ -77,6 +80,8 @@ class CommandBus:
             fetch=Fetch(writer),
             stash=Stash(writer),
             pop_stash=PopStash(writer),
+            apply_stash=ApplyStash(writer),
+            drop_stash=DropStash(writer),
             stage_hunk=StageHunk(writer),
             unstage_hunk=UnstageHunk(writer),
             fetch_all_prune=FetchAllPrune(writer),

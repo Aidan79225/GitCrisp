@@ -1,11 +1,14 @@
 # git_gui/presentation/widgets/sidebar.py
 from __future__ import annotations
 import threading
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QMenu, QTreeView, QVBoxLayout, QWidget
 from git_gui.domain.entities import Branch, Stash
 from git_gui.presentation.bus import CommandBus, QueryBus
+
+_HEAD_BG = QColor("#264f78")
+_ROW_HEIGHT = 28
 
 
 class _LoadSignals(QObject):
@@ -19,6 +22,9 @@ class SidebarWidget(QWidget):
     branch_delete_requested = Signal(str)
     branch_push_requested = Signal(str)
     fetch_requested = Signal(str)             # remote name
+    stash_pop_requested = Signal(int)
+    stash_apply_requested = Signal(int)
+    stash_drop_requested = Signal(int)
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -69,15 +75,31 @@ class SidebarWidget(QWidget):
         local = [b for b in branches if not b.is_remote]
         remote = [b for b in branches if b.is_remote]
 
-        self._add_section("LOCAL BRANCHES", [
-            (b.name, b.name, "branch") for b in local
-        ])
+        # Local branches — highlight HEAD
+        local_header = QStandardItem("LOCAL BRANCHES")
+        local_header.setEditable(False)
+        local_header.setData("header", Qt.UserRole + 1)
+        for b in local:
+            child = QStandardItem(b.name)
+            child.setEditable(False)
+            child.setData(b.name, Qt.UserRole)
+            child.setData("branch", Qt.UserRole + 1)
+            child.setSizeHint(QSize(0, _ROW_HEIGHT))
+            if b.is_head:
+                child.setBackground(QBrush(_HEAD_BG))
+            local_header.appendRow(child)
+        self._model.appendRow(local_header)
+
+        # Remote branches
         self._add_section("REMOTE BRANCHES", [
             (b.name, b.name, "remote_branch") for b in remote
         ])
+
+        # Stashes
         self._add_section("STASHES", [
             (s.message, str(s.index), "stash") for s in stashes
         ])
+
         self._tree.expandAll()
 
     def _add_section(self, title: str, items: list[tuple[str, str, str]]) -> None:
@@ -89,6 +111,7 @@ class SidebarWidget(QWidget):
             child.setEditable(False)
             child.setData(value, Qt.UserRole)
             child.setData(kind, Qt.UserRole + 1)
+            child.setSizeHint(QSize(0, _ROW_HEIGHT))
             header.appendRow(child)
         self._model.appendRow(header)
 
@@ -103,7 +126,7 @@ class SidebarWidget(QWidget):
         index = self._tree.indexAt(pos)
         kind = index.data(Qt.UserRole + 1)
         value = index.data(Qt.UserRole)
-        if kind not in ("branch", "remote_branch"):
+        if kind not in ("branch", "remote_branch", "stash"):
             return
         menu = QMenu(self)
         if kind == "branch":
@@ -124,4 +147,13 @@ class SidebarWidget(QWidget):
             remote = value.split("/")[0]
             menu.addAction("Fetch").triggered.connect(
                 lambda: self.fetch_requested.emit(remote))
+        elif kind == "stash":
+            idx = int(value)
+            menu.addAction("Pop").triggered.connect(
+                lambda: self.stash_pop_requested.emit(idx))
+            menu.addAction("Apply").triggered.connect(
+                lambda: self.stash_apply_requested.emit(idx))
+            menu.addSeparator()
+            menu.addAction("Drop").triggered.connect(
+                lambda: self.stash_drop_requested.emit(idx))
         menu.exec(self._tree.viewport().mapToGlobal(pos))
