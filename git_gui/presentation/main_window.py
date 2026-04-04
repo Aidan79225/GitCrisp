@@ -24,6 +24,11 @@ class _RemoteSignals(QObject):
     failed = Signal(str, str)
 
 
+class _RepoReadySignals(QObject):
+    ready = Signal(str, object, object)   # path, QueryBus, CommandBus
+    failed = Signal(str, str)             # path, error
+
+
 class MainWindow(QMainWindow):
     def __init__(self, queries: QueryBus | None, commands: CommandBus | None,
                  repo_store: IRepoStore, repo_path: str | None = None, parent=None) -> None:
@@ -136,14 +141,25 @@ class MainWindow(QMainWindow):
         self._reload()
 
     def _switch_repo(self, path: str) -> None:
-        try:
-            repo = Pygit2Repository(path)
-        except Exception as e:
-            self._log_panel.expand()
-            self._log_panel.log_error(f"Cannot open {path}: {e}")
-            return
-        self._queries = QueryBus.from_reader(repo)
-        self._commands = CommandBus.from_writer(repo)
+        signals = _RepoReadySignals()
+        signals.ready.connect(self._on_repo_ready)
+        signals.failed.connect(self._on_repo_failed)
+        self._repo_ready_signals = signals  # prevent GC
+
+        def _worker():
+            try:
+                repo = Pygit2Repository(path)
+                queries = QueryBus.from_reader(repo)
+                commands = CommandBus.from_writer(repo)
+                signals.ready.emit(path, queries, commands)
+            except Exception as e:
+                signals.failed.emit(path, str(e))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_repo_ready(self, path: str, queries: QueryBus, commands: CommandBus) -> None:
+        self._queries = queries
+        self._commands = commands
         self._sidebar.set_buses(self._queries, self._commands)
         self._graph.set_buses(self._queries, self._commands)
         self._diff.set_buses(self._queries, self._commands)
@@ -153,6 +169,10 @@ class MainWindow(QMainWindow):
         self._repo_list.reload()
         self.setWindowTitle(f"GitStack — {path}")
         self._right_stack.setCurrentIndex(0)
+
+    def _on_repo_failed(self, path: str, error: str) -> None:
+        self._log_panel.expand()
+        self._log_panel.log_error(f"Cannot open {path}: {error}")
 
     def _enter_empty_state(self) -> None:
         self._queries = None

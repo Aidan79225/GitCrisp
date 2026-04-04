@@ -1,9 +1,10 @@
 # git_gui/presentation/widgets/graph.py
 from __future__ import annotations
+import threading
 from datetime import datetime
-from PySide6.QtCore import QModelIndex, Qt, Signal
+from PySide6.QtCore import QModelIndex, QObject, Qt, Signal
 from PySide6.QtWidgets import QHeaderView, QTableView, QVBoxLayout, QWidget
-from git_gui.domain.entities import Commit, WORKING_TREE_OID
+from git_gui.domain.entities import Branch, Commit, FileStatus, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate, LANE_W
@@ -12,7 +13,12 @@ from git_gui.presentation.widgets.commit_info_delegate import (
 )
 
 
-PAGE_SIZE = 200
+PAGE_SIZE = 50
+
+
+class _LoadSignals(QObject):
+    reload_done = Signal(list, list, list)   # commits, branches, working_tree
+    append_done = Signal(list, list)         # more_commits, branches
 
 
 class GraphWidget(QWidget):
@@ -23,6 +29,7 @@ class GraphWidget(QWidget):
         self._queries = queries
         self._loaded_count = 0  # how many commits loaded (excluding synthetic)
         self._has_more = True
+        self._loading = False
 
         self._view = QTableView()
         self._view.setSelectionBehavior(QTableView.SelectRows)
@@ -66,9 +73,29 @@ class GraphWidget(QWidget):
             self.reload()
 
     def reload(self) -> None:
-        commits = self._queries.get_commit_graph.execute(limit=PAGE_SIZE)
-        branches = self._queries.get_branches.execute()
-        working_tree = self._queries.get_working_tree.execute()
+        if self._loading:
+            return
+        self._loading = True
+        queries = self._queries
+
+        signals = _LoadSignals()
+        signals.reload_done.connect(self._on_reload_done)
+        self._load_signals = signals  # prevent GC
+
+        def _worker():
+            commits = queries.get_commit_graph.execute(limit=PAGE_SIZE)
+            branches = queries.get_branches.execute()
+            working_tree = queries.get_working_tree.execute()
+            signals.reload_done.emit(commits, branches, working_tree)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
+                        working_tree: list[FileStatus]) -> None:
+        self._loading = False
+        # If buses changed while loading, discard stale results
+        if self._queries is None:
+            return
 
         self._loaded_count = len(commits)
         self._has_more = len(commits) == PAGE_SIZE
@@ -124,11 +151,30 @@ class GraphWidget(QWidget):
 
     def _on_scroll(self, value: int) -> None:
         scrollbar = self._view.verticalScrollBar()
-        if self._has_more and value >= scrollbar.maximum() - 1:
+        if self._has_more and not self._loading and value >= scrollbar.maximum() - 1:
             self._load_more()
 
     def _load_more(self) -> None:
-        more = self._queries.get_commit_graph.execute(limit=PAGE_SIZE, skip=self._loaded_count)
+        self._loading = True
+        queries = self._queries
+        skip = self._loaded_count
+
+        signals = _LoadSignals()
+        signals.append_done.connect(self._on_append_done)
+        self._load_signals = signals  # prevent GC
+
+        def _worker():
+            more = queries.get_commit_graph.execute(limit=PAGE_SIZE, skip=skip)
+            branches = queries.get_branches.execute()
+            signals.append_done.emit(more, branches)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_append_done(self, more: list[Commit], branches: list[Branch]) -> None:
+        self._loading = False
+        if self._queries is None:
+            return
+
         if not more:
             self._has_more = False
             return
@@ -136,7 +182,6 @@ class GraphWidget(QWidget):
         self._has_more = len(more) == PAGE_SIZE
         self._loaded_count += len(more)
 
-        branches = self._queries.get_branches.execute()
         refs: dict[str, list[str]] = {}
         for b in branches:
             refs.setdefault(b.target_oid, []).append(b.name)
