@@ -3,7 +3,10 @@ from __future__ import annotations
 import threading
 from datetime import datetime
 from PySide6.QtCore import QModelIndex, QObject, Qt, Signal
-from PySide6.QtWidgets import QHeaderView, QMenu, QTableView, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHeaderView, QMenu, QStyle, QStyleOptionViewItem, QTableView,
+    QVBoxLayout, QWidget,
+)
 from git_gui.domain.entities import Branch, Commit, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import GraphModel
@@ -14,6 +17,43 @@ from git_gui.presentation.widgets.commit_info_delegate import (
 
 
 PAGE_SIZE = 50
+
+
+class _GraphTableView(QTableView):
+    """QTableView with full-row hover highlight."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        self._hover_row = -1
+
+    def mouseMoveEvent(self, event):
+        index = self.indexAt(event.pos())
+        old = self._hover_row
+        self._hover_row = index.row() if index.isValid() else -1
+        if old != self._hover_row:
+            self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self._hover_row = -1
+        self.viewport().update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        if self._hover_row >= 0:
+            from PySide6.QtGui import QPainter
+            painter = QPainter(self.viewport())
+            row_rect = self.visualRect(self.model().index(self._hover_row, 0))
+            # Extend to full row width
+            row_rect.setLeft(0)
+            row_rect.setRight(self.viewport().width())
+            row_rect.setHeight(self.rowHeight(self._hover_row))
+            hover_color = self.palette().highlight().color()
+            hover_color.setAlpha(30)
+            painter.fillRect(row_rect, hover_color)
+            painter.end()
+        super().paintEvent(event)
 
 
 class _LoadSignals(QObject):
@@ -36,7 +76,7 @@ class GraphWidget(QWidget):
         self._loading = False
         self._pending_scroll_oid: str | None = None
 
-        self._view = QTableView()
+        self._view = _GraphTableView()
         self._view.setSelectionBehavior(QTableView.SelectRows)
         self._view.setSelectionMode(QTableView.SingleSelection)
         self._view.setShowGrid(False)
