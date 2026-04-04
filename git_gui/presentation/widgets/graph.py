@@ -26,6 +26,7 @@ class GraphWidget(QWidget):
     create_branch_requested = Signal(str)       # oid
     checkout_commit_requested = Signal(str)      # oid
     checkout_branch_requested = Signal(str)      # branch name (local or remote)
+    delete_branch_requested = Signal(str)        # local branch name
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -216,17 +217,32 @@ class GraphWidget(QWidget):
         menu.addAction("Checkout (detached HEAD)").triggered.connect(
             lambda: self.checkout_commit_requested.emit(oid))
 
-        if branch_names:
+        # Filter out HEAD pseudo-ref for branch operations
+        real_branches = [n for n in branch_names if n != "HEAD"]
+        local_branches = [n for n in real_branches if "/" not in n]
+
+        if real_branches:
             menu.addSeparator()
-            if len(branch_names) == 1:
-                name = branch_names[0]
+            if len(real_branches) == 1:
+                name = real_branches[0]
                 menu.addAction(f"Checkout branch: {name}").triggered.connect(
                     lambda: self.checkout_branch_requested.emit(name))
             else:
                 sub = menu.addMenu("Checkout branch")
-                for name in branch_names:
+                for name in real_branches:
                     sub.addAction(name).triggered.connect(
                         lambda _checked=False, n=name: self.checkout_branch_requested.emit(n))
+
+        if local_branches:
+            if len(local_branches) == 1:
+                name = local_branches[0]
+                menu.addAction(f"Delete branch: {name}").triggered.connect(
+                    lambda: self.delete_branch_requested.emit(name))
+            else:
+                sub = menu.addMenu("Delete branch")
+                for name in local_branches:
+                    sub.addAction(name).triggered.connect(
+                        lambda _checked=False, n=name: self.delete_branch_requested.emit(n))
 
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
