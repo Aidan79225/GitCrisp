@@ -1,6 +1,7 @@
 # git_gui/presentation/widgets/working_tree.py
 from __future__ import annotations
-from PySide6.QtCore import QRect, QSize, Qt, Signal
+import threading
+from PySide6.QtCore import QObject, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout, QListView, QPlainTextEdit, QPushButton,
@@ -60,6 +61,10 @@ class _FileDelegate(QStyledItemDelegate):
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 
         painter.restore()
+
+
+class _LoadSignals(QObject):
+    done = Signal(list, set)  # files, partial
 
 
 class WorkingTreeWidget(QWidget):
@@ -136,30 +141,24 @@ class WorkingTreeWidget(QWidget):
             self._hunk_diff.clear()
 
     def reload(self) -> None:
-        files = self._queries.get_working_tree.execute()
-        partial = self._detect_partial(files)
+        queries = self._queries
+
+        signals = _LoadSignals()
+        signals.done.connect(self._on_reload_done)
+        self._load_signals = signals  # prevent GC
+
+        def _worker():
+            files = queries.get_working_tree.execute()
+            partial = _detect_partial(queries, files)
+            signals.done.emit(files, partial)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_reload_done(self, files: list[FileStatus], partial: set[str]) -> None:
+        if self._queries is None:
+            return
         self._file_model.reload(files, partial)
         self._hunk_diff.clear()
-
-    def _detect_partial(self, files: list[FileStatus]) -> set[str]:
-        """Detect files with partial staging (some hunks staged, some not)."""
-        partial: set[str] = set()
-        seen = set()
-        for f in files:
-            if f.path in seen:
-                # File appears in both staged and unstaged lists
-                partial.add(f.path)
-            seen.add(f.path)
-        # Also check files that appear once but have hunks in both states
-        staged_paths = {f.path for f in files if f.status == "staged"}
-        unstaged_paths = {f.path for f in files if f.status != "staged"}
-        for path in staged_paths - partial:
-            if self._queries.get_file_diff.execute(WORKING_TREE_OID, path):
-                partial.add(path)
-        for path in unstaged_paths - partial:
-            if self._queries.get_staged_diff.execute(path):
-                partial.add(path)
-        return partial
 
     def _on_file_selected(self, current, previous) -> None:
         if not current.isValid():
@@ -171,8 +170,7 @@ class WorkingTreeWidget(QWidget):
 
     def _on_stage_all(self) -> None:
         files = self._queries.get_working_tree.execute()
-        # Stage all unstaged files + partially staged files (re-stage to pick up remaining hunks)
-        partial = self._detect_partial(files)
+        partial = _detect_partial(self._queries, files)
         paths = list({f.path for f in files if f.status != "staged"} | partial)
         if paths:
             self._commands.stage_files.execute(paths)
@@ -180,8 +178,7 @@ class WorkingTreeWidget(QWidget):
 
     def _on_unstage_all(self) -> None:
         files = self._queries.get_working_tree.execute()
-        # Unstage all staged files + partially staged files
-        partial = self._detect_partial(files)
+        partial = _detect_partial(self._queries, files)
         paths = list({f.path for f in files if f.status == "staged"} | partial)
         if paths:
             self._commands.unstage_files.execute(paths)
@@ -208,8 +205,24 @@ class WorkingTreeWidget(QWidget):
             if fs:
                 selected_path = fs.path
 
-        files = self._queries.get_working_tree.execute()
-        partial = self._detect_partial(files)
+        queries = self._queries
+
+        signals = _LoadSignals()
+        signals.done.connect(lambda files, partial: self._on_files_changed_done(
+            files, partial, selected_path))
+        self._load_signals = signals  # prevent GC
+
+        def _worker():
+            files = queries.get_working_tree.execute()
+            partial = _detect_partial(queries, files)
+            signals.done.emit(files, partial)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_files_changed_done(self, files: list[FileStatus], partial: set[str],
+                               selected_path: str | None) -> None:
+        if self._queries is None:
+            return
         self._file_model.reload(files, partial)
 
         # Restore selection by path and refresh hunk diff
@@ -221,3 +234,22 @@ class WorkingTreeWidget(QWidget):
                     self._hunk_diff.load_file(selected_path)
                     return
         self._hunk_diff.clear()
+
+
+def _detect_partial(queries: QueryBus, files: list[FileStatus]) -> set[str]:
+    """Detect files with partial staging (some hunks staged, some not)."""
+    partial: set[str] = set()
+    seen = set()
+    for f in files:
+        if f.path in seen:
+            partial.add(f.path)
+        seen.add(f.path)
+    staged_paths = {f.path for f in files if f.status == "staged"}
+    unstaged_paths = {f.path for f in files if f.status != "staged"}
+    for path in staged_paths - partial:
+        if queries.get_file_diff.execute(WORKING_TREE_OID, path):
+            partial.add(path)
+    for path in unstaged_paths - partial:
+        if queries.get_staged_diff.execute(path):
+            partial.add(path)
+    return partial

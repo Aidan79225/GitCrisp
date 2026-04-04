@@ -1,6 +1,7 @@
 # git_gui/presentation/widgets/hunk_diff.py
 from __future__ import annotations
-from PySide6.QtCore import Qt, Signal
+import threading
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat
 from PySide6.QtWidgets import (
     QCheckBox, QPlainTextEdit, QScrollArea, QVBoxLayout, QWidget,
@@ -8,6 +9,10 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import Hunk
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.domain.entities import WORKING_TREE_OID
+
+
+class _LoadSignals(QObject):
+    done = Signal(str, list, list)  # path, staged_hunks, unstaged_hunks
 
 
 class HunkDiffWidget(QWidget):
@@ -55,13 +60,46 @@ class HunkDiffWidget(QWidget):
 
     def load_file(self, path: str) -> None:
         self._current_path = path
-        self._render()
+        self._fetch_and_render()
 
     def clear(self) -> None:
         self._current_path = None
         self._clear_layout()
 
-    def _render(self) -> None:
+    def _fetch_and_render(self) -> None:
+        if self._current_path is None:
+            return
+        path = self._current_path
+        queries = self._queries
+
+        signals = _LoadSignals()
+        signals.done.connect(self._on_load_done)
+        self._load_signals = signals  # prevent GC
+
+        def _worker():
+            staged_hunks = queries.get_staged_diff.execute(path)
+            unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
+            signals.done.emit(path, staged_hunks, unstaged_hunks)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_load_done(self, path: str, staged_hunks: list[Hunk],
+                      unstaged_hunks: list[Hunk]) -> None:
+        # Discard if user already navigated to a different file
+        if path != self._current_path:
+            return
+
+        self._clear_layout()
+
+        for hunk in staged_hunks:
+            self._add_hunk_block(hunk, is_staged=True)
+        for hunk in unstaged_hunks:
+            self._add_hunk_block(hunk, is_staged=False)
+
+        self._layout.addStretch()
+
+    def _render_sync(self) -> None:
+        """Synchronous render — used after hunk toggle where data is already changing."""
         self._clear_layout()
         if self._current_path is None:
             return
@@ -143,7 +181,7 @@ class HunkDiffWidget(QWidget):
             self._commands.stage_hunk.execute(path, hunk_header)
         else:
             self._commands.unstage_hunk.execute(path, hunk_header)
-        self._render()
+        self._render_sync()
         self.hunk_toggled.emit()
 
     def _clear_layout(self) -> None:
