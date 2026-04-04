@@ -32,6 +32,7 @@ class RepoListWidget(QWidget):
     repo_open_requested = Signal(str)
     repo_close_requested = Signal(str)
     repo_remove_recent_requested = Signal(str)
+    clone_requested = Signal()
 
     def __init__(self, repo_store: IRepoStore, parent=None) -> None:
         super().__init__(parent)
@@ -52,7 +53,13 @@ class RepoListWidget(QWidget):
         self._btn_add.setFixedSize(22, 22)
         self._btn_add.setToolTip("Open Repository...")
         self._btn_add.clicked.connect(self._on_add_clicked)
+
+        self._btn_clone = QPushButton("Clone")
+        self._btn_clone.setFixedHeight(22)
+        self._btn_clone.setToolTip("Clone Repository...")
+        self._btn_clone.clicked.connect(lambda: self.clone_requested.emit())
         header_layout.addWidget(self._btn_add)
+        header_layout.addWidget(self._btn_clone)
 
         # Tree view
         self._tree = QTreeView()
@@ -143,6 +150,8 @@ class RepoListWidget(QWidget):
             title = index.data(Qt.DisplayRole)
             if title == "OPEN":
                 menu.addAction("Open Repository...").triggered.connect(self._on_add_clicked)
+                menu.addAction("Clone Repository...").triggered.connect(
+                    lambda: self.clone_requested.emit())
             else:
                 return
         else:
