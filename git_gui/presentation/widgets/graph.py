@@ -236,10 +236,9 @@ class GraphWidget(QWidget):
         )
         graph_w = max_lanes * LANE_W + LANE_W
         self._view.setColumnWidth(0, graph_w)
-        # Info column: at least _INFO_MIN_W, or fill remaining viewport
-        remaining = self._view.viewport().width() - graph_w
-        info_w = max(remaining, self._INFO_MIN_W)
-        self._view.setColumnWidth(1, info_w)
+        self._view.setColumnWidth(1, self._INFO_MIN_W)
+        # Set widget minimum width so splitter gives us enough space
+        self.setMinimumWidth(graph_w + self._INFO_MIN_W)
 
     def _on_scroll(self, value: int) -> None:
         self._update_column_widths()

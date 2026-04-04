@@ -65,6 +65,12 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._graph)
         splitter.addWidget(self._right_stack)
         splitter.setSizes([220, 230, 950])
+        # Lock the handle between graph and right_stack so it can't be dragged
+        # Handle index 2 is between widget 1 (graph) and widget 2 (right_stack)
+        handle = splitter.handle(2)
+        if handle:
+            handle.setEnabled(False)
+            handle.setCursor(Qt.ArrowCursor)
 
         # Main layout: splitter on top, log panel at bottom
         central = QWidget()
