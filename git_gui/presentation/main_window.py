@@ -2,7 +2,9 @@
 from __future__ import annotations
 import threading
 from PySide6.QtCore import Qt, Signal, QObject
-from PySide6.QtGui import QAction, QKeySequence
+from pathlib import Path
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QInputDialog, QMainWindow, QSplitter, QStackedWidget, QToolBar,
     QVBoxLayout, QWidget,
@@ -73,21 +75,31 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(splitter, 1)
         central_layout.addWidget(self._log_panel, 0)
 
+        arts = Path(__file__).resolve().parent.parent.parent / "arts"
+
         self._toolbar = QToolBar("Main")
-        self._reload_action = QAction("Reload", self)
+        self._toolbar.setIconSize(QSize(28, 28))
+        self._toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self._toolbar.setStyleSheet("QToolButton { min-width: 36px; min-height: 36px; }")
+
+        self._reload_action = QAction(QIcon(str(arts / "ic_reload.svg")), "", self)
+        self._reload_action.setToolTip("Reload (F5)")
         self._reload_action.setShortcut(QKeySequence(Qt.Key_F5))
         self._reload_action.triggered.connect(self._reload)
         self._toolbar.addAction(self._reload_action)
 
-        self._push_action = QAction("Push", self)
+        self._push_action = QAction(QIcon(str(arts / "ic_push.svg")), "", self)
+        self._push_action.setToolTip("Push")
         self._push_action.triggered.connect(self._on_push)
         self._toolbar.addAction(self._push_action)
 
-        self._pull_action = QAction("Pull", self)
+        self._pull_action = QAction(QIcon(str(arts / "ic_pull.svg")), "", self)
+        self._pull_action.setToolTip("Pull")
         self._pull_action.triggered.connect(self._on_pull)
         self._toolbar.addAction(self._pull_action)
 
-        self._fetch_all_action = QAction("Fetch All -p", self)
+        self._fetch_all_action = QAction(QIcon(str(arts / "ic_fetch.svg")), "", self)
+        self._fetch_all_action.setToolTip("Fetch All --prune")
         self._fetch_all_action.triggered.connect(self._on_fetch_all_prune)
         self._toolbar.addAction(self._fetch_all_action)
 
