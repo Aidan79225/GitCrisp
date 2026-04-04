@@ -115,6 +115,22 @@ class PopStash:
         self._writer.pop_stash(index)
 
 
+class ApplyStash:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, index: int) -> None:
+        self._writer.apply_stash(index)
+
+
+class DropStash:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, index: int) -> None:
+        self._writer.drop_stash(index)
+
+
 class StageHunk:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer

@@ -336,3 +336,9 @@ class Pygit2Repository:
 
     def pop_stash(self, index: int) -> None:
         self._repo.stash_pop(index=index)
+
+    def apply_stash(self, index: int) -> None:
+        self._repo.stash_apply(index=index)
+
+    def drop_stash(self, index: int) -> None:
+        self._repo.stash_drop(index=index)

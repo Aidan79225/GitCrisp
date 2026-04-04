@@ -102,16 +102,16 @@ class MainWindow(QMainWindow):
             lambda reason: (self._log_panel.expand(), self._log_panel.log_error(reason))
         )
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
-        self._sidebar.branch_merge_requested.connect(
-            lambda b: (self._commands.merge.execute(b), self._reload()))
-        self._sidebar.branch_rebase_requested.connect(
-            lambda b: (self._commands.rebase.execute(b), self._reload()))
-        self._sidebar.branch_delete_requested.connect(
-            lambda b: (self._commands.delete_branch.execute(b), self._reload()))
+        self._sidebar.branch_merge_requested.connect(self._on_merge)
+        self._sidebar.branch_rebase_requested.connect(self._on_rebase)
+        self._sidebar.branch_delete_requested.connect(self._on_delete_branch)
         self._sidebar.fetch_requested.connect(
             lambda r: self._run_remote_op(f"Fetch {r}", lambda: self._commands.fetch.execute(r)))
         self._sidebar.branch_push_requested.connect(
             lambda b: self._run_remote_op(f"Push origin/{b}", lambda: self._commands.push.execute("origin", b)))
+        self._sidebar.stash_pop_requested.connect(self._on_stash_pop)
+        self._sidebar.stash_apply_requested.connect(self._on_stash_apply)
+        self._sidebar.stash_drop_requested.connect(self._on_stash_drop)
 
         # Repo list signals
         self._repo_list.repo_switch_requested.connect(self._switch_repo)
@@ -138,6 +138,60 @@ class MainWindow(QMainWindow):
         self._graph.reload()
 
     def _on_branch_changed(self, branch: str) -> None:
+        self._reload()
+
+    def _on_merge(self, branch: str) -> None:
+        try:
+            self._commands.merge.execute(branch)
+            self._log_panel.log(f"Merge: {branch} into current")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Merge {branch} — ERROR: {e}")
+        self._reload()
+
+    def _on_rebase(self, branch: str) -> None:
+        try:
+            self._commands.rebase.execute(branch)
+            self._log_panel.log(f"Rebase onto {branch}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Rebase onto {branch} — ERROR: {e}")
+        self._reload()
+
+    def _on_delete_branch(self, branch: str) -> None:
+        try:
+            self._commands.delete_branch.execute(branch)
+            self._log_panel.log(f"Deleted branch: {branch}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Delete branch {branch} — ERROR: {e}")
+        self._reload()
+
+    def _on_stash_pop(self, index: int) -> None:
+        try:
+            self._commands.pop_stash.execute(index)
+            self._log_panel.log(f"Stash pop: @{{{index}}}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Stash pop @{{{index}}} — ERROR: {e}")
+        self._reload()
+
+    def _on_stash_apply(self, index: int) -> None:
+        try:
+            self._commands.apply_stash.execute(index)
+            self._log_panel.log(f"Stash apply: @{{{index}}}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Stash apply @{{{index}}} — ERROR: {e}")
+        self._reload()
+
+    def _on_stash_drop(self, index: int) -> None:
+        try:
+            self._commands.drop_stash.execute(index)
+            self._log_panel.log(f"Stash drop: @{{{index}}}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Stash drop @{{{index}}} — ERROR: {e}")
         self._reload()
 
     def _switch_repo(self, path: str) -> None:
