@@ -1,0 +1,238 @@
+/* Reset & Base */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background-color: #0d1117;
+  color: #f0f6fc;
+  line-height: 1.6;
+}
+
+a {
+  color: #58a6ff;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+h1, h2, h3 {
+  font-weight: 600;
+}
+
+/* Hero */
+.hero {
+  text-align: center;
+  padding: 100px 24px 80px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.hero h1 {
+  font-size: 3.5rem;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #58a6ff, #79c0ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.tagline {
+  font-size: 1.5rem;
+  color: #8b949e;
+  margin-bottom: 16px;
+}
+
+.subtitle {
+  font-size: 1.1rem;
+  color: #8b949e;
+  margin-bottom: 32px;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-block;
+  padding: 12px 28px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: opacity 0.2s;
+}
+
+.btn:hover {
+  text-decoration: none;
+  opacity: 0.85;
+}
+
+.btn-primary {
+  background-color: #58a6ff;
+  color: #0d1117;
+}
+
+.btn-secondary {
+  background-color: #21262d;
+  color: #f0f6fc;
+  border: 1px solid #30363d;
+}
+
+/* Sections */
+section {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 60px 24px;
+}
+
+section h2 {
+  font-size: 2rem;
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+/* Features */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.feature-card {
+  background-color: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 28px;
+}
+
+.feature-icon {
+  font-size: 2rem;
+  margin-bottom: 12px;
+}
+
+.feature-card h3 {
+  font-size: 1.15rem;
+  margin-bottom: 8px;
+}
+
+.feature-card p {
+  color: #8b949e;
+  font-size: 0.95rem;
+}
+
+/* Architecture */
+.arch-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.arch-layer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+.arch-layer span {
+  color: #8b949e;
+}
+
+.layer-domain {
+  background-color: #1a3a2a;
+  border: 1px solid #238636;
+}
+
+.layer-application {
+  background-color: #1a2a3a;
+  border: 1px solid #1f6feb;
+}
+
+.layer-infrastructure {
+  background-color: #2a2a1a;
+  border: 1px solid #f0883e;
+}
+
+.layer-presentation {
+  background-color: #2a1a2a;
+  border: 1px solid #c77dff;
+}
+
+.architecture p {
+  text-align: center;
+  color: #8b949e;
+  margin-bottom: 24px;
+}
+
+/* Philosophy */
+.philosophy > p {
+  text-align: center;
+  color: #8b949e;
+  margin-bottom: 24px;
+}
+
+.philosophy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.philosophy-card {
+  background-color: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 28px;
+}
+
+.philosophy-card h3 {
+  font-size: 1.15rem;
+  margin-bottom: 8px;
+}
+
+.philosophy-card p {
+  color: #8b949e;
+  font-size: 0.95rem;
+}
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid #30363d;
+  padding: 32px 24px;
+  text-align: center;
+  color: #8b949e;
+  font-size: 0.9rem;
+}
+
+.footer-content a {
+  color: #58a6ff;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .hero h1 {
+    font-size: 2.5rem;
+  }
+
+  .tagline {
+    font-size: 1.2rem;
+  }
+
+  section {
+    padding: 40px 16px;
+  }
+}
