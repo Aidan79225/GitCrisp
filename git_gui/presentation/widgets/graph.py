@@ -63,7 +63,7 @@ class _LoadSignals(QObject):
     append_done = Signal(list, list)             # more_commits, branches
 
 
-_ARTS = Path(__file__).resolve().parent.parent.parent / "arts"
+_ARTS = Path(__file__).resolve().parent.parent.parent.parent / "arts"
 _BTN_STYLE = (
     "QPushButton { border: none; border-radius: 4px; min-width: 36px; min-height: 36px; }"
     "QPushButton:hover { background-color: rgba(255, 255, 255, 30); }"
