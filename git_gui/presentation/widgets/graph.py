@@ -34,6 +34,7 @@ class GraphWidget(QWidget):
         self._loaded_count = 0  # how many commits loaded (excluding synthetic)
         self._has_more = True
         self._loading = False
+        self._pending_scroll_oid: str | None = None
 
         self._view = QTableView()
         self._view.setSelectionBehavior(QTableView.SelectRows)
@@ -110,9 +111,8 @@ class GraphWidget(QWidget):
         for b in branches:
             refs.setdefault(b.target_oid, []).append(b.name)
 
-        # Show HEAD badge only when detached (no local branch is HEAD)
-        is_detached = not any(b.is_head for b in branches if not b.is_remote)
-        if head_oid and is_detached:
+        # Always show HEAD badge on the commit HEAD points to
+        if head_oid:
             refs.setdefault(head_oid, []).insert(0, "HEAD")
 
         all_commits = list(commits)
@@ -159,6 +159,10 @@ class GraphWidget(QWidget):
         min_info_w += gap
         graph_w = max_lanes * LANE_W + LANE_W
         self._view.setMinimumWidth(graph_w + min_info_w)
+
+        if self._pending_scroll_oid:
+            self.scroll_to_oid(self._pending_scroll_oid)
+            self._pending_scroll_oid = None
 
     def _on_scroll(self, value: int) -> None:
         scrollbar = self._view.verticalScrollBar()
@@ -245,6 +249,20 @@ class GraphWidget(QWidget):
                         lambda _checked=False, n=name: self.delete_branch_requested.emit(n))
 
         menu.exec(self._view.viewport().mapToGlobal(pos))
+
+    def reload_and_scroll_to(self, oid: str) -> None:
+        """Reload and scroll to the given oid after load completes."""
+        self._pending_scroll_oid = oid
+        self.reload()
+
+    def scroll_to_oid(self, oid: str) -> None:
+        """Scroll so the row with the given oid is the first visible item."""
+        for row in range(self._model.rowCount()):
+            row_oid = self._model.data(self._model.index(row, 0), Qt.UserRole)
+            if row_oid == oid:
+                index = self._model.index(row, 0)
+                self._view.scrollTo(index, QTableView.PositionAtTop)
+                return
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)
