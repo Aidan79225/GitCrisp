@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 from PySide6.QtCore import QModelIndex, QObject, Qt, Signal
 from PySide6.QtWidgets import QHeaderView, QTableView, QVBoxLayout, QWidget
-from git_gui.domain.entities import Branch, Commit, FileStatus, WORKING_TREE_OID
+from git_gui.domain.entities import Branch, Commit, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate, LANE_W
@@ -17,7 +17,7 @@ PAGE_SIZE = 50
 
 
 class _LoadSignals(QObject):
-    reload_done = Signal(list, list, list)   # commits, branches, working_tree
+    reload_done = Signal(list, list)         # commits, branches
     append_done = Signal(list, list)         # more_commits, branches
 
 
@@ -85,13 +85,11 @@ class GraphWidget(QWidget):
         def _worker():
             commits = queries.get_commit_graph.execute(limit=PAGE_SIZE)
             branches = queries.get_branches.execute()
-            working_tree = queries.get_working_tree.execute()
-            signals.reload_done.emit(commits, branches, working_tree)
+            signals.reload_done.emit(commits, branches)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
-                        working_tree: list[FileStatus]) -> None:
+    def _on_reload_done(self, commits: list[Commit], branches: list[Branch]) -> None:
         self._loading = False
         # If buses changed while loading, discard stale results
         if self._queries is None:
@@ -105,15 +103,15 @@ class GraphWidget(QWidget):
             refs.setdefault(b.target_oid, []).append(b.name)
 
         all_commits = list(commits)
-        if working_tree:
-            synthetic = Commit(
-                oid=WORKING_TREE_OID,
-                message="Uncommitted Changes",
-                author="",
-                timestamp=datetime.now(),
-                parents=[all_commits[0].oid] if all_commits else [],
-            )
-            all_commits.insert(0, synthetic)
+        # Always show synthetic row — actual status loads on click
+        synthetic = Commit(
+            oid=WORKING_TREE_OID,
+            message="Uncommitted Changes",
+            author="",
+            timestamp=datetime.now(),
+            parents=[all_commits[0].oid] if all_commits else [],
+        )
+        all_commits.insert(0, synthetic)
 
         self._model.reload(all_commits, refs)
 
