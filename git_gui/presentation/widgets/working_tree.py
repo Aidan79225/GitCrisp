@@ -170,7 +170,7 @@ class WorkingTreeWidget(QWidget):
 
     def _on_stage_all(self) -> None:
         files = self._queries.get_working_tree.execute()
-        partial = _detect_partial(self._queries, files)
+        partial = _detect_partial(files)
         paths = list({f.path for f in files if f.status != "staged"} | partial)
         if paths:
             self._commands.stage_files.execute(paths)
@@ -178,7 +178,7 @@ class WorkingTreeWidget(QWidget):
 
     def _on_unstage_all(self) -> None:
         files = self._queries.get_working_tree.execute()
-        partial = _detect_partial(self._queries, files)
+        partial = _detect_partial(files)
         paths = list({f.path for f in files if f.status == "staged"} | partial)
         if paths:
             self._commands.unstage_files.execute(paths)
