@@ -2,11 +2,9 @@
 from __future__ import annotations
 import threading
 from PySide6.QtCore import Qt, Signal, QObject
-from pathlib import Path
-from PySide6.QtCore import QSize
-from PySide6.QtGui import QAction, QIcon, QKeySequence
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QInputDialog, QMainWindow, QSplitter, QStackedWidget, QToolBar,
+    QInputDialog, QMainWindow, QSplitter, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import WORKING_TREE_OID
@@ -75,39 +73,9 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(splitter, 1)
         central_layout.addWidget(self._log_panel, 0)
 
-        arts = Path(__file__).resolve().parent.parent.parent / "arts"
-
-        self._toolbar = QToolBar("Main")
-        self._toolbar.setMovable(False)
-        self._toolbar.setIconSize(QSize(28, 28))
-        self._toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
-        self._toolbar.setStyleSheet(
-            "QToolButton { min-width: 36px; min-height: 36px; border-radius: 4px; }"
-            "QToolButton:hover { background-color: rgba(255, 255, 255, 30); }"
-        )
-
-        self._reload_action = QAction(QIcon(str(arts / "ic_reload.svg")), "", self)
-        self._reload_action.setToolTip("Reload (F5)")
-        self._reload_action.setShortcut(QKeySequence(Qt.Key_F5))
-        self._reload_action.triggered.connect(self._reload)
-        self._toolbar.addAction(self._reload_action)
-
-        self._push_action = QAction(QIcon(str(arts / "ic_push.svg")), "", self)
-        self._push_action.setToolTip("Push")
-        self._push_action.triggered.connect(self._on_push)
-        self._toolbar.addAction(self._push_action)
-
-        self._pull_action = QAction(QIcon(str(arts / "ic_pull.svg")), "", self)
-        self._pull_action.setToolTip("Pull")
-        self._pull_action.triggered.connect(self._on_pull)
-        self._toolbar.addAction(self._pull_action)
-
-        self._fetch_all_action = QAction(QIcon(str(arts / "ic_fetch.svg")), "", self)
-        self._fetch_all_action.setToolTip("Fetch All --prune")
-        self._fetch_all_action.triggered.connect(self._on_fetch_all_prune)
-        self._toolbar.addAction(self._fetch_all_action)
-
-        self.addToolBar(self._toolbar)
+        # F5 reload shortcut (global)
+        self._reload_shortcut = QShortcut(QKeySequence(Qt.Key_F5), self)
+        self._reload_shortcut.activated.connect(self._reload)
         self.setCentralWidget(central)
 
         # Wire cross-widget signals
@@ -136,6 +104,10 @@ class MainWindow(QMainWindow):
         self._graph.checkout_commit_requested.connect(self._on_checkout_commit)
         self._graph.checkout_branch_requested.connect(self._on_checkout_branch)
         self._graph.delete_branch_requested.connect(self._on_delete_branch)
+        self._graph.reload_requested.connect(self._reload)
+        self._graph.push_requested.connect(self._on_push)
+        self._graph.pull_requested.connect(self._on_pull)
+        self._graph.fetch_all_requested.connect(self._on_fetch_all_prune)
 
         # Repo list signals
         self._repo_list.repo_switch_requested.connect(self._switch_repo)
@@ -347,18 +319,12 @@ class MainWindow(QMainWindow):
                 return b.name
         return None
 
-    def _set_remote_buttons_enabled(self, enabled: bool) -> None:
-        self._push_action.setEnabled(enabled)
-        self._pull_action.setEnabled(enabled)
-        self._fetch_all_action.setEnabled(enabled)
-
     def _run_remote_op(self, name: str, fn) -> None:
         if self._remote_running:
             return
 
         self._log_panel.expand()
         self._log_panel.log(f"{name} — started...")
-        self._set_remote_buttons_enabled(False)
         self._remote_running = True
 
         signals = _RemoteSignals()
@@ -379,13 +345,11 @@ class MainWindow(QMainWindow):
     def _on_remote_done(self, name: str) -> None:
         self._log_panel.log(f"{name} — done")
         self._remote_running = False
-        self._set_remote_buttons_enabled(True)
         self._reload()
 
     def _on_remote_error(self, name: str, error: str) -> None:
         self._log_panel.log_error(f"{name} — ERROR: {error}")
         self._remote_running = False
-        self._set_remote_buttons_enabled(True)
         self._reload()
 
     def _on_push(self) -> None:

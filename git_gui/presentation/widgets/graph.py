@@ -2,10 +2,12 @@
 from __future__ import annotations
 import threading
 from datetime import datetime
-from PySide6.QtCore import QModelIndex, QObject, Qt, Signal
+from pathlib import Path
+from PySide6.QtCore import QModelIndex, QObject, QSize, Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QHeaderView, QMenu, QStyle, QStyleOptionViewItem, QTableView,
-    QVBoxLayout, QWidget,
+    QHBoxLayout, QHeaderView, QMenu, QPushButton, QStyle,
+    QStyleOptionViewItem, QTableView, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Branch, Commit, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
@@ -61,12 +63,23 @@ class _LoadSignals(QObject):
     append_done = Signal(list, list)             # more_commits, branches
 
 
+_ARTS = Path(__file__).resolve().parent.parent.parent / "arts"
+_BTN_STYLE = (
+    "QPushButton { border: none; border-radius: 4px; min-width: 36px; min-height: 36px; }"
+    "QPushButton:hover { background-color: rgba(255, 255, 255, 30); }"
+)
+
+
 class GraphWidget(QWidget):
     commit_selected = Signal(str)  # emits oid (or WORKING_TREE_OID)
     create_branch_requested = Signal(str)       # oid
     checkout_commit_requested = Signal(str)      # oid
     checkout_branch_requested = Signal(str)      # branch name (local or remote)
     delete_branch_requested = Signal(str)        # local branch name
+    reload_requested = Signal()
+    push_requested = Signal()
+    pull_requested = Signal()
+    fetch_all_requested = Signal()
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -108,8 +121,28 @@ class GraphWidget(QWidget):
         self._view.setContextMenuPolicy(Qt.CustomContextMenu)
         self._view.customContextMenuRequested.connect(self._show_context_menu)
 
+        # Header bar with action buttons
+        header_bar = QHBoxLayout()
+        header_bar.setContentsMargins(4, 4, 4, 4)
+        header_bar.addStretch()
+        for icon_name, tooltip, signal in [
+            ("ic_reload", "Reload (F5)", self.reload_requested),
+            ("ic_push", "Push", self.push_requested),
+            ("ic_pull", "Pull", self.pull_requested),
+            ("ic_fetch", "Fetch All --prune", self.fetch_all_requested),
+        ]:
+            btn = QPushButton()
+            btn.setIcon(QIcon(str(_ARTS / f"{icon_name}.svg")))
+            btn.setIconSize(QSize(28, 28))
+            btn.setToolTip(tooltip)
+            btn.setStyleSheet(_BTN_STYLE)
+            btn.clicked.connect(signal.emit)
+            header_bar.addWidget(btn)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addLayout(header_bar)
         layout.addWidget(self._view)
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
