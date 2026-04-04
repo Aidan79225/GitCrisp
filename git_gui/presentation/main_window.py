@@ -118,6 +118,7 @@ class MainWindow(QMainWindow):
         self._graph.create_branch_requested.connect(self._on_create_branch)
         self._graph.checkout_commit_requested.connect(self._on_checkout_commit)
         self._graph.checkout_branch_requested.connect(self._on_checkout_branch)
+        self._graph.delete_branch_requested.connect(self._on_delete_branch)
 
         # Repo list signals
         self._repo_list.repo_switch_requested.connect(self._switch_repo)
