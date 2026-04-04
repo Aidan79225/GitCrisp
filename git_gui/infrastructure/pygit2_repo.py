@@ -67,13 +67,18 @@ class Pygit2Repository:
             pygit2.GIT_SORT_TOPOLOGICAL | pygit2.GIT_SORT_TIME,
         )
 
-        # Also push all branch tips so remote-only commits are included
-        for name in self._repo.branches.local:
-            ref = self._repo.branches.local[name]
-            walker.push(ref.resolve().target)
-        for name in self._repo.branches.remote:
-            ref = self._repo.branches.remote[name]
-            walker.push(ref.resolve().target)
+        # Also push upstream remote branch if current branch has one
+        try:
+            head_ref = self._repo.head
+            if not head_ref.name.startswith("refs/heads/"):
+                pass  # detached HEAD — no upstream
+            else:
+                local_name = head_ref.name[len("refs/heads/"):]
+                local_branch = self._repo.branches.local[local_name]
+                if local_branch.upstream:
+                    walker.push(local_branch.upstream.resolve().target)
+        except (KeyError, Exception):
+            pass
 
         # Skip first N commits
         for _ in range(skip):
