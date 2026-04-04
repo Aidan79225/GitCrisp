@@ -106,9 +106,14 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
             old_oid = active[i]
             if old_oid is None:
                 continue
-            if old_oid in new_active:
+            if old_oid not in new_active:
+                continue
+            # Prefer staying in the same lane; only shift if the lane was taken
+            if i < len(new_active) and new_active[i] == old_oid:
+                new_i = i
+            else:
                 new_i = new_active.index(old_oid)
-                lines.append((i, new_i, colors[i]))
+            lines.append((i, new_i, colors[i]))
 
         # ── 4. Outgoing edges from the commit node ──────────────────────────
         edges_out: list[tuple[int, int, int]] = []
