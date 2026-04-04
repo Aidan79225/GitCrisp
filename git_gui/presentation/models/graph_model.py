@@ -37,6 +37,7 @@ class CommitInfo:
     timestamp: str       # pre-formatted "YYYY-MM-DD HH:MM"
     short_oid: str       # commit.oid[:8]
     branch_names: list[str]
+    head_branch: str | None  # name of the HEAD branch (green badge), None if detached
     message: str         # first line of commit message only
 
 
@@ -131,10 +132,12 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
 
 
 class GraphModel(QAbstractTableModel):
-    def __init__(self, commits: list[Commit], refs: dict[str, list[str]], parent=None) -> None:
+    def __init__(self, commits: list[Commit], refs: dict[str, list[str]],
+                 head_branch: str | None = None, parent=None) -> None:
         super().__init__(parent)
         self._commits = commits
         self._refs = refs
+        self._head_branch = head_branch
         self._lane_data: list[LaneData] = _compute_lanes(commits)
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
@@ -161,6 +164,7 @@ class GraphModel(QAbstractTableModel):
                     timestamp=commit.timestamp.strftime("%Y-%m-%d %H:%M"),
                     short_oid=commit.oid[:8],
                     branch_names=self._refs.get(commit.oid, []),
+                    head_branch=self._head_branch,
                     message=commit.message.split("\n")[0],
                 )
         return None
@@ -170,10 +174,12 @@ class GraphModel(QAbstractTableModel):
             return COLUMNS[section].capitalize()
         return None
 
-    def reload(self, commits: list[Commit], refs: dict[str, list[str]]) -> None:
+    def reload(self, commits: list[Commit], refs: dict[str, list[str]],
+               head_branch: str | None = None) -> None:
         self.beginResetModel()
         self._commits = commits
         self._refs = refs
+        self._head_branch = head_branch
         self._lane_data = _compute_lanes(commits)
         self.endResetModel()
 

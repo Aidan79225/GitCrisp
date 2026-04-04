@@ -62,7 +62,7 @@ class CommitInfoDelegate(QStyledItemDelegate):
         for name in info.branch_names:
             badge_w = fm.horizontalAdvance(name) + BADGE_H_PAD * 2
             badge_rect = QRect(x, cy2 - badge_h // 2, badge_w, badge_h)
-            painter.setBrush(QBrush(_badge_color(name)))
+            painter.setBrush(QBrush(_badge_color(name, info.head_branch)))
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
             painter.setPen(QColor("white"))

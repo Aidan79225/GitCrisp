@@ -108,11 +108,14 @@ class GraphWidget(QWidget):
         self._has_more = len(commits) == PAGE_SIZE
 
         refs: dict[str, list[str]] = {}
+        head_branch: str | None = None
         for b in branches:
             refs.setdefault(b.target_oid, []).append(b.name)
+            if b.is_head and not b.is_remote:
+                head_branch = b.name
 
-        # Always show HEAD badge on the commit HEAD points to
-        if head_oid:
+        # Show HEAD badge only when detached (no local branch is HEAD)
+        if head_oid and not head_branch:
             refs.setdefault(head_oid, []).insert(0, "HEAD")
 
         all_commits = list(commits)
@@ -126,7 +129,7 @@ class GraphWidget(QWidget):
             )
             all_commits.insert(0, synthetic)
 
-        self._model.reload(all_commits, refs)
+        self._model.reload(all_commits, refs, head_branch)
 
         # Auto-fit graph column width to the max lane count
         max_lanes = max(
