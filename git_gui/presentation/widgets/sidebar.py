@@ -4,8 +4,7 @@ import threading
 from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QMenu, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTreeView,
-    QVBoxLayout, QWidget,
+    QMenu, QStyle, QStyleOptionViewItem, QTreeView, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Branch, Stash
 from git_gui.presentation.bus import CommandBus, QueryBus
@@ -16,25 +15,23 @@ _ROW_HEIGHT = 28
 _IS_HEAD_ROLE = Qt.UserRole + 2
 
 
-class _BranchDelegate(QStyledItemDelegate):
-    """Paints full-row backgrounds for HEAD branch and hover state."""
+class _SidebarTree(QTreeView):
+    """QTreeView that paints full-row hover and HEAD highlight."""
 
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        full_rect = option.rect.adjusted(-option.rect.x(), 0, 0, 0)
-        is_hover = bool(option.state & QStyle.State_MouseOver)
+    def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        # Full-row HEAD highlight
         if index.data(_IS_HEAD_ROLE):
             painter.save()
-            painter.fillRect(full_rect, _HEAD_BG)
+            painter.fillRect(option.rect, _HEAD_BG)
             painter.restore()
-        elif is_hover:
+        # Full-row hover (match Qt's default hover color)
+        elif option.state & QStyle.State_MouseOver:
             painter.save()
-            painter.fillRect(full_rect, _HOVER_BG)
+            hover_color = option.palette.highlight().color()
+            hover_color.setAlpha(30)
+            painter.fillRect(option.rect, hover_color)
             painter.restore()
-        # Clear hover/selection state so Qt doesn't paint its own partial highlight
-        opt = QStyleOptionViewItem(option)
-        opt.state &= ~QStyle.State_MouseOver
-        opt.state &= ~QStyle.State_Selected
-        super().paint(painter, opt, index)
+        super().drawRow(painter, option, index)
 
 
 class _LoadSignals(QObject):
@@ -57,7 +54,7 @@ class SidebarWidget(QWidget):
         self._queries = queries
         self._commands = commands
 
-        self._tree = QTreeView()
+        self._tree = _SidebarTree()
         self._tree.setHeaderHidden(True)
         self._tree.setMouseTracking(True)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -66,7 +63,6 @@ class SidebarWidget(QWidget):
 
         self._model = QStandardItemModel()
         self._tree.setModel(self._model)
-        self._tree.setItemDelegate(_BranchDelegate(self._tree))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
