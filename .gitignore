@@ -9,3 +9,8 @@ wheels/
 # Virtual environments
 .venv
 .superpowers
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
