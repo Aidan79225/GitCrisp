@@ -96,6 +96,7 @@ class SidebarWidget(QWidget):
         local_header = QStandardItem("LOCAL BRANCHES")
         local_header.setEditable(False)
         local_header.setData("header", Qt.UserRole + 1)
+        local_header.setSizeHint(QSize(0, _ROW_HEIGHT))
         for b in local:
             child = QStandardItem(b.name)
             child.setEditable(False)
@@ -123,6 +124,7 @@ class SidebarWidget(QWidget):
         header = QStandardItem(title)
         header.setEditable(False)
         header.setData("header", Qt.UserRole + 1)
+        header.setSizeHint(QSize(0, _ROW_HEIGHT))
         for label, value, kind in items:
             child = QStandardItem(label)
             child.setEditable(False)
