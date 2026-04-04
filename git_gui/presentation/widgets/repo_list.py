@@ -1,7 +1,7 @@
 # git_gui/presentation/widgets/repo_list.py
 from __future__ import annotations
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QMenu, QPushButton,
@@ -12,6 +12,7 @@ from git_gui.domain.ports import IRepoStore
 
 _ACTIVE_BG = QColor("#264f78")
 _IS_ACTIVE_ROLE = Qt.UserRole + 2
+_ROW_HEIGHT = 28
 
 
 class _RepoItemDelegate(QStyledItemDelegate):
@@ -38,8 +39,9 @@ class RepoListWidget(QWidget):
 
         # Header with "+" button
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(4, 4, 4, 0)
+        header_layout.setContentsMargins(4, 4, 4, 4)
         title = QLabel("REPOSITORIES")
+        title.setFixedHeight(_ROW_HEIGHT)
         title_font = title.font()
         title_font.setBold(True)
         title_font.setPointSize(title_font.pointSize() - 1)
@@ -81,6 +83,7 @@ class RepoListWidget(QWidget):
             open_header.setEditable(False)
             open_header.setSelectable(False)
             open_header.setData("header", Qt.UserRole + 1)
+            open_header.setSizeHint(QSize(0, _ROW_HEIGHT))
             for path in open_repos:
                 item = self._make_repo_item(path, "open", is_active=(path == active))
                 open_header.appendRow(item)
@@ -93,6 +96,7 @@ class RepoListWidget(QWidget):
             recent_header.setEditable(False)
             recent_header.setSelectable(False)
             recent_header.setData("header", Qt.UserRole + 1)
+            recent_header.setSizeHint(QSize(0, _ROW_HEIGHT))
             for path in recent_repos:
                 item = self._make_repo_item(path, "recent", is_active=False)
                 recent_header.appendRow(item)
@@ -107,6 +111,7 @@ class RepoListWidget(QWidget):
         item.setToolTip(path)
         item.setData(path, Qt.UserRole)
         item.setData(kind, Qt.UserRole + 1)
+        item.setSizeHint(QSize(0, _ROW_HEIGHT))
         if is_active:
             font = item.font()
             font.setBold(True)
