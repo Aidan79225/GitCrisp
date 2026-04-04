@@ -145,7 +145,14 @@ class MainWindow(QMainWindow):
         self._graph.reload()
 
     def _on_branch_changed(self, branch: str) -> None:
-        self._reload()
+        if self._queries is None:
+            return
+        self._sidebar.reload()
+        head_oid = self._queries.get_head_oid.execute()
+        if head_oid:
+            self._graph.reload_and_scroll_to(head_oid)
+        else:
+            self._graph.reload()
 
     def _on_merge(self, branch: str) -> None:
         try:
