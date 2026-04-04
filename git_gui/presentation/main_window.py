@@ -147,6 +147,8 @@ class MainWindow(QMainWindow):
             return
         self._sidebar.reload()
         self._graph.reload()
+        if self._right_stack.currentIndex() == 1:
+            self._working_tree.reload()
 
     def _on_branch_changed(self, branch: str) -> None:
         if self._queries is None:
