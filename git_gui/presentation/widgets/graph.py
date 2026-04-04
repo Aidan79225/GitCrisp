@@ -17,7 +17,7 @@ PAGE_SIZE = 50
 
 
 class _LoadSignals(QObject):
-    reload_done = Signal(list, list)         # commits, branches
+    reload_done = Signal(list, list, bool)   # commits, branches, is_dirty
     append_done = Signal(list, list)         # more_commits, branches
 
 
@@ -85,13 +85,14 @@ class GraphWidget(QWidget):
         def _worker():
             commits = queries.get_commit_graph.execute(limit=PAGE_SIZE)
             branches = queries.get_branches.execute()
-            signals.reload_done.emit(commits, branches)
+            dirty = queries.is_dirty.execute()
+            signals.reload_done.emit(commits, branches, dirty)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_reload_done(self, commits: list[Commit], branches: list[Branch]) -> None:
+    def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
+                        is_dirty: bool) -> None:
         self._loading = False
-        # If buses changed while loading, discard stale results
         if self._queries is None:
             return
 
@@ -103,15 +104,15 @@ class GraphWidget(QWidget):
             refs.setdefault(b.target_oid, []).append(b.name)
 
         all_commits = list(commits)
-        # Always show synthetic row — actual status loads on click
-        synthetic = Commit(
-            oid=WORKING_TREE_OID,
-            message="Uncommitted Changes",
-            author="",
-            timestamp=datetime.now(),
-            parents=[all_commits[0].oid] if all_commits else [],
-        )
-        all_commits.insert(0, synthetic)
+        if is_dirty:
+            synthetic = Commit(
+                oid=WORKING_TREE_OID,
+                message="Uncommitted Changes",
+                author="",
+                timestamp=datetime.now(),
+                parents=[all_commits[0].oid] if all_commits else [],
+            )
+            all_commits.insert(0, synthetic)
 
         self._model.reload(all_commits, refs)
 

@@ -59,6 +59,14 @@ class GetWorkingTree:
         return self._reader.get_working_tree()
 
 
+class IsDirty:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> bool:
+        return self._reader.is_dirty()
+
+
 class GetCommitDetail:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader

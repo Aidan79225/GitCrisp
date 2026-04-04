@@ -165,6 +165,14 @@ class Pygit2Repository:
             files.append(FileStatus(path=path, status=status, delta=delta))
         return files
 
+    def is_dirty(self) -> bool:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True,
+            cwd=self._repo.workdir,
+        )
+        return bool(result.stdout.strip())
+
     # ----------------------------------------------------------------- helpers
 
     def _get_signature(self) -> pygit2.Signature:
