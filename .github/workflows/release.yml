@@ -15,19 +15,13 @@ jobs:
         include:
           - os: windows-latest
             artifact: GitStack-windows
-            archive_cmd: Compress-Archive -Path dist/GitStack/* -DestinationPath GitStack-windows.zip
             archive_ext: zip
-            shell: pwsh
           - os: macos-latest
             artifact: GitStack-macos
-            archive_cmd: tar -czf GitStack-macos.tar.gz -C dist GitStack
             archive_ext: tar.gz
-            shell: bash
           - os: ubuntu-latest
             artifact: GitStack-linux
-            archive_cmd: tar -czf GitStack-linux.tar.gz -C dist GitStack
             archive_ext: tar.gz
-            shell: bash
 
     runs-on: ${{ matrix.os }}
 
@@ -54,9 +48,14 @@ jobs:
       - name: Build with PyInstaller
         run: uv run pyinstaller GitStack.spec
 
-      - name: Archive build
-        run: ${{ matrix.archive_cmd }}
-        shell: ${{ matrix.shell }}
+      - name: Archive build (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist/GitStack/* -DestinationPath ${{ matrix.artifact }}.zip
+        shell: pwsh
+
+      - name: Archive build (Unix)
+        if: runner.os != 'Windows'
+        run: tar -czf ${{ matrix.artifact }}.tar.gz -C dist GitStack
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
