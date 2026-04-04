@@ -13,7 +13,8 @@
       "Bash(.venv/Scripts/python:*)",
       "Bash(python -m pytest tests/domain/ -v)",
       "Bash(python -m pytest tests/domain/test_ports.py -v --tb=short)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/pytest tests/infrastructure/test_repo_store.py -v)"
     ]
   }
 }
