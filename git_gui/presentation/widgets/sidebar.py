@@ -2,13 +2,31 @@
 from __future__ import annotations
 import threading
 from PySide6.QtCore import QObject, QSize, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QStandardItem, QStandardItemModel
-from PySide6.QtWidgets import QMenu, QTreeView, QVBoxLayout, QWidget
+from PySide6.QtGui import QBrush, QColor, QPainter, QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import (
+    QMenu, QStyledItemDelegate, QStyleOptionViewItem, QTreeView,
+    QVBoxLayout, QWidget,
+)
 from git_gui.domain.entities import Branch, Stash
 from git_gui.presentation.bus import CommandBus, QueryBus
 
 _HEAD_BG = QColor("#264f78")
 _ROW_HEIGHT = 28
+_IS_HEAD_ROLE = Qt.UserRole + 2
+
+
+class _BranchDelegate(QStyledItemDelegate):
+    """Paints full-row blue background for HEAD branch."""
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        if index.data(_IS_HEAD_ROLE):
+            painter.save()
+            # Fill from the tree view's left edge to the full width
+            full_rect = option.rect
+            full_rect.setX(0)
+            painter.fillRect(full_rect, _HEAD_BG)
+            painter.restore()
+        super().paint(painter, option, index)
 
 
 class _LoadSignals(QObject):
@@ -39,6 +57,7 @@ class SidebarWidget(QWidget):
 
         self._model = QStandardItemModel()
         self._tree.setModel(self._model)
+        self._tree.setItemDelegate(_BranchDelegate(self._tree))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -86,7 +105,7 @@ class SidebarWidget(QWidget):
             child.setData("branch", Qt.UserRole + 1)
             child.setSizeHint(QSize(0, _ROW_HEIGHT))
             if b.is_head:
-                child.setBackground(QBrush(_HEAD_BG))
+                child.setData(True, _IS_HEAD_ROLE)
             local_header.appendRow(child)
         self._model.appendRow(local_header)
 
