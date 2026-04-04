@@ -11,7 +11,7 @@ a = Analysis(
     datas=[
         ('arts', 'arts'),
     ],
-    hiddenimports=[],
+    hiddenimports=['_cffi_backend'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
