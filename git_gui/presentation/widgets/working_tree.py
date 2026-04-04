@@ -71,6 +71,7 @@ class WorkingTreeWidget(QWidget):
     reload_requested = Signal()
     commit_completed = Signal(str)   # emits first line of commit message
     commit_failed = Signal(str)      # emits error reason
+    working_tree_empty = Signal()    # emitted when reload finds no changes
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -159,6 +160,8 @@ class WorkingTreeWidget(QWidget):
             return
         self._file_model.reload(files, partial)
         self._hunk_diff.clear()
+        if not files:
+            self.working_tree_empty.emit()
 
     def _on_file_selected(self, current, previous) -> None:
         if not current.isValid():
