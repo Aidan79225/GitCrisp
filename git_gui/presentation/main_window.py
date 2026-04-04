@@ -14,6 +14,7 @@ from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
+from git_gui.presentation.widgets.clone_dialog import CloneDialog
 from git_gui.presentation.widgets.repo_list import RepoListWidget
 from git_gui.presentation.widgets.sidebar import SidebarWidget
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
@@ -125,6 +126,7 @@ class MainWindow(QMainWindow):
         self._repo_list.repo_open_requested.connect(self._on_repo_open)
         self._repo_list.repo_close_requested.connect(self._on_repo_close)
         self._repo_list.repo_remove_recent_requested.connect(self._on_repo_remove_recent)
+        self._repo_list.clone_requested.connect(self._on_clone_requested)
 
         if self._queries is not None:
             self._reload()
@@ -308,6 +310,17 @@ class MainWindow(QMainWindow):
         self._repo_store.remove_recent(path)
         self._repo_store.save()
         self._repo_list.reload()
+
+    def _on_clone_requested(self) -> None:
+        dialog = CloneDialog(self)
+        dialog.clone_completed.connect(self._on_clone_completed)
+        dialog.exec()
+
+    def _on_clone_completed(self, path: str) -> None:
+        self._repo_store.add_open(path)
+        self._repo_store.save()
+        self._switch_repo(path)
+        self._log_panel.log(f"Cloned repository: {path}")
 
     def _get_current_branch(self) -> str | None:
         if self._queries is None:
