@@ -114,7 +114,6 @@ class GraphWidget(QWidget):
         header = self._view.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Fixed)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setMinimumSectionSize(250)
         self._view.setColumnWidth(0, LANE_W)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
 
@@ -221,6 +220,8 @@ class GraphWidget(QWidget):
             last = self._model.rowCount() - 1
         return first, last
 
+    _INFO_MIN_W = 250
+
     def _update_column_widths(self) -> None:
         if self._model.rowCount() == 0:
             return
@@ -233,6 +234,10 @@ class GraphWidget(QWidget):
             default=1,
         )
         graph_w = max_lanes * LANE_W + LANE_W
+        # Cap graph column so info column keeps at least _INFO_MIN_W
+        max_graph_w = self._view.viewport().width() - self._INFO_MIN_W
+        if max_graph_w > 0:
+            graph_w = min(graph_w, max_graph_w)
         self._view.setColumnWidth(0, graph_w)
 
     def _on_scroll(self, value: int) -> None:
