@@ -349,28 +349,25 @@ class Pygit2Repository:
         rebase.finish(self._get_signature())
 
     def push(self, remote: str, branch: str) -> None:
-        subprocess.run(
-            ["git", "push", remote, branch],
-            cwd=self._repo.workdir, check=True, capture_output=True,
-        )
+        self._run_git("push", remote, branch)
 
     def pull(self, remote: str, branch: str) -> None:
-        subprocess.run(
-            ["git", "pull", "--rebase", remote, branch],
-            cwd=self._repo.workdir, check=True, capture_output=True,
-        )
+        self._run_git("pull", "--rebase", remote, branch)
 
     def fetch(self, remote: str) -> None:
-        subprocess.run(
-            ["git", "fetch", remote],
-            cwd=self._repo.workdir, check=True, capture_output=True,
-        )
+        self._run_git("fetch", remote)
 
     def fetch_all_prune(self) -> None:
-        subprocess.run(
-            ["git", "fetch", "--all", "--prune"],
-            cwd=self._repo.workdir, check=True, capture_output=True,
+        self._run_git("fetch", "--all", "--prune")
+
+    def _run_git(self, *args: str) -> None:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=self._repo.workdir, capture_output=True, text=True,
         )
+        if result.returncode != 0:
+            msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+            raise RuntimeError(msg)
 
     def stash(self, message: str) -> None:
         sig = self._get_signature()
