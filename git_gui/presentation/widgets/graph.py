@@ -145,6 +145,8 @@ class GraphWidget(QWidget):
         layout.addLayout(header_bar)
         layout.addWidget(self._view)
 
+        self.setMinimumWidth(300)
+
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
         if queries is None:
