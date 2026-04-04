@@ -58,6 +58,13 @@ class GraphWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._view)
 
+    def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
+        self._queries = queries
+        if queries is None:
+            self._model.reload([], {})
+        else:
+            self.reload()
+
     def reload(self) -> None:
         commits = self._queries.get_commit_graph.execute(limit=PAGE_SIZE)
         branches = self._queries.get_branches.execute()

@@ -126,6 +126,15 @@ class WorkingTreeWidget(QWidget):
         self._file_model.files_changed.connect(self._on_files_changed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
 
+    def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
+        self._queries = queries
+        self._commands = commands
+        self._file_model.set_commands(commands)
+        self._hunk_diff.set_buses(queries, commands)
+        if queries is None:
+            self._file_model.reload([], set())
+            self._hunk_diff.clear()
+
     def reload(self) -> None:
         files = self._queries.get_working_tree.execute()
         partial = self._detect_partial(files)

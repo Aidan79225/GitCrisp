@@ -32,6 +32,14 @@ class SidebarWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._tree)
 
+    def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
+        self._queries = queries
+        self._commands = commands
+        if queries is None:
+            self._model.clear()
+        else:
+            self.reload()
+
     def reload(self) -> None:
         self._model.clear()
         branches = self._queries.get_branches.execute()

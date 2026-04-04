@@ -47,6 +47,12 @@ class HunkDiffWidget(QWidget):
         self._blk_removed.setBackground(QColor(248, 81, 73, 80))
         self._blk_default = QTextBlockFormat()
 
+    def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
+        self._queries = queries
+        self._commands = commands
+        if queries is None:
+            self.clear()
+
     def load_file(self, path: str) -> None:
         self._current_path = path
         self._render()
