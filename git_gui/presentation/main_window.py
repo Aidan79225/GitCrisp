@@ -136,7 +136,12 @@ class MainWindow(QMainWindow):
         self._reload()
 
     def _switch_repo(self, path: str) -> None:
-        repo = Pygit2Repository(path)
+        try:
+            repo = Pygit2Repository(path)
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Cannot open {path}: {e}")
+            return
         self._queries = QueryBus.from_reader(repo)
         self._commands = CommandBus.from_writer(repo)
         self._sidebar.set_buses(self._queries, self._commands)
