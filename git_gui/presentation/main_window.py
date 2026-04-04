@@ -4,7 +4,8 @@ import threading
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QMainWindow, QSplitter, QStackedWidget, QToolBar, QVBoxLayout, QWidget,
+    QInputDialog, QMainWindow, QSplitter, QStackedWidget, QToolBar,
+    QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import WORKING_TREE_OID
 from git_gui.domain.ports import IRepoStore
@@ -113,6 +114,11 @@ class MainWindow(QMainWindow):
         self._sidebar.stash_apply_requested.connect(self._on_stash_apply)
         self._sidebar.stash_drop_requested.connect(self._on_stash_drop)
 
+        # Graph context menu signals
+        self._graph.create_branch_requested.connect(self._on_create_branch)
+        self._graph.checkout_commit_requested.connect(self._on_checkout_commit)
+        self._graph.checkout_branch_requested.connect(self._on_checkout_branch)
+
         # Repo list signals
         self._repo_list.repo_switch_requested.connect(self._switch_repo)
         self._repo_list.repo_open_requested.connect(self._on_repo_open)
@@ -192,6 +198,42 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Stash drop @{{{index}}} — ERROR: {e}")
+        self._reload()
+
+    def _on_create_branch(self, oid: str) -> None:
+        name, ok = QInputDialog.getText(self, "Create Branch", "Branch name:")
+        if not ok or not name.strip():
+            return
+        try:
+            self._commands.create_branch.execute(name.strip(), oid)
+            self._log_panel.log(f"Created branch: {name.strip()} at {oid[:8]}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Create branch — ERROR: {e}")
+        self._reload()
+
+    def _on_checkout_commit(self, oid: str) -> None:
+        try:
+            self._commands.checkout_commit.execute(oid)
+            self._log_panel.log(f"Checkout (detached HEAD): {oid[:8]}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Checkout {oid[:8]} — ERROR: {e}")
+        self._reload()
+
+    def _on_checkout_branch(self, name: str) -> None:
+        try:
+            if "/" in name:
+                # Remote branch — create local tracking branch
+                self._commands.checkout_remote_branch.execute(name)
+                local_name = name.split("/", 1)[1]
+                self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
+            else:
+                self._commands.checkout.execute(name)
+                self._log_panel.log(f"Checkout branch: {name}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Checkout {name} — ERROR: {e}")
         self._reload()
 
     def _switch_repo(self, path: str) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime
 from PySide6.QtCore import QModelIndex, QObject, Qt, Signal
-from PySide6.QtWidgets import QHeaderView, QTableView, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHeaderView, QMenu, QTableView, QVBoxLayout, QWidget
 from git_gui.domain.entities import Branch, Commit, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import GraphModel
@@ -23,6 +23,9 @@ class _LoadSignals(QObject):
 
 class GraphWidget(QWidget):
     commit_selected = Signal(str)  # emits oid (or WORKING_TREE_OID)
+    create_branch_requested = Signal(str)       # oid
+    checkout_commit_requested = Signal(str)      # oid
+    checkout_branch_requested = Signal(str)      # branch name (local or remote)
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -60,6 +63,8 @@ class GraphWidget(QWidget):
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
 
         self._view.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        self._view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._view.customContextMenuRequested.connect(self._show_context_menu)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -186,6 +191,38 @@ class GraphWidget(QWidget):
             refs.setdefault(b.target_oid, []).append(b.name)
 
         self._model.append(more, refs)
+
+    def _show_context_menu(self, pos) -> None:
+        index = self._view.indexAt(pos)
+        if not index.isValid():
+            return
+        oid = self._model.data(self._model.index(index.row(), 0), Qt.UserRole)
+        if not oid or oid == WORKING_TREE_OID:
+            return
+
+        info = self._model.data(self._model.index(index.row(), 1), Qt.UserRole + 1)
+        branch_names = info.branch_names if info else []
+
+        menu = QMenu(self)
+
+        menu.addAction("Create Branch").triggered.connect(
+            lambda: self.create_branch_requested.emit(oid))
+        menu.addAction("Checkout (detached HEAD)").triggered.connect(
+            lambda: self.checkout_commit_requested.emit(oid))
+
+        if branch_names:
+            menu.addSeparator()
+            if len(branch_names) == 1:
+                name = branch_names[0]
+                menu.addAction(f"Checkout branch: {name}").triggered.connect(
+                    lambda: self.checkout_branch_requested.emit(name))
+            else:
+                sub = menu.addMenu("Checkout branch")
+                for name in branch_names:
+                    sub.addAction(name).triggered.connect(
+                        lambda _checked=False, n=name: self.checkout_branch_requested.emit(n))
+
+        menu.exec(self._view.viewport().mapToGlobal(pos))
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)

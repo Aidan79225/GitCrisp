@@ -9,7 +9,7 @@ from git_gui.application.queries import (
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
-    Checkout, CreateBranch, DeleteBranch,
+    Checkout, CheckoutCommit, CheckoutRemoteBranch, CreateBranch, DeleteBranch,
     Merge, Rebase, Push, Pull, Fetch,
     Stash, PopStash, ApplyStash, DropStash,
     StageHunk, UnstageHunk, FetchAllPrune,
@@ -49,6 +49,8 @@ class CommandBus:
     unstage_files: UnstageFiles
     create_commit: CreateCommit
     checkout: Checkout
+    checkout_commit: CheckoutCommit
+    checkout_remote_branch: CheckoutRemoteBranch
     create_branch: CreateBranch
     delete_branch: DeleteBranch
     merge: Merge
@@ -71,6 +73,8 @@ class CommandBus:
             unstage_files=UnstageFiles(writer),
             create_commit=CreateCommit(writer),
             checkout=Checkout(writer),
+            checkout_commit=CheckoutCommit(writer),
+            checkout_remote_branch=CheckoutRemoteBranch(writer),
             create_branch=CreateBranch(writer),
             delete_branch=DeleteBranch(writer),
             merge=Merge(writer),
