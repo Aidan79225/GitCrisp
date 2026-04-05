@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
 from git_gui.application.queries import (
-    GetCommitGraph, GetBranches, GetStashes,
+    GetCommitGraph, GetBranches, GetStashes, GetTags,
     GetCommitFiles, GetFileDiff, GetStagedDiff, GetWorkingTree,
     GetCommitDetail, IsDirty, GetHeadOid,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
     Checkout, CheckoutCommit, CheckoutRemoteBranch, CreateBranch, DeleteBranch,
+    CreateTag, DeleteTag, PushTag,
     Merge, Rebase, Push, Pull, Fetch,
     Stash, PopStash, ApplyStash, DropStash,
     StageHunk, UnstageHunk, FetchAllPrune,
@@ -21,6 +22,7 @@ class QueryBus:
     get_commit_graph: GetCommitGraph
     get_branches: GetBranches
     get_stashes: GetStashes
+    get_tags: GetTags
     get_commit_files: GetCommitFiles
     get_file_diff: GetFileDiff
     get_staged_diff: GetStagedDiff
@@ -35,6 +37,7 @@ class QueryBus:
             get_commit_graph=GetCommitGraph(reader),
             get_branches=GetBranches(reader),
             get_stashes=GetStashes(reader),
+            get_tags=GetTags(reader),
             get_commit_files=GetCommitFiles(reader),
             get_file_diff=GetFileDiff(reader),
             get_staged_diff=GetStagedDiff(reader),
@@ -55,6 +58,9 @@ class CommandBus:
     checkout_remote_branch: CheckoutRemoteBranch
     create_branch: CreateBranch
     delete_branch: DeleteBranch
+    create_tag: CreateTag
+    delete_tag: DeleteTag
+    push_tag: PushTag
     merge: Merge
     rebase: Rebase
     push: Push
@@ -79,6 +85,9 @@ class CommandBus:
             checkout_remote_branch=CheckoutRemoteBranch(writer),
             create_branch=CreateBranch(writer),
             delete_branch=DeleteBranch(writer),
+            create_tag=CreateTag(writer),
+            delete_tag=DeleteTag(writer),
+            push_tag=PushTag(writer),
             merge=Merge(writer),
             rebase=Rebase(writer),
             push=Push(writer),

@@ -67,6 +67,30 @@ class DeleteBranch:
         self._writer.delete_branch(name)
 
 
+class CreateTag:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, oid: str, message: str | None = None) -> None:
+        self._writer.create_tag(name, oid, message)
+
+
+class DeleteTag:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str) -> None:
+        self._writer.delete_tag(name)
+
+
+class PushTag:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, name: str) -> None:
+        self._writer.push_tag(remote, name)
+
+
 class Merge:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer

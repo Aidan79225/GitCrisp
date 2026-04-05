@@ -1,5 +1,5 @@
 from __future__ import annotations
-from git_gui.domain.entities import Branch, Commit, FileStatus, Hunk, Stash
+from git_gui.domain.entities import Branch, Commit, FileStatus, Hunk, Stash, Tag
 from git_gui.domain.ports import IRepositoryReader
 
 
@@ -25,6 +25,14 @@ class GetStashes:
 
     def execute(self) -> list[Stash]:
         return self._reader.get_stashes()
+
+
+class GetTags:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[Tag]:
+        return self._reader.get_tags()
 
 
 class GetCommitFiles:
