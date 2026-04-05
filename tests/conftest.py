@@ -7,6 +7,8 @@ from pathlib import Path
 def repo_path(tmp_path) -> Path:
     """Creates a temp git repo with one commit on 'master'."""
     repo = pygit2.init_repository(str(tmp_path))
+    repo.config["user.name"] = "Test User"
+    repo.config["user.email"] = "test@example.com"
     sig = pygit2.Signature("Test User", "test@example.com")
     (tmp_path / "README.md").write_text("# Test Repo\n")
     repo.index.add("README.md")

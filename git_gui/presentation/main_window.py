@@ -35,7 +35,7 @@ class MainWindow(QMainWindow):
     def __init__(self, queries: QueryBus | None, commands: CommandBus | None,
                  repo_store: IRepoStore, repo_path: str | None = None, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"GitStack — {repo_path}" if repo_path else "GitStack")
+        self.setWindowTitle(f"GitCrisp — {repo_path}" if repo_path else "GitCrisp")
         self.resize(1400, 800)
 
         self._queries = queries
@@ -312,7 +312,7 @@ class MainWindow(QMainWindow):
         self._repo_store.set_active(path)
         self._repo_store.save()
         self._repo_list.reload()
-        self.setWindowTitle(f"GitStack — {path}")
+        self.setWindowTitle(f"GitCrisp — {path}")
         self._right_stack.setCurrentIndex(0)
 
     def _on_repo_failed(self, path: str, error: str) -> None:
@@ -327,7 +327,7 @@ class MainWindow(QMainWindow):
         self._diff.set_buses(None, None)
         self._working_tree.set_buses(None, None)
         self._repo_list.reload()
-        self.setWindowTitle("GitStack")
+        self.setWindowTitle("GitCrisp")
 
     def _on_repo_open(self, path: str) -> None:
         self._repo_store.add_open(path)

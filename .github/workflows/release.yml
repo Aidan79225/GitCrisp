@@ -14,19 +14,25 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: GitStack-windows
-            archive_ext: zip
+            artifact: GitCrisp-windows
+            archive_ext: exe
           - os: macos-latest
-            artifact: GitStack-macos
-            archive_ext: tar.gz
+            artifact: GitCrisp-macos
+            archive_ext: dmg
           - os: ubuntu-latest
-            artifact: GitStack-linux
+            artifact: GitCrisp-linux
             archive_ext: tar.gz
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Qt dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon0 libxcb-cursor0 xvfb
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -39,23 +45,135 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest -v
+
       - name: Run tests
+        if: runner.os != 'Linux'
         run: uv run pytest -v
 
       - name: Install PyInstaller
         run: uv pip install pyinstaller
 
       - name: Build with PyInstaller
-        run: uv run pyinstaller GitStack.spec
+        run: uv run pyinstaller GitCrisp.spec
 
-      - name: Archive build (Windows)
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          MACOS_KEYCHAIN_PWD: ${{ secrets.MACOS_KEYCHAIN_PWD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
+
+          security create-keychain -p "$MACOS_KEYCHAIN_PWD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PWD" $KEYCHAIN_PATH
+
+          security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PWD" \
+            -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$MACOS_KEYCHAIN_PWD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Sign macOS app
+        if: runner.os == 'macOS'
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning $RUNNER_TEMP/app-signing.keychain-db | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          if [ -z "$IDENTITY" ]; then echo "No signing identity found" && exit 1; fi
+          echo "Signing with: $IDENTITY"
+          echo "SIGNING_IDENTITY=$IDENTITY" >> $GITHUB_ENV
+
+          codesign --force --deep --options runtime \
+            --sign "$IDENTITY" \
+            --entitlements entitlements.plist \
+            dist/GitCrisp.app
+
+          echo "Verifying signature..."
+          codesign --verify --deep --strict dist/GitCrisp.app
+
+      - name: Notarize macOS app
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent dist/GitCrisp.app dist/GitCrisp.zip
+
+          xcrun notarytool submit dist/GitCrisp.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          xcrun stapler staple dist/GitCrisp.app
+
+      - name: Create macOS DMG
+        if: runner.os == 'macOS'
+        run: |
+          brew install create-dmg
+
+          create-dmg \
+            --volname "GitCrisp" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "GitCrisp.app" 175 190 \
+            --app-drop-link 425 190 \
+            --no-internet-enable \
+            "GitCrisp-macos.dmg" \
+            "dist/GitCrisp.app"
+
+          codesign --force --sign "$SIGNING_IDENTITY" GitCrisp-macos.dmg
+
+      - name: Install Inno Setup
         if: runner.os == 'Windows'
-        run: Compress-Archive -Path dist/GitStack/* -DestinationPath ${{ matrix.artifact }}.zip
+        run: choco install innosetup --yes --no-progress
         shell: pwsh
 
-      - name: Archive build (Unix)
-        if: runner.os != 'Windows'
-        run: tar -czf ${{ matrix.artifact }}.tar.gz -C dist GitStack
+      - name: Build installer (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $tag = "${{ github.ref_name }}" -replace '^v', ''
+          $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source
+          & $iscc "/DAppVersion=$tag" installer.iss
+          Move-Item GitCrisp-windows-setup.exe "${{ matrix.artifact }}.exe"
+        shell: pwsh
+
+      - name: Sign installer (Windows)
+        if: runner.os == 'Windows' && vars.SIGNPATH_SIGNING_POLICY_SLUG != '' && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: "GitCrisp"
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          input-artifact-path: "${{ matrix.artifact }}.exe"
+          output-artifact-path: "${{ matrix.artifact }}.exe"
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 600
+
+      - name: Archive build (macOS)
+        if: runner.os == 'macOS'
+        run: mv GitCrisp-macos.dmg ${{ matrix.artifact }}.dmg
+
+      - name: Archive build (Linux)
+        if: runner.os == 'Linux'
+        run: tar -czf ${{ matrix.artifact }}.tar.gz -C dist GitCrisp
+
+      - name: Cleanup macOS keychain
+        if: always() && runner.os == 'macOS'
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
+          rm -f $RUNNER_TEMP/build_certificate.p12
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -81,8 +199,8 @@ jobs:
         run: |
           tag="${GITHUB_REF#refs/tags/}"
           gh release create "$tag" \
-            --title "GitStack $tag" \
+            --title "GitCrisp $tag" \
             --generate-notes \
-            artifacts/GitStack-windows/GitStack-windows.zip \
-            artifacts/GitStack-macos/GitStack-macos.tar.gz \
-            artifacts/GitStack-linux/GitStack-linux.tar.gz
+            artifacts/GitCrisp-windows/GitCrisp-windows.exe \
+            artifacts/GitCrisp-macos/GitCrisp-macos.dmg \
+            artifacts/GitCrisp-linux/GitCrisp-linux.tar.gz

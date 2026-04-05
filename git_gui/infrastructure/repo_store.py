@@ -9,7 +9,7 @@ class JsonRepoStore:
     """Persists open/recent repo lists to a JSON file."""
 
     def __init__(self, path: Path | None = None) -> None:
-        self._path = path or Path.home() / ".gitstack" / "repos.json"
+        self._path = path or Path.home() / ".gitcrisp" / "repos.json"
         self._open: list[str] = []
         self._recent: list[str] = []
         self._active: str | None = None

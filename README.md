@@ -1,10 +1,10 @@
-# GitStack
+# GitCrisp
 
-A desktop Git GUI client built with Python and PySide6 (Qt), designed for everyday Git workflows. GitStack provides a visual commit graph, per-hunk staging, multi-repository management, and streamlined remote operations — while deliberately leaving conflict-heavy operations to the CLI where they belong.
+A desktop Git GUI client built with Python and PySide6 (Qt), designed for everyday Git workflows. GitCrisp provides a visual commit graph, per-hunk staging, multi-repository management, and streamlined remote operations — while deliberately leaving conflict-heavy operations to the CLI where they belong.
 
 ## Screenshot
 
-*(coming soon)*
+![GitCrisp](docs/screenshot/basic-view.png)
 
 ## Features
 
@@ -41,7 +41,7 @@ A desktop Git GUI client built with Python and PySide6 (Qt), designed for everyd
 
 ### Repository Management
 - Multi-repo switcher with open and recent repository lists
-- Persistent repo state stored in `~/.gitstack/repos.json`
+- Persistent repo state stored in `~/.gitcrisp/repos.json`
 - Open repositories from the file system or clone from URL
 
 ### Keyboard Shortcuts
@@ -51,7 +51,7 @@ A desktop Git GUI client built with Python and PySide6 (Qt), designed for everyd
 
 ## Architecture
 
-GitStack follows **Clean Architecture** with strict layer separation:
+GitCrisp follows **Clean Architecture** with strict layer separation:
 
 ```
 git_gui/
@@ -82,7 +82,7 @@ git_gui/
 
 ## Deliberately Omitted Features
 
-Some Git operations are intentionally left out of GitStack. This is not a limitation — it is a design choice.
+Some Git operations are intentionally left out of GitCrisp. This is not a limitation — it is a design choice.
 
 ### Merge
 Branch merging in a team workflow is best done through **pull requests** on platforms like GitHub or GitLab, where code review, CI checks, and approval gates provide a safer and more traceable process than a local merge button.
@@ -100,8 +100,8 @@ These operations frequently involve **merge conflicts** that require manual reso
 
 ```bash
 # Clone the repository
-git clone https://github.com/Aidan79225/GitStack.git
-cd GitStack
+git clone https://github.com/Aidan79225/GitCrisp.git
+cd GitCrisp
 
 # Install dependencies (using uv)
 uv sync
