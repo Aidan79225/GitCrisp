@@ -47,3 +47,15 @@ coll = COLLECT(
     upx_exclude=[],
     name='GitStack',
 )
+
+app = BUNDLE(
+    coll,
+    name='GitStack.app',
+    icon=None,
+    bundle_identifier='com.gitstack.app',
+    info_plist={
+        'CFBundleShortVersionString': '0.1.0',
+        'NSHighResolutionCapable': True,
+        'LSMinimumSystemVersion': '12.0',
+    },
+)
