@@ -3,6 +3,7 @@
 #endif
 
 [Setup]
+AppId={{91c943cb-d556-4427-a45b-08512cf9a37b}
 AppName=GitStack
 AppVersion={#AppVersion}
 AppPublisher=Aidan Wang
