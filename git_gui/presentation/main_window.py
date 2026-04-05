@@ -34,7 +34,7 @@ class _RepoReadySignals(QObject):
 
 class MainWindow(QMainWindow):
     def __init__(self, queries: QueryBus | None, commands: CommandBus | None,
-                 repo_store: IRepoStore, repo_path: str | None = None, parent=None) -> None:
+                 repo_store: IRepoStore, remote_tag_cache=None, repo_path: str | None = None, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"GitCrisp — {repo_path}" if repo_path else "GitCrisp")
         self.resize(1400, 800)
@@ -42,7 +42,9 @@ class MainWindow(QMainWindow):
         self._queries = queries
         self._commands = commands
         self._repo_store = repo_store
-        self._sidebar = SidebarWidget(queries, commands)
+        self._remote_tag_cache = remote_tag_cache
+        self._repo_path = repo_path
+        self._sidebar = SidebarWidget(queries, commands, remote_tag_cache, repo_path)
         self._graph = GraphWidget(queries, commands)
         self._diff = DiffWidget(queries, commands)
         self._working_tree = WorkingTreeWidget(queries, commands)
@@ -101,8 +103,7 @@ class MainWindow(QMainWindow):
         self._sidebar.branch_merge_requested.connect(self._on_merge)
         self._sidebar.branch_rebase_requested.connect(self._on_rebase)
         self._sidebar.branch_delete_requested.connect(self._on_delete_branch)
-        self._sidebar.fetch_requested.connect(
-            lambda r: self._run_remote_op(f"Fetch {r}", lambda: self._commands.fetch.execute(r)))
+        self._sidebar.fetch_requested.connect(self._on_fetch_single)
         self._sidebar.branch_push_requested.connect(
             lambda b: self._run_remote_op(f"Push origin/{b}", lambda: self._commands.push.execute("origin", b)))
         self._sidebar.stash_pop_requested.connect(self._on_stash_pop)
@@ -125,8 +126,7 @@ class MainWindow(QMainWindow):
         # Sidebar tag signals
         self._sidebar.tag_clicked.connect(self._graph.reload_with_extra_tip)
         self._sidebar.tag_delete_requested.connect(self._on_delete_tag)
-        self._sidebar.tag_push_requested.connect(
-            lambda name: self._run_remote_op(f"Push tag {name}", lambda: self._commands.push_tag.execute("origin", name)))
+        self._sidebar.tag_push_requested.connect(self._on_push_tag)
 
         # Repo list signals
         self._repo_list.repo_switch_requested.connect(self._switch_repo)
@@ -343,6 +343,8 @@ class MainWindow(QMainWindow):
         self._queries = queries
         self._commands = commands
         self._sidebar.set_buses(self._queries, self._commands)
+        self._repo_path = path
+        self._sidebar.set_repo_path(path)
         self._graph.set_buses(self._queries, self._commands)
         self._diff.set_buses(self._queries, self._commands)
         self._working_tree.set_buses(self._queries, self._commands)
@@ -455,7 +457,30 @@ class MainWindow(QMainWindow):
             )
 
     def _on_fetch_all_prune(self) -> None:
-        self._run_remote_op(
-            "Fetch --all --prune",
-            lambda: self._commands.fetch_all_prune.execute(),
-        )
+        def _fn():
+            self._commands.fetch_all_prune.execute()
+            self._update_remote_tag_cache("origin")
+        self._run_remote_op("Fetch --all --prune", _fn)
+
+    def _on_fetch_single(self, remote: str) -> None:
+        def _fn():
+            self._commands.fetch.execute(remote)
+            self._update_remote_tag_cache(remote)
+        self._run_remote_op(f"Fetch {remote}", _fn)
+
+    def _on_push_tag(self, name: str) -> None:
+        def _fn():
+            self._commands.push_tag.execute("origin", name)
+            self._update_remote_tag_cache("origin")
+        self._run_remote_op(f"Push tag {name}", _fn)
+
+    def _update_remote_tag_cache(self, remote: str) -> None:
+        if not self._remote_tag_cache or not self._repo_path or not self._queries:
+            return
+        try:
+            remote_tags = self._queries.get_remote_tags.execute(remote)
+            data = self._remote_tag_cache.load(self._repo_path)
+            data[remote] = remote_tags
+            self._remote_tag_cache.save(self._repo_path, data)
+        except Exception:
+            pass  # cache update failure is non-critical

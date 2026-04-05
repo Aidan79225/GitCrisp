@@ -35,6 +35,14 @@ class GetTags:
         return self._reader.get_tags()
 
 
+class GetRemoteTags:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, remote: str) -> list[str]:
+        return self._reader.get_remote_tags(remote)
+
+
 class GetCommitFiles:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
