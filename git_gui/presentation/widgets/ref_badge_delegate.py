@@ -12,6 +12,7 @@ BADGE_GAP = 4      # gap between consecutive badges, and after last badge
 COLOR_HEAD = "#238636"    # green — HEAD / current branch
 COLOR_REMOTE = "#1f4287"  # dark blue — remote-tracking branch (contains "/")
 COLOR_LOCAL = "#0d6efd"   # blue — local branch
+COLOR_TAG = "#a371f7"     # purple — tag
 
 
 def _badge_color(name: str, head_branch: str | None = None) -> QColor:
@@ -19,9 +20,18 @@ def _badge_color(name: str, head_branch: str | None = None) -> QColor:
         return QColor(COLOR_HEAD)
     if head_branch and name == head_branch:
         return QColor(COLOR_HEAD)
+    if name.startswith("tag:"):
+        return QColor(COLOR_TAG)
     if "/" in name:
         return QColor(COLOR_REMOTE)
     return QColor(COLOR_LOCAL)
+
+
+def _badge_display_name(name: str) -> str:
+    """Strip 'tag:' prefix for display."""
+    if name.startswith("tag:"):
+        return name[4:]
+    return name
 
 
 class RefBadgeDelegate(QStyledItemDelegate):
@@ -39,7 +49,8 @@ class RefBadgeDelegate(QStyledItemDelegate):
         badge_h = fm.height() + BADGE_V_PAD * 2
 
         for name in branch_names:
-            badge_w = fm.horizontalAdvance(name) + BADGE_H_PAD * 2
+            display = _badge_display_name(name)
+            badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
             badge_rect = QRect(x, cy - badge_h // 2, badge_w, badge_h)
 
             painter.setBrush(QBrush(_badge_color(name)))
@@ -47,7 +58,7 @@ class RefBadgeDelegate(QStyledItemDelegate):
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
 
             painter.setPen(QColor("white"))
-            painter.drawText(badge_rect, Qt.AlignCenter, name)
+            painter.drawText(badge_rect, Qt.AlignCenter, display)
 
             x += badge_w + BADGE_GAP
 

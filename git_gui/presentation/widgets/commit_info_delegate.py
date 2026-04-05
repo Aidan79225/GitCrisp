@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QRect, QSize
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
-from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
+from git_gui.presentation.widgets.ref_badge_delegate import _badge_color, _badge_display_name
 
 SELECTION_COLOR = "#264f78"   # dark blue highlight for selected row
 DIVIDER_COLOR = "#30363d"     # subtle separator between rows
@@ -26,7 +26,8 @@ def _badge_line_count(fm: QFontMetrics, branch_names: list[str],
     x = 0
     max_x = first_line_width
     for name in branch_names:
-        badge_w = fm.horizontalAdvance(name) + BADGE_H_PAD * 2
+        display = _badge_display_name(name)
+        badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
         if x > 0 and x + badge_w > max_x:
             lines += 1
             x = 0
@@ -94,7 +95,8 @@ class CommitInfoDelegate(QStyledItemDelegate):
         x = 0
 
         for name in info.branch_names:
-            badge_w = fm.horizontalAdvance(name) + BADGE_H_PAD * 2
+            display = _badge_display_name(name)
+            badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
             max_x = first_line_max_x if badge_line == 0 else cell_w
             if x > 0 and x + badge_w > max_x:
                 badge_line += 1
@@ -107,7 +109,7 @@ class CommitInfoDelegate(QStyledItemDelegate):
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
             painter.setPen(QColor("white"))
-            painter.drawText(badge_rect, Qt.AlignCenter, name)
+            painter.drawText(badge_rect, Qt.AlignCenter, display)
             x += badge_w + BADGE_GAP
 
         # Hash right-aligned on first badge line

@@ -5,7 +5,7 @@ from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import QWidget
 from git_gui.domain.entities import Commit
 from git_gui.presentation.widgets.ref_badge_delegate import (
-    _badge_color, BADGE_RADIUS, BADGE_H_PAD, BADGE_V_PAD, BADGE_GAP,
+    _badge_color, _badge_display_name, BADGE_RADIUS, BADGE_H_PAD, BADGE_V_PAD, BADGE_GAP,
 )
 
 MUTED = "#8b949e"
@@ -65,13 +65,14 @@ class CommitDetailWidget(QWidget):
         badge_h = line_h + BADGE_V_PAD * 2
         cy = y + line_h // 2
         for name in self._refs:
-            badge_w = fm.horizontalAdvance(name) + BADGE_H_PAD * 2
+            display = _badge_display_name(name)
+            badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
             badge_rect = QRect(x, cy - badge_h // 2, badge_w, badge_h)
             painter.setBrush(QBrush(_badge_color(name)))
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
             painter.setPen(QColor("white"))
-            painter.drawText(badge_rect, Qt.AlignCenter, name)
+            painter.drawText(badge_rect, Qt.AlignCenter, display)
             x += badge_w + BADGE_GAP
 
         # ── Line 3: Parent(s) ────────────────────────────────────────────────
