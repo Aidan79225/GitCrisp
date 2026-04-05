@@ -15,7 +15,7 @@ jobs:
         include:
           - os: windows-latest
             artifact: GitStack-windows
-            archive_ext: zip
+            archive_ext: exe
           - os: macos-latest
             artifact: GitStack-macos
             archive_ext: dmg
@@ -134,9 +134,17 @@ jobs:
 
           codesign --force --sign "$SIGNING_IDENTITY" GitStack-macos.dmg
 
-      - name: Archive build (Windows)
+      - name: Install Inno Setup
         if: runner.os == 'Windows'
-        run: Compress-Archive -Path dist/GitStack/* -DestinationPath ${{ matrix.artifact }}.zip
+        run: choco install innosetup --yes --no-progress
+        shell: pwsh
+
+      - name: Build installer (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $tag = "${{ github.ref_name }}" -replace '^v', ''
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=$tag installer.iss
+          Move-Item GitStack-windows-setup.exe "${{ matrix.artifact }}.exe"
         shell: pwsh
 
       - name: Archive build (macOS)
@@ -179,6 +187,6 @@ jobs:
           gh release create "$tag" \
             --title "GitStack $tag" \
             --generate-notes \
-            artifacts/GitStack-windows/GitStack-windows.zip \
+            artifacts/GitStack-windows/GitStack-windows.exe \
             artifacts/GitStack-macos/GitStack-macos.dmg \
             artifacts/GitStack-linux/GitStack-linux.tar.gz
