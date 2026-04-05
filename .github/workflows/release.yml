@@ -87,7 +87,9 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           IDENTITY=$(security find-identity -v -p codesigning $RUNNER_TEMP/app-signing.keychain-db | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          if [ -z "$IDENTITY" ]; then echo "No signing identity found" && exit 1; fi
           echo "Signing with: $IDENTITY"
+          echo "SIGNING_IDENTITY=$IDENTITY" >> $GITHUB_ENV
 
           codesign --force --deep --options runtime \
             --sign "$IDENTITY" \
@@ -130,8 +132,7 @@ jobs:
             "GitStack-macos.dmg" \
             "dist/GitStack.app"
 
-          IDENTITY=$(security find-identity -v -p codesigning $RUNNER_TEMP/app-signing.keychain-db | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
-          codesign --force --sign "$IDENTITY" GitStack-macos.dmg
+          codesign --force --sign "$SIGNING_IDENTITY" GitStack-macos.dmg
 
       - name: Archive build (Windows)
         if: runner.os == 'Windows'
@@ -148,7 +149,9 @@ jobs:
 
       - name: Cleanup macOS keychain
         if: always() && runner.os == 'macOS'
-        run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
+          rm -f $RUNNER_TEMP/build_certificate.p12
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
