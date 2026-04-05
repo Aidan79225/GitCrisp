@@ -149,7 +149,7 @@ jobs:
         shell: pwsh
 
       - name: Sign installer (Windows)
-        if: runner.os == 'Windows' && vars.SIGNPATH_SIGNING_POLICY_SLUG != ''
+        if: runner.os == 'Windows' && vars.SIGNPATH_SIGNING_POLICY_SLUG != '' && vars.SIGNPATH_ORGANIZATION_ID != ''
         uses: signpath/github-action-submit-signing-request@v1
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
