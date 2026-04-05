@@ -148,6 +148,19 @@ jobs:
           Move-Item GitStack-windows-setup.exe "${{ matrix.artifact }}.exe"
         shell: pwsh
 
+      - name: Sign installer (Windows)
+        if: runner.os == 'Windows' && vars.SIGNPATH_SIGNING_POLICY_SLUG != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: "GitStack"
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          input-artifact-path: "${{ matrix.artifact }}.exe"
+          output-artifact-path: "${{ matrix.artifact }}.exe"
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 600
+
       - name: Archive build (macOS)
         if: runner.os == 'macOS'
         run: mv GitStack-macos.dmg ${{ matrix.artifact }}.dmg
