@@ -7,7 +7,7 @@ import pygit2
 
 from git_gui.resources import subprocess_kwargs
 from git_gui.domain.entities import (
-    Branch, Commit, FileStatus, Hunk, Stash, WORKING_TREE_OID,
+    Branch, Commit, FileStatus, Hunk, Stash, Tag, WORKING_TREE_OID,
 )
 
 
@@ -185,6 +185,40 @@ class Pygit2Repository:
             if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
                 return _diff_to_hunks(patch)
         return []
+
+    def get_tags(self) -> list[Tag]:
+        tags: list[Tag] = []
+        for ref_name in self._repo.references:
+            if not ref_name.startswith("refs/tags/"):
+                continue
+            ref = self._repo.references[ref_name]
+            name = ref_name[len("refs/tags/"):]
+            target = self._repo.get(ref.target)
+            if isinstance(target, pygit2.Tag):
+                # Annotated tag — peel to get the commit OID
+                peeled = ref.peel(pygit2.Commit)
+                commit_oid = str(peeled.id)
+                ts = datetime.fromtimestamp(target.tagger.time, tz=timezone.utc) if target.tagger else None
+                tagger_str = f"{target.tagger.name} <{target.tagger.email}>" if target.tagger else None
+                tags.append(Tag(
+                    name=name,
+                    target_oid=commit_oid,
+                    is_annotated=True,
+                    message=target.message.strip() if target.message else None,
+                    tagger=tagger_str,
+                    timestamp=ts,
+                ))
+            else:
+                # Lightweight tag — target is a commit directly
+                tags.append(Tag(
+                    name=name,
+                    target_oid=str(ref.target),
+                    is_annotated=False,
+                    message=None,
+                    tagger=None,
+                    timestamp=None,
+                ))
+        return tags
 
     def get_working_tree(self) -> list[FileStatus]:
         files = []
@@ -377,6 +411,20 @@ class Pygit2Repository:
         if result.returncode != 0:
             msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
             raise RuntimeError(msg)
+
+    def create_tag(self, name: str, oid: str, message: str | None = None) -> None:
+        target = pygit2.Oid(hex=oid)
+        if message:
+            sig = self._get_signature()
+            self._repo.create_tag(name, target, pygit2.GIT_OBJECT_COMMIT, sig, message)
+        else:
+            self._repo.references.create(f"refs/tags/{name}", target)
+
+    def delete_tag(self, name: str) -> None:
+        self._repo.references.delete(f"refs/tags/{name}")
+
+    def push_tag(self, remote: str, name: str) -> None:
+        self._run_git("push", remote, f"refs/tags/{name}")
 
     def stash(self, message: str) -> None:
         sig = self._get_signature()

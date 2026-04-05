@@ -130,3 +130,33 @@ def test_get_commit_returns_commit(repo_impl):
     assert commit.oid == oid
     assert commit.message == "Initial commit"
     assert "Test User" in commit.author
+
+
+def test_get_tags_empty(repo_impl):
+    tags = repo_impl.get_tags()
+    assert tags == []
+
+
+def test_get_tags_lightweight(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    target = raw.head.target
+    raw.references.create("refs/tags/v1.0.0", target)
+    tags = repo_impl.get_tags()
+    assert len(tags) == 1
+    assert tags[0].name == "v1.0.0"
+    assert tags[0].target_oid == str(target)
+    assert tags[0].is_annotated is False
+    assert tags[0].message is None
+
+
+def test_get_tags_annotated(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    target = raw.head.target
+    sig = pygit2.Signature("Tagger", "tagger@example.com")
+    raw.create_tag("v2.0.0", target, pygit2.GIT_OBJECT_COMMIT, sig, "Release 2.0")
+    tags = repo_impl.get_tags()
+    annotated = [t for t in tags if t.name == "v2.0.0"]
+    assert len(annotated) == 1
+    assert annotated[0].is_annotated is True
+    assert annotated[0].message == "Release 2.0"
+    assert "Tagger" in annotated[0].tagger

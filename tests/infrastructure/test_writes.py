@@ -73,3 +73,31 @@ def test_stash_and_pop(writable_repo):
     impl.pop_stash(0)
     stashes_after = impl.get_stashes()
     assert len(stashes_after) == 0
+
+
+def test_create_tag_lightweight(writable_repo):
+    impl, path = writable_repo
+    commits = impl.get_commits(limit=1)
+    impl.create_tag("v1.0.0", commits[0].oid)
+    raw = pygit2.Repository(str(path))
+    assert "refs/tags/v1.0.0" in list(raw.references)
+
+
+def test_create_tag_annotated(writable_repo):
+    impl, path = writable_repo
+    commits = impl.get_commits(limit=1)
+    impl.create_tag("v2.0.0", commits[0].oid, message="Release 2.0")
+    raw = pygit2.Repository(str(path))
+    ref = raw.references["refs/tags/v2.0.0"]
+    tag_obj = raw.get(ref.target)
+    assert isinstance(tag_obj, pygit2.Tag)
+    assert tag_obj.message == "Release 2.0"
+
+
+def test_delete_tag(writable_repo):
+    impl, path = writable_repo
+    commits = impl.get_commits(limit=1)
+    impl.create_tag("to-delete", commits[0].oid)
+    impl.delete_tag("to-delete")
+    raw = pygit2.Repository(str(path))
+    assert "refs/tags/to-delete" not in list(raw.references)
