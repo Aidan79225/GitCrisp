@@ -29,7 +29,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='GitStack',
+    name='GitCrisp',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -45,14 +45,14 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='GitStack',
+    name='GitCrisp',
 )
 
 app = BUNDLE(
     coll,
-    name='GitStack.app',
+    name='GitCrisp.app',
     icon=None,
-    bundle_identifier='com.gitstack.app',
+    bundle_identifier='com.gitcrisp.app',
     info_plist={
         'CFBundleShortVersionString': '0.1.0',
         'NSHighResolutionCapable': True,

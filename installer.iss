@@ -4,14 +4,14 @@
 
 [Setup]
 AppId={{91c943cb-d556-4427-a45b-08512cf9a37b}
-AppName=GitStack
+AppName=GitCrisp
 AppVersion={#AppVersion}
 VersionInfoVersion={#AppVersion}
 AppPublisher=Aidan Wang
-DefaultDirName={autopf}\GitStack
-DefaultGroupName=GitStack
-UninstallDisplayIcon={app}\GitStack.exe
-OutputBaseFilename=GitStack-windows-setup
+DefaultDirName={autopf}\GitCrisp
+DefaultGroupName=GitCrisp
+UninstallDisplayIcon={app}\GitCrisp.exe
+OutputBaseFilename=GitCrisp-windows-setup
 OutputDir=.
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -23,9 +23,9 @@ WizardStyle=modern
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
-Source: "dist\GitStack\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\GitCrisp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\GitStack"; Filename: "{app}\GitStack.exe"
-Name: "{group}\Uninstall GitStack"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\GitStack"; Filename: "{app}\GitStack.exe"; Tasks: desktopicon
+Name: "{group}\GitCrisp"; Filename: "{app}\GitCrisp.exe"
+Name: "{group}\Uninstall GitCrisp"; Filename: "{uninstallexe}"
+Name: "{userdesktop}\GitCrisp"; Filename: "{app}\GitCrisp.exe"; Tasks: desktopicon

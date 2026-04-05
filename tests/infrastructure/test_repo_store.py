@@ -6,7 +6,7 @@ from git_gui.infrastructure.repo_store import JsonRepoStore
 
 @pytest.fixture
 def store_path(tmp_path) -> Path:
-    return tmp_path / ".gitstack" / "repos.json"
+    return tmp_path / ".gitcrisp" / "repos.json"
 
 
 @pytest.fixture

@@ -14,13 +14,13 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: GitStack-windows
+            artifact: GitCrisp-windows
             archive_ext: exe
           - os: macos-latest
-            artifact: GitStack-macos
+            artifact: GitCrisp-macos
             archive_ext: dmg
           - os: ubuntu-latest
-            artifact: GitStack-linux
+            artifact: GitCrisp-linux
             archive_ext: tar.gz
 
     runs-on: ${{ matrix.os }}
@@ -59,7 +59,7 @@ jobs:
         run: uv pip install pyinstaller
 
       - name: Build with PyInstaller
-        run: uv run pyinstaller GitStack.spec
+        run: uv run pyinstaller GitCrisp.spec
 
       - name: Import macOS signing certificate
         if: runner.os == 'macOS'
@@ -94,10 +94,10 @@ jobs:
           codesign --force --deep --options runtime \
             --sign "$IDENTITY" \
             --entitlements entitlements.plist \
-            dist/GitStack.app
+            dist/GitCrisp.app
 
           echo "Verifying signature..."
-          codesign --verify --deep --strict dist/GitStack.app
+          codesign --verify --deep --strict dist/GitCrisp.app
 
       - name: Notarize macOS app
         if: runner.os == 'macOS'
@@ -106,15 +106,15 @@ jobs:
           APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          ditto -c -k --keepParent dist/GitStack.app dist/GitStack.zip
+          ditto -c -k --keepParent dist/GitCrisp.app dist/GitCrisp.zip
 
-          xcrun notarytool submit dist/GitStack.zip \
+          xcrun notarytool submit dist/GitCrisp.zip \
             --apple-id "$APPLE_ID" \
             --password "$APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
 
-          xcrun stapler staple dist/GitStack.app
+          xcrun stapler staple dist/GitCrisp.app
 
       - name: Create macOS DMG
         if: runner.os == 'macOS'
@@ -122,17 +122,17 @@ jobs:
           brew install create-dmg
 
           create-dmg \
-            --volname "GitStack" \
+            --volname "GitCrisp" \
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
-            --icon "GitStack.app" 175 190 \
+            --icon "GitCrisp.app" 175 190 \
             --app-drop-link 425 190 \
             --no-internet-enable \
-            "GitStack-macos.dmg" \
-            "dist/GitStack.app"
+            "GitCrisp-macos.dmg" \
+            "dist/GitCrisp.app"
 
-          codesign --force --sign "$SIGNING_IDENTITY" GitStack-macos.dmg
+          codesign --force --sign "$SIGNING_IDENTITY" GitCrisp-macos.dmg
 
       - name: Install Inno Setup
         if: runner.os == 'Windows'
@@ -145,7 +145,7 @@ jobs:
           $tag = "${{ github.ref_name }}" -replace '^v', ''
           $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source
           & $iscc "/DAppVersion=$tag" installer.iss
-          Move-Item GitStack-windows-setup.exe "${{ matrix.artifact }}.exe"
+          Move-Item GitCrisp-windows-setup.exe "${{ matrix.artifact }}.exe"
         shell: pwsh
 
       - name: Sign installer (Windows)
@@ -154,7 +154,7 @@ jobs:
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: "GitStack"
+          project-slug: "GitCrisp"
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
           input-artifact-path: "${{ matrix.artifact }}.exe"
           output-artifact-path: "${{ matrix.artifact }}.exe"
@@ -163,11 +163,11 @@ jobs:
 
       - name: Archive build (macOS)
         if: runner.os == 'macOS'
-        run: mv GitStack-macos.dmg ${{ matrix.artifact }}.dmg
+        run: mv GitCrisp-macos.dmg ${{ matrix.artifact }}.dmg
 
       - name: Archive build (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf ${{ matrix.artifact }}.tar.gz -C dist GitStack
+        run: tar -czf ${{ matrix.artifact }}.tar.gz -C dist GitCrisp
 
       - name: Cleanup macOS keychain
         if: always() && runner.os == 'macOS'
@@ -199,8 +199,8 @@ jobs:
         run: |
           tag="${GITHUB_REF#refs/tags/}"
           gh release create "$tag" \
-            --title "GitStack $tag" \
+            --title "GitCrisp $tag" \
             --generate-notes \
-            artifacts/GitStack-windows/GitStack-windows.exe \
-            artifacts/GitStack-macos/GitStack-macos.dmg \
-            artifacts/GitStack-linux/GitStack-linux.tar.gz
+            artifacts/GitCrisp-windows/GitCrisp-windows.exe \
+            artifacts/GitCrisp-macos/GitCrisp-macos.dmg \
+            artifacts/GitCrisp-linux/GitCrisp-linux.tar.gz

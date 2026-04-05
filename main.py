@@ -36,7 +36,7 @@ def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
 
 def main() -> None:
     app = QApplication(sys.argv)
-    app.setApplicationName("GitStack")
+    app.setApplicationName("GitCrisp")
 
     repo_store = JsonRepoStore()
     repo_store.load()

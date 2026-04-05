@@ -1,7 +1,7 @@
 [project]
-name = "git-gui"
+name = "gitcrisp"
 version = "0.1.0"
-description = "Add your description here"
+description = "A clean, focused Git GUI"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
