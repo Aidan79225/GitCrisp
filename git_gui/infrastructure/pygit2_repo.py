@@ -220,6 +220,33 @@ class Pygit2Repository:
                 ))
         return tags
 
+    def get_remote_tags(self, remote: str) -> list[str]:
+        try:
+            result = subprocess.run(
+                ["git", "ls-remote", "--tags", remote],
+                capture_output=True, text=True,
+                cwd=self._repo.workdir, **subprocess_kwargs(),
+            )
+            if result.returncode != 0:
+                return []
+            tags: list[str] = []
+            for line in result.stdout.strip().splitlines():
+                # Format: "<hash>\trefs/tags/<name>"
+                parts = line.split("\t")
+                if len(parts) != 2:
+                    continue
+                ref = parts[1]
+                if not ref.startswith("refs/tags/"):
+                    continue
+                name = ref[len("refs/tags/"):]
+                # Skip dereferenced entries like "v1.0^{}"
+                if name.endswith("^{}"):
+                    continue
+                tags.append(name)
+            return tags
+        except Exception:
+            return []
+
     def get_working_tree(self) -> list[FileStatus]:
         files = []
         for path, flags in self._repo.status().items():

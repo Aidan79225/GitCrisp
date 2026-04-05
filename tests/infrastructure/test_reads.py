@@ -149,6 +149,12 @@ def test_get_tags_lightweight(repo_path, repo_impl):
     assert tags[0].message is None
 
 
+def test_get_remote_tags_no_remote(repo_impl):
+    """Repos without remotes return an empty list."""
+    tags = repo_impl.get_remote_tags("origin")
+    assert tags == []
+
+
 def test_get_tags_annotated(repo_path, repo_impl):
     raw = pygit2.Repository(str(repo_path))
     target = raw.head.target
