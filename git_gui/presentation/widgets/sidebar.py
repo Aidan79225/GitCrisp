@@ -2,18 +2,28 @@
 from __future__ import annotations
 import threading
 from PySide6.QtCore import QObject, QSize, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QMenu, QStyle, QStyleOptionViewItem, QTreeView, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.resources import get_resource_path
 
 _HEAD_BG = QColor("#264f78")
 _HOVER_BG = QColor("#2a2d2e")
 _ROW_HEIGHT = 28
 _IS_HEAD_ROLE = Qt.UserRole + 2
 _TARGET_OID_ROLE = Qt.UserRole + 3
+
+_CLOUD_ICON = None
+
+
+def _get_cloud_icon() -> QIcon:
+    global _CLOUD_ICON
+    if _CLOUD_ICON is None:
+        _CLOUD_ICON = QIcon(str(get_resource_path("arts") / "ic_cloud_done.svg"))
+    return _CLOUD_ICON
 
 
 class _SidebarTree(QTreeView):
@@ -36,7 +46,7 @@ class _SidebarTree(QTreeView):
 
 
 class _LoadSignals(QObject):
-    done = Signal(list, list, list)  # branches, stashes, tags
+    done = Signal(list, list, list, set)  # branches, stashes, tags, remote_tag_names
 
 
 class SidebarWidget(QWidget):
@@ -55,10 +65,13 @@ class SidebarWidget(QWidget):
     tag_delete_requested = Signal(str)       # tag name
     tag_push_requested = Signal(str)         # tag name
 
-    def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
+    def __init__(self, queries: QueryBus, commands: CommandBus,
+                 remote_tag_cache=None, repo_path: str | None = None, parent=None) -> None:
         super().__init__(parent)
         self._queries = queries
         self._commands = commands
+        self._remote_tag_cache = remote_tag_cache
+        self._repo_path = repo_path
 
         self._tree = _SidebarTree()
         self._tree.setHeaderHidden(True)
@@ -87,6 +100,9 @@ class SidebarWidget(QWidget):
         self._tree.clearSelection()
         self._tree.setCurrentIndex(self._model.index(-1, 0))
 
+    def set_repo_path(self, path: str | None) -> None:
+        self._repo_path = path
+
     def reload(self) -> None:
         queries = self._queries
 
@@ -94,15 +110,24 @@ class SidebarWidget(QWidget):
         signals.done.connect(self._on_load_done)
         self._load_signals = signals  # prevent GC
 
+        cache = self._remote_tag_cache
+        repo_path = self._repo_path
+
         def _worker():
             branches = queries.get_branches.execute()
             stashes = queries.get_stashes.execute()
             tags = queries.get_tags.execute()
-            signals.done.emit(branches, stashes, tags)
+            remote_tag_names: set[str] = set()
+            if cache and repo_path:
+                data = cache.load(repo_path)
+                for names in data.values():
+                    remote_tag_names.update(names)
+            signals.done.emit(branches, stashes, tags, remote_tag_names)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_load_done(self, branches: list[Branch], stashes: list[Stash], tags: list[Tag]) -> None:
+    def _on_load_done(self, branches: list[Branch], stashes: list[Stash],
+                      tags: list[Tag], remote_tag_names: set[str]) -> None:
         if self._queries is None:
             return
 
@@ -138,10 +163,22 @@ class SidebarWidget(QWidget):
             (s.message, str(s.index), "stash", s.oid) for s in stashes
         ])
 
-        # Tags
-        self._add_section("TAGS", [
-            (t.name, t.name, "tag", t.target_oid) for t in tags
-        ])
+        # Tags — with cloud icon for remote tags
+        tag_header = QStandardItem("TAGS")
+        tag_header.setEditable(False)
+        tag_header.setData("header", Qt.UserRole + 1)
+        tag_header.setSizeHint(QSize(0, _ROW_HEIGHT))
+        for t in tags:
+            child = QStandardItem(t.name)
+            child.setEditable(False)
+            child.setData(t.name, Qt.UserRole)
+            child.setData("tag", Qt.UserRole + 1)
+            child.setData(t.target_oid, _TARGET_OID_ROLE)
+            child.setSizeHint(QSize(0, _ROW_HEIGHT))
+            if t.name in remote_tag_names:
+                child.setIcon(_get_cloud_icon())
+            tag_header.appendRow(child)
+        self._model.appendRow(tag_header)
 
         self._tree.expandAll()
 
