@@ -4,7 +4,7 @@ import threading
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QInputDialog, QMainWindow, QMessageBox, QSplitter, QStackedWidget,
+    QDialog, QInputDialog, QMainWindow, QMessageBox, QSplitter, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import WORKING_TREE_OID
@@ -15,6 +15,7 @@ from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
+from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 from git_gui.presentation.widgets.repo_list import RepoListWidget
 from git_gui.presentation.widgets.sidebar import SidebarWidget
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
@@ -119,6 +120,13 @@ class MainWindow(QMainWindow):
         self._graph.pull_requested.connect(self._on_pull)
         self._graph.fetch_all_requested.connect(self._on_fetch_all_prune)
         self._graph.stash_requested.connect(self._on_stash_requested)
+        self._graph.create_tag_requested.connect(self._on_create_tag)
+
+        # Sidebar tag signals
+        self._sidebar.tag_clicked.connect(self._graph.reload_with_extra_tip)
+        self._sidebar.tag_delete_requested.connect(self._on_delete_tag)
+        self._sidebar.tag_push_requested.connect(
+            lambda name: self._run_remote_op(f"Push tag {name}", lambda: self._commands.push_tag.execute("origin", name)))
 
         # Repo list signals
         self._repo_list.repo_switch_requested.connect(self._switch_repo)
@@ -259,6 +267,30 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Create branch — ERROR: {e}")
+        self._reload()
+
+    def _on_create_tag(self, oid: str) -> None:
+        dialog = CreateTagDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        name = dialog.tag_name()
+        message = dialog.tag_message()
+        try:
+            self._commands.create_tag.execute(name, oid, message)
+            kind = "annotated" if message else "lightweight"
+            self._log_panel.log(f"Created {kind} tag: {name}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Create tag — ERROR: {e}")
+        self._reload()
+
+    def _on_delete_tag(self, name: str) -> None:
+        try:
+            self._commands.delete_tag.execute(name)
+            self._log_panel.log(f"Deleted tag: {name}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Delete tag {name} — ERROR: {e}")
         self._reload()
 
     def _on_checkout_commit(self, oid: str) -> None:
