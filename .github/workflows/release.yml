@@ -18,7 +18,7 @@ jobs:
             archive_ext: zip
           - os: macos-latest
             artifact: GitStack-macos
-            archive_ext: tar.gz
+            archive_ext: dmg
           - os: ubuntu-latest
             artifact: GitStack-linux
             archive_ext: tar.gz
@@ -61,14 +61,94 @@ jobs:
       - name: Build with PyInstaller
         run: uv run pyinstaller GitStack.spec
 
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          MACOS_KEYCHAIN_PWD: ${{ secrets.MACOS_KEYCHAIN_PWD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
+
+          security create-keychain -p "$MACOS_KEYCHAIN_PWD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PWD" $KEYCHAIN_PATH
+
+          security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PWD" \
+            -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$MACOS_KEYCHAIN_PWD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Sign macOS app
+        if: runner.os == 'macOS'
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning $RUNNER_TEMP/app-signing.keychain-db | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          echo "Signing with: $IDENTITY"
+
+          codesign --force --deep --options runtime \
+            --sign "$IDENTITY" \
+            --entitlements entitlements.plist \
+            dist/GitStack.app
+
+          echo "Verifying signature..."
+          codesign --verify --deep --strict dist/GitStack.app
+
+      - name: Notarize macOS app
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent dist/GitStack.app dist/GitStack.zip
+
+          xcrun notarytool submit dist/GitStack.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          xcrun stapler staple dist/GitStack.app
+
+      - name: Create macOS DMG
+        if: runner.os == 'macOS'
+        run: |
+          brew install create-dmg
+
+          create-dmg \
+            --volname "GitStack" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "GitStack.app" 175 190 \
+            --app-drop-link 425 190 \
+            --no-internet-enable \
+            "GitStack-macos.dmg" \
+            "dist/GitStack.app"
+
+          IDENTITY=$(security find-identity -v -p codesigning $RUNNER_TEMP/app-signing.keychain-db | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          codesign --force --sign "$IDENTITY" GitStack-macos.dmg
+
       - name: Archive build (Windows)
         if: runner.os == 'Windows'
         run: Compress-Archive -Path dist/GitStack/* -DestinationPath ${{ matrix.artifact }}.zip
         shell: pwsh
 
-      - name: Archive build (Unix)
-        if: runner.os != 'Windows'
+      - name: Archive build (macOS)
+        if: runner.os == 'macOS'
+        run: mv GitStack-macos.dmg ${{ matrix.artifact }}.dmg
+
+      - name: Archive build (Linux)
+        if: runner.os == 'Linux'
         run: tar -czf ${{ matrix.artifact }}.tar.gz -C dist GitStack
+
+      - name: Cleanup macOS keychain
+        if: runner.os == 'macOS' && always()
+        run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -97,5 +177,5 @@ jobs:
             --title "GitStack $tag" \
             --generate-notes \
             artifacts/GitStack-windows/GitStack-windows.zip \
-            artifacts/GitStack-macos/GitStack-macos.tar.gz \
+            artifacts/GitStack-macos/GitStack-macos.dmg \
             artifacts/GitStack-linux/GitStack-linux.tar.gz
