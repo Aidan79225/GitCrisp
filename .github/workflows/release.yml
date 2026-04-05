@@ -143,7 +143,8 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           $tag = "${{ github.ref_name }}" -replace '^v', ''
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=$tag installer.iss
+          $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source
+          & $iscc "/DAppVersion=$tag" installer.iss
           Move-Item GitStack-windows-setup.exe "${{ matrix.artifact }}.exe"
         shell: pwsh
 
