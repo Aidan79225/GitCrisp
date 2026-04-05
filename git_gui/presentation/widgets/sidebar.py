@@ -6,7 +6,7 @@ from PySide6.QtGui import QBrush, QColor, QPainter, QStandardItem, QStandardItem
 from PySide6.QtWidgets import (
     QMenu, QStyle, QStyleOptionViewItem, QTreeView, QVBoxLayout, QWidget,
 )
-from git_gui.domain.entities import Branch, Stash
+from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
 
 _HEAD_BG = QColor("#264f78")
@@ -102,7 +102,7 @@ class SidebarWidget(QWidget):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_load_done(self, branches: list[Branch], stashes: list[Stash], tags) -> None:
+    def _on_load_done(self, branches: list[Branch], stashes: list[Stash], tags: list[Tag]) -> None:
         if self._queries is None:
             return
 

@@ -285,6 +285,11 @@ class MainWindow(QMainWindow):
         self._reload()
 
     def _on_delete_tag(self, name: str) -> None:
+        result = QMessageBox.question(
+            self, "Delete Tag", f"Delete tag '{name}'?",
+        )
+        if result != QMessageBox.Yes:
+            return
         try:
             self._commands.delete_tag.execute(name)
             self._log_panel.log(f"Deleted tag: {name}")

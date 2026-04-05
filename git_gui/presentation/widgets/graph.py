@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QHeaderView, QMenu, QPushButton, QStyle,
     QStyleOptionViewItem, QTableView, QVBoxLayout, QWidget,
 )
-from git_gui.domain.entities import Branch, Commit, WORKING_TREE_OID
+from git_gui.domain.entities import Branch, Commit, Tag, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate, LANE_W
@@ -202,7 +202,7 @@ class GraphWidget(QWidget):
         self.reload(extra_tips=[oid])
 
     def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
-                        tags, is_dirty: bool, head_oid: str) -> None:
+                        tags: list[Tag], is_dirty: bool, head_oid: str) -> None:
         self._loading = False
         self._stash_btn.setVisible(is_dirty)
         if self._queries is None:
@@ -333,7 +333,7 @@ class GraphWidget(QWidget):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_append_done(self, more: list[Commit], branches: list[Branch], tags) -> None:
+    def _on_append_done(self, more: list[Commit], branches: list[Branch], tags: list[Tag]) -> None:
         self._loading = False
         if self._queries is None:
             return
