@@ -36,7 +36,7 @@ class _SidebarTree(QTreeView):
 
 
 class _LoadSignals(QObject):
-    done = Signal(list, list)  # branches, stashes
+    done = Signal(list, list, list)  # branches, stashes, tags
 
 
 class SidebarWidget(QWidget):
@@ -51,6 +51,9 @@ class SidebarWidget(QWidget):
     stash_apply_requested = Signal(int)
     stash_drop_requested = Signal(int)
     stash_clicked = Signal(str)              # stash oid
+    tag_clicked = Signal(str)               # target oid
+    tag_delete_requested = Signal(str)       # tag name
+    tag_push_requested = Signal(str)         # tag name
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -94,11 +97,12 @@ class SidebarWidget(QWidget):
         def _worker():
             branches = queries.get_branches.execute()
             stashes = queries.get_stashes.execute()
-            signals.done.emit(branches, stashes)
+            tags = queries.get_tags.execute()
+            signals.done.emit(branches, stashes, tags)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_load_done(self, branches: list[Branch], stashes: list[Stash]) -> None:
+    def _on_load_done(self, branches: list[Branch], stashes: list[Stash], tags) -> None:
         if self._queries is None:
             return
 
@@ -134,6 +138,11 @@ class SidebarWidget(QWidget):
             (s.message, str(s.index), "stash", s.oid) for s in stashes
         ])
 
+        # Tags
+        self._add_section("TAGS", [
+            (t.name, t.name, "tag", t.target_oid) for t in tags
+        ])
+
         self._tree.expandAll()
 
     def _add_section(self, title: str, items: list[tuple]) -> None:
@@ -159,6 +168,8 @@ class SidebarWidget(QWidget):
         oid = index.data(_TARGET_OID_ROLE)
         if kind == "stash" and oid:
             self.stash_clicked.emit(oid)
+        elif kind == "tag" and oid:
+            self.tag_clicked.emit(oid)
         elif oid:
             self.branch_clicked.emit(oid)
 
@@ -173,7 +184,7 @@ class SidebarWidget(QWidget):
         index = self._tree.indexAt(pos)
         kind = index.data(Qt.UserRole + 1)
         value = index.data(Qt.UserRole)
-        if kind not in ("branch", "remote_branch", "stash"):
+        if kind not in ("branch", "remote_branch", "stash", "tag"):
             return
         menu = QMenu(self)
         if kind == "branch":
@@ -203,4 +214,10 @@ class SidebarWidget(QWidget):
             menu.addSeparator()
             menu.addAction("Drop").triggered.connect(
                 lambda: self.stash_drop_requested.emit(idx))
+        elif kind == "tag":
+            menu.addAction("Push").triggered.connect(
+                lambda: self.tag_push_requested.emit(value))
+            menu.addSeparator()
+            menu.addAction("Delete").triggered.connect(
+                lambda: self.tag_delete_requested.emit(value))
         menu.exec(self._tree.viewport().mapToGlobal(pos))
