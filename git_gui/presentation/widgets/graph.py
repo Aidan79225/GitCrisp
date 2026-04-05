@@ -59,8 +59,8 @@ class _GraphTableView(QTableView):
 
 
 class _LoadSignals(QObject):
-    reload_done = Signal(list, list, bool, str)  # commits, branches, is_dirty, head_oid
-    append_done = Signal(list, list)             # more_commits, branches
+    reload_done = Signal(list, list, list, bool, str)  # commits, branches, tags, is_dirty, head_oid
+    append_done = Signal(list, list, list)              # more_commits, branches, tags
 
 
 _ARTS = get_resource_path("arts")
@@ -73,6 +73,7 @@ _BTN_STYLE = (
 class GraphWidget(QWidget):
     commit_selected = Signal(str)  # emits oid (or WORKING_TREE_OID)
     create_branch_requested = Signal(str)       # oid
+    create_tag_requested = Signal(str)          # oid
     checkout_commit_requested = Signal(str)      # oid
     checkout_branch_requested = Signal(str)      # branch name (local or remote)
     delete_branch_requested = Signal(str)        # local branch name
@@ -181,9 +182,10 @@ class GraphWidget(QWidget):
         def _worker():
             commits = queries.get_commit_graph.execute(limit=limit, extra_tips=extra_tips)
             branches = queries.get_branches.execute()
+            tags = queries.get_tags.execute()
             dirty = queries.is_dirty.execute()
             head_oid = queries.get_head_oid.execute() or ""
-            signals.reload_done.emit(commits, branches, dirty, head_oid)
+            signals.reload_done.emit(commits, branches, tags, dirty, head_oid)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -200,7 +202,7 @@ class GraphWidget(QWidget):
         self.reload(extra_tips=[oid])
 
     def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
-                        is_dirty: bool, head_oid: str) -> None:
+                        tags, is_dirty: bool, head_oid: str) -> None:
         self._loading = False
         self._stash_btn.setVisible(is_dirty)
         if self._queries is None:
@@ -215,6 +217,8 @@ class GraphWidget(QWidget):
             refs.setdefault(b.target_oid, []).append(b.name)
             if b.is_head and not b.is_remote:
                 head_branch = b.name
+        for t in tags:
+            refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
 
         # Show HEAD badge only when detached (no local branch is HEAD)
         if head_oid and not head_branch:
@@ -324,11 +328,12 @@ class GraphWidget(QWidget):
         def _worker():
             more = queries.get_commit_graph.execute(limit=PAGE_SIZE, skip=skip, extra_tips=self._extra_tips)
             branches = queries.get_branches.execute()
-            signals.append_done.emit(more, branches)
+            tags = queries.get_tags.execute()
+            signals.append_done.emit(more, branches, tags)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_append_done(self, more: list[Commit], branches: list[Branch]) -> None:
+    def _on_append_done(self, more: list[Commit], branches: list[Branch], tags) -> None:
         self._loading = False
         if self._queries is None:
             return
@@ -343,6 +348,8 @@ class GraphWidget(QWidget):
         refs: dict[str, list[str]] = {}
         for b in branches:
             refs.setdefault(b.target_oid, []).append(b.name)
+        for t in tags:
+            refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
 
         self._model.append(more, refs)
 
@@ -361,11 +368,13 @@ class GraphWidget(QWidget):
 
         menu.addAction("Create Branch").triggered.connect(
             lambda: self.create_branch_requested.emit(oid))
+        menu.addAction("Create Tag...").triggered.connect(
+            lambda: self.create_tag_requested.emit(oid))
         menu.addAction("Checkout (detached HEAD)").triggered.connect(
             lambda: self.checkout_commit_requested.emit(oid))
 
-        # Filter out HEAD pseudo-ref for branch operations
-        real_branches = [n for n in branch_names if n != "HEAD"]
+        # Filter out HEAD pseudo-ref and tag refs for branch operations
+        real_branches = [n for n in branch_names if n != "HEAD" and not n.startswith("tag:")]
         local_branches = [n for n in real_branches if "/" not in n]
 
         if real_branches:
