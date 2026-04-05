@@ -31,6 +31,16 @@ class Stash:
 
 
 @dataclass
+class Tag:
+    name: str
+    target_oid: str
+    is_annotated: bool
+    message: str | None
+    tagger: str | None
+    timestamp: datetime | None
+
+
+@dataclass
 class FileStatus:
     path: str
     status: Literal["staged", "unstaged", "untracked", "conflicted"]

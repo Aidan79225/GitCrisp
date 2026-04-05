@@ -1,5 +1,5 @@
-from datetime import datetime
-from git_gui.domain.entities import Commit, Branch, Stash, FileStatus, Hunk
+from datetime import datetime, timezone
+from git_gui.domain.entities import Commit, Branch, Stash, FileStatus, Hunk, Tag
 
 
 def test_commit_fields():
@@ -40,3 +40,21 @@ def test_hunk_fields():
     h = Hunk(header="@@ -1,3 +1,4 @@", lines=[("+", "new line\n"), (" ", "context\n")])
     assert h.header.startswith("@@")
     assert h.lines[0] == ("+", "new line\n")
+
+
+def test_tag_lightweight():
+    tag = Tag(name="v1.0.0", target_oid="abc123", is_annotated=False,
+              message=None, tagger=None, timestamp=None)
+    assert tag.name == "v1.0.0"
+    assert tag.target_oid == "abc123"
+    assert tag.is_annotated is False
+    assert tag.message is None
+
+
+def test_tag_annotated():
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    tag = Tag(name="v2.0.0", target_oid="def456", is_annotated=True,
+              message="Release 2.0", tagger="Alice <alice@example.com>", timestamp=ts)
+    assert tag.is_annotated is True
+    assert tag.message == "Release 2.0"
+    assert tag.tagger == "Alice <alice@example.com>"
