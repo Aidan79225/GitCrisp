@@ -6,6 +6,7 @@
 AppId={{91c943cb-d556-4427-a45b-08512cf9a37b}
 AppName=GitStack
 AppVersion={#AppVersion}
+VersionInfoVersion={#AppVersion}
 AppPublisher=Aidan Wang
 DefaultDirName={autopf}\GitStack
 DefaultGroupName=GitStack
