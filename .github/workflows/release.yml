@@ -147,7 +147,7 @@ jobs:
         run: tar -czf ${{ matrix.artifact }}.tar.gz -C dist GitStack
 
       - name: Cleanup macOS keychain
-        if: runner.os == 'macOS' && always()
+        if: always() && runner.os == 'macOS'
         run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
 
       - name: Upload artifact
