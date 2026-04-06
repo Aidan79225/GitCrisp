@@ -20,7 +20,8 @@ FILE_BLOCK_STYLE = (
 )
 HEADER_STYLE = "color: #e3b341; font-weight: bold;"
 HUNK_HEADER_COLOR = "#58a6ff"
-HEADER_ROW_HEIGHT = 24  # consistent height for file + hunk header rows
+HEADER_ROW_HEIGHT = 22  # consistent height for file + hunk header rows
+HEADER_ROW_VPAD = 3      # top/bottom padding inside the header row
 
 
 # ---------------------------------------------------------------------------
@@ -49,19 +50,20 @@ def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
     frame.setFrameShape(QFrame.StyledPanel)
     frame.setStyleSheet(FILE_BLOCK_STYLE)
     inner = QVBoxLayout(frame)
-    inner.setContentsMargins(8, 8, 8, 8)
-    inner.setSpacing(4)
+    inner.setContentsMargins(8, 6, 8, 6)
+    inner.setSpacing(2)
 
     # Wrap the header label in a row container so its layout matches the
     # hunk header rows below — keeps heights consistent.
     header_row = QWidget()
     header_row_layout = QHBoxLayout(header_row)
-    header_row_layout.setContentsMargins(0, 0, 0, 0)
+    header_row_layout.setContentsMargins(0, HEADER_ROW_VPAD, 0, HEADER_ROW_VPAD)
+    header_row_layout.setSpacing(4)
     header_label = QLabel(f"\U0001f4c4 {path}")
     header_label.setStyleSheet(HEADER_STYLE)
     header_row_layout.addWidget(header_label)
     header_row_layout.addStretch()
-    header_row.setFixedHeight(HEADER_ROW_HEIGHT)
+    header_row.setFixedHeight(HEADER_ROW_HEIGHT + HEADER_ROW_VPAD * 2)
     inner.addWidget(header_row)
 
     return frame, inner
@@ -206,7 +208,8 @@ def add_hunk_widget(
     # --- Header row ---
     header_row = QWidget()
     header_layout = QHBoxLayout(header_row)
-    header_layout.setContentsMargins(0, 0, 0, 0)
+    header_layout.setContentsMargins(0, HEADER_ROW_VPAD, 0, HEADER_ROW_VPAD)
+    header_layout.setSpacing(4)
     for w in extra_left_widgets:
         header_layout.addWidget(w)
     header_label = QLabel(hunk.header.strip())
@@ -215,7 +218,7 @@ def add_hunk_widget(
     header_layout.addStretch()
     for w in extra_right_widgets:
         header_layout.addWidget(w)
-    header_row.setFixedHeight(HEADER_ROW_HEIGHT)
+    header_row.setFixedHeight(HEADER_ROW_HEIGHT + HEADER_ROW_VPAD * 2)
 
     # --- Diff editor ---
     editor = make_diff_editor()
