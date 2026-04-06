@@ -1,6 +1,7 @@
 from __future__ import annotations
+from datetime import datetime
 from typing import Protocol, runtime_checkable
-from git_gui.domain.entities import Branch, Commit, FileStatus, Hunk, Stash, Tag
+from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, Stash, Tag
 
 
 @runtime_checkable
@@ -17,6 +18,7 @@ class IRepositoryReader(Protocol):
     def get_head_oid(self) -> str | None: ...
     def get_tags(self) -> list[Tag]: ...
     def get_remote_tags(self, remote: str) -> list[str]: ...
+    def get_commit_stats(self, since: datetime | None = None, until: datetime | None = None) -> list[CommitStat]: ...
 
 
 @runtime_checkable

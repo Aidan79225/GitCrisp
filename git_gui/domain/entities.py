@@ -41,6 +41,21 @@ class Tag:
 
 
 @dataclass
+class FileStat:
+    path: str
+    added: int
+    deleted: int
+
+
+@dataclass
+class CommitStat:
+    oid: str
+    author: str
+    timestamp: datetime
+    files: list[FileStat]
+
+
+@dataclass
 class FileStatus:
     path: str
     status: Literal["staged", "unstaged", "untracked", "conflicted"]

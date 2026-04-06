@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from git_gui.domain.entities import Commit, Branch, Stash, FileStatus, Hunk, Tag
+from git_gui.domain.entities import Commit, Branch, CommitStat, FileStat, Stash, FileStatus, Hunk, Tag
 
 
 def test_commit_fields():
@@ -58,3 +58,24 @@ def test_tag_annotated():
     assert tag.is_annotated is True
     assert tag.message == "Release 2.0"
     assert tag.tagger == "Alice <alice@example.com>"
+
+
+def test_file_stat():
+    fs = FileStat(path="src/main.py", added=10, deleted=2)
+    assert fs.path == "src/main.py"
+    assert fs.added == 10
+    assert fs.deleted == 2
+
+
+def test_commit_stat():
+    ts = datetime(2026, 4, 1, tzinfo=timezone.utc)
+    cs = CommitStat(
+        oid="abc123",
+        author="Alice <alice@example.com>",
+        timestamp=ts,
+        files=[FileStat(path="a.py", added=5, deleted=1)],
+    )
+    assert cs.oid == "abc123"
+    assert cs.author == "Alice <alice@example.com>"
+    assert len(cs.files) == 1
+    assert cs.files[0].added == 5
