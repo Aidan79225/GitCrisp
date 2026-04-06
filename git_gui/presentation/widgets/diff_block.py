@@ -7,7 +7,9 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget,
+)
 
 from git_gui.domain.entities import Hunk
 
@@ -49,6 +51,8 @@ def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
     frame.setObjectName("fileBlock")
     frame.setFrameShape(QFrame.StyledPanel)
     frame.setStyleSheet(FILE_BLOCK_STYLE)
+    # Don't let the frame grow beyond its content (avoids stretched short hunks)
+    frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
     inner = QVBoxLayout(frame)
     inner.setContentsMargins(8, 6, 8, 6)
     inner.setSpacing(2)
@@ -231,6 +235,7 @@ def add_hunk_widget(
     doc_margin = editor.document().documentMargin() * 2
     total_height = int(line_count * line_height + doc_margin + margins.top() + margins.bottom() + 4)
     editor.setFixedHeight(max(total_height, 4))
+    editor.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
     parent_layout.addWidget(header_row)
     parent_layout.addWidget(editor)
