@@ -1,4 +1,5 @@
 from pathlib import Path
+import pygit2
 from git_gui.infrastructure.pygit2_repo import Pygit2Repository
 
 
@@ -47,3 +48,6 @@ def test_discard_modified_with_staged_changes_fully_resets(repo_path):
     (repo_path / "a.txt").write_text("further unstaged\n")
     impl.discard_file("a.txt")
     assert (repo_path / "a.txt").read_text() == "original\n"
+    head_commit = impl._repo.head.peel(pygit2.Commit)
+    head_blob_id = head_commit.tree["a.txt"].id
+    assert impl._repo.index["a.txt"].id == head_blob_id

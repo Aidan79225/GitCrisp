@@ -442,6 +442,7 @@ class Pygit2Repository:
     def discard_file(self, path: str) -> None:
         full = os.path.join(self._repo.workdir, path)
         head_has_blob = False
+        head_commit = None
         if not self._repo.head_is_unborn:
             head_commit = self._repo.head.peel(pygit2.Commit)
             try:
@@ -451,12 +452,12 @@ class Pygit2Repository:
                 head_has_blob = False
 
         if head_has_blob:
-            head_commit = self._repo.head.peel(pygit2.Commit)
             entry = head_commit.tree[path]
             self._repo.index.add(
                 pygit2.IndexEntry(path, entry.id, entry.filemode)
             )
             self._repo.index.write()
+            self._repo.index.read()
             blob = self._repo.get(entry.id)
             os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
             with open(full, "wb") as f:
@@ -465,6 +466,7 @@ class Pygit2Repository:
             try:
                 self._repo.index.remove(path)
                 self._repo.index.write()
+                self._repo.index.read()
             except (KeyError, OSError):
                 pass
             if os.path.exists(full):
