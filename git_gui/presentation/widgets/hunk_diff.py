@@ -238,15 +238,20 @@ class HunkDiffWidget(QWidget):
 
         extra_right: list = []
         if not is_staged:
+            # Whole-file add (`@@ -0,0 ...`) or whole-file delete (`+0,0 @@`)
+            # is best handled by discard_file (full reset), since `git apply
+            # --reverse` only touches the working tree and leaves the index
+            # in a confusing state.
+            is_whole_file = header.startswith("@@ -0,0") or "+0,0 @@" in header
             x_btn = QToolButton()
             x_btn.setIcon(QIcon("arts/ic_close.svg"))
             x_btn.setIconSize(QSize(16, 16))
             x_btn.setFixedSize(22, 22)
-            x_btn.setToolTip("Discard this file" if is_untracked else "Discard this hunk")
+            x_btn.setToolTip("Discard this file" if is_whole_file else "Discard this hunk")
             x_btn.setAutoRaise(True)
             x_btn.clicked.connect(
-                lambda _=False, p=path, h=header, u=is_untracked:
-                    self._on_discard_file_clicked(p) if u
+                lambda _=False, p=path, h=header, w=is_whole_file:
+                    self._on_discard_file_clicked(p) if w
                     else self._on_discard_hunk_clicked(p, h)
             )
             extra_right = [x_btn]
