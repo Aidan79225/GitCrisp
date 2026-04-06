@@ -472,6 +472,16 @@ class Pygit2Repository:
             if os.path.exists(full):
                 os.remove(full)
 
+    def discard_hunk(self, path: str, hunk_header: str) -> None:
+        patch = self._build_hunk_patch(path, hunk_header, staged=False)
+        if patch:
+            subprocess.run(
+                ["git", "apply", "--reverse"],
+                input=patch.encode("utf-8"), cwd=self._repo.workdir,
+                check=True, capture_output=True, **subprocess_kwargs(),
+            )
+            self._repo.index.read()
+
     def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> str | None:
         if staged:
             if self._repo.head_is_unborn:

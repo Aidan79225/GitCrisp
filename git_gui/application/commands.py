@@ -193,3 +193,11 @@ class DiscardFile:
 
     def execute(self, path: str) -> None:
         self._writer.discard_file(path)
+
+
+class DiscardHunk:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, hunk_header: str) -> None:
+        self._writer.discard_hunk(path, hunk_header)

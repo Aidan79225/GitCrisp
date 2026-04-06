@@ -51,3 +51,26 @@ def test_discard_modified_with_staged_changes_fully_resets(repo_path):
     head_commit = impl._repo.head.peel(pygit2.Commit)
     head_blob_id = head_commit.tree["a.txt"].id
     assert impl._repo.index["a.txt"].id == head_blob_id
+
+
+def test_discard_hunk_reverts_only_that_hunk(repo_path):
+    impl = Pygit2Repository(str(repo_path))
+    lines = [f"line {i}\n" for i in range(1, 21)]
+    (repo_path / "multi.txt").write_text("".join(lines))
+    impl.stage(["multi.txt"])
+    impl.commit("seed multi")
+
+    lines[1] = "CHANGED line 2\n"
+    lines[17] = "CHANGED line 18\n"
+    (repo_path / "multi.txt").write_text("".join(lines))
+
+    from git_gui.domain.entities import WORKING_TREE_OID
+    hunks = impl.get_file_diff(WORKING_TREE_OID, "multi.txt")
+    assert len(hunks) == 2
+
+    impl.discard_hunk("multi.txt", hunks[0].header)
+
+    text = (repo_path / "multi.txt").read_text()
+    assert "line 2\n" in text
+    assert "CHANGED line 2" not in text
+    assert "CHANGED line 18\n" in text
