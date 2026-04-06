@@ -4,7 +4,7 @@ import threading
 from PySide6.QtCore import QObject, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
-    QHBoxLayout, QListView, QPlainTextEdit, QPushButton,
+    QHBoxLayout, QListView, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
     QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QVBoxLayout, QWidget,
 )
@@ -107,6 +107,8 @@ class WorkingTreeWidget(QWidget):
         self._file_model = WorkingTreeModel(commands, self)
         self._file_view.setModel(self._file_model)
         self._file_view.selectionModel().currentChanged.connect(self._on_file_selected)
+        self._file_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._file_view.customContextMenuRequested.connect(self._on_file_context_menu)
 
         # ── Row 3: hunk diff ─────────────────────────────────────────────────
         self._hunk_diff = HunkDiffWidget(queries, commands, self)
@@ -170,6 +172,32 @@ class WorkingTreeWidget(QWidget):
         if fs is None:
             return
         self._hunk_diff.load_file(fs.path)
+
+    def _on_file_context_menu(self, pos) -> None:
+        index = self._file_view.indexAt(pos)
+        if not index.isValid():
+            return
+        fs = self._file_model.data(index, Qt.UserRole)
+        if fs is None:
+            return
+        menu = QMenu(self._file_view)
+        discard_action = menu.addAction("Discard changes")
+        chosen = menu.exec(self._file_view.viewport().mapToGlobal(pos))
+        if chosen is discard_action:
+            self._discard_file(fs.path)
+
+    def _discard_file(self, path: str) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Discard changes",
+            f"Discard all changes to {path}? This cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        self._commands.discard_file.execute(path)
+        self._on_files_changed()
 
     def _on_stage_all(self) -> None:
         raw_files = self._queries.get_working_tree.execute()
