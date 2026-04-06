@@ -2,19 +2,19 @@
 from __future__ import annotations
 import threading
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QIcon, QTextBlockFormat, QTextCharFormat
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QScrollArea,
+    QCheckBox, QHBoxLayout, QMessageBox, QScrollArea,
     QSpacerItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Hunk
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.domain.entities import WORKING_TREE_OID
-
-_FILE_BLOCK_STYLE = (
-    "QFrame { border: 1px solid #30363d; border-radius: 4px; background-color: #0d1117; }"
+from git_gui.presentation.widgets.diff_block import (
+    HUNK_HEADER_COLOR,
+    make_file_block, make_diff_editor, make_diff_formats,
+    render_hunk_content_lines,
 )
-_HEADER_STYLE = "color: #e3b341; font-weight: bold;"
 
 
 class _LoadSignals(QObject):
@@ -49,20 +49,7 @@ class HunkDiffWidget(QWidget):
         outer.addWidget(self._scroll)
 
         # Diff formats
-        self._fmt_added = QTextCharFormat()
-        self._fmt_added.setForeground(QColor("white"))
-        self._fmt_removed = QTextCharFormat()
-        self._fmt_removed.setForeground(QColor("white"))
-        self._fmt_header = QTextCharFormat()
-        self._fmt_header.setForeground(QColor("#58a6ff"))
-        self._fmt_default = QTextCharFormat()
-        self._fmt_default.setForeground(QColor("white"))
-
-        self._blk_added = QTextBlockFormat()
-        self._blk_added.setBackground(QColor(35, 134, 54, 80))
-        self._blk_removed = QTextBlockFormat()
-        self._blk_removed.setBackground(QColor(248, 81, 73, 80))
-        self._blk_default = QTextBlockFormat()
+        self._formats = make_diff_formats()
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
@@ -133,20 +120,9 @@ class HunkDiffWidget(QWidget):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _make_file_block(self, path: str) -> tuple[QFrame, QVBoxLayout]:
+    def _make_file_block(self, path: str):
         """Return a bordered QFrame file block and its inner layout."""
-        frame = QFrame()
-        frame.setFrameShape(QFrame.StyledPanel)
-        frame.setStyleSheet(_FILE_BLOCK_STYLE)
-        inner = QVBoxLayout(frame)
-        inner.setContentsMargins(8, 8, 8, 8)
-        inner.setSpacing(4)
-
-        header = QLabel(f"\U0001f4c4 {path}")
-        header.setStyleSheet(_HEADER_STYLE)
-        inner.addWidget(header)
-
-        return frame, inner
+        return make_file_block(path)
 
     def _on_load_done(self, path: str, staged_hunks: list[Hunk],
                       unstaged_hunks: list[Hunk], is_untracked: bool) -> None:
@@ -255,6 +231,7 @@ class HunkDiffWidget(QWidget):
 
         checkbox = QCheckBox(hunk.header.strip())
         checkbox.setChecked(is_staged)
+        checkbox.setStyleSheet(f"QCheckBox {{ color: {HUNK_HEADER_COLOR}; }}")
 
         header = hunk.header
         checkbox.toggled.connect(
@@ -277,54 +254,19 @@ class HunkDiffWidget(QWidget):
             )
             header_layout.addWidget(x_btn)
 
-        editor = QPlainTextEdit()
-        editor.setReadOnly(True)
-        editor.setLineWrapMode(QPlainTextEdit.NoWrap)
-        editor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        font = editor.font()
-        font.setFamily("Courier New")
-        editor.setFont(font)
-
-        old_line, new_line = self._parse_hunk_header(hunk.header)
+        editor = make_diff_editor()
         cursor = editor.textCursor()
-        for origin, content in hunk.lines:
-            if origin == "+":
-                cursor.setBlockFormat(self._blk_added)
-                cursor.setCharFormat(self._fmt_added)
-                prefix = f"     {new_line:>4}  "
-                new_line += 1
-            elif origin == "-":
-                cursor.setBlockFormat(self._blk_removed)
-                cursor.setCharFormat(self._fmt_removed)
-                prefix = f"{old_line:>4}       "
-                old_line += 1
-            else:
-                cursor.setBlockFormat(self._blk_default)
-                cursor.setCharFormat(self._fmt_default)
-                prefix = f"{old_line:>4} {new_line:>4}  "
-                old_line += 1
-                new_line += 1
-            line = content if content.endswith("\n") else content + "\n"
-            cursor.insertText(prefix + line)
+        line_count = render_hunk_content_lines(cursor, hunk, self._formats)
         editor.setTextCursor(cursor)
 
         line_height = editor.fontMetrics().lineSpacing()
         margins = editor.contentsMargins()
         doc_margin = editor.document().documentMargin() * 2
-        total_height = int(len(hunk.lines) * line_height + doc_margin + margins.top() + margins.bottom() + 4)
+        total_height = int(line_count * line_height + doc_margin + margins.top() + margins.bottom() + 4)
         editor.setFixedHeight(total_height)
 
         target_layout.addWidget(header_row)
         target_layout.addWidget(editor)
-
-    @staticmethod
-    def _parse_hunk_header(header: str) -> tuple[int, int]:
-        import re
-        m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", header)
-        if m:
-            return int(m.group(1)), int(m.group(2))
-        return 1, 1
 
     def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool) -> None:
         if checked:

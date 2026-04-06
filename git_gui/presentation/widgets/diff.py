@@ -1,15 +1,19 @@
 # git_gui/presentation/widgets/diff.py
 from __future__ import annotations
 from PySide6.QtCore import QEvent, QRect, QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter, QTextBlockFormat, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QPainter, QTextCursor
 from PySide6.QtWidgets import (
-    QFrame, QLabel, QListView, QPlainTextEdit, QScrollArea, QSplitter,
+    QListView, QPlainTextEdit, QScrollArea, QSplitter,
     QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
+from git_gui.presentation.widgets.diff_block import (
+    make_file_block, make_diff_editor, make_diff_formats,
+    render_hunk_lines,
+)
 
 _DELTA_BADGE = {
     "modified": ("M", "#1f6feb"),   # blue
@@ -21,11 +25,6 @@ _DELTA_BADGE = {
 
 BADGE_SIZE = 20
 BADGE_GAP = 6
-
-_FILE_BLOCK_STYLE = (
-    "QFrame { border: 1px solid #30363d; border-radius: 4px; background-color: #0d1117; }"
-)
-_HEADER_STYLE = "color: #e3b341; font-weight: bold;"
 
 
 class _FileDeltaDelegate(QStyledItemDelegate):
@@ -122,20 +121,7 @@ class DiffWidget(QWidget):
         layout.addWidget(splitter, 1)
 
         # Diff render formats
-        self._fmt_added = QTextCharFormat()
-        self._fmt_added.setForeground(QColor("white"))
-        self._fmt_removed = QTextCharFormat()
-        self._fmt_removed.setForeground(QColor("white"))
-        self._fmt_header = QTextCharFormat()
-        self._fmt_header.setForeground(QColor("#58a6ff"))
-        self._fmt_default = QTextCharFormat()
-        self._fmt_default.setForeground(QColor("white"))
-
-        self._blk_added = QTextBlockFormat()
-        self._blk_added.setBackground(QColor(35, 134, 54, 80))
-        self._blk_removed = QTextBlockFormat()
-        self._blk_removed.setBackground(QColor(248, 81, 73, 80))
-        self._blk_default = QTextBlockFormat()
+        self._formats = make_diff_formats()
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
@@ -188,65 +174,28 @@ class DiffWidget(QWidget):
             if widget:
                 widget.deleteLater()
 
-    def _build_file_block(self, path: str, hunks) -> QFrame:
+    def _build_file_block(self, path: str, hunks):
         """Build and return a bordered QFrame containing a file header and hunk editor."""
-        frame = QFrame()
-        frame.setFrameShape(QFrame.StyledPanel)
-        frame.setStyleSheet(_FILE_BLOCK_STYLE)
-        inner = QVBoxLayout(frame)
-        inner.setContentsMargins(8, 8, 8, 8)
-        inner.setSpacing(4)
-
-        # File header label — amber, bold, inherits font size
-        header = QLabel(f"\U0001f4c4 {path}")
-        header.setStyleSheet(_HEADER_STYLE)
-        inner.addWidget(header)
+        frame, inner = make_file_block(path)
 
         if not hunks:
             return frame
 
-        # Count total lines across all hunks (header line + content lines per hunk)
-        total_lines = 0
-        for hunk in hunks:
-            total_lines += 1 + len(hunk.lines)  # 1 for the @@ header line
+        formats = self._formats
 
         # Build a single QPlainTextEdit for all hunks in this file
-        editor = QPlainTextEdit()
-        editor.setReadOnly(True)
-        editor.setLineWrapMode(QPlainTextEdit.NoWrap)
-        editor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        font = editor.font()
-        font.setFamily("Courier New")
-        editor.setFont(font)
-
+        editor = make_diff_editor()
         cursor = editor.textCursor()
-        for hunk in hunks:
-            # Hunk @@ header line
-            cursor.setBlockFormat(self._blk_default)
-            cursor.setCharFormat(self._fmt_header)
-            cursor.insertText(hunk.header + "\n")
 
-            old_line, new_line = self._parse_hunk_header(hunk.header)
-            for origin, content in hunk.lines:
-                if origin == "+":
-                    cursor.setBlockFormat(self._blk_added)
-                    cursor.setCharFormat(self._fmt_added)
-                    prefix = f"     {new_line:>4}  "
-                    new_line += 1
-                elif origin == "-":
-                    cursor.setBlockFormat(self._blk_removed)
-                    cursor.setCharFormat(self._fmt_removed)
-                    prefix = f"{old_line:>4}       "
-                    old_line += 1
-                else:
-                    cursor.setBlockFormat(self._blk_default)
-                    cursor.setCharFormat(self._fmt_default)
-                    prefix = f"{old_line:>4} {new_line:>4}  "
-                    old_line += 1
-                    new_line += 1
-                line = content if content.endswith("\n") else content + "\n"
-                cursor.insertText(prefix + line)
+        total_lines = 0
+        for i, hunk in enumerate(hunks):
+            if i > 0:
+                # Blank gap line between consecutive hunks
+                cursor.setBlockFormat(formats.blk_default)
+                cursor.setCharFormat(formats.fmt_default)
+                cursor.insertText("\n")
+                total_lines += 1
+            total_lines += render_hunk_lines(cursor, hunk, formats)
 
         editor.setTextCursor(cursor)
         editor.moveCursor(QTextCursor.Start)
@@ -263,14 +212,6 @@ class DiffWidget(QWidget):
 
         inner.addWidget(editor)
         return frame
-
-    @staticmethod
-    def _parse_hunk_header(header: str) -> tuple[int, int]:
-        import re
-        m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", header)
-        if m:
-            return int(m.group(1)), int(m.group(2))
-        return 1, 1
 
     def _on_file_selected(self, index) -> None:
         if self._current_oid is None:
