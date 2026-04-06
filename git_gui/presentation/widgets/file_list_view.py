@@ -36,9 +36,7 @@ class FileListView(QListView):
             check_rect = self._checkbox_rect(clicked)
             if check_rect is not None and check_rect.contains(event.pos()):
                 current = clicked.data(Qt.CheckStateRole)
-                # current may be Qt.CheckState enum or int — normalize
-                checked_val = int(Qt.CheckState.Checked.value) if hasattr(Qt.CheckState.Checked, "value") else int(Qt.Checked)
-                is_checked = int(current) == checked_val
+                is_checked = current == Qt.CheckState.Checked or current == Qt.Checked
                 new_state = Qt.CheckState.Unchecked if is_checked else Qt.CheckState.Checked
                 self.model().setData(clicked, new_state, Qt.CheckStateRole)
                 return  # do NOT call super → selection unchanged
