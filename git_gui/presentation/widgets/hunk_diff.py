@@ -11,9 +11,7 @@ from git_gui.domain.entities import Hunk
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.domain.entities import WORKING_TREE_OID
 from git_gui.presentation.widgets.diff_block import (
-    HEADER_ROW_HEIGHT, HUNK_HEADER_COLOR,
-    make_file_block, make_diff_editor, make_diff_formats,
-    render_hunk_content_lines,
+    make_file_block, make_diff_formats, add_hunk_widget,
 )
 
 
@@ -229,26 +227,16 @@ class HunkDiffWidget(QWidget):
         # Use explicitly passed layout, fall back to self._layout for backward compat
         target_layout = parent_layout if parent_layout is not None else self._layout
 
+        header = hunk.header
+
         checkbox = QCheckBox()
         checkbox.setChecked(is_staged)
-
-        header = hunk.header
         checkbox.toggled.connect(
             lambda checked, p=path, h=header, u=is_untracked:
                 self._on_hunk_toggled(p, h, checked, u)
         )
 
-        header_label = QLabel(hunk.header.strip())
-        header_label.setStyleSheet(f"color: {HUNK_HEADER_COLOR};")
-
-        # Header row: checkbox + colored header label on the left, optional X on the right
-        header_row = QWidget()
-        header_layout = QHBoxLayout(header_row)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.addWidget(checkbox)
-        header_layout.addWidget(header_label)
-        header_layout.addStretch()
-        header_row.setFixedHeight(HEADER_ROW_HEIGHT)
+        extra_right: list = []
         if not is_staged and not is_untracked:
             x_btn = QToolButton()
             x_btn.setIcon(QIcon("arts/ic_close.svg"))
@@ -257,21 +245,15 @@ class HunkDiffWidget(QWidget):
             x_btn.clicked.connect(
                 lambda _=False, p=path, h=header: self._on_discard_hunk_clicked(p, h)
             )
-            header_layout.addWidget(x_btn)
+            extra_right = [x_btn]
 
-        editor = make_diff_editor()
-        cursor = editor.textCursor()
-        line_count = render_hunk_content_lines(cursor, hunk, self._formats)
-        editor.setTextCursor(cursor)
-
-        line_height = editor.fontMetrics().lineSpacing()
-        margins = editor.contentsMargins()
-        doc_margin = editor.document().documentMargin() * 2
-        total_height = int(line_count * line_height + doc_margin + margins.top() + margins.bottom() + 4)
-        editor.setFixedHeight(total_height)
-
-        target_layout.addWidget(header_row)
-        target_layout.addWidget(editor)
+        add_hunk_widget(
+            target_layout,
+            hunk,
+            self._formats,
+            extra_left_widgets=[checkbox],
+            extra_right_widgets=extra_right,
+        )
 
     def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool,
                          is_untracked: bool = False) -> None:

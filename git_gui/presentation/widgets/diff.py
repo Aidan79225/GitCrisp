@@ -1,7 +1,7 @@
 # git_gui/presentation/widgets/diff.py
 from __future__ import annotations
 from PySide6.QtCore import QEvent, QRect, QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QListView, QPlainTextEdit, QScrollArea, QSplitter,
     QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
@@ -11,8 +11,7 @@ from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 from git_gui.presentation.widgets.diff_block import (
-    make_file_block, make_diff_editor, make_diff_formats,
-    render_hunk_lines,
+    make_file_block, make_diff_formats, add_hunk_widget,
 )
 
 _DELTA_BADGE = {
@@ -175,42 +174,12 @@ class DiffWidget(QWidget):
                 widget.deleteLater()
 
     def _build_file_block(self, path: str, hunks):
-        """Build and return a bordered QFrame containing a file header and hunk editor."""
+        """Build and return a bordered QFrame containing a file header and per-hunk widgets."""
         frame, inner = make_file_block(path)
 
-        if not hunks:
-            return frame
+        for hunk in hunks:
+            add_hunk_widget(inner, hunk, self._formats)
 
-        formats = self._formats
-
-        # Build a single QPlainTextEdit for all hunks in this file
-        editor = make_diff_editor()
-        cursor = editor.textCursor()
-
-        total_lines = 0
-        for i, hunk in enumerate(hunks):
-            if i > 0:
-                # Blank gap line between consecutive hunks
-                cursor.setBlockFormat(formats.blk_default)
-                cursor.setCharFormat(formats.fmt_default)
-                cursor.insertText("\n")
-                total_lines += 1
-            total_lines += render_hunk_lines(cursor, hunk, formats)
-
-        editor.setTextCursor(cursor)
-        editor.moveCursor(QTextCursor.Start)
-
-        # Size editor to fit content without scroll
-        line_height = editor.fontMetrics().lineSpacing()
-        margins = editor.contentsMargins()
-        doc_margin = editor.document().documentMargin() * 2
-        total_height = int(
-            total_lines * line_height + doc_margin
-            + margins.top() + margins.bottom() + 4
-        )
-        editor.setFixedHeight(total_height)
-
-        inner.addWidget(editor)
         return frame
 
     def _on_file_selected(self, index) -> None:

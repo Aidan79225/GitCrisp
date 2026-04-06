@@ -177,3 +177,57 @@ def render_hunk_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
     render_hunk_header_line(cursor, hunk, formats)
     content_count = render_hunk_content_lines(cursor, hunk, formats)
     return 1 + content_count
+
+
+# ---------------------------------------------------------------------------
+# Shared per-hunk widget builder
+# ---------------------------------------------------------------------------
+
+def add_hunk_widget(
+    parent_layout: QVBoxLayout,
+    hunk: Hunk,
+    formats: DiffFormats,
+    *,
+    extra_left_widgets: list[QWidget] | None = None,
+    extra_right_widgets: list[QWidget] | None = None,
+) -> None:
+    """Append a header row + sized-to-fit diff editor for one hunk into parent_layout.
+
+    The header row layout is: extra_left_widgets..., colored @@ label, stretch,
+    extra_right_widgets... Both lists default to empty.
+    Header row is set to HEADER_ROW_HEIGHT.
+    The diff editor is sized to exactly fit hunk.lines (no scroll).
+    """
+    if extra_left_widgets is None:
+        extra_left_widgets = []
+    if extra_right_widgets is None:
+        extra_right_widgets = []
+
+    # --- Header row ---
+    header_row = QWidget()
+    header_layout = QHBoxLayout(header_row)
+    header_layout.setContentsMargins(0, 0, 0, 0)
+    for w in extra_left_widgets:
+        header_layout.addWidget(w)
+    header_label = QLabel(hunk.header.strip())
+    header_label.setStyleSheet(f"color: {HUNK_HEADER_COLOR};")
+    header_layout.addWidget(header_label)
+    header_layout.addStretch()
+    for w in extra_right_widgets:
+        header_layout.addWidget(w)
+    header_row.setFixedHeight(HEADER_ROW_HEIGHT)
+
+    # --- Diff editor ---
+    editor = make_diff_editor()
+    cursor = editor.textCursor()
+    line_count = render_hunk_content_lines(cursor, hunk, formats)
+    editor.setTextCursor(cursor)
+
+    line_height = editor.fontMetrics().lineSpacing()
+    margins = editor.contentsMargins()
+    doc_margin = editor.document().documentMargin() * 2
+    total_height = int(line_count * line_height + doc_margin + margins.top() + margins.bottom() + 4)
+    editor.setFixedHeight(max(total_height, 4))
+
+    parent_layout.addWidget(header_row)
+    parent_layout.addWidget(editor)
