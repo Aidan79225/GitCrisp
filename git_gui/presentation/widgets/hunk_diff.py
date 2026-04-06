@@ -274,8 +274,10 @@ class HunkDiffWidget(QWidget):
 
     def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool,
                          is_untracked: bool = False) -> None:
-        if is_untracked:
-            # Untracked file: stage/unstage the whole file, not the synthesised hunk
+        # Whole-file add (untracked → stage, or staged-add → unstage):
+        # the synthesised "@@ -0,0 +1,N @@" hunk can't be processed by
+        # `git apply [--cached] [--reverse]`, so route to stage/unstage_files.
+        if is_untracked or hunk_header.startswith("@@ -0,0"):
             if checked:
                 self._commands.stage_files.execute([path])
             else:
