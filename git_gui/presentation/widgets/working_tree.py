@@ -160,6 +160,7 @@ class WorkingTreeWidget(QWidget):
         self._btn_commit.clicked.connect(self._on_commit)
         self._file_model.files_changed.connect(self._on_files_changed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
+        self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
