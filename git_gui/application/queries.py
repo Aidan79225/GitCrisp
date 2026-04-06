@@ -1,5 +1,6 @@
 from __future__ import annotations
-from git_gui.domain.entities import Branch, Commit, FileStatus, Hunk, Stash, Tag
+from datetime import datetime
+from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, Stash, Tag
 from git_gui.domain.ports import IRepositoryReader
 
 
@@ -41,6 +42,14 @@ class GetRemoteTags:
 
     def execute(self, remote: str) -> list[str]:
         return self._reader.get_remote_tags(remote)
+
+
+class GetCommitStats:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, since: datetime | None = None, until: datetime | None = None) -> list[CommitStat]:
+        return self._reader.get_commit_stats(since, until)
 
 
 class GetCommitFiles:

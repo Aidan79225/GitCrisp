@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
 from git_gui.application.queries import (
-    GetCommitGraph, GetBranches, GetStashes, GetTags, GetRemoteTags,
+    GetCommitGraph, GetBranches, GetStashes, GetTags, GetRemoteTags, GetCommitStats,
     GetCommitFiles, GetFileDiff, GetStagedDiff, GetWorkingTree,
     GetCommitDetail, IsDirty, GetHeadOid,
 )
@@ -24,6 +24,7 @@ class QueryBus:
     get_stashes: GetStashes
     get_tags: GetTags
     get_remote_tags: GetRemoteTags
+    get_commit_stats: GetCommitStats
     get_commit_files: GetCommitFiles
     get_file_diff: GetFileDiff
     get_staged_diff: GetStagedDiff
@@ -40,6 +41,7 @@ class QueryBus:
             get_stashes=GetStashes(reader),
             get_tags=GetTags(reader),
             get_remote_tags=GetRemoteTags(reader),
+            get_commit_stats=GetCommitStats(reader),
             get_commit_files=GetCommitFiles(reader),
             get_file_diff=GetFileDiff(reader),
             get_staged_diff=GetStagedDiff(reader),
