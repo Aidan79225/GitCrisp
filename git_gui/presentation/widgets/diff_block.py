@@ -16,7 +16,7 @@ from git_gui.domain.entities import Hunk
 # ---------------------------------------------------------------------------
 
 FILE_BLOCK_STYLE = (
-    "QFrame { border: 1px solid #30363d; border-radius: 4px; background-color: #161b22; }"
+    "QFrame#fileBlock { border: 1px solid #30363d; border-radius: 4px; background-color: #161b22; }"
 )
 HEADER_STYLE = "color: #e3b341; font-weight: bold;"
 HUNK_HEADER_COLOR = "#58a6ff"
@@ -44,6 +44,7 @@ class DiffFormats:
 def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
     """Return a bordered QFrame with an amber file-header label and its inner layout."""
     frame = QFrame()
+    frame.setObjectName("fileBlock")
     frame.setFrameShape(QFrame.StyledPanel)
     frame.setStyleSheet(FILE_BLOCK_STYLE)
     inner = QVBoxLayout(frame)
