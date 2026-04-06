@@ -24,6 +24,166 @@ class _LoadSignals(QObject):
     done = Signal(list)  # list[CommitStat]
 
 
+class _SummaryCard(QFrame):
+    def __init__(self, value: str, label: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setStyleSheet(
+            f"background-color: {CARD_BG}; border: 1px solid {BORDER}; border-radius: 8px;"
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(4)
+
+        value_label = QLabel(value)
+        value_font = QFont()
+        value_font.setPointSize(28)
+        value_font.setBold(True)
+        value_label.setFont(value_font)
+        value_label.setStyleSheet(f"color: {ACCENT}; border: none;")
+        value_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(value_label)
+
+        text_label = QLabel(label)
+        text_label.setStyleSheet(f"color: {MUTED}; border: none;")
+        text_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(text_label)
+
+
+class _AuthorRow(QWidget):
+    def __init__(self, rank: int, name: str, commits: int,
+                 added: int, deleted: int, max_total: int, parent=None) -> None:
+        super().__init__(parent)
+        self._rank = rank
+        self._name = name
+        self._commits = commits
+        self._added = added
+        self._deleted = deleted
+        self._max_total = max_total
+        self.setMinimumHeight(56)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = self.rect()
+        fm = painter.fontMetrics()
+
+        # Rank number (large, accent)
+        rank_font = QFont()
+        rank_font.setPointSize(20)
+        rank_font.setBold(True)
+        painter.setFont(rank_font)
+        painter.setPen(QColor(ACCENT))
+        painter.drawText(8, 0, 50, rect.height(), Qt.AlignVCenter | Qt.AlignLeft, f"#{self._rank}")
+
+        # Name
+        name_font = QFont()
+        name_font.setPointSize(11)
+        name_font.setBold(True)
+        painter.setFont(name_font)
+        painter.setPen(QColor("white"))
+        # Strip email from "Name <email>"
+        display_name = self._name.split("<")[0].strip() if "<" in self._name else self._name
+        painter.drawText(64, 6, rect.width() - 200, fm.height(),
+                         Qt.AlignVCenter | Qt.AlignLeft, display_name)
+
+        # Commit count (right side)
+        count_font = QFont()
+        count_font.setPointSize(10)
+        painter.setFont(count_font)
+        painter.setPen(QColor(MUTED))
+        painter.drawText(rect.width() - 130, 6, 120, fm.height(),
+                         Qt.AlignVCenter | Qt.AlignRight, f"{self._commits} commits")
+
+        # Bar: green for added, red for deleted
+        bar_y = rect.height() - 18
+        bar_x = 64
+        bar_w = rect.width() - 80
+        bar_h = 6
+        total = self._added + self._deleted
+        if total > 0 and self._max_total > 0:
+            scale = bar_w / self._max_total
+            added_w = int(self._added * scale)
+            deleted_w = int(self._deleted * scale)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(GREEN))
+            painter.drawRoundedRect(bar_x, bar_y, added_w, bar_h, 3, 3)
+            painter.setBrush(QColor(RED))
+            painter.drawRoundedRect(bar_x + added_w, bar_y, deleted_w, bar_h, 3, 3)
+
+        # Counts under bar
+        count_font2 = QFont()
+        count_font2.setPointSize(9)
+        painter.setFont(count_font2)
+        painter.setPen(QColor(GREEN))
+        painter.drawText(bar_x, bar_y - 2, 100, 12, Qt.AlignTop | Qt.AlignLeft,
+                         f"+{self._added}")
+        painter.setPen(QColor(RED))
+        painter.drawText(bar_x, bar_y - 2, bar_w, 12, Qt.AlignTop | Qt.AlignRight,
+                         f"-{self._deleted}")
+        painter.end()
+
+
+class _FileRow(QWidget):
+    def __init__(self, rank: int, path: str, count: int, max_count: int, parent=None) -> None:
+        super().__init__(parent)
+        self._rank = rank
+        self._path = path
+        self._count = count
+        self._max_count = max_count
+        self.setMinimumHeight(40)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = self.rect()
+        fm = painter.fontMetrics()
+
+        rank_font = QFont()
+        rank_font.setPointSize(16)
+        rank_font.setBold(True)
+        painter.setFont(rank_font)
+        painter.setPen(QColor(ACCENT))
+        painter.drawText(8, 0, 50, rect.height(), Qt.AlignVCenter | Qt.AlignLeft, f"#{self._rank}")
+
+        path_font = QFont()
+        path_font.setPointSize(10)
+        painter.setFont(path_font)
+        painter.setPen(QColor("white"))
+        # Elide long paths
+        elided = fm.elidedText(self._path, Qt.ElideMiddle, rect.width() - 200)
+        painter.drawText(56, 0, rect.width() - 200, rect.height(),
+                         Qt.AlignVCenter | Qt.AlignLeft, elided)
+
+        count_font = QFont()
+        count_font.setPointSize(10)
+        painter.setFont(count_font)
+        painter.setPen(QColor(MUTED))
+        painter.drawText(rect.width() - 140, 0, 130, rect.height(),
+                         Qt.AlignVCenter | Qt.AlignRight, f"{self._count}×")
+        painter.end()
+
+
+def _make_card_container(title: str) -> tuple[QFrame, QVBoxLayout]:
+    """Create a styled card with a title; returns (frame, inner_layout)."""
+    frame = QFrame()
+    frame.setStyleSheet(
+        f"background-color: {CARD_BG}; border: 1px solid {BORDER}; border-radius: 8px;"
+    )
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(16, 16, 16, 16)
+    layout.setSpacing(8)
+
+    title_label = QLabel(title)
+    title_font = QFont()
+    title_font.setPointSize(13)
+    title_font.setBold(True)
+    title_label.setFont(title_font)
+    title_label.setStyleSheet("color: white; border: none;")
+    layout.addWidget(title_label)
+
+    return frame, layout
+
+
 class InsightDialog(QDialog):
     def __init__(self, queries: QueryBus, parent=None) -> None:
         super().__init__(parent)
@@ -159,8 +319,68 @@ class InsightDialog(QDialog):
             w = item.widget()
             if w:
                 w.deleteLater()
-        # Placeholder until rendering is implemented in Task 5
-        placeholder = QLabel(f"Loaded {len(self._stats)} commits")
-        placeholder.setStyleSheet(f"color: {MUTED};")
-        self._content_layout.addWidget(placeholder)
+
+        if not self._stats:
+            empty = QLabel("No commits in this time range")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(f"color: {MUTED}; padding: 40px;")
+            self._content_layout.addWidget(empty)
+            self._content_layout.addStretch()
+            return
+
+        # ── Aggregation ──────────────────────────────────────────────────────
+        author_commits: dict[str, int] = {}
+        author_added: dict[str, int] = {}
+        author_deleted: dict[str, int] = {}
+        file_counts: dict[str, int] = {}
+        files_changed: set[str] = set()
+
+        for cs in self._stats:
+            author_commits[cs.author] = author_commits.get(cs.author, 0) + 1
+            for f in cs.files:
+                author_added[cs.author] = author_added.get(cs.author, 0) + f.added
+                author_deleted[cs.author] = author_deleted.get(cs.author, 0) + f.deleted
+                file_counts[f.path] = file_counts.get(f.path, 0) + 1
+                files_changed.add(f.path)
+
+        total_commits = len(self._stats)
+        active_authors = len(author_commits)
+        total_files = len(files_changed)
+
+        # ── Summary cards row ────────────────────────────────────────────────
+        summary_row = QHBoxLayout()
+        summary_row.setSpacing(12)
+        summary_row.addWidget(_SummaryCard(str(total_commits), "Total Commits"))
+        summary_row.addWidget(_SummaryCard(str(active_authors), "Active Authors"))
+        summary_row.addWidget(_SummaryCard(str(total_files), "Files Changed"))
+        summary_widget = QWidget()
+        summary_widget.setLayout(summary_row)
+        self._content_layout.addWidget(summary_widget)
+
+        # ── Top Authors card ─────────────────────────────────────────────────
+        top_authors = sorted(author_commits.items(), key=lambda x: x[1], reverse=True)[:10]
+        max_total = max(
+            (author_added.get(a, 0) + author_deleted.get(a, 0) for a, _ in top_authors),
+            default=0,
+        )
+        authors_frame, authors_layout = _make_card_container("Top Authors")
+        for i, (author, count) in enumerate(top_authors, start=1):
+            row = _AuthorRow(
+                rank=i, name=author, commits=count,
+                added=author_added.get(author, 0),
+                deleted=author_deleted.get(author, 0),
+                max_total=max_total,
+            )
+            authors_layout.addWidget(row)
+        self._content_layout.addWidget(authors_frame)
+
+        # ── Most Modified Files card ─────────────────────────────────────────
+        top_files = sorted(file_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+        max_count = top_files[0][1] if top_files else 0
+        files_frame, files_layout = _make_card_container("Most Modified Files")
+        for i, (path, count) in enumerate(top_files, start=1):
+            row = _FileRow(rank=i, path=path, count=count, max_count=max_count)
+            files_layout.addWidget(row)
+        self._content_layout.addWidget(files_frame)
+
         self._content_layout.addStretch()
