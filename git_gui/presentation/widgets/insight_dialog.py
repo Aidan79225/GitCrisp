@@ -21,7 +21,7 @@ MUTED = "#8b949e"          # secondary text
 
 
 class _LoadSignals(QObject):
-    done = Signal(list)  # list[CommitStat]
+    done = Signal(int, list)  # generation, list[CommitStat]
 
 
 class _SummaryCard(QFrame):
@@ -65,7 +65,6 @@ class _AuthorRow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         rect = self.rect()
-        fm = painter.fontMetrics()
 
         # Rank number (large, accent)
         rank_font = QFont()
@@ -80,18 +79,20 @@ class _AuthorRow(QWidget):
         name_font.setPointSize(11)
         name_font.setBold(True)
         painter.setFont(name_font)
+        name_fm = painter.fontMetrics()
         painter.setPen(QColor("white"))
         # Strip email from "Name <email>"
         display_name = self._name.split("<")[0].strip() if "<" in self._name else self._name
-        painter.drawText(64, 6, rect.width() - 200, fm.height(),
+        painter.drawText(64, 6, rect.width() - 200, name_fm.height(),
                          Qt.AlignVCenter | Qt.AlignLeft, display_name)
 
         # Commit count (right side)
         count_font = QFont()
         count_font.setPointSize(10)
         painter.setFont(count_font)
+        count_fm = painter.fontMetrics()
         painter.setPen(QColor(MUTED))
-        painter.drawText(rect.width() - 130, 6, 120, fm.height(),
+        painter.drawText(rect.width() - 130, 6, 120, count_fm.height(),
                          Qt.AlignVCenter | Qt.AlignRight, f"{self._commits} commits")
 
         # Bar: green for added, red for deleted
@@ -136,7 +137,6 @@ class _FileRow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         rect = self.rect()
-        fm = painter.fontMetrics()
 
         rank_font = QFont()
         rank_font.setPointSize(16)
@@ -148,9 +148,10 @@ class _FileRow(QWidget):
         path_font = QFont()
         path_font.setPointSize(10)
         painter.setFont(path_font)
+        path_fm = painter.fontMetrics()
         painter.setPen(QColor("white"))
         # Elide long paths
-        elided = fm.elidedText(self._path, Qt.ElideMiddle, rect.width() - 200)
+        elided = path_fm.elidedText(self._path, Qt.ElideMiddle, rect.width() - 200)
         painter.drawText(56, 0, rect.width() - 200, rect.height(),
                          Qt.AlignVCenter | Qt.AlignLeft, elided)
 
@@ -189,6 +190,7 @@ class InsightDialog(QDialog):
         super().__init__(parent)
         self._queries = queries
         self._stats: list[CommitStat] = []
+        self._load_generation = 0
 
         self.setWindowTitle("Git Insight")
         self.resize(700, 800)
@@ -294,6 +296,9 @@ class InsightDialog(QDialog):
         self._loading_label.setVisible(True)
         self._scroll.setVisible(False)
 
+        self._load_generation += 1
+        generation = self._load_generation
+
         signals = _LoadSignals()
         signals.done.connect(self._on_loaded)
         self._load_signals = signals  # prevent GC
@@ -302,11 +307,14 @@ class InsightDialog(QDialog):
 
         def _worker():
             stats = queries.get_commit_stats.execute(since, until)
-            signals.done.emit(stats)
+            signals.done.emit(generation, stats)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_loaded(self, stats: list[CommitStat]) -> None:
+    def _on_loaded(self, generation: int, stats: list[CommitStat]) -> None:
+        # Discard stale results from superseded queries
+        if generation != self._load_generation:
+            return
         self._stats = stats
         self._loading_label.setVisible(False)
         self._scroll.setVisible(True)
