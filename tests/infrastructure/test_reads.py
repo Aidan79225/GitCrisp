@@ -166,3 +166,29 @@ def test_get_tags_annotated(repo_path, repo_impl):
     assert annotated[0].is_annotated is True
     assert annotated[0].message == "Release 2.0"
     assert "Tagger" in annotated[0].tagger
+
+
+def test_get_commit_stats_returns_initial_commit(repo_impl):
+    stats = repo_impl.get_commit_stats()
+    assert len(stats) == 1
+    assert "Test User" in stats[0].author
+    assert len(stats[0].files) == 1
+    assert stats[0].files[0].path == "README.md"
+    assert stats[0].files[0].added >= 1
+
+
+def test_get_commit_stats_with_multiple_commits(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("Author Two", "two@example.com")
+    (repo_path / "second.txt").write_text("line1\nline2\nline3\n")
+    raw.index.add("second.txt")
+    raw.index.write()
+    tree = raw.index.write_tree()
+    head_oid = raw.head.target
+    raw.create_commit("refs/heads/master", sig, sig, "Add second", tree, [head_oid])
+
+    stats = repo_impl.get_commit_stats()
+    assert len(stats) == 2
+    authors = [s.author for s in stats]
+    assert any("Author Two" in a for a in authors)
+    assert any("Test User" in a for a in authors)

@@ -7,7 +7,7 @@ import pygit2
 
 from git_gui.resources import subprocess_kwargs
 from git_gui.domain.entities import (
-    Branch, Commit, FileStatus, Hunk, Stash, Tag, WORKING_TREE_OID,
+    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, Stash, Tag, WORKING_TREE_OID,
 )
 
 
@@ -246,6 +246,81 @@ class Pygit2Repository:
             return tags
         except Exception:
             return []
+
+    def get_commit_stats(self, since: datetime | None = None, until: datetime | None = None) -> list[CommitStat]:
+        cmd = ["git", "log", "--numstat", "--format=__COMMIT__%n%H%n%aN <%aE>%n%aI"]
+        if since:
+            cmd.append(f"--since={since.isoformat()}")
+        if until:
+            cmd.append(f"--until={until.isoformat()}")
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                cwd=self._repo.workdir, **subprocess_kwargs(),
+            )
+            if result.returncode != 0:
+                return []
+        except Exception:
+            return []
+
+        stats: list[CommitStat] = []
+        current_oid: str | None = None
+        current_author: str | None = None
+        current_ts: datetime | None = None
+        current_files: list[FileStat] = []
+        state = "expect_marker"  # expect_marker | oid | author | date | files
+
+        def flush() -> None:
+            if current_oid and current_author and current_ts is not None:
+                stats.append(CommitStat(
+                    oid=current_oid,
+                    author=current_author,
+                    timestamp=current_ts,
+                    files=list(current_files),
+                ))
+
+        for raw_line in result.stdout.splitlines():
+            line = raw_line.rstrip("\r")
+            if line == "__COMMIT__":
+                flush()
+                current_oid = None
+                current_author = None
+                current_ts = None
+                current_files = []
+                state = "oid"
+                continue
+            if state == "oid":
+                current_oid = line
+                state = "author"
+                continue
+            if state == "author":
+                current_author = line
+                state = "date"
+                continue
+            if state == "date":
+                try:
+                    current_ts = datetime.fromisoformat(line)
+                except ValueError:
+                    current_ts = None
+                state = "files"
+                continue
+            if state == "files":
+                if not line.strip():
+                    continue
+                # numstat format: "<added>\t<deleted>\t<path>"
+                parts = line.split("\t")
+                if len(parts) != 3:
+                    continue
+                added_str, deleted_str, path = parts
+                try:
+                    added = int(added_str) if added_str != "-" else 0
+                    deleted = int(deleted_str) if deleted_str != "-" else 0
+                except ValueError:
+                    continue
+                current_files.append(FileStat(path=path, added=added, deleted=deleted))
+
+        flush()
+        return stats
 
     def get_working_tree(self) -> list[FileStatus]:
         files = []
