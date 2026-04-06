@@ -1,7 +1,7 @@
 # git_gui/presentation/widgets/hunk_diff.py
 from __future__ import annotations
 import threading
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox, QHBoxLayout, QLabel, QMessageBox, QScrollArea,
@@ -240,6 +240,8 @@ class HunkDiffWidget(QWidget):
         if not is_staged and not is_untracked:
             x_btn = QToolButton()
             x_btn.setIcon(QIcon("arts/ic_close.svg"))
+            x_btn.setIconSize(QSize(16, 16))
+            x_btn.setFixedSize(22, 22)
             x_btn.setToolTip("Discard this hunk")
             x_btn.setAutoRaise(True)
             x_btn.clicked.connect(
