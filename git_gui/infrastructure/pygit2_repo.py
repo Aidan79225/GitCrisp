@@ -439,6 +439,37 @@ class Pygit2Repository:
             )
             self._repo.index.read()
 
+    def discard_file(self, path: str) -> None:
+        full = os.path.join(self._repo.workdir, path)
+        head_has_blob = False
+        if not self._repo.head_is_unborn:
+            head_commit = self._repo.head.peel(pygit2.Commit)
+            try:
+                head_commit.tree[path]
+                head_has_blob = True
+            except KeyError:
+                head_has_blob = False
+
+        if head_has_blob:
+            head_commit = self._repo.head.peel(pygit2.Commit)
+            entry = head_commit.tree[path]
+            self._repo.index.add(
+                pygit2.IndexEntry(path, entry.id, entry.filemode)
+            )
+            self._repo.index.write()
+            blob = self._repo.get(entry.id)
+            os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
+            with open(full, "wb") as f:
+                f.write(blob.data)
+        else:
+            try:
+                self._repo.index.remove(path)
+                self._repo.index.write()
+            except (KeyError, OSError):
+                pass
+            if os.path.exists(full):
+                os.remove(full)
+
     def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> str | None:
         if staged:
             if self._repo.head_is_unborn:

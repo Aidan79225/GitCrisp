@@ -185,3 +185,11 @@ class UnstageHunk:
 
     def execute(self, path: str, hunk_header: str) -> None:
         self._writer.unstage_hunk(path, hunk_header)
+
+
+class DiscardFile:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str) -> None:
+        self._writer.discard_file(path)
