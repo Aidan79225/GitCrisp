@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat
-from PySide6.QtWidgets import QFrame, QLabel, QPlainTextEdit, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
 from git_gui.domain.entities import Hunk
 
@@ -20,6 +20,7 @@ FILE_BLOCK_STYLE = (
 )
 HEADER_STYLE = "color: #e3b341; font-weight: bold;"
 HUNK_HEADER_COLOR = "#58a6ff"
+HEADER_ROW_HEIGHT = 24  # consistent height for file + hunk header rows
 
 
 # ---------------------------------------------------------------------------
@@ -51,9 +52,17 @@ def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
     inner.setContentsMargins(8, 8, 8, 8)
     inner.setSpacing(4)
 
-    header = QLabel(f"\U0001f4c4 {path}")
-    header.setStyleSheet(HEADER_STYLE)
-    inner.addWidget(header)
+    # Wrap the header label in a row container so its layout matches the
+    # hunk header rows below — keeps heights consistent.
+    header_row = QWidget()
+    header_row_layout = QHBoxLayout(header_row)
+    header_row_layout.setContentsMargins(0, 0, 0, 0)
+    header_label = QLabel(f"\U0001f4c4 {path}")
+    header_label.setStyleSheet(HEADER_STYLE)
+    header_row_layout.addWidget(header_label)
+    header_row_layout.addStretch()
+    header_row.setFixedHeight(HEADER_ROW_HEIGHT)
+    inner.addWidget(header_row)
 
     return frame, inner
 

@@ -11,7 +11,7 @@ from git_gui.domain.entities import Hunk
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.domain.entities import WORKING_TREE_OID
 from git_gui.presentation.widgets.diff_block import (
-    HUNK_HEADER_COLOR,
+    HEADER_ROW_HEIGHT, HUNK_HEADER_COLOR,
     make_file_block, make_diff_editor, make_diff_formats,
     render_hunk_content_lines,
 )
@@ -248,6 +248,7 @@ class HunkDiffWidget(QWidget):
         header_layout.addWidget(checkbox)
         header_layout.addWidget(header_label)
         header_layout.addStretch()
+        header_row.setFixedHeight(HEADER_ROW_HEIGHT)
         if not is_staged and not is_untracked:
             x_btn = QToolButton()
             x_btn.setIcon(QIcon("arts/ic_close.svg"))
