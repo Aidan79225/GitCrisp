@@ -53,6 +53,40 @@ def _diff_to_hunks(patch: pygit2.Patch) -> list[Hunk]:
     return result
 
 
+_UNTRACKED_MAX_LINES = 5000
+_UNTRACKED_MAX_BYTES = 1_048_576
+
+
+def _synthesise_untracked_hunk(workdir: str, path: str) -> list[Hunk]:
+    import os
+    full = os.path.join(workdir, path)
+    try:
+        size = os.path.getsize(full)
+        with open(full, "rb") as f:
+            head = f.read(8192)
+        is_binary = b"\x00" in head
+        if is_binary:
+            return [Hunk(header="@@ -0,0 +1,1 @@",
+                         lines=[("+", "Binary file\n")])]
+        if size > _UNTRACKED_MAX_BYTES:
+            return [Hunk(header="@@ -0,0 +1,1 @@",
+                         lines=[("+", f"Large file ({size} bytes)\n")])]
+        with open(full, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+        lines = text.splitlines(keepends=True)
+        if len(lines) > _UNTRACKED_MAX_LINES:
+            return [Hunk(header="@@ -0,0 +1,1 @@",
+                         lines=[("+", f"Large file ({len(lines)} lines, {size} bytes)\n")])]
+        if not lines:
+            return []
+        return [Hunk(
+            header=f"@@ -0,0 +1,{len(lines)} @@",
+            lines=[("+", line if line.endswith("\n") else line + "\n") for line in lines],
+        )]
+    except OSError:
+        return []
+
+
 class Pygit2Repository:
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(path)
@@ -157,15 +191,21 @@ class Pygit2Repository:
     def get_file_diff(self, oid: str, path: str) -> list[Hunk]:
         if oid == WORKING_TREE_OID:
             diff = self._repo.diff()
+            for patch in diff:
+                if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
+                    return _diff_to_hunks(patch)
+            # Not found in tracked diff — check if it's an untracked file
+            status = self._repo.status_file(path) if path in self._repo.status() else None
+            if status is not None and (status & pygit2.GIT_STATUS_WT_NEW):
+                return _synthesise_untracked_hunk(self._repo.workdir, path)
+            return []
+        commit = self._repo.get(oid)
+        if commit.parents:
+            diff = self._repo.diff(commit.parents[0].tree, commit.tree)
         else:
-            commit = self._repo.get(oid)
-            if commit.parents:
-                diff = self._repo.diff(commit.parents[0].tree, commit.tree)
-            else:
-                # Initial commit: diff from empty tree so lines show as added
-                empty_tree_oid = self._repo.TreeBuilder().write()
-                empty_tree = self._repo.get(empty_tree_oid)
-                diff = self._repo.diff(empty_tree, commit.tree)
+            empty_tree_oid = self._repo.TreeBuilder().write()
+            empty_tree = self._repo.get(empty_tree_oid)
+            diff = self._repo.diff(empty_tree, commit.tree)
         for patch in diff:
             if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
                 return _diff_to_hunks(patch)
