@@ -399,7 +399,15 @@ class Pygit2Repository:
 
     def stage(self, paths: list[str]) -> None:
         for path in paths:
-            self._repo.index.add(path)
+            full = os.path.join(self._repo.workdir, path)
+            if os.path.exists(full):
+                self._repo.index.add(path)
+            else:
+                # Working-tree deletion → stage the deletion
+                try:
+                    self._repo.index.remove(path)
+                except (KeyError, OSError):
+                    pass
         self._repo.index.write()
 
     def unstage(self, paths: list[str]) -> None:
