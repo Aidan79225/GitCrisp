@@ -1,7 +1,7 @@
 # git_gui/presentation/widgets/working_tree.py
 from __future__ import annotations
 import threading
-from PySide6.QtCore import QObject, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QModelIndex, QObject, QRect, QSize, Qt, Signal, QTimer
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout, QListView, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
@@ -38,6 +38,10 @@ class _FileDelegate(QStyledItemDelegate):
         option.text = "        " + (option.text or "")
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        # Fill selection background explicitly before Qt draws over it
+        if option.state & QStyle.State_Selected:
+            painter.fillRect(option.rect, QColor("#264f78"))
+
         # Let Qt draw checkbox + text normally
         super().paint(painter, option, index)
 
@@ -61,6 +65,28 @@ class _FileDelegate(QStyledItemDelegate):
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 
         painter.restore()
+
+
+class _FileListView(QListView):
+    """QListView subclass that emits `deselected` when user clicks the already-selected row."""
+    deselected = Signal()
+
+    def mousePressEvent(self, event) -> None:
+        clicked_index = self.indexAt(event.pos())
+        current = self.currentIndex()
+        if (clicked_index.isValid()
+                and clicked_index == current
+                and self.selectionModel().isSelected(current)):
+            # Deselect: clear after Qt processes the press to avoid fighting selection logic
+            super().mousePressEvent(event)
+            QTimer.singleShot(0, self._deselect_current)
+        else:
+            super().mousePressEvent(event)
+
+    def _deselect_current(self) -> None:
+        self.clearSelection()
+        self.setCurrentIndex(QModelIndex())
+        self.deselected.emit()
 
 
 class _LoadSignals(QObject):
@@ -100,7 +126,7 @@ class WorkingTreeWidget(QWidget):
         toolbar_layout.addLayout(btn_layout)
 
         # ── Row 2: file list ─────────────────────────────────────────────────
-        self._file_view = QListView()
+        self._file_view = _FileListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDelegate(self._file_view))
 
@@ -109,6 +135,7 @@ class WorkingTreeWidget(QWidget):
         self._file_view.selectionModel().currentChanged.connect(self._on_file_selected)
         self._file_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self._file_view.customContextMenuRequested.connect(self._on_file_context_menu)
+        self._file_view.deselected.connect(self._on_file_deselected)
 
         # ── Row 3: hunk diff ─────────────────────────────────────────────────
         self._hunk_diff = HunkDiffWidget(queries, commands, self)
@@ -161,9 +188,12 @@ class WorkingTreeWidget(QWidget):
         if self._queries is None:
             return
         self._file_model.reload(files, partial)
-        self._hunk_diff.clear()
         if not files:
+            self._hunk_diff.clear()
             self.working_tree_empty.emit()
+        else:
+            # No selection after reload — show all files' hunks
+            self._hunk_diff.load_all_files([f.path for f in files])
 
     def _on_file_selected(self, current, previous) -> None:
         if not current.isValid():
@@ -172,6 +202,18 @@ class WorkingTreeWidget(QWidget):
         if fs is None:
             return
         self._hunk_diff.load_file(fs.path)
+
+    def _on_file_deselected(self) -> None:
+        """Switch diff panel back to all-files view when user deselects current row."""
+        files = [
+            self._file_model.data(self._file_model.index(row), Qt.UserRole)
+            for row in range(self._file_model.rowCount())
+        ]
+        paths = [f.path for f in files if f is not None]
+        if paths:
+            self._hunk_diff.load_all_files(paths)
+        else:
+            self._hunk_diff.clear()
 
     def _on_file_context_menu(self, pos) -> None:
         index = self._file_view.indexAt(pos)
@@ -269,7 +311,9 @@ class WorkingTreeWidget(QWidget):
                     self._file_view.setCurrentIndex(self._file_model.index(row))
                     self._hunk_diff.load_file(selected_path)
                     return
-        self._hunk_diff.clear()
+
+        # No selection (or selected file disappeared) — show all files' hunks
+        self._hunk_diff.load_all_files([f.path for f in files])
 
 
 def _deduplicate(files: list[FileStatus]) -> tuple[list[FileStatus], set[str]]:

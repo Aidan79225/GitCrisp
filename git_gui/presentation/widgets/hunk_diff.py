@@ -2,10 +2,10 @@
 from __future__ import annotations
 import threading
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QTextBlockFormat, QTextCharFormat
+from PySide6.QtGui import QColor, QFont, QIcon, QTextBlockFormat, QTextCharFormat
 from PySide6.QtWidgets import (
-    QCheckBox, QHBoxLayout, QMessageBox, QPlainTextEdit, QScrollArea,
-    QToolButton, QVBoxLayout, QWidget,
+    QCheckBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QScrollArea,
+    QSpacerItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Hunk
 from git_gui.presentation.bus import CommandBus, QueryBus
@@ -14,6 +14,10 @@ from git_gui.domain.entities import WORKING_TREE_OID
 
 class _LoadSignals(QObject):
     done = Signal(str, list, list, bool)  # path, staged_hunks, unstaged_hunks, is_untracked
+
+
+class _LoadAllSignals(QObject):
+    done = Signal(list)  # list of (path, staged_hunks, unstaged_hunks, is_untracked) tuples
 
 
 class HunkDiffWidget(QWidget):
@@ -25,6 +29,7 @@ class HunkDiffWidget(QWidget):
         self._queries = queries
         self._commands = commands
         self._current_path: str | None = None
+        self._all_paths: list[str] | None = None  # None = single-file or empty mode
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -62,10 +67,42 @@ class HunkDiffWidget(QWidget):
 
     def load_file(self, path: str) -> None:
         self._current_path = path
+        self._all_paths = None
         self._fetch_and_render()
+
+    def load_all_files(self, paths: list[str]) -> None:
+        """Load and display hunks for all given paths with a bold header per file."""
+        self._current_path = None
+        self._all_paths = list(paths)
+        if not paths:
+            self._clear_layout()
+            return
+
+        queries = self._queries
+        all_paths = self._all_paths
+
+        signals = _LoadAllSignals()
+        signals.done.connect(self._on_load_all_done)
+        self._load_all_signals = signals  # prevent GC
+
+        def _worker():
+            results = []
+            for path in all_paths:
+                staged_hunks = queries.get_staged_diff.execute(path)
+                unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
+                is_untracked = (
+                    not staged_hunks
+                    and bool(unstaged_hunks)
+                    and unstaged_hunks[0].header.startswith("@@ -0,0")
+                )
+                results.append((path, staged_hunks, unstaged_hunks, is_untracked))
+            signals.done.emit(results)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def clear(self) -> None:
         self._current_path = None
+        self._all_paths = None
         self._clear_layout()
 
     def _fetch_and_render(self) -> None:
@@ -97,12 +134,37 @@ class HunkDiffWidget(QWidget):
             return
         self._clear_layout()
         for hunk in staged_hunks:
-            self._add_hunk_block(hunk, is_staged=True, is_untracked=False)
+            self._add_hunk_block(hunk, is_staged=True, is_untracked=False, path=path)
         for hunk in unstaged_hunks:
-            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked)
+            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked, path=path)
+        self._layout.addStretch()
+
+    def _on_load_all_done(self, results: list) -> None:
+        # Check we're still in all-files mode and paths haven't changed
+        if self._all_paths is None:
+            return
+        self._clear_layout()
+        for path, staged_hunks, unstaged_hunks, is_untracked in results:
+            # Bold file-path header label
+            header_label = QLabel(f"\U0001f4c4 {path}")
+            header_font = header_label.font()
+            header_font.setBold(True)
+            header_label.setFont(header_font)
+            self._layout.addWidget(header_label)
+
+            for hunk in staged_hunks:
+                self._add_hunk_block(hunk, is_staged=True, is_untracked=False, path=path)
+            for hunk in unstaged_hunks:
+                self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked, path=path)
+
+            # Small vertical spacer after each file
+            spacer = QSpacerItem(0, 12, QSizePolicy.Minimum, QSizePolicy.Fixed)
+            self._layout.addItem(spacer)
+
         self._layout.addStretch()
 
     def _render_sync(self) -> None:
+        """Post-action refresh for single-file mode."""
         self._clear_layout()
         if self._current_path is None:
             return
@@ -116,16 +178,53 @@ class HunkDiffWidget(QWidget):
             and unstaged_hunks[0].header.startswith("@@ -0,0")
         )
         for hunk in staged_hunks:
-            self._add_hunk_block(hunk, is_staged=True, is_untracked=False)
+            self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
+                                 path=self._current_path)
         for hunk in unstaged_hunks:
-            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked)
+            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
+                                 path=self._current_path)
         self._layout.addStretch()
 
-    def _add_hunk_block(self, hunk: Hunk, is_staged: bool, is_untracked: bool) -> None:
+    def _render_all_sync(self) -> None:
+        """Post-action refresh for all-files mode."""
+        if self._all_paths is None:
+            return
+        self._clear_layout()
+        for path in self._all_paths:
+            staged_hunks = self._queries.get_staged_diff.execute(path)
+            unstaged_hunks = self._queries.get_file_diff.execute(WORKING_TREE_OID, path)
+            is_untracked = (
+                not staged_hunks
+                and bool(unstaged_hunks)
+                and unstaged_hunks[0].header.startswith("@@ -0,0")
+            )
+
+            header_label = QLabel(f"\U0001f4c4 {path}")
+            header_font = header_label.font()
+            header_font.setBold(True)
+            header_label.setFont(header_font)
+            self._layout.addWidget(header_label)
+
+            for hunk in staged_hunks:
+                self._add_hunk_block(hunk, is_staged=True, is_untracked=False, path=path)
+            for hunk in unstaged_hunks:
+                self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
+                                     path=path)
+
+            spacer = QSpacerItem(0, 12, QSizePolicy.Minimum, QSizePolicy.Fixed)
+            self._layout.addItem(spacer)
+
+        self._layout.addStretch()
+
+    def _add_hunk_block(self, hunk: Hunk, is_staged: bool, is_untracked: bool,
+                        path: str | None = None) -> None:
+        # Use explicitly passed path, fall back to self._current_path for backward compat
+        if path is None:
+            path = self._current_path
+
         checkbox = QCheckBox(hunk.header.strip())
         checkbox.setChecked(is_staged)
 
-        path = self._current_path
         header = hunk.header
         checkbox.toggled.connect(
             lambda checked, p=path, h=header: self._on_hunk_toggled(p, h, checked)
@@ -201,7 +300,10 @@ class HunkDiffWidget(QWidget):
             self._commands.stage_hunk.execute(path, hunk_header)
         else:
             self._commands.unstage_hunk.execute(path, hunk_header)
-        self._render_sync()
+        if self._all_paths is not None:
+            self._render_all_sync()
+        else:
+            self._render_sync()
         self.hunk_toggled.emit()
 
     def _on_discard_hunk_clicked(self, path: str, hunk_header: str) -> None:
@@ -215,7 +317,10 @@ class HunkDiffWidget(QWidget):
         if reply != QMessageBox.Yes:
             return
         self._commands.discard_hunk.execute(path, hunk_header)
-        self._render_sync()
+        if self._all_paths is not None:
+            self._render_all_sync()
+        else:
+            self._render_sync()
         self.discard_hunk_requested.emit(path, hunk_header)
 
     def _clear_layout(self) -> None:
