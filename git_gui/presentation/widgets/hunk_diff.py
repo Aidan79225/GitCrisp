@@ -229,20 +229,24 @@ class HunkDiffWidget(QWidget):
         # Use explicitly passed layout, fall back to self._layout for backward compat
         target_layout = parent_layout if parent_layout is not None else self._layout
 
-        checkbox = QCheckBox(hunk.header.strip())
+        checkbox = QCheckBox()
         checkbox.setChecked(is_staged)
-        checkbox.setStyleSheet(f"QCheckBox {{ color: {HUNK_HEADER_COLOR}; }}")
 
         header = hunk.header
         checkbox.toggled.connect(
-            lambda checked, p=path, h=header: self._on_hunk_toggled(p, h, checked)
+            lambda checked, p=path, h=header, u=is_untracked:
+                self._on_hunk_toggled(p, h, checked, u)
         )
 
-        # Header row: checkbox on the left, optional X button on the right
+        header_label = QLabel(hunk.header.strip())
+        header_label.setStyleSheet(f"color: {HUNK_HEADER_COLOR};")
+
+        # Header row: checkbox + colored header label on the left, optional X on the right
         header_row = QWidget()
         header_layout = QHBoxLayout(header_row)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.addWidget(checkbox)
+        header_layout.addWidget(header_label)
         header_layout.addStretch()
         if not is_staged and not is_untracked:
             x_btn = QToolButton()
@@ -268,8 +272,15 @@ class HunkDiffWidget(QWidget):
         target_layout.addWidget(header_row)
         target_layout.addWidget(editor)
 
-    def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool) -> None:
-        if checked:
+    def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool,
+                         is_untracked: bool = False) -> None:
+        if is_untracked:
+            # Untracked file: stage/unstage the whole file, not the synthesised hunk
+            if checked:
+                self._commands.stage_files.execute([path])
+            else:
+                self._commands.unstage_files.execute([path])
+        elif checked:
             self._commands.stage_hunk.execute(path, hunk_header)
         else:
             self._commands.unstage_hunk.execute(path, hunk_header)
