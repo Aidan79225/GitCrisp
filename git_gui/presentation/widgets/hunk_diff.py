@@ -4,12 +4,17 @@ import threading
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QTextBlockFormat, QTextCharFormat
 from PySide6.QtWidgets import (
-    QCheckBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QScrollArea,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QScrollArea,
     QSpacerItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Hunk
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.domain.entities import WORKING_TREE_OID
+
+_FILE_BLOCK_STYLE = (
+    "QFrame { border: 1px solid #30363d; border-radius: 4px; background-color: #0d1117; }"
+)
+_HEADER_STYLE = "color: #e3b341; font-weight: bold;"
 
 
 class _LoadSignals(QObject):
@@ -71,7 +76,7 @@ class HunkDiffWidget(QWidget):
         self._fetch_and_render()
 
     def load_all_files(self, paths: list[str]) -> None:
-        """Load and display hunks for all given paths with a bold header per file."""
+        """Load and display hunks for all given paths with a bordered file block per file."""
         self._current_path = None
         self._all_paths = list(paths)
         if not paths:
@@ -128,15 +133,36 @@ class HunkDiffWidget(QWidget):
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _make_file_block(self, path: str) -> tuple[QFrame, QVBoxLayout]:
+        """Return a bordered QFrame file block and its inner layout."""
+        frame = QFrame()
+        frame.setFrameShape(QFrame.StyledPanel)
+        frame.setStyleSheet(_FILE_BLOCK_STYLE)
+        inner = QVBoxLayout(frame)
+        inner.setContentsMargins(8, 8, 8, 8)
+        inner.setSpacing(4)
+
+        header = QLabel(f"\U0001f4c4 {path}")
+        header.setStyleSheet(_HEADER_STYLE)
+        inner.addWidget(header)
+
+        return frame, inner
+
     def _on_load_done(self, path: str, staged_hunks: list[Hunk],
                       unstaged_hunks: list[Hunk], is_untracked: bool) -> None:
         if path != self._current_path:
             return
         self._clear_layout()
+
+        frame, inner = self._make_file_block(path)
         for hunk in staged_hunks:
-            self._add_hunk_block(hunk, is_staged=True, is_untracked=False, path=path)
+            self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
+                                 path=path, parent_layout=inner)
         for hunk in unstaged_hunks:
-            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked, path=path)
+            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
+                                 path=path, parent_layout=inner)
+
+        self._layout.addWidget(frame)
         self._layout.addStretch()
 
     def _on_load_all_done(self, results: list) -> None:
@@ -145,20 +171,19 @@ class HunkDiffWidget(QWidget):
             return
         self._clear_layout()
         for path, staged_hunks, unstaged_hunks, is_untracked in results:
-            # Bold file-path header label
-            header_label = QLabel(f"\U0001f4c4 {path}")
-            header_font = header_label.font()
-            header_font.setBold(True)
-            header_label.setFont(header_font)
-            self._layout.addWidget(header_label)
+            frame, inner = self._make_file_block(path)
 
             for hunk in staged_hunks:
-                self._add_hunk_block(hunk, is_staged=True, is_untracked=False, path=path)
+                self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
+                                     path=path, parent_layout=inner)
             for hunk in unstaged_hunks:
-                self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked, path=path)
+                self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
+                                     path=path, parent_layout=inner)
 
-            # Small vertical spacer after each file
-            spacer = QSpacerItem(0, 12, QSizePolicy.Minimum, QSizePolicy.Fixed)
+            self._layout.addWidget(frame)
+
+            # Small vertical spacer between file blocks
+            spacer = QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
             self._layout.addItem(spacer)
 
         self._layout.addStretch()
@@ -168,21 +193,26 @@ class HunkDiffWidget(QWidget):
         self._clear_layout()
         if self._current_path is None:
             return
-        staged_hunks = self._queries.get_staged_diff.execute(self._current_path)
+        path = self._current_path
+        staged_hunks = self._queries.get_staged_diff.execute(path)
         unstaged_hunks = self._queries.get_file_diff.execute(
-            WORKING_TREE_OID, self._current_path
+            WORKING_TREE_OID, path
         )
         is_untracked = (
             not staged_hunks
             and bool(unstaged_hunks)
             and unstaged_hunks[0].header.startswith("@@ -0,0")
         )
+
+        frame, inner = self._make_file_block(path)
         for hunk in staged_hunks:
             self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
-                                 path=self._current_path)
+                                 path=path, parent_layout=inner)
         for hunk in unstaged_hunks:
             self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
-                                 path=self._current_path)
+                                 path=path, parent_layout=inner)
+
+        self._layout.addWidget(frame)
         self._layout.addStretch()
 
     def _render_all_sync(self) -> None:
@@ -199,28 +229,29 @@ class HunkDiffWidget(QWidget):
                 and unstaged_hunks[0].header.startswith("@@ -0,0")
             )
 
-            header_label = QLabel(f"\U0001f4c4 {path}")
-            header_font = header_label.font()
-            header_font.setBold(True)
-            header_label.setFont(header_font)
-            self._layout.addWidget(header_label)
-
+            frame, inner = self._make_file_block(path)
             for hunk in staged_hunks:
-                self._add_hunk_block(hunk, is_staged=True, is_untracked=False, path=path)
+                self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
+                                     path=path, parent_layout=inner)
             for hunk in unstaged_hunks:
                 self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
-                                     path=path)
+                                     path=path, parent_layout=inner)
 
-            spacer = QSpacerItem(0, 12, QSizePolicy.Minimum, QSizePolicy.Fixed)
+            self._layout.addWidget(frame)
+
+            spacer = QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
             self._layout.addItem(spacer)
 
         self._layout.addStretch()
 
     def _add_hunk_block(self, hunk: Hunk, is_staged: bool, is_untracked: bool,
-                        path: str | None = None) -> None:
+                        path: str | None = None,
+                        parent_layout: QVBoxLayout | None = None) -> None:
         # Use explicitly passed path, fall back to self._current_path for backward compat
         if path is None:
             path = self._current_path
+        # Use explicitly passed layout, fall back to self._layout for backward compat
+        target_layout = parent_layout if parent_layout is not None else self._layout
 
         checkbox = QCheckBox(hunk.header.strip())
         checkbox.setChecked(is_staged)
@@ -284,8 +315,8 @@ class HunkDiffWidget(QWidget):
         total_height = int(len(hunk.lines) * line_height + doc_margin + margins.top() + margins.bottom() + 4)
         editor.setFixedHeight(total_height)
 
-        self._layout.addWidget(header_row)
-        self._layout.addWidget(editor)
+        target_layout.addWidget(header_row)
+        target_layout.addWidget(editor)
 
     @staticmethod
     def _parse_hunk_header(header: str) -> tuple[int, int]:
