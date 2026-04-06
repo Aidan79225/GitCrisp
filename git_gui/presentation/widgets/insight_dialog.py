@@ -59,7 +59,7 @@ class _AuthorRow(QWidget):
         self._added = added
         self._deleted = deleted
         self._max_total = max_total
-        self.setMinimumHeight(56)
+        self.setMinimumHeight(64)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -95,11 +95,26 @@ class _AuthorRow(QWidget):
         painter.drawText(rect.width() - 130, 6, 120, count_fm.height(),
                          Qt.AlignVCenter | Qt.AlignRight, f"{self._commits} commits")
 
-        # Bar: green for added, red for deleted
-        bar_y = rect.height() - 18
+        # Bar: green for added, red for deleted (anchored at bottom)
+        bar_h = 6
         bar_x = 64
         bar_w = rect.width() - 80
-        bar_h = 6
+        bar_y = rect.height() - bar_h - 6  # 6px bottom margin
+
+        # Counts above bar
+        count_font2 = QFont()
+        count_font2.setPointSize(9)
+        painter.setFont(count_font2)
+        count_fm = painter.fontMetrics()
+        count_h = count_fm.height()
+        count_y = bar_y - count_h - 2  # 2px gap above bar
+        painter.setPen(QColor(GREEN))
+        painter.drawText(bar_x, count_y, 100, count_h, Qt.AlignVCenter | Qt.AlignLeft,
+                         f"+{self._added}")
+        painter.setPen(QColor(RED))
+        painter.drawText(bar_x, count_y, bar_w, count_h, Qt.AlignVCenter | Qt.AlignRight,
+                         f"-{self._deleted}")
+
         total = self._added + self._deleted
         if total > 0 and self._max_total > 0:
             scale = bar_w / self._max_total
@@ -110,17 +125,6 @@ class _AuthorRow(QWidget):
             painter.drawRoundedRect(bar_x, bar_y, added_w, bar_h, 3, 3)
             painter.setBrush(QColor(RED))
             painter.drawRoundedRect(bar_x + added_w, bar_y, deleted_w, bar_h, 3, 3)
-
-        # Counts under bar
-        count_font2 = QFont()
-        count_font2.setPointSize(9)
-        painter.setFont(count_font2)
-        painter.setPen(QColor(GREEN))
-        painter.drawText(bar_x, bar_y - 2, 100, 12, Qt.AlignTop | Qt.AlignLeft,
-                         f"+{self._added}")
-        painter.setPen(QColor(RED))
-        painter.drawText(bar_x, bar_y - 2, bar_w, 12, Qt.AlignTop | Qt.AlignRight,
-                         f"-{self._deleted}")
         painter.end()
 
 
