@@ -237,15 +237,17 @@ class HunkDiffWidget(QWidget):
         )
 
         extra_right: list = []
-        if not is_staged and not is_untracked:
+        if not is_staged:
             x_btn = QToolButton()
             x_btn.setIcon(QIcon("arts/ic_close.svg"))
             x_btn.setIconSize(QSize(16, 16))
             x_btn.setFixedSize(22, 22)
-            x_btn.setToolTip("Discard this hunk")
+            x_btn.setToolTip("Discard this file" if is_untracked else "Discard this hunk")
             x_btn.setAutoRaise(True)
             x_btn.clicked.connect(
-                lambda _=False, p=path, h=header: self._on_discard_hunk_clicked(p, h)
+                lambda _=False, p=path, h=header, u=is_untracked:
+                    self._on_discard_file_clicked(p) if u
+                    else self._on_discard_hunk_clicked(p, h)
             )
             extra_right = [x_btn]
 
@@ -276,6 +278,19 @@ class HunkDiffWidget(QWidget):
         else:
             self._render_sync()
         self.hunk_toggled.emit()
+
+    def _on_discard_file_clicked(self, path: str) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Discard file",
+            f"Discard all changes to {path}? This cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        self._commands.discard_file.execute(path)
+        self.discard_hunk_requested.emit(path, "")
 
     def _on_discard_hunk_clicked(self, path: str, hunk_header: str) -> None:
         reply = QMessageBox.question(
