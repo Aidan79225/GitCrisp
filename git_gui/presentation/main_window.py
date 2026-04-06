@@ -19,6 +19,7 @@ from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 from git_gui.presentation.widgets.repo_list import RepoListWidget
 from git_gui.presentation.widgets.sidebar import SidebarWidget
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
+from git_gui.presentation.widgets.insight_dialog import InsightDialog
 
 
 class _RemoteSignals(QObject):
@@ -122,6 +123,7 @@ class MainWindow(QMainWindow):
         self._graph.fetch_all_requested.connect(self._on_fetch_all_prune)
         self._graph.stash_requested.connect(self._on_stash_requested)
         self._graph.create_tag_requested.connect(self._on_create_tag)
+        self._graph.insight_requested.connect(self._on_insight_requested)
 
         # Sidebar tag signals
         self._sidebar.tag_clicked.connect(self._graph.reload_with_extra_tip)
@@ -268,6 +270,12 @@ class MainWindow(QMainWindow):
             self._log_panel.expand()
             self._log_panel.log_error(f"Create branch — ERROR: {e}")
         self._reload()
+
+    def _on_insight_requested(self) -> None:
+        if self._queries is None:
+            return
+        dialog = InsightDialog(self._queries, self)
+        dialog.exec()
 
     def _on_create_tag(self, oid: str) -> None:
         dialog = CreateTagDialog(self)

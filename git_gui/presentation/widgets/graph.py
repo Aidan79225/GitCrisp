@@ -82,6 +82,7 @@ class GraphWidget(QWidget):
     pull_requested = Signal()
     fetch_all_requested = Signal()
     stash_requested = Signal()
+    insight_requested = Signal()
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -133,6 +134,7 @@ class GraphWidget(QWidget):
             ("ic_push", "Push", self.push_requested),
             ("ic_pull", "Pull", self.pull_requested),
             ("ic_fetch", "Fetch All --prune", self.fetch_all_requested),
+            ("ic_insight", "Git Insight", self.insight_requested),
         ]:
             btn = QPushButton()
             btn.setIcon(QIcon(str(_ARTS / f"{icon_name}.svg")))
