@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
+from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 
 _DELTA_BADGE = {
     "modified": ("M", "#1f6feb"),   # blue
@@ -80,7 +81,7 @@ class DiffWidget(QWidget):
         self._msg_view.setFont(font)
 
         # ── Row 3: file list ────────────────────────────────────────────────
-        self._file_view = QListView()
+        self._file_view = _FileListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDeltaDelegate(self._file_view))
         self._diff_view = self._make_diff_editor()
@@ -89,6 +90,7 @@ class DiffWidget(QWidget):
         self._file_view.selectionModel().currentChanged.connect(
             self._on_file_selected
         )
+        self._file_view.deselected.connect(self._on_file_deselected)
 
         # ── Row 3+4: file list + diff in splitter ───────────────────────────
         splitter = QSplitter(Qt.Vertical)
@@ -157,12 +159,10 @@ class DiffWidget(QWidget):
         msg_h = int(line_count * line_h + doc_margin)
         self._msg_view.setFixedHeight(msg_h)
 
-        # Files
+        # Files — no auto-selection; show all files' hunks concatenated
         files = self._queries.get_commit_files.execute(oid)
         self._diff_model.reload(files)
-        self._diff_view.clear()
-        if files:
-            self._file_view.setCurrentIndex(self._diff_model.index(0))
+        self._render_all_files(oid)
 
     def _make_diff_editor(self) -> QPlainTextEdit:
         editor = QPlainTextEdit()
@@ -174,13 +174,22 @@ class DiffWidget(QWidget):
         return editor
 
     def _on_file_selected(self, index) -> None:
-        if not index.isValid() or self._current_oid is None:
+        if self._current_oid is None:
+            return
+        if not index.isValid():
+            # Selection cleared programmatically — return to all-files view
+            self._render_all_files(self._current_oid)
             return
         file_status = self._diff_model.data(index, Qt.UserRole)
         if file_status is None:
             return
         hunks = self._queries.get_file_diff.execute(self._current_oid, file_status.path)
-        self._render_diff(hunks)
+        self._render_single_file(hunks)
+
+    def _on_file_deselected(self) -> None:
+        """Return to all-files view when the user click-deselects the current row."""
+        if self._current_oid is not None:
+            self._render_all_files(self._current_oid)
 
     @staticmethod
     def _parse_hunk_header(header: str) -> tuple[int, int]:
@@ -190,9 +199,8 @@ class DiffWidget(QWidget):
             return int(m.group(1)), int(m.group(2))
         return 1, 1
 
-    def _render_diff(self, hunks) -> None:
-        self._diff_view.clear()
-        cursor = self._diff_view.textCursor()
+    def _render_diff(self, hunks, cursor) -> None:
+        """Append *hunks* to *cursor* without clearing the view first."""
         for hunk in hunks:
             cursor.setBlockFormat(self._blk_default)
             cursor.setCharFormat(self._fmt_header)
@@ -218,4 +226,42 @@ class DiffWidget(QWidget):
                     new_line += 1
                 line = content if content.endswith("\n") else content + "\n"
                 cursor.insertText(prefix + line)
+
+    def _render_single_file(self, hunks) -> None:
+        """Clear the diff view and render one file's hunks."""
+        self._diff_view.clear()
+        cursor = self._diff_view.textCursor()
+        self._render_diff(hunks, cursor)
+        self._diff_view.setTextCursor(cursor)
+
+    def _render_all_files(self, oid: str) -> None:
+        """Clear the diff view and render every file's hunks with file headers."""
+        self._diff_view.clear()
+        cursor = self._diff_view.textCursor()
+
+        # Format for the bold-ish file header line
+        fmt_file_header = QTextCharFormat()
+        fmt_file_header.setForeground(QColor("#e3b341"))   # amber — distinct from hunk headers
+
+        row_count = self._diff_model.rowCount()
+        for row in range(row_count):
+            index = self._diff_model.index(row)
+            file_status = self._diff_model.data(index, Qt.UserRole)
+            if file_status is None:
+                continue
+            path = file_status.path
+
+            # Blank separator before every file header except the first
+            if row > 0:
+                cursor.setBlockFormat(self._blk_default)
+                cursor.setCharFormat(self._fmt_default)
+                cursor.insertText("\n")
+
+            cursor.setBlockFormat(self._blk_default)
+            cursor.setCharFormat(fmt_file_header)
+            cursor.insertText(f"📄 {path}\n")
+
+            hunks = self._queries.get_file_diff.execute(oid, path)
+            self._render_diff(hunks, cursor)
+
         self._diff_view.setTextCursor(cursor)

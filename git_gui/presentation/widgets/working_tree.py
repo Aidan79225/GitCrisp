@@ -1,7 +1,7 @@
 # git_gui/presentation/widgets/working_tree.py
 from __future__ import annotations
 import threading
-from PySide6.QtCore import QModelIndex, QObject, QRect, QSize, Qt, Signal, QTimer
+from PySide6.QtCore import QModelIndex, QObject, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout, QListView, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
@@ -12,6 +12,7 @@ from git_gui.domain.entities import FileStatus
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
+from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 
 _DELTA_BADGE = {
     "modified": ("M", "#1f6feb"),
@@ -65,28 +66,6 @@ class _FileDelegate(QStyledItemDelegate):
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 
         painter.restore()
-
-
-class _FileListView(QListView):
-    """QListView subclass that emits `deselected` when user clicks the already-selected row."""
-    deselected = Signal()
-
-    def mousePressEvent(self, event) -> None:
-        clicked_index = self.indexAt(event.pos())
-        current = self.currentIndex()
-        if (clicked_index.isValid()
-                and clicked_index == current
-                and self.selectionModel().isSelected(current)):
-            # Deselect: clear after Qt processes the press to avoid fighting selection logic
-            super().mousePressEvent(event)
-            QTimer.singleShot(0, self._deselect_current)
-        else:
-            super().mousePressEvent(event)
-
-    def _deselect_current(self) -> None:
-        self.clearSelection()
-        self.setCurrentIndex(QModelIndex())
-        self.deselected.emit()
 
 
 class _LoadSignals(QObject):
