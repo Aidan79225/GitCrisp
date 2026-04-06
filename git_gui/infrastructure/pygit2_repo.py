@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
+import os
 import subprocess
 
 import pygit2
@@ -58,7 +59,6 @@ _UNTRACKED_MAX_BYTES = 1_048_576
 
 
 def _synthesise_untracked_hunk(workdir: str, path: str) -> list[Hunk]:
-    import os
     full = os.path.join(workdir, path)
     try:
         size = os.path.getsize(full)
@@ -195,8 +195,11 @@ class Pygit2Repository:
                 if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
                     return _diff_to_hunks(patch)
             # Not found in tracked diff — check if it's an untracked file
-            status = self._repo.status_file(path) if path in self._repo.status() else None
-            if status is not None and (status & pygit2.GIT_STATUS_WT_NEW):
+            try:
+                status = self._repo.status_file(path)
+            except KeyError:
+                return []
+            if status & pygit2.GIT_STATUS_WT_NEW:
                 return _synthesise_untracked_hunk(self._repo.workdir, path)
             return []
         commit = self._repo.get(oid)
