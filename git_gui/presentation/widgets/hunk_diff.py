@@ -4,7 +4,7 @@ import threading
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QCheckBox, QHBoxLayout, QMessageBox, QScrollArea,
+    QCheckBox, QHBoxLayout, QLabel, QMessageBox, QScrollArea,
     QSpacerItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Hunk
