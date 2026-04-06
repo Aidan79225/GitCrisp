@@ -232,7 +232,8 @@ class DiffWidget(QWidget):
         self._diff_view.clear()
         cursor = self._diff_view.textCursor()
         self._render_diff(hunks, cursor)
-        self._diff_view.setTextCursor(cursor)
+        self._diff_view.moveCursor(self._diff_view.textCursor().Start)
+        self._diff_view.verticalScrollBar().setValue(0)
 
     def _render_all_files(self, oid: str) -> None:
         """Clear the diff view and render every file's hunks with file headers."""
@@ -264,4 +265,5 @@ class DiffWidget(QWidget):
             hunks = self._queries.get_file_diff.execute(oid, path)
             self._render_diff(hunks, cursor)
 
-        self._diff_view.setTextCursor(cursor)
+        self._diff_view.moveCursor(self._diff_view.textCursor().Start)
+        self._diff_view.verticalScrollBar().setValue(0)
