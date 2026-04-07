@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.resources import get_resource_path
 
 
@@ -95,6 +95,7 @@ class SidebarWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._tree)
+        connect_widget(self)
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
