@@ -56,7 +56,7 @@ _GROUPS: list[tuple[str, list[str]]] = [
 
 _GRAPH_LANE_PAGE_TITLE = "Graph lanes"
 
-_TYPOGRAPHY_SCALE_DEFAULT = 80
+_TYPOGRAPHY_SCALE_DEFAULT = 100
 _TYPOGRAPHY_SCALE_MIN = 50
 _TYPOGRAPHY_SCALE_MAX = 200
 _TYPOGRAPHY_SCALE_STEP = 10
@@ -285,7 +285,7 @@ class ThemeDialog(QDialog):
         mode = self._selected_mode()
         if mode == "custom":
             self._write_custom_theme()
-        self._mgr.set_mode(mode)
+        self._mgr.set_mode(mode, force=(mode == "custom"))
         self.accept()
 
     def _on_cancel(self) -> None:

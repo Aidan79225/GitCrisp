@@ -38,18 +38,18 @@ class ThemeManager(QObject):
     def mode(self) -> str:
         return self._mode
 
-    def set_mode(self, mode: str) -> None:
+    def set_mode(self, mode: str, force: bool = False) -> None:
         if mode not in _VALID_MODES:
             raise ValueError(f"Invalid theme mode: {mode}")
-        if mode == self._mode:
+        if mode == self._mode and not force:
             return
         self._mode = mode
         save_settings({"theme_mode": mode})
-        self._refresh()
+        self._refresh(force=force)
 
-    def _refresh(self) -> None:
+    def _refresh(self, force: bool = False) -> None:
         new_theme = self._resolve_theme()
-        if new_theme is self._current:
+        if new_theme is self._current and not force:
             return
         self._current = new_theme
         self._apply()
