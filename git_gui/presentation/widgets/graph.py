@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 from git_gui.resources import get_resource_path
 from PySide6.QtCore import QModelIndex, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout, QHeaderView, QMenu, QPushButton, QStyle,
     QStyleOptionViewItem, QTableView, QVBoxLayout, QWidget,
@@ -65,6 +65,20 @@ class _LoadSignals(QObject):
 
 
 _ARTS = get_resource_path("arts")
+
+
+def _tinted_icon(svg_path: str, color: QColor, size: int = 28) -> QIcon:
+    src = QIcon(svg_path).pixmap(size, size)
+    if src.isNull():
+        return QIcon(svg_path)
+    tinted = QPixmap(src.size())
+    tinted.fill(Qt.transparent)
+    p = QPainter(tinted)
+    p.drawPixmap(0, 0, src)
+    p.setCompositionMode(QPainter.CompositionMode_SourceIn)
+    p.fillRect(tinted.rect(), color)
+    p.end()
+    return QIcon(tinted)
 
 
 def _btn_style() -> str:
@@ -135,6 +149,7 @@ class GraphWidget(QWidget):
         header_bar = QHBoxLayout()
         header_bar.setContentsMargins(4, 4, 4, 4)
         self._styled_buttons: list[QPushButton] = []
+        self._tinted_button_icons: list[tuple[QPushButton, str]] = []
         for icon_name, tooltip, signal in [
             ("ic_reload", "Reload (F5)", self.reload_requested),
             ("ic_push", "Push", self.push_requested),
@@ -143,18 +158,18 @@ class GraphWidget(QWidget):
             ("ic_insight", "Git Insight", self.insight_requested),
         ]:
             btn = QPushButton()
-            btn.setIcon(QIcon(str(_ARTS / f"{icon_name}.svg")))
             btn.setIconSize(QSize(28, 28))
             btn.setToolTip(tooltip)
             btn.clicked.connect(signal.emit)
             header_bar.addWidget(btn)
             self._styled_buttons.append(btn)
+            self._tinted_button_icons.append((btn, icon_name))
 
         header_bar.addStretch()
 
         self._stash_btn = QPushButton()
-        self._stash_btn.setIcon(QIcon(str(_ARTS / "ic_stash.svg")))
         self._stash_btn.setIconSize(QSize(28, 28))
+        self._tinted_button_icons.append((self._stash_btn, "ic_stash"))
         self._stash_btn.setToolTip("Stash")
         self._stash_btn.clicked.connect(self.stash_requested.emit)
         self._stash_btn.setVisible(False)
@@ -174,6 +189,9 @@ class GraphWidget(QWidget):
         style = _btn_style()
         for btn in self._styled_buttons:
             btn.setStyleSheet(style)
+        on_bg = get_theme_manager().current.colors.as_qcolor("on_background")
+        for btn, icon_name in self._tinted_button_icons:
+            btn.setIcon(_tinted_icon(str(_ARTS / f"{icon_name}.svg"), on_bg))
 
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
