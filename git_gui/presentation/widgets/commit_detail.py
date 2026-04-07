@@ -14,7 +14,7 @@ def _muted() -> QColor:
     return get_theme_manager().current.colors.as_qcolor("on_surface_variant")
 
 
-PAD = 8
+PAD = 12
 
 
 class CommitDetailWidget(QWidget):
