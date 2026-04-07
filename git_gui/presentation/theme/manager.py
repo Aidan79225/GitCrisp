@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 from PySide6.QtCore import QObject, Signal, Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QColor, QGuiApplication, QPalette
 from PySide6.QtWidgets import QApplication
 from .loader import load_builtin, load_theme, ThemeValidationError
 from .qss_template import render
@@ -57,6 +57,7 @@ class ThemeManager(QObject):
 
     def _apply(self) -> None:
         self._app.setStyleSheet(render(self._current))
+        self._app.setPalette(_build_palette(self._current))
 
     def _resolve_theme(self) -> Theme:
         if self._mode == "light":
@@ -89,6 +90,69 @@ class ThemeManager(QObject):
     def _on_system_scheme_changed(self, *_args) -> None:
         if self._mode == "system":
             self._refresh()
+
+
+def _build_palette(theme: Theme) -> QPalette:
+    """Map Theme colour tokens onto a QPalette so Qt's native widgets
+    (main window background, list views, buttons, scrollbars, splitter,
+    menu bar, line edits, etc.) follow the active theme without needing
+    a global QSS rule that would break native scrollbar rendering."""
+    c = theme.colors
+    p = QPalette()
+
+    bg          = QColor(c.background)
+    on_bg       = QColor(c.on_background)
+    surface     = QColor(c.surface)
+    on_surface  = QColor(c.on_surface)
+    surf_var    = QColor(c.surface_variant)
+    on_surf_var = QColor(c.on_surface_variant)
+    surf_cont   = QColor(c.surface_container)
+    surf_high   = QColor(c.surface_container_high)
+    primary     = QColor(c.primary)
+    on_primary  = QColor(c.on_primary)
+    outline     = QColor(c.outline)
+    outline_var = QColor(c.outline_variant)
+    error       = QColor(c.error)
+
+    # Window / view backgrounds
+    p.setColor(QPalette.Window,          bg)
+    p.setColor(QPalette.WindowText,      on_bg)
+    p.setColor(QPalette.Base,            surface)
+    p.setColor(QPalette.AlternateBase,   surf_cont)
+    p.setColor(QPalette.Text,            on_surface)
+    p.setColor(QPalette.PlaceholderText, on_surf_var)
+
+    # Buttons
+    p.setColor(QPalette.Button,     surf_var)
+    p.setColor(QPalette.ButtonText, on_surface)
+    p.setColor(QPalette.BrightText, error)
+
+    # Selection / highlight
+    p.setColor(QPalette.Highlight,         primary)
+    p.setColor(QPalette.HighlightedText,   on_primary)
+
+    # Tooltips
+    p.setColor(QPalette.ToolTipBase, surf_high)
+    p.setColor(QPalette.ToolTipText, on_surface)
+
+    # Links
+    p.setColor(QPalette.Link,        primary)
+    p.setColor(QPalette.LinkVisited, primary)
+
+    # 3D / borders
+    p.setColor(QPalette.Light,    surf_high)
+    p.setColor(QPalette.Midlight, surf_cont)
+    p.setColor(QPalette.Mid,      outline_var)
+    p.setColor(QPalette.Dark,     outline)
+    p.setColor(QPalette.Shadow,   outline)
+
+    # Disabled group — fade text/buttons toward on_surface_variant
+    for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
+        p.setColor(QPalette.Disabled, role, on_surf_var)
+    p.setColor(QPalette.Disabled, QPalette.Highlight, surf_var)
+    p.setColor(QPalette.Disabled, QPalette.HighlightedText, on_surf_var)
+
+    return p
 
 
 _INSTANCE: Optional[ThemeManager] = None
