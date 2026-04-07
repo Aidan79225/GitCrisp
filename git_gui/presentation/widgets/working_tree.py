@@ -10,10 +10,12 @@ from PySide6.QtWidgets import (
 )
 from git_gui.domain.entities import FileStatus
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.theme import get_theme_manager
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 
+# TODO: theme tokens — git status colors (M/A/D/R) need their own theme tokens
 _DELTA_BADGE = {
     "modified": ("M", "#1f6feb"),
     "added":    ("A", "#238636"),
@@ -41,7 +43,7 @@ class _FileDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         # Fill selection background explicitly before Qt draws over it
         if option.state & QStyle.State_Selected:
-            painter.fillRect(option.rect, QColor("#264f78"))
+            painter.fillRect(option.rect, get_theme_manager().current.colors.as_qcolor("primary"))
 
         # Let Qt draw checkbox + text normally
         super().paint(painter, option, index)
@@ -62,6 +64,7 @@ class _FileDelegate(QStyledItemDelegate):
         painter.setBrush(QBrush(QColor(color)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
+        # TODO: theme token — badge text color
         painter.setPen(QColor("white"))
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 

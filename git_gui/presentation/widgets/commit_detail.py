@@ -4,11 +4,16 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import QWidget
 from git_gui.domain.entities import Commit
+from git_gui.presentation.theme import get_theme_manager
 from git_gui.presentation.widgets.ref_badge_delegate import (
     _badge_color, _badge_display_name, BADGE_RADIUS, BADGE_H_PAD, BADGE_V_PAD, BADGE_GAP,
 )
 
-MUTED = "#8b949e"
+
+def _muted() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("on_surface_variant")
+
+
 PAD = 8
 
 
@@ -40,22 +45,23 @@ class CommitDetailWidget(QWidget):
         line_h = fm.height()
         w = self.width()
         c = self._commit
+        # TODO: theme token — default text color (currently hardcoded "white")
 
         # ── Line 1: Author + datetime ────────────────────────────────────────
         y = PAD
-        painter.setPen(QColor(MUTED))
+        painter.setPen(_muted())
         painter.drawText(PAD, y + fm.ascent(), "Author: ")
         label_w = fm.horizontalAdvance("Author: ")
         painter.setPen(QColor("white"))
         painter.drawText(PAD + label_w, y + fm.ascent(), c.author)
         ts = c.timestamp.strftime("%Y-%m-%d %H:%M")
         ts_w = fm.horizontalAdvance(ts)
-        painter.setPen(QColor(MUTED))
+        painter.setPen(_muted())
         painter.drawText(w - PAD - ts_w, y + fm.ascent(), ts)
 
         # ── Line 2: Hash + ref badges ────────────────────────────────────────
         y += line_h + PAD
-        painter.setPen(QColor(MUTED))
+        painter.setPen(_muted())
         painter.drawText(PAD, y + fm.ascent(), "Commit: ")
         x = PAD + fm.horizontalAdvance("Commit: ")
         painter.setPen(QColor("white"))
@@ -77,7 +83,7 @@ class CommitDetailWidget(QWidget):
 
         # ── Line 3: Parent(s) ────────────────────────────────────────────────
         y += line_h + PAD
-        painter.setPen(QColor(MUTED))
+        painter.setPen(_muted())
         painter.drawText(PAD, y + fm.ascent(), "Parent: ")
         x = PAD + fm.horizontalAdvance("Parent: ")
         painter.setPen(QColor("white"))
