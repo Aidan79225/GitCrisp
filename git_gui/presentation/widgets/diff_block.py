@@ -91,7 +91,14 @@ def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
 
 
 def make_diff_formats() -> DiffFormats:
-    """Return a DiffFormats dataclass with all QTextCharFormat / QTextBlockFormat objects."""
+    """Return a DiffFormats dataclass with all QTextCharFormat / QTextBlockFormat objects.
+
+    Known limitation: these formats are baked into already-rendered QPlainTextEdit
+    blocks via cursor inserts in render_hunk_*. Live theme switching does not
+    refresh diff text colors — users must close and re-open the diff to see new
+    colors. Tracked in docs/superpowers/specs/2026-04-07-md3-theming-followups.md
+    under "Known limitations carried over from Batch 1".
+    """
     c = get_theme_manager().current.colors
     on_surface = c.as_qcolor("on_surface")
 

@@ -76,3 +76,21 @@ Originally listed as a non-goal — still deferred. Would let the user pick one 
 
 - The lazy-getter pattern means `get_theme_manager()` is called on every paint. Cheap (singleton lookup + attribute read), but worth profiling if paint becomes hot in graph view.
 - Tests now depend on `tests/conftest.py` initializing `ThemeManager` at session scope. Any new test that touches a theme-aware module inherits this fixture automatically.
+
+## Known limitations carried over from Batch 1
+
+### Diff text colors do not update on live theme switch
+
+**Symptom:** After Batch 1 landed live theme switching for most widgets, switching the theme at runtime updates everything except the colored text *inside an already-rendered diff* (`+`/`-` line foregrounds, hunk header text inside the QPlainTextEdit, diff line backgrounds). The user must close and re-open the file's diff to see the new colors. The file frame border, file header label, and hunk header label *outside* the text edit do refresh live.
+
+**Root cause:** `git_gui/presentation/widgets/diff_block.py::make_diff_formats()` builds `QTextCharFormat` and `QTextBlockFormat` objects once and bakes them onto each text block via cursor inserts in `render_hunk_*`. There is no `QSyntaxHighlighter` to call `rehighlight()` on. To refresh, the entire diff text would need to be re-rendered with new format instances.
+
+**What it would take to fix:**
+1. Either wrap the diff rendering in a `QSyntaxHighlighter` subclass whose `highlightBlock` reads colors from the current theme on each call (then `rehighlight()` does the work), OR
+2. Store the source `Hunk` data on the file block, expose a `rerender()` method that wipes the QPlainTextEdit and replays `render_hunk_*` with fresh formats, and call it from the file block's `_rebuild()` closure.
+
+Option 2 is the smaller change and matches the existing rendering pipeline; option 1 is more idiomatic Qt but a bigger refactor.
+
+**Workaround for users today:** close the file and re-open it after switching theme.
+
+**Tracking:** address in the next batch alongside Settings UI / user themes work, or as a standalone small PR.
