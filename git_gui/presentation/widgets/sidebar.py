@@ -84,6 +84,7 @@ class SidebarWidget(QWidget):
         self._tree = _SidebarTree()
         self._tree.setHeaderHidden(True)
         self._tree.setMouseTracking(True)
+        self._tree.setSelectionMode(QTreeView.NoSelection)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.clicked.connect(self._on_click)
