@@ -4,6 +4,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
+from git_gui.presentation.theme import get_theme_manager
 
 
 class LogPanel(QWidget):
@@ -11,9 +12,10 @@ class LogPanel(QWidget):
         super().__init__(parent)
         self._expanded = False
 
+        c = get_theme_manager().current.colors
         self._header = QLabel("▶ Operations Log")
         self._header.setStyleSheet(
-            "padding: 4px 8px; background: #1e1e1e; color: #cccccc; font-weight: bold;"
+            f"padding: 4px 8px; background: {c.surface_container}; color: {c.on_surface}; font-weight: bold;"
         )
         self._header.setCursor(Qt.PointingHandCursor)
         self._header.mousePressEvent = lambda _: self.toggle()
@@ -28,9 +30,9 @@ class LogPanel(QWidget):
         self._body.setVisible(False)
 
         self._fmt_default = QTextCharFormat()
-        self._fmt_default.setForeground(QColor("#cccccc"))
+        self._fmt_default.setForeground(c.as_qcolor("on_surface"))
         self._fmt_error = QTextCharFormat()
-        self._fmt_error.setForeground(QColor("#f85149"))
+        self._fmt_error.setForeground(c.as_qcolor("error"))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

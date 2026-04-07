@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QProgressBar, QPushButton, QVBoxLayout,
 )
 from git_gui.infrastructure.git_clone import CloneProgress, clone_repo
+from git_gui.presentation.theme import get_theme_manager
 
 
 _REPO_NAME_RE = re.compile(r"[/:]([^/:]+?)(?:\.git)?/?$")
@@ -68,7 +69,8 @@ class CloneDialog(QDialog):
 
         # Error label
         self._error_label = QLabel("")
-        self._error_label.setStyleSheet("color: #f85149;")
+        c = get_theme_manager().current.colors
+        self._error_label.setStyleSheet(f"color: {c.error};")
         self._error_label.setWordWrap(True)
         self._error_label.setVisible(False)
 

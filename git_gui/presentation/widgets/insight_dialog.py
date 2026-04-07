@@ -9,15 +9,28 @@ from PySide6.QtWidgets import (
 )
 from git_gui.domain.entities import CommitStat
 from git_gui.presentation.bus import QueryBus
+from git_gui.presentation.theme import get_theme_manager
 
 
 # ── Style constants ──────────────────────────────────────────────────────────
-ACCENT = "#a371f7"        # purple — matches GitCrisp tag color
-GREEN = "#238636"          # additions
-RED = "#da3633"            # deletions
-CARD_BG = "#161b22"        # card background
-BORDER = "#30363d"         # subtle border
-MUTED = "#8b949e"          # secondary text
+def _accent() -> str:
+    return get_theme_manager().current.colors.ref_badge_tag_bg
+
+
+def _card_bg() -> str:
+    return get_theme_manager().current.colors.surface_container_high
+
+
+def _border() -> str:
+    return get_theme_manager().current.colors.outline
+
+
+def _muted() -> str:
+    return get_theme_manager().current.colors.on_surface_variant
+
+
+GREEN = "#238636"          # additions  # TODO: theme token
+RED = "#da3633"            # deletions  # TODO: theme token
 
 
 class _LoadSignals(QObject):
@@ -28,7 +41,7 @@ class _SummaryCard(QFrame):
     def __init__(self, value: str, label: str, parent=None) -> None:
         super().__init__(parent)
         self.setStyleSheet(
-            f"background-color: {CARD_BG}; border: 1px solid {BORDER}; border-radius: 8px;"
+            f"background-color: {_card_bg()}; border: 1px solid {_border()}; border-radius: 8px;"
         )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -39,12 +52,12 @@ class _SummaryCard(QFrame):
         value_font.setPointSize(28)
         value_font.setBold(True)
         value_label.setFont(value_font)
-        value_label.setStyleSheet(f"color: {ACCENT}; border: none;")
+        value_label.setStyleSheet(f"color: {_accent()}; border: none;")
         value_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(value_label)
 
         text_label = QLabel(label)
-        text_label.setStyleSheet(f"color: {MUTED}; border: none;")
+        text_label.setStyleSheet(f"color: {_muted()}; border: none;")
         text_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(text_label)
 
@@ -71,7 +84,7 @@ class _AuthorRow(QWidget):
         rank_font.setPointSize(20)
         rank_font.setBold(True)
         painter.setFont(rank_font)
-        painter.setPen(QColor(ACCENT))
+        painter.setPen(QColor(_accent()))
         painter.drawText(8, 0, 50, rect.height(), Qt.AlignVCenter | Qt.AlignLeft, f"#{self._rank}")
 
         # Name
@@ -80,7 +93,7 @@ class _AuthorRow(QWidget):
         name_font.setBold(True)
         painter.setFont(name_font)
         name_fm = painter.fontMetrics()
-        painter.setPen(QColor("white"))
+        painter.setPen(QColor("white"))  # TODO: theme token
         # Strip email from "Name <email>"
         display_name = self._name.split("<")[0].strip() if "<" in self._name else self._name
         painter.drawText(64, 6, rect.width() - 200, name_fm.height(),
@@ -91,7 +104,7 @@ class _AuthorRow(QWidget):
         count_font.setPointSize(10)
         painter.setFont(count_font)
         count_fm = painter.fontMetrics()
-        painter.setPen(QColor(MUTED))
+        painter.setPen(QColor(_muted()))
         painter.drawText(rect.width() - 130, 6, 120, count_fm.height(),
                          Qt.AlignVCenter | Qt.AlignRight, f"{self._commits} commits")
 
@@ -146,14 +159,14 @@ class _FileRow(QWidget):
         rank_font.setPointSize(16)
         rank_font.setBold(True)
         painter.setFont(rank_font)
-        painter.setPen(QColor(ACCENT))
+        painter.setPen(QColor(_accent()))
         painter.drawText(8, 0, 50, rect.height(), Qt.AlignVCenter | Qt.AlignLeft, f"#{self._rank}")
 
         path_font = QFont()
         path_font.setPointSize(10)
         painter.setFont(path_font)
         path_fm = painter.fontMetrics()
-        painter.setPen(QColor("white"))
+        painter.setPen(QColor("white"))  # TODO: theme token
         # Elide long paths
         elided = path_fm.elidedText(self._path, Qt.ElideMiddle, rect.width() - 200)
         painter.drawText(56, 0, rect.width() - 200, rect.height(),
@@ -162,7 +175,7 @@ class _FileRow(QWidget):
         count_font = QFont()
         count_font.setPointSize(10)
         painter.setFont(count_font)
-        painter.setPen(QColor(MUTED))
+        painter.setPen(QColor(_muted()))
         painter.drawText(rect.width() - 140, 0, 130, rect.height(),
                          Qt.AlignVCenter | Qt.AlignRight, f"{self._count}×")
         painter.end()
@@ -172,7 +185,7 @@ def _make_card_container(title: str) -> tuple[QFrame, QVBoxLayout]:
     """Create a styled card with a title; returns (frame, inner_layout)."""
     frame = QFrame()
     frame.setStyleSheet(
-        f"background-color: {CARD_BG}; border: 1px solid {BORDER}; border-radius: 8px;"
+        f"background-color: {_card_bg()}; border: 1px solid {_border()}; border-radius: 8px;"
     )
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(16, 16, 16, 16)
@@ -183,7 +196,7 @@ def _make_card_container(title: str) -> tuple[QFrame, QVBoxLayout]:
     title_font.setPointSize(13)
     title_font.setBold(True)
     title_label.setFont(title_font)
-    title_label.setStyleSheet("color: white; border: none;")
+    title_label.setStyleSheet("color: white; border: none;")  # TODO: theme token
     layout.addWidget(title_label)
 
     return frame, layout
@@ -239,7 +252,7 @@ class InsightDialog(QDialog):
         # Loading label
         self._loading_label = QLabel("Loading...")
         self._loading_label.setAlignment(Qt.AlignCenter)
-        self._loading_label.setStyleSheet(f"color: {MUTED}; padding: 40px;")
+        self._loading_label.setStyleSheet(f"color: {_muted()}; padding: 40px;")
         layout.addWidget(self._loading_label)
 
         # Scroll area for content
@@ -335,7 +348,7 @@ class InsightDialog(QDialog):
         if not self._stats:
             empty = QLabel("No commits in this time range")
             empty.setAlignment(Qt.AlignCenter)
-            empty.setStyleSheet(f"color: {MUTED}; padding: 40px;")
+            empty.setStyleSheet(f"color: {_muted()}; padding: 40px;")
             self._content_layout.addWidget(empty)
             self._content_layout.addStretch()
             return
