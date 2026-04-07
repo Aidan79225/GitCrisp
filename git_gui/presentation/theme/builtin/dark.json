@@ -21,9 +21,9 @@
     "background": "#1e1e1e",
     "on_background": "#cccccc",
     "diff_added_bg": "#1d3a26",
-    "diff_added_fg": "#56d364",
+    "diff_added_fg": "#ffffff",
     "diff_removed_bg": "#3e2025",
-    "diff_removed_fg": "#f85149",
+    "diff_removed_fg": "#ffffff",
     "graph_lane_colors": [
       "#4fc1ff",
       "#f9c74f",
@@ -45,10 +45,10 @@
     "branch_head_bg": "#238636",
     "diff_file_header_fg": "#e3b341",
     "diff_hunk_header_fg": "#58a6ff",
-    "diff_added_overlay": "#23863650",
-    "diff_removed_overlay": "#f8514950",
+    "diff_added_overlay": "#50238636",
+    "diff_removed_overlay": "#50f85149",
     "on_badge": "#ffffff",
-    "hover_overlay": "#ffffff1e"
+    "hover_overlay": "#1effffff"
   },
   "typography": {
     "title_large":  {"family": "", "size": 20, "weight": 500, "letter_spacing": 0.0},

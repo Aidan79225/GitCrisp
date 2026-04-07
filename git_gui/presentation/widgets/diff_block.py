@@ -96,10 +96,10 @@ def make_diff_formats() -> DiffFormats:
     on_surface = c.as_qcolor("on_surface")
 
     fmt_added = QTextCharFormat()
-    fmt_added.setForeground(c.as_qcolor("diff_added_fg"))
+    fmt_added.setForeground(on_surface)
 
     fmt_removed = QTextCharFormat()
-    fmt_removed.setForeground(c.as_qcolor("diff_removed_fg"))
+    fmt_removed.setForeground(on_surface)
 
     fmt_header = QTextCharFormat()
     fmt_header.setForeground(QColor(_hunk_header_color()))
