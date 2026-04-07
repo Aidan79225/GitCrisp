@@ -30,9 +30,10 @@ class _RepoTree(QTreeView):
             painter.restore()
         elif option.state & QStyle.State_MouseOver:
             painter.save()
-            hover_color = option.palette.highlight().color()
-            hover_color.setAlpha(70)
-            painter.fillRect(option.rect, hover_color)
+            painter.fillRect(
+                option.rect,
+                get_theme_manager().current.colors.as_qcolor("surface_container_high"),
+            )
             painter.restore()
         super().drawRow(painter, option, index)
 
