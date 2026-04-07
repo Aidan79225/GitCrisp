@@ -89,7 +89,7 @@ class CommitInfoDelegate(QStyledItemDelegate):
         r1 = QRect(rect.left() + CELL_PAD, rect.top(), rect.width() - CELL_PAD * 2, header_h)
         # Strip email from author: "Alice <a@a.com>" → "Alice"
         author_name = info.author.split("<")[0].strip() if "<" in info.author else info.author
-        painter.setPen(QColor("white"))  # TODO(theme): author text color
+        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
         painter.drawText(r1, Qt.AlignVCenter | Qt.AlignLeft, author_name)
         painter.setPen(_muted_color())
         painter.drawText(r1, Qt.AlignVCenter | Qt.AlignRight, info.timestamp)
@@ -118,13 +118,13 @@ class CommitInfoDelegate(QStyledItemDelegate):
             painter.setBrush(QBrush(_badge_color(name, info.head_branch)))
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
-            painter.setPen(QColor("white"))  # TODO(theme): badge text color
+            painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
             painter.drawText(badge_rect, Qt.AlignCenter, display)
             x += badge_w + BADGE_GAP
 
         # Hash right-aligned on first badge line
         r2_first = QRect(rect.left() + CELL_PAD, r2_top, cell_w, header_h)
-        painter.setPen(QColor("white"))  # TODO(theme): hash text color
+        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
         painter.drawText(r2_first, Qt.AlignVCenter | Qt.AlignRight, info.short_oid)
 
         # Total badge lines for message offset

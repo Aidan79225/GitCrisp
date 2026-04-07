@@ -10,8 +10,8 @@ BADGE_H_PAD = 4    # horizontal padding inside badge
 BADGE_V_PAD = 2    # vertical padding inside badge
 BADGE_GAP = 4      # gap between consecutive badges, and after last badge
 
-# TODO(theme): domain green for HEAD/current branch — no clean token yet
-COLOR_HEAD = "#238636"
+def _color_head() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("branch_head_bg")
 
 
 def _color_local() -> QColor:
@@ -28,9 +28,9 @@ def _color_tag() -> QColor:
 
 def _badge_color(name: str, head_branch: str | None = None) -> QColor:
     if name == "HEAD" or name.startswith("HEAD ->"):
-        return QColor(COLOR_HEAD)
+        return _color_head()
     if head_branch and name == head_branch:
-        return QColor(COLOR_HEAD)
+        return _color_head()
     if name.startswith("tag:"):
         return _color_tag()
     if "/" in name:
@@ -68,7 +68,7 @@ class RefBadgeDelegate(QStyledItemDelegate):
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
 
-            painter.setPen(QColor("white"))  # TODO(theme): badge text color
+            painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
             painter.drawText(badge_rect, Qt.AlignCenter, display)
 
             x += badge_w + BADGE_GAP
