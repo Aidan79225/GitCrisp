@@ -57,7 +57,20 @@ class ThemeManager(QObject):
 
     def _apply(self) -> None:
         self._app.setStyleSheet(render(self._current))
-        self._app.setPalette(_build_palette(self._current))
+        palette = _build_palette(self._current)
+        self._app.setPalette(palette)
+        # QApplication.setPalette only updates the *default* palette in
+        # Qt 6 — already-shown widgets keep their inherited copy and
+        # don't repaint. Walk every live widget and re-apply, then force
+        # the viewport repaint for QAbstractScrollArea (tree/list/table
+        # views, where update() on the view itself doesn't repaint
+        # items).
+        from PySide6.QtWidgets import QAbstractScrollArea
+        for w in self._app.allWidgets():
+            w.setPalette(palette)
+            if isinstance(w, QAbstractScrollArea):
+                w.viewport().update()
+            w.update()
 
     def _resolve_theme(self) -> Theme:
         if self._mode == "light":
