@@ -51,18 +51,18 @@ QMenu::separator {
 }
 
 /* Scrollbar — once any QApplication stylesheet exists, Qt routes
-   scrollbars through stylesheet rendering. Palette alone isn't enough
-   (Button role collapses to surface_variant which is too close to the
-   background in light mode). Style explicitly so the handle is visibly
-   distinct from the track in both themes. */
+   scrollbars through stylesheet rendering and we lose the native
+   hover-to-expand effect. Re-create it via the :hover pseudo-state:
+   the outer track stays a fixed 12px (so layout never shifts) and the
+   handle's margin shrinks on hover, visually thickening it. */
 QScrollBar:vertical {
-    background: %(surface_container)s;
+    background: transparent;
     width: 12px;
     margin: 0px;
     border: none;
 }
 QScrollBar:horizontal {
-    background: %(surface_container)s;
+    background: transparent;
     height: 12px;
     margin: 0px;
     border: none;
@@ -70,17 +70,30 @@ QScrollBar:horizontal {
 QScrollBar::handle:vertical {
     background: %(outline)s;
     min-height: 24px;
-    border-radius: 4px;
-    margin: 2px;
+    border-radius: 3px;
+    margin: 4px 4px 4px 4px;
 }
 QScrollBar::handle:horizontal {
     background: %(outline)s;
     min-width: 24px;
-    border-radius: 4px;
-    margin: 2px;
+    border-radius: 3px;
+    margin: 4px 4px 4px 4px;
 }
-QScrollBar::handle:hover {
+QScrollBar:vertical:hover {
+    background: %(surface_container)s;
+}
+QScrollBar:horizontal:hover {
+    background: %(surface_container)s;
+}
+QScrollBar::handle:vertical:hover {
     background: %(on_surface_variant)s;
+    margin: 2px 2px 2px 2px;
+    border-radius: 4px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: %(on_surface_variant)s;
+    margin: 2px 2px 2px 2px;
+    border-radius: 4px;
 }
 QScrollBar::add-line, QScrollBar::sub-line {
     background: none;
