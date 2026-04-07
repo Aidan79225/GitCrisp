@@ -96,7 +96,7 @@ class DiffWidget(QWidget):
         self._diff_scroll.setWidgetResizable(True)
         self._diff_container = QWidget()
         self._diff_layout = QVBoxLayout(self._diff_container)
-        self._diff_layout.setContentsMargins(4, 4, 4, 4)
+        self._diff_layout.setContentsMargins(0, 4, 0, 4)
         self._diff_layout.setSpacing(8)
         self._diff_scroll.setWidget(self._diff_container)
 
@@ -116,7 +116,7 @@ class DiffWidget(QWidget):
         splitter.setStretchFactor(1, 1)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
         layout.addWidget(self._detail, 0)
         layout.addWidget(self._msg_view, 0)
