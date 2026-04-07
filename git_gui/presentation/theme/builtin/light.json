@@ -45,10 +45,10 @@
     "branch_head_bg": "#238636",
     "diff_file_header_fg": "#9a6700",
     "diff_hunk_header_fg": "#0969da",
-    "diff_added_overlay": "#23863650",
-    "diff_removed_overlay": "#f8514950",
+    "diff_added_overlay": "#50238636",
+    "diff_removed_overlay": "#50f85149",
     "on_badge": "#ffffff",
-    "hover_overlay": "#0000001e"
+    "hover_overlay": "#1e000000"
   },
   "typography": {
     "title_large":  {"family": "", "size": 20, "weight": 500, "letter_spacing": 0.0},
