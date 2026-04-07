@@ -49,6 +49,48 @@ QMenu::separator {
     height: 1px;
     background: %(outline_variant)s;
 }
+
+/* Scrollbar — once any QApplication stylesheet exists, Qt routes
+   scrollbars through stylesheet rendering. Palette alone isn't enough
+   (Button role collapses to surface_variant which is too close to the
+   background in light mode). Style explicitly so the handle is visibly
+   distinct from the track in both themes. */
+QScrollBar:vertical {
+    background: %(surface_container)s;
+    width: 12px;
+    margin: 0px;
+    border: none;
+}
+QScrollBar:horizontal {
+    background: %(surface_container)s;
+    height: 12px;
+    margin: 0px;
+    border: none;
+}
+QScrollBar::handle:vertical {
+    background: %(outline)s;
+    min-height: 24px;
+    border-radius: 4px;
+    margin: 2px;
+}
+QScrollBar::handle:horizontal {
+    background: %(outline)s;
+    min-width: 24px;
+    border-radius: 4px;
+    margin: 2px;
+}
+QScrollBar::handle:hover {
+    background: %(on_surface_variant)s;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    background: none;
+    border: none;
+    width: 0px;
+    height: 0px;
+}
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: none;
+}
 """
 
 
