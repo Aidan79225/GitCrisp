@@ -2,8 +2,8 @@
   "name": "Light",
   "is_dark": false,
   "colors": {
-    "primary": "#0969da",
-    "on_primary": "#ffffff",
+    "primary": "#54aeff",
+    "on_primary": "#0a2540",
     "primary_container": "#ddf4ff",
     "on_primary_container": "#0550ae",
     "secondary": "#8250df",
