@@ -102,6 +102,7 @@ def render(theme: Theme) -> str:
         "surface_container": c.surface_container,
         "on_surface": c.on_surface,
         "on_surface_variant": c.on_surface_variant,
+        "outline": c.outline,
         "outline_variant": c.outline_variant,
         "primary": c.primary,
         "on_primary": c.on_primary,
