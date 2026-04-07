@@ -6,6 +6,7 @@ from git_gui.infrastructure.repo_store import JsonRepoStore
 from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
+from git_gui.presentation.theme import ThemeManager, set_theme_manager
 
 
 def _pick_repo() -> str:
@@ -38,6 +39,9 @@ def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("GitCrisp")
+
+    theme_manager = ThemeManager(app)
+    set_theme_manager(theme_manager)
 
     repo_store = JsonRepoStore()
     repo_store.load()
