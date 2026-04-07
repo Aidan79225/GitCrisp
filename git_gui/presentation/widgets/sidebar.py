@@ -37,14 +37,34 @@ def _get_cloud_icon() -> QIcon:
 class _SidebarTree(QTreeView):
     """QTreeView that paints full-row hover and HEAD highlight."""
 
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        from PySide6.QtCore import QPersistentModelIndex
+        self._hover_idx = QPersistentModelIndex()
+
+    def mouseMoveEvent(self, event) -> None:
+        from PySide6.QtCore import QPersistentModelIndex
+        idx = self.indexAt(event.position().toPoint())
+        new_idx = QPersistentModelIndex(idx) if idx.isValid() else QPersistentModelIndex()
+        if new_idx != self._hover_idx:
+            self._hover_idx = new_idx
+            self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        from PySide6.QtCore import QPersistentModelIndex
+        if self._hover_idx.isValid():
+            self._hover_idx = QPersistentModelIndex()
+            self.viewport().update()
+        super().leaveEvent(event)
+
     def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         # Full-row HEAD highlight
         if index.data(_IS_HEAD_ROLE):
             painter.save()
             painter.fillRect(option.rect, _head_bg())
             painter.restore()
-        # Full-row hover (match Qt's default hover color)
-        elif option.state & QStyle.State_MouseOver:
+        elif self._hover_idx.isValid() and index == self._hover_idx:
             painter.save()
             hover_color = get_theme_manager().current.colors.as_qcolor("surface_container_high")
             painter.fillRect(option.rect, hover_color)
