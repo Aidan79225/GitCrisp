@@ -62,7 +62,7 @@ class RepoListWidget(QWidget):
         self._btn_add = QPushButton("Open")
         self._btn_add.setFixedHeight(28)
         self._btn_add.setStyleSheet(
-            "QPushButton { padding: 4px 10px; border: 1px solid palette(mid); "
+            "QPushButton { padding: 4px 10px; border: none; "
             "border-radius: 4px; background: palette(button); } "
             "QPushButton:hover { background: palette(midlight); } "
             "QPushButton:pressed { background: palette(highlight); color: palette(highlighted-text); }"
@@ -73,7 +73,7 @@ class RepoListWidget(QWidget):
         self._btn_clone = QPushButton("Clone")
         self._btn_clone.setFixedHeight(28)
         self._btn_clone.setStyleSheet(
-            "QPushButton { padding: 4px 10px; border: 1px solid palette(mid); "
+            "QPushButton { padding: 4px 10px; border: none; "
             "border-radius: 4px; background: palette(button); } "
             "QPushButton:hover { background: palette(midlight); } "
             "QPushButton:pressed { background: palette(highlight); color: palette(highlighted-text); }"
@@ -81,6 +81,7 @@ class RepoListWidget(QWidget):
         self._btn_clone.setToolTip("Clone Repository...")
         self._btn_clone.clicked.connect(lambda: self.clone_requested.emit())
         header_layout.addWidget(self._btn_add)
+        header_layout.addSpacing(6)
         header_layout.addWidget(self._btn_clone)
 
         # Tree view
