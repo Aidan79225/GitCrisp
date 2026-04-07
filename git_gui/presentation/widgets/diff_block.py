@@ -12,15 +12,22 @@ from PySide6.QtWidgets import (
 )
 
 from git_gui.domain.entities import Hunk
+from git_gui.presentation.theme import get_theme_manager
 
 # ---------------------------------------------------------------------------
 # Style constants
 # ---------------------------------------------------------------------------
 
-FILE_BLOCK_STYLE = (
-    "QFrame#fileBlock { border: 1px solid #30363d; border-radius: 4px; background-color: #161b22; }"
-)
+def _file_block_style() -> str:
+    c = get_theme_manager().current.colors
+    return (
+        f"QFrame#fileBlock {{ border: 1px solid {c.outline}; "
+        f"border-radius: 4px; background-color: {c.surface_container_high}; }}"
+    )
+
+# TODO(theme): #e3b341 is a yellow accent with no clean MD3 token mapping.
 HEADER_STYLE = "color: #e3b341; font-weight: bold;"
+# TODO(theme): #58a6ff is a domain blue accent with no clean MD3 token mapping.
 HUNK_HEADER_COLOR = "#58a6ff"
 HEADER_ROW_HEIGHT = 22  # consistent height for file + hunk header rows
 HEADER_ROW_VPAD = 3      # top/bottom padding inside the header row
@@ -50,7 +57,7 @@ def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
     frame = QFrame()
     frame.setObjectName("fileBlock")
     frame.setFrameShape(QFrame.StyledPanel)
-    frame.setStyleSheet(FILE_BLOCK_STYLE)
+    frame.setStyleSheet(_file_block_style())
     # Don't let the frame grow beyond its content (avoids stretched short hunks)
     frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
     inner = QVBoxLayout(frame)
@@ -75,21 +82,26 @@ def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
 
 def make_diff_formats() -> DiffFormats:
     """Return a DiffFormats dataclass with all QTextCharFormat / QTextBlockFormat objects."""
+    # TODO(theme): "white" foreground — no clean on-surface token swap without visual change.
     fmt_added = QTextCharFormat()
     fmt_added.setForeground(QColor("white"))
 
+    # TODO(theme): "white" foreground — no clean on-surface token swap without visual change.
     fmt_removed = QTextCharFormat()
     fmt_removed.setForeground(QColor("white"))
 
     fmt_header = QTextCharFormat()
     fmt_header.setForeground(QColor(HUNK_HEADER_COLOR))
 
+    # TODO(theme): "white" foreground — no clean on-surface token swap without visual change.
     fmt_default = QTextCharFormat()
     fmt_default.setForeground(QColor("white"))
 
+    # TODO(theme): semi-transparent green over surface_container_high; preserve exact look.
     blk_added = QTextBlockFormat()
     blk_added.setBackground(QColor(35, 134, 54, 80))
 
+    # TODO(theme): semi-transparent red over surface_container_high; preserve exact look.
     blk_removed = QTextBlockFormat()
     blk_removed.setBackground(QColor(248, 81, 73, 80))
 
