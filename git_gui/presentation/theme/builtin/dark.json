@@ -54,7 +54,7 @@
     "title_large":  {"family": "", "size": 20, "weight": 500, "letter_spacing": 0.0},
     "title_medium": {"family": "", "size": 16, "weight": 500, "letter_spacing": 0.15},
     "body_large":   {"family": "", "size": 14, "weight": 400, "letter_spacing": 0.5},
-    "body_medium":  {"family": "", "size": 9, "weight": 400, "letter_spacing": 0.25},
+    "body_medium":  {"family": "", "size": 13, "weight": 400, "letter_spacing": 0.25},
     "body_small":   {"family": "", "size": 12, "weight": 400, "letter_spacing": 0.4},
     "label_large":  {"family": "", "size": 14, "weight": 500, "letter_spacing": 0.1},
     "label_medium": {"family": "", "size": 12, "weight": 500, "letter_spacing": 0.5}
