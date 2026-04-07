@@ -61,13 +61,23 @@ class RepoListWidget(QWidget):
 
         self._btn_add = QPushButton("Open")
         self._btn_add.setFixedHeight(28)
-        self._btn_add.setStyleSheet("QPushButton { padding: 4px 10px; }")
+        self._btn_add.setStyleSheet(
+            "QPushButton { padding: 4px 10px; border: 1px solid palette(mid); "
+            "border-radius: 4px; background: palette(button); } "
+            "QPushButton:hover { background: palette(midlight); } "
+            "QPushButton:pressed { background: palette(highlight); color: palette(highlighted-text); }"
+        )
         self._btn_add.setToolTip("Open Repository...")
         self._btn_add.clicked.connect(self._on_add_clicked)
 
         self._btn_clone = QPushButton("Clone")
         self._btn_clone.setFixedHeight(28)
-        self._btn_clone.setStyleSheet("QPushButton { padding: 4px 10px; }")
+        self._btn_clone.setStyleSheet(
+            "QPushButton { padding: 4px 10px; border: 1px solid palette(mid); "
+            "border-radius: 4px; background: palette(button); } "
+            "QPushButton:hover { background: palette(midlight); } "
+            "QPushButton:pressed { background: palette(highlight); color: palette(highlighted-text); }"
+        )
         self._btn_clone.setToolTip("Clone Repository...")
         self._btn_clone.clicked.connect(lambda: self.clone_requested.emit())
         header_layout.addWidget(self._btn_add)
