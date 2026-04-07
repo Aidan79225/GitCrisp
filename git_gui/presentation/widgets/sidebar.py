@@ -58,6 +58,16 @@ class _SidebarTree(QTreeView):
             self.viewport().update()
         super().leaveEvent(event)
 
+    def drawBranches(self, painter, rect, index) -> None:
+        if index.data(_IS_HEAD_ROLE):
+            painter.fillRect(rect, _head_bg())
+        elif self._hover_idx.isValid() and index == self._hover_idx:
+            painter.fillRect(
+                rect,
+                get_theme_manager().current.colors.as_qcolor("surface_container_high"),
+            )
+        super().drawBranches(painter, rect, index)
+
     def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         # Full-row HEAD highlight
         if index.data(_IS_HEAD_ROLE):
