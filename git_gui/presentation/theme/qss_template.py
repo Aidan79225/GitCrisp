@@ -72,13 +72,9 @@ QDialog QPushButton:disabled {
     color: %(on_surface_variant)s;
 }
 
-/* Item view hover — Qt's default hover on Windows draws a hard white
-   highlight when a global stylesheet is active. Use a subtle tint from
-   surface_container_high so hover is visible in both light and dark. */
-QAbstractItemView::item:hover {
-    background: %(surface_container_high)s;
-    color: %(on_surface)s;
-}
+/* Item view selection only — per-item hover is left to widget-level
+   delegates so views that paint full-row hover don't get a second
+   highlight on top. */
 QAbstractItemView::item:selected {
     background: %(primary)s;
     color: %(on_primary)s;
