@@ -8,10 +8,18 @@ from PySide6.QtWidgets import (
 )
 from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.theme import get_theme_manager
 from git_gui.resources import get_resource_path
 
-_HEAD_BG = QColor("#264f78")
-_HOVER_BG = QColor("#2a2d2e")
+
+def _head_bg() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("primary")
+
+
+def _hover_bg() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("surface_variant")
+
+
 _ROW_HEIGHT = 28
 _IS_HEAD_ROLE = Qt.UserRole + 2
 _TARGET_OID_ROLE = Qt.UserRole + 3
@@ -33,7 +41,7 @@ class _SidebarTree(QTreeView):
         # Full-row HEAD highlight
         if index.data(_IS_HEAD_ROLE):
             painter.save()
-            painter.fillRect(option.rect, _HEAD_BG)
+            painter.fillRect(option.rect, _head_bg())
             painter.restore()
         # Full-row hover (match Qt's default hover color)
         elif option.state & QStyle.State_MouseOver:
