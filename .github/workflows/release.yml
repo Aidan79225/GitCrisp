@@ -21,7 +21,7 @@ jobs:
             archive_ext: dmg
           - os: ubuntu-latest
             artifact: GitCrisp-linux
-            archive_ext: tar.gz
+            archive_ext: AppImage
 
     runs-on: ${{ matrix.os }}
 
@@ -165,9 +165,38 @@ jobs:
         if: runner.os == 'macOS'
         run: mv GitCrisp-macos.dmg ${{ matrix.artifact }}.dmg
 
-      - name: Archive build (Linux)
+      - name: Build AppImage (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf ${{ matrix.artifact }}.tar.gz -C dist GitCrisp
+        run: |
+          set -e
+          APPDIR=AppDir
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin"
+          cp -r dist/GitCrisp/. "$APPDIR/usr/bin/"
+
+          cat > "$APPDIR/GitCrisp.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=GitCrisp
+          Exec=GitCrisp
+          Icon=gitcrisp
+          Categories=Development;RevisionControl;
+          Terminal=false
+          EOF
+
+          cp arts/gitcrisp.svg "$APPDIR/gitcrisp.svg"
+
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/GitCrisp" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          ./appimagetool --appimage-extract
+          ./squashfs-root/AppRun "$APPDIR" "${{ matrix.artifact }}.AppImage"
 
       - name: Cleanup macOS keychain
         if: always() && runner.os == 'macOS'
@@ -203,4 +232,4 @@ jobs:
             --generate-notes \
             artifacts/GitCrisp-windows/GitCrisp-windows.exe \
             artifacts/GitCrisp-macos/GitCrisp-macos.dmg \
-            artifacts/GitCrisp-linux/GitCrisp-linux.tar.gz
+            artifacts/GitCrisp-linux/GitCrisp-linux.AppImage
