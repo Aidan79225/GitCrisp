@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.theme import get_theme_manager
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
@@ -14,6 +15,7 @@ from git_gui.presentation.widgets.diff_block import (
     make_file_block, make_diff_formats, add_hunk_widget,
 )
 
+# TODO: theme tokens — git status colors (M/A/D/R) need their own theme tokens
 _DELTA_BADGE = {
     "modified": ("M", "#1f6feb"),   # blue
     "added":    ("A", "#238636"),   # green
@@ -35,7 +37,7 @@ class _FileDeltaDelegate(QStyledItemDelegate):
 
         from PySide6.QtWidgets import QStyle
         if option.state & QStyle.State_Selected:
-            painter.fillRect(rect, QColor("#264f78"))
+            painter.fillRect(rect, get_theme_manager().current.colors.as_qcolor("primary"))
 
         fs = index.data(Qt.UserRole)
         delta = fs.delta if fs else "unknown"
@@ -48,6 +50,7 @@ class _FileDeltaDelegate(QStyledItemDelegate):
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
 
+        # TODO: theme token — badge text color
         painter.setPen(QColor("white"))
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 

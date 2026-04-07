@@ -9,8 +9,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.ports import IRepoStore
+from git_gui.presentation.theme import get_theme_manager
 
-_ACTIVE_BG = QColor("#264f78")
+
+def _active_bg() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("primary")
+
+
 _IS_ACTIVE_ROLE = Qt.UserRole + 2
 _ROW_HEIGHT = 28
 
@@ -21,7 +26,7 @@ class _RepoTree(QTreeView):
     def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         if index.data(_IS_ACTIVE_ROLE):
             painter.save()
-            painter.fillRect(option.rect, _ACTIVE_BG)
+            painter.fillRect(option.rect, _active_bg())
             painter.restore()
         elif option.state & QStyle.State_MouseOver:
             painter.save()
