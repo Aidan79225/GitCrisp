@@ -82,7 +82,7 @@ class DiffWidget(QWidget):
         self._msg_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._msg_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._msg_view.viewport().installEventFilter(self)
-        self._msg_view.document().setDocumentMargin(8)
+        self._msg_view.document().setDocumentMargin(12)
         font = self._msg_view.font()
         font.setFamily("Courier New")
         self._msg_view.setFont(font)
@@ -95,7 +95,7 @@ class DiffWidget(QWidget):
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDeltaDelegate(self._file_view))
         self._file_view.setStyleSheet(
-            "QListView { background: palette(button); border: none; }"
+            "QListView { background: palette(button); border: none; padding: 6px; }"
         )
 
         # ── Diff area: scrollable container of per-file bordered blocks ─────
