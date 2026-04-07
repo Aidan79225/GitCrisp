@@ -51,13 +51,13 @@
     "hover_overlay": "#1effffff"
   },
   "typography": {
-    "title_large":  {"family": "", "size": 20, "weight": 500, "letter_spacing": 0.0},
-    "title_medium": {"family": "", "size": 16, "weight": 500, "letter_spacing": 0.15},
-    "body_large":   {"family": "", "size": 14, "weight": 400, "letter_spacing": 0.5},
-    "body_medium":  {"family": "", "size": 13, "weight": 400, "letter_spacing": 0.25},
-    "body_small":   {"family": "", "size": 12, "weight": 400, "letter_spacing": 0.4},
-    "label_large":  {"family": "", "size": 14, "weight": 500, "letter_spacing": 0.1},
-    "label_medium": {"family": "", "size": 12, "weight": 500, "letter_spacing": 0.5}
+    "title_large":  {"family": "", "size": 16, "weight": 500, "letter_spacing": 0.0},
+    "title_medium": {"family": "", "size": 13, "weight": 500, "letter_spacing": 0.15},
+    "body_large":   {"family": "", "size": 11, "weight": 400, "letter_spacing": 0.5},
+    "body_medium":  {"family": "", "size": 10, "weight": 400, "letter_spacing": 0.25},
+    "body_small":   {"family": "", "size": 10, "weight": 400, "letter_spacing": 0.4},
+    "label_large":  {"family": "", "size": 11, "weight": 500, "letter_spacing": 0.1},
+    "label_medium": {"family": "", "size": 10, "weight": 500, "letter_spacing": 0.5}
   },
   "shape":   {"corner_xs": 4, "corner_sm": 4, "corner_md": 6, "corner_lg": 8},
   "spacing": {"xs": 4, "sm": 8, "md": 16, "lg": 24, "xl": 32}
