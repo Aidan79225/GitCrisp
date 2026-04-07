@@ -1,14 +1,17 @@
 from __future__ import annotations
+import logging
 from typing import Optional
 from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
-from .loader import load_builtin
+from .loader import load_builtin, load_theme, ThemeValidationError
 from .qss_template import render
-from .settings import load_settings, save_settings
+from .settings import load_settings, save_settings, custom_theme_path
 from .tokens import Theme
 
-_VALID_MODES = ("system", "light", "dark")
+_log = logging.getLogger(__name__)
+
+_VALID_MODES = ("system", "light", "dark", "custom")
 
 
 class ThemeManager(QObject):
@@ -60,7 +63,21 @@ class ThemeManager(QObject):
             return load_builtin("light")
         if self._mode == "dark":
             return load_builtin("dark")
+        if self._mode == "custom":
+            return self._load_custom_or_fallback()
         return self._system_theme()
+
+    def _load_custom_or_fallback(self) -> Theme:
+        from . import settings as _settings
+        path = _settings.custom_theme_path()
+        if not path.exists():
+            _log.warning("Custom theme file not found at %s; falling back to dark", path)
+            return load_builtin("dark")
+        try:
+            return load_theme(path)
+        except (OSError, ThemeValidationError) as e:
+            _log.warning("Could not load custom theme at %s: %s; falling back to dark", path, e)
+            return load_builtin("dark")
 
     def _system_theme(self) -> Theme:
         hints = QGuiApplication.styleHints()

@@ -13,6 +13,15 @@ def settings_path() -> Path:
     return Path(base) / "GitStack" / "settings.json"
 
 
+def custom_theme_path() -> Path:
+    """Path to the user's saved custom theme JSON.
+
+    Lives next to settings.json so the entire user theme state stays in
+    one directory under <AppData>/GitStack/.
+    """
+    return settings_path().parent / "custom_theme.json"
+
+
 def load_settings() -> dict:
     p = settings_path()
     if not p.exists():

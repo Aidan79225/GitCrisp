@@ -51,3 +51,44 @@ def test_set_mode_applies_global_qss(app, isolated_settings):
     qss = app.styleSheet()
     assert "QPushButton" in qss
     assert len(qss) > 200
+
+
+def test_set_mode_custom_loads_from_file(app, isolated_settings, tmp_path, monkeypatch):
+    import json
+    import dataclasses
+    from git_gui.presentation.theme import settings as s
+    from git_gui.presentation.theme.loader import load_builtin
+
+    custom_path = tmp_path / "custom_theme.json"
+    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+
+    base = load_builtin("light")
+    payload = {
+        "name": "Custom Test",
+        "is_dark": base.is_dark,
+        "colors": dataclasses.asdict(base.colors),
+        "typography": {
+            f.name: dataclasses.asdict(getattr(base.typography, f.name))
+            for f in dataclasses.fields(type(base.typography))
+        },
+        "shape": dataclasses.asdict(base.shape),
+        "spacing": dataclasses.asdict(base.spacing),
+    }
+    custom_path.write_text(json.dumps(payload))
+
+    mgr = ThemeManager(app)
+    mgr.set_mode("custom")
+    assert mgr.mode == "custom"
+    assert mgr.current.name == "Custom Test"
+
+
+def test_set_mode_custom_missing_file_falls_back_to_dark(app, isolated_settings, tmp_path, monkeypatch, caplog):
+    from git_gui.presentation.theme import settings as s
+    monkeypatch.setattr(s, "custom_theme_path", lambda: tmp_path / "missing.json")
+
+    mgr = ThemeManager(app)
+    with caplog.at_level("WARNING"):
+        mgr.set_mode("custom")
+    assert mgr.mode == "custom"
+    assert mgr.current.is_dark is True
+    assert any("custom" in r.message.lower() for r in caplog.records)
