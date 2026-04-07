@@ -64,17 +64,6 @@ QMenuBar {
 }
 QMenuBar::item:selected { background-color: %(primary_container)s; color: %(on_primary_container)s; }
 
-QScrollBar:vertical, QScrollBar:horizontal {
-    background: %(surface)s;
-    border: none;
-}
-QScrollBar::handle {
-    background: %(outline_variant)s;
-    border-radius: 4px;
-}
-QScrollBar::handle:hover { background: %(outline)s; }
-QScrollBar::add-line, QScrollBar::sub-line { background: none; border: none; }
-
 QToolTip {
     background-color: %(surface_container_high)s;
     color: %(on_surface)s;
