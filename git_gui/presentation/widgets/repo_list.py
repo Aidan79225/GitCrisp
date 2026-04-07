@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.ports import IRepoStore
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 
 
 def _active_bg() -> QColor:
@@ -88,6 +88,8 @@ class RepoListWidget(QWidget):
         layout.setSpacing(0)
         layout.addLayout(header_layout)
         layout.addWidget(self._tree)
+
+        connect_widget(self)
 
     def reload(self) -> None:
         self._model.clear()
