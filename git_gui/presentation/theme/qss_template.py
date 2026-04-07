@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from .tokens import Theme
 
+# QSS template — colors only. No padding/margin/min-size rules so widget
+# layout matches the original (pre-theme) behavior.
 QSS_TEMPLATE = """
 QWidget {
     background-color: %(surface)s;
@@ -18,9 +20,7 @@ QPushButton {
     background-color: %(primary_container)s;
     color: %(on_primary_container)s;
     border: 1px solid %(outline_variant)s;
-    border-radius: %(corner_md)dpx;
-    padding: 6px 16px;
-    min-height: 20px;
+    border-radius: %(corner_sm)dpx;
 }
 QPushButton:hover  { background-color: %(primary)s; color: %(on_primary)s; }
 QPushButton:pressed{ background-color: %(primary)s; color: %(on_primary)s; }
@@ -30,8 +30,7 @@ QLineEdit, QPlainTextEdit, QTextEdit, QComboBox {
     background-color: %(surface_container)s;
     color: %(on_surface)s;
     border: 1px solid %(outline_variant)s;
-    border-radius: %(corner_sm)dpx;
-    padding: 4px 8px;
+    border-radius: %(corner_xs)dpx;
     selection-background-color: %(primary)s;
     selection-color: %(on_primary)s;
 }
@@ -46,10 +45,6 @@ QTabWidget::pane {
 QTabBar::tab {
     background: %(surface_container)s;
     color: %(on_surface_variant)s;
-    padding: 6px 14px;
-    border-top-left-radius: %(corner_sm)dpx;
-    border-top-right-radius: %(corner_sm)dpx;
-    margin-right: 2px;
 }
 QTabBar::tab:selected {
     background: %(surface_container_high)s;
@@ -60,7 +55,6 @@ QMenu {
     background-color: %(surface_container_high)s;
     color: %(on_surface)s;
     border: 1px solid %(outline_variant)s;
-    border-radius: %(corner_sm)dpx;
 }
 QMenu::item:selected { background-color: %(primary_container)s; color: %(on_primary_container)s; }
 
@@ -73,12 +67,10 @@ QMenuBar::item:selected { background-color: %(primary_container)s; color: %(on_p
 QScrollBar:vertical, QScrollBar:horizontal {
     background: %(surface)s;
     border: none;
-    width: 10px; height: 10px;
 }
 QScrollBar::handle {
     background: %(outline_variant)s;
-    border-radius: 5px;
-    min-height: 20px; min-width: 20px;
+    border-radius: 4px;
 }
 QScrollBar::handle:hover { background: %(outline)s; }
 QScrollBar::add-line, QScrollBar::sub-line { background: none; border: none; }
@@ -87,7 +79,6 @@ QToolTip {
     background-color: %(surface_container_high)s;
     color: %(on_surface)s;
     border: 1px solid %(outline_variant)s;
-    padding: 4px 6px;
 }
 
 QHeaderView::section {
@@ -95,7 +86,6 @@ QHeaderView::section {
     color: %(on_surface_variant)s;
     border: none;
     border-right: 1px solid %(outline_variant)s;
-    padding: 4px 8px;
 }
 
 QListView, QTreeView, QTableView {
@@ -116,9 +106,7 @@ QStatusBar {
 
 QGroupBox {
     border: 1px solid %(outline_variant)s;
-    border-radius: %(corner_sm)dpx;
-    margin-top: 8px;
-    padding-top: 8px;
+    border-radius: %(corner_xs)dpx;
 }
 QGroupBox::title { color: %(on_surface_variant)s; }
 
@@ -145,6 +133,7 @@ def render(theme: Theme) -> str:
         "on_primary_container": c.on_primary_container,
         "outline": c.outline,
         "outline_variant": c.outline_variant,
+        "corner_xs": sh.corner_xs,
         "corner_sm": sh.corner_sm,
         "corner_md": sh.corner_md,
         "body_size": body.size,
