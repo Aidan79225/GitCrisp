@@ -1,0 +1,46 @@
+{
+  "name": "Dark",
+  "is_dark": true,
+  "colors": {
+    "primary": "#d0bcff",
+    "on_primary": "#381e72",
+    "primary_container": "#4f378b",
+    "on_primary_container": "#eaddff",
+    "secondary": "#ccc2dc",
+    "on_secondary": "#332d41",
+    "error": "#f2b8b5",
+    "on_error": "#601410",
+    "surface": "#1c1b1f",
+    "on_surface": "#e6e1e5",
+    "surface_variant": "#49454f",
+    "on_surface_variant": "#cac4d0",
+    "surface_container": "#211f26",
+    "surface_container_high": "#2b2930",
+    "outline": "#938f99",
+    "outline_variant": "#49454f",
+    "background": "#1c1b1f",
+    "on_background": "#e6e1e5",
+    "diff_added_bg": "#1f3a26",
+    "diff_added_fg": "#a6e9b8",
+    "diff_removed_bg": "#3a1f1f",
+    "diff_removed_fg": "#f5b3b3",
+    "graph_lane_colors": [
+      "#64b5f6", "#81c784", "#e57373", "#ba68c8",
+      "#ffb74d", "#4dd0e1", "#a1887f", "#90a4ae"
+    ],
+    "ref_badge_branch_bg": "#1565c0",
+    "ref_badge_tag_bg": "#f9a825",
+    "ref_badge_remote_bg": "#6a1b9a"
+  },
+  "typography": {
+    "title_large":  {"family": "", "size": 20, "weight": 500, "letter_spacing": 0.0},
+    "title_medium": {"family": "", "size": 16, "weight": 500, "letter_spacing": 0.15},
+    "body_large":   {"family": "", "size": 14, "weight": 400, "letter_spacing": 0.5},
+    "body_medium":  {"family": "", "size": 13, "weight": 400, "letter_spacing": 0.25},
+    "body_small":   {"family": "", "size": 12, "weight": 400, "letter_spacing": 0.4},
+    "label_large":  {"family": "", "size": 14, "weight": 500, "letter_spacing": 0.1},
+    "label_medium": {"family": "", "size": 12, "weight": 500, "letter_spacing": 0.5}
+  },
+  "shape":   {"corner_xs": 4, "corner_sm": 8, "corner_md": 12, "corner_lg": 16},
+  "spacing": {"xs": 4, "sm": 8, "md": 16, "lg": 24, "xl": 32}
+}
