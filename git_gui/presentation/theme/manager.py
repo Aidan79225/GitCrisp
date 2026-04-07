@@ -66,8 +66,15 @@ class ThemeManager(QObject):
         # views, where update() on the view itself doesn't repaint
         # items).
         from PySide6.QtWidgets import QAbstractScrollArea
+        style = self._app.style()
         for w in self._app.allWidgets():
             w.setPalette(palette)
+            # Force re-evaluation of any inline stylesheet that uses
+            # palette(role) references — Qt caches the resolved colors
+            # and won't recompute on a palette change without a polish.
+            if w.styleSheet():
+                style.unpolish(w)
+                style.polish(w)
             if isinstance(w, QAbstractScrollArea):
                 w.viewport().update()
             w.update()
