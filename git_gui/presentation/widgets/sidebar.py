@@ -46,8 +46,7 @@ class _SidebarTree(QTreeView):
         # Full-row hover (match Qt's default hover color)
         elif option.state & QStyle.State_MouseOver:
             painter.save()
-            hover_color = option.palette.highlight().color()
-            hover_color.setAlpha(70)
+            hover_color = get_theme_manager().current.colors.as_qcolor("surface_container_high")
             painter.fillRect(option.rect, hover_color)
             painter.restore()
         super().drawRow(painter, option, index)
