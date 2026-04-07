@@ -2,18 +2,65 @@ from __future__ import annotations
 
 from .tokens import Theme
 
-# Global QSS is intentionally empty for now.
+# Targeted global QSS rules for chrome elements that Qt's native styles
+# don't fully reach via QPalette alone (notably QMenuBar / QMenu on
+# Windows, which on some platforms ignore WindowText for item text).
 #
-# Why: the existing widgets still use hardcoded colors via per-widget
-# setStyleSheet calls and QColor literals (migration tasks 9-13 in the
-# plan). A global QSS rule on QWidget cascades to *every* descendant —
-# including QScrollBar — which forces Qt out of native rendering and
-# produces a worse-looking app than before.
-#
-# After widgets are migrated to read colors from the Theme, we can add
-# back targeted QSS rules that don't fight per-widget styling.
-QSS_TEMPLATE = ""
+# Selectors are intentionally narrow — never use bare `QWidget` or
+# anything that cascades to QScrollBar, or you'll trip Qt out of native
+# scrollbar rendering. See git history of qss_template.py for the
+# scrollbar incident.
+
+QSS_TEMPLATE = """
+QMenuBar {
+    background-color: %(background)s;
+    color: %(on_background)s;
+    border-bottom: 1px solid %(outline_variant)s;
+}
+QMenuBar::item {
+    background: transparent;
+    color: %(on_background)s;
+}
+QMenuBar::item:selected {
+    background: %(primary)s;
+    color: %(on_primary)s;
+}
+QMenuBar::item:disabled {
+    color: %(on_surface_variant)s;
+}
+
+QMenu {
+    background-color: %(surface_container)s;
+    color: %(on_surface)s;
+    border: 1px solid %(outline_variant)s;
+}
+QMenu::item {
+    background: transparent;
+    color: %(on_surface)s;
+}
+QMenu::item:selected {
+    background: %(primary)s;
+    color: %(on_primary)s;
+}
+QMenu::item:disabled {
+    color: %(on_surface_variant)s;
+}
+QMenu::separator {
+    height: 1px;
+    background: %(outline_variant)s;
+}
+"""
 
 
 def render(theme: Theme) -> str:
-    return QSS_TEMPLATE
+    c = theme.colors
+    return QSS_TEMPLATE % {
+        "background": c.background,
+        "on_background": c.on_background,
+        "surface_container": c.surface_container,
+        "on_surface": c.on_surface,
+        "on_surface_variant": c.on_surface_variant,
+        "outline_variant": c.outline_variant,
+        "primary": c.primary,
+        "on_primary": c.on_primary,
+    }
