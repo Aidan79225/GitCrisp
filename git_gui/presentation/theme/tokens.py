@@ -32,6 +32,22 @@ class Colors:
     ref_badge_branch_bg: str
     ref_badge_tag_bg: str
     ref_badge_remote_bg: str
+    # Status colors (working tree / diff badges)
+    status_modified: str
+    status_added: str
+    status_deleted: str
+    status_renamed: str
+    status_unknown: str
+    # Branch
+    branch_head_bg: str
+    # Diff accents
+    diff_file_header_fg: str
+    diff_hunk_header_fg: str
+    diff_added_overlay: str
+    diff_removed_overlay: str
+    # Misc
+    on_badge: str
+    hover_overlay: str
 
     def as_qcolor(self, name: str) -> QColor:
         if not hasattr(self, name):
@@ -40,6 +56,16 @@ class Colors:
         if not isinstance(value, str):
             raise KeyError(f"Token {name} is not a single color")
         return QColor(value)
+
+    def status_color(self, kind: str) -> QColor:
+        """Return the badge color for a working-tree delta kind.
+
+        Falls back to status_unknown if the kind is not recognized.
+        """
+        name = f"status_{kind}"
+        if hasattr(self, name):
+            return self.as_qcolor(name)
+        return self.as_qcolor("status_unknown")
 
 
 @dataclass(frozen=True)

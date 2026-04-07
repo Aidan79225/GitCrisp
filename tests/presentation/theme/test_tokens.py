@@ -21,6 +21,18 @@ def _minimal_theme(name="Test", is_dark=False) -> Theme:
         ref_badge_branch_bg="#1976d2",
         ref_badge_tag_bg="#fbc02d",
         ref_badge_remote_bg="#7b1fa2",
+        status_modified="#1f6feb",
+        status_added="#238636",
+        status_deleted="#da3633",
+        status_renamed="#f0883e",
+        status_unknown="#8b949e",
+        branch_head_bg="#238636",
+        diff_file_header_fg="#e3b341",
+        diff_hunk_header_fg="#58a6ff",
+        diff_added_overlay="#23863650",
+        diff_removed_overlay="#f8514950",
+        on_badge="#ffffff",
+        hover_overlay="#ffffff1e",
     )
     body = TextStyle(family="SF Pro Text", size=13, weight=400, letter_spacing=0.0)
     typo = Typography(
