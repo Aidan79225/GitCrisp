@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 from git_gui.domain.entities import CommitStat
 from git_gui.presentation.bus import QueryBus
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 
 
 # ── Style constants ──────────────────────────────────────────────────────────
@@ -29,8 +29,12 @@ def _muted() -> str:
     return get_theme_manager().current.colors.on_surface_variant
 
 
-GREEN = "#238636"          # additions  # TODO: theme token
-RED = "#da3633"            # deletions  # TODO: theme token
+def _green() -> str:
+    return get_theme_manager().current.colors.status_added
+
+
+def _red() -> str:
+    return get_theme_manager().current.colors.status_deleted
 
 
 class _LoadSignals(QObject):
@@ -93,7 +97,7 @@ class _AuthorRow(QWidget):
         name_font.setBold(True)
         painter.setFont(name_font)
         name_fm = painter.fontMetrics()
-        painter.setPen(QColor("white"))  # TODO: theme token
+        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
         # Strip email from "Name <email>"
         display_name = self._name.split("<")[0].strip() if "<" in self._name else self._name
         painter.drawText(64, 6, rect.width() - 200, name_fm.height(),
@@ -121,10 +125,10 @@ class _AuthorRow(QWidget):
         count_fm = painter.fontMetrics()
         count_h = count_fm.height()
         count_y = bar_y - count_h - 2  # 2px gap above bar
-        painter.setPen(QColor(GREEN))
+        painter.setPen(QColor(_green()))
         painter.drawText(bar_x, count_y, 100, count_h, Qt.AlignVCenter | Qt.AlignLeft,
                          f"+{self._added}")
-        painter.setPen(QColor(RED))
+        painter.setPen(QColor(_red()))
         painter.drawText(bar_x, count_y, bar_w, count_h, Qt.AlignVCenter | Qt.AlignRight,
                          f"-{self._deleted}")
 
@@ -134,9 +138,9 @@ class _AuthorRow(QWidget):
             added_w = int(self._added * scale)
             deleted_w = int(self._deleted * scale)
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(GREEN))
+            painter.setBrush(QColor(_green()))
             painter.drawRoundedRect(bar_x, bar_y, added_w, bar_h, 3, 3)
-            painter.setBrush(QColor(RED))
+            painter.setBrush(QColor(_red()))
             painter.drawRoundedRect(bar_x + added_w, bar_y, deleted_w, bar_h, 3, 3)
         painter.end()
 
@@ -166,7 +170,7 @@ class _FileRow(QWidget):
         path_font.setPointSize(10)
         painter.setFont(path_font)
         path_fm = painter.fontMetrics()
-        painter.setPen(QColor("white"))  # TODO: theme token
+        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
         # Elide long paths
         elided = path_fm.elidedText(self._path, Qt.ElideMiddle, rect.width() - 200)
         painter.drawText(56, 0, rect.width() - 200, rect.height(),
@@ -196,7 +200,9 @@ def _make_card_container(title: str) -> tuple[QFrame, QVBoxLayout]:
     title_font.setPointSize(13)
     title_font.setBold(True)
     title_label.setFont(title_font)
-    title_label.setStyleSheet("color: white; border: none;")  # TODO: theme token
+    title_label.setStyleSheet(
+        f"color: {get_theme_manager().current.colors.on_surface}; border: none;"
+    )
     layout.addWidget(title_label)
 
     return frame, layout
@@ -273,6 +279,16 @@ class InsightDialog(QDialog):
                 btn.setChecked(True)
                 break
         self._on_range_changed("This Month")
+
+        self._rebuild_styles()
+        connect_widget(self, rebuild=self._rebuild_styles)
+
+    def _rebuild_styles(self) -> None:
+        self._loading_label.setStyleSheet(f"color: {_muted()}; padding: 40px;")
+        # Re-render content cards (they bake colors at construction time).
+        if self._stats:
+            self._render_content()
+        self.update()
 
     def _on_range_changed(self, label: str) -> None:
         self._custom_widget.setVisible(label == "Custom")
