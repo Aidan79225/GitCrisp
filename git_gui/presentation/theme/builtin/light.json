@@ -2,7 +2,7 @@
   "name": "Light",
   "is_dark": false,
   "colors": {
-    "primary": "#54aeff",
+    "primary": "#79c0ff",
     "on_primary": "#0a2540",
     "primary_container": "#ddf4ff",
     "on_primary_container": "#0550ae",
