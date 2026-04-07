@@ -3,16 +3,27 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QRect
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
+from git_gui.presentation.theme import get_theme_manager
 
 BADGE_RADIUS = 4   # rounded corner radius
 BADGE_H_PAD = 4    # horizontal padding inside badge
 BADGE_V_PAD = 2    # vertical padding inside badge
 BADGE_GAP = 4      # gap between consecutive badges, and after last badge
 
-COLOR_HEAD = "#238636"    # green — HEAD / current branch
-COLOR_REMOTE = "#1f4287"  # dark blue — remote-tracking branch (contains "/")
-COLOR_LOCAL = "#0d6efd"   # blue — local branch
-COLOR_TAG = "#a371f7"     # purple — tag
+# TODO(theme): domain green for HEAD/current branch — no clean token yet
+COLOR_HEAD = "#238636"
+
+
+def _color_local() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("ref_badge_branch_bg")
+
+
+def _color_remote() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("ref_badge_remote_bg")
+
+
+def _color_tag() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("ref_badge_tag_bg")
 
 
 def _badge_color(name: str, head_branch: str | None = None) -> QColor:
@@ -21,10 +32,10 @@ def _badge_color(name: str, head_branch: str | None = None) -> QColor:
     if head_branch and name == head_branch:
         return QColor(COLOR_HEAD)
     if name.startswith("tag:"):
-        return QColor(COLOR_TAG)
+        return _color_tag()
     if "/" in name:
-        return QColor(COLOR_REMOTE)
-    return QColor(COLOR_LOCAL)
+        return _color_remote()
+    return _color_local()
 
 
 def _badge_display_name(name: str) -> str:
@@ -57,7 +68,7 @@ class RefBadgeDelegate(QStyledItemDelegate):
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
 
-            painter.setPen(QColor("white"))
+            painter.setPen(QColor("white"))  # TODO(theme): badge text color
             painter.drawText(badge_rect, Qt.AlignCenter, display)
 
             x += badge_w + BADGE_GAP
