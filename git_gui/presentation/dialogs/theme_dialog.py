@@ -56,7 +56,7 @@ _GROUPS: list[tuple[str, list[str]]] = [
 
 _GRAPH_LANE_PAGE_TITLE = "Graph lanes"
 
-_TYPOGRAPHY_SCALE_DEFAULT = 100
+_TYPOGRAPHY_SCALE_DEFAULT = 80
 _TYPOGRAPHY_SCALE_MIN = 50
 _TYPOGRAPHY_SCALE_MAX = 200
 _TYPOGRAPHY_SCALE_STEP = 10
@@ -157,11 +157,20 @@ class ThemeDialog(QDialog):
         self._typo_slider.setRange(_TYPOGRAPHY_SCALE_MIN, _TYPOGRAPHY_SCALE_MAX)
         self._typo_slider.setSingleStep(_TYPOGRAPHY_SCALE_STEP)
         self._typo_slider.setPageStep(_TYPOGRAPHY_SCALE_STEP)
+        self._typo_slider.setTickInterval(_TYPOGRAPHY_SCALE_STEP)
+        self._typo_slider.setTickPosition(QSlider.TicksBelow)
         self._typo_slider.setValue(_TYPOGRAPHY_SCALE_DEFAULT)
         self._typo_label = QLabel(f"{_TYPOGRAPHY_SCALE_DEFAULT}%")
-        self._typo_slider.valueChanged.connect(
-            lambda v: self._typo_label.setText(f"{v}%")
-        )
+
+        def _snap_typo(v: int) -> None:
+            snapped = round(v / _TYPOGRAPHY_SCALE_STEP) * _TYPOGRAPHY_SCALE_STEP
+            if snapped != v:
+                self._typo_slider.blockSignals(True)
+                self._typo_slider.setValue(snapped)
+                self._typo_slider.blockSignals(False)
+            self._typo_label.setText(f"{snapped}%")
+
+        self._typo_slider.valueChanged.connect(_snap_typo)
         typo_row.addWidget(self._typo_slider, 1)
         typo_row.addWidget(self._typo_label)
         outer.addLayout(typo_row)
