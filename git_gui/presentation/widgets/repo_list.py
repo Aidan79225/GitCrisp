@@ -58,6 +58,7 @@ class RepoListWidget(QWidget):
         title_font.setPointSize(title_font.pointSize() - 1)
         title.setFont(title_font)
         header_layout.addWidget(title, 1)
+        header_layout.addSpacing(8)
 
         self._btn_add = QPushButton("Open")
         self._btn_add.setFixedHeight(28)
