@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
@@ -15,13 +15,13 @@ from git_gui.presentation.widgets.diff_block import (
     make_file_block, make_diff_formats, add_hunk_widget,
 )
 
-# TODO: theme tokens — git status colors (M/A/D/R) need their own theme tokens
-_DELTA_BADGE = {
-    "modified": ("M", "#1f6feb"),   # blue
-    "added":    ("A", "#238636"),   # green
-    "deleted":  ("D", "#da3633"),   # red
-    "renamed":  ("R", "#f0883e"),   # orange
-    "unknown":  ("?", "#8b949e"),   # gray
+# (label only — color comes from theme.colors.status_color(kind) at paint time)
+_DELTA_LABEL = {
+    "modified": "M",
+    "added":    "A",
+    "deleted":  "D",
+    "renamed":  "R",
+    "unknown":  "?",
 }
 
 BADGE_SIZE = 20
@@ -41,17 +41,16 @@ class _FileDeltaDelegate(QStyledItemDelegate):
 
         fs = index.data(Qt.UserRole)
         delta = fs.delta if fs else "unknown"
-        label, color = _DELTA_BADGE.get(delta, ("?", "#8b949e"))
+        label = _DELTA_LABEL.get(delta, "?")
 
         badge_x = rect.left() + 4
         badge_y = rect.top() + (rect.height() - BADGE_SIZE) // 2
         badge_rect = QRect(badge_x, badge_y, BADGE_SIZE, BADGE_SIZE)
-        painter.setBrush(QBrush(QColor(color)))
+        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(delta)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
 
-        # TODO: theme token — badge text color
-        painter.setPen(QColor("white"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 
         text_x = badge_x + BADGE_SIZE + BADGE_GAP
@@ -124,6 +123,8 @@ class DiffWidget(QWidget):
 
         # Diff render formats
         self._formats = make_diff_formats()
+
+        connect_widget(self)
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries

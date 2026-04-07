@@ -52,3 +52,29 @@ def test_sidebar_refreshes_on_theme_change(app, reset_theme):
     mgr.set_mode("dark")
 
     assert len(calls) >= 2, f"expected update() to be called at least twice, got {len(calls)}"
+
+
+def test_working_tree_refreshes_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
+
+    widget = WorkingTreeWidget(queries=MagicMock(), commands=MagicMock())
+    calls = _spy_update(widget)
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    assert len(calls) >= 2
+
+
+def test_diff_refreshes_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.diff import DiffWidget
+
+    widget = DiffWidget(queries=MagicMock(), commands=MagicMock())
+    calls = _spy_update(widget)
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    assert len(calls) >= 2

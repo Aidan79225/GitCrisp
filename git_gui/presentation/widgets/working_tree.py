@@ -10,18 +10,18 @@ from PySide6.QtWidgets import (
 )
 from git_gui.domain.entities import FileStatus
 from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 
-# TODO: theme tokens — git status colors (M/A/D/R) need their own theme tokens
-_DELTA_BADGE = {
-    "modified": ("M", "#1f6feb"),
-    "added":    ("A", "#238636"),
-    "deleted":  ("D", "#da3633"),
-    "renamed":  ("R", "#f0883e"),
-    "unknown":  ("?", "#8b949e"),
+# (label only — color comes from theme.colors.status_color(kind) at paint time)
+_DELTA_LABEL = {
+    "modified": "M",
+    "added":    "A",
+    "deleted":  "D",
+    "renamed":  "R",
+    "unknown":  "?",
 }
 _BADGE_SIZE = 20
 _BADGE_GAP = 6
@@ -36,7 +36,7 @@ class _FileDelegate(QStyledItemDelegate):
         # we'll paint the badge over this prefix area
         fs = index.data(Qt.UserRole)
         delta = fs.delta if fs else "unknown"
-        label, _ = _DELTA_BADGE.get(delta, ("?", "#8b949e"))
+        label = _DELTA_LABEL.get(delta, "?")
         # Add padding spaces to make room for the badge we'll paint
         option.text = "        " + (option.text or "")
 
@@ -55,17 +55,16 @@ class _FileDelegate(QStyledItemDelegate):
         rect = option.rect
         fs = index.data(Qt.UserRole)
         delta = fs.delta if fs else "unknown"
-        label, color = _DELTA_BADGE.get(delta, ("?", "#8b949e"))
+        label = _DELTA_LABEL.get(delta, "?")
 
         # Position badge after the checkbox area (~30px from left)
         badge_x = rect.left() + 30
         badge_y = rect.top() + (rect.height() - _BADGE_SIZE) // 2
         badge_rect = QRect(badge_x, badge_y, _BADGE_SIZE, _BADGE_SIZE)
-        painter.setBrush(QBrush(QColor(color)))
+        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(delta)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
-        # TODO: theme token — badge text color
-        painter.setPen(QColor("white"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 
         painter.restore()
@@ -143,6 +142,8 @@ class WorkingTreeWidget(QWidget):
         self._file_model.files_changed.connect(self._on_files_changed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
         self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
+
+        connect_widget(self)
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
