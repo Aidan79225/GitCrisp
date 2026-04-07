@@ -79,18 +79,8 @@ Originally listed as a non-goal — still deferred. Would let the user pick one 
 
 ## Known limitations carried over from Batch 1
 
-### Diff text colors do not update on live theme switch
+### Diff text colors do not update on live theme switch — RESOLVED in Batch 2
 
-**Symptom:** After Batch 1 landed live theme switching for most widgets, switching the theme at runtime updates everything except the colored text *inside an already-rendered diff* (`+`/`-` line foregrounds, hunk header text inside the QPlainTextEdit, diff line backgrounds). The user must close and re-open the file's diff to see the new colors. The file frame border, file header label, and hunk header label *outside* the text edit do refresh live.
+**Status:** Fixed in Batch 2 (`feat/md3-theming-batch2`).
 
-**Root cause:** `git_gui/presentation/widgets/diff_block.py::make_diff_formats()` builds `QTextCharFormat` and `QTextBlockFormat` objects once and bakes them onto each text block via cursor inserts in `render_hunk_*`. There is no `QSyntaxHighlighter` to call `rehighlight()` on. To refresh, the entire diff text would need to be re-rendered with new format instances.
-
-**What it would take to fix:**
-1. Either wrap the diff rendering in a `QSyntaxHighlighter` subclass whose `highlightBlock` reads colors from the current theme on each call (then `rehighlight()` does the work), OR
-2. Store the source `Hunk` data on the file block, expose a `rerender()` method that wipes the QPlainTextEdit and replays `render_hunk_*` with fresh formats, and call it from the file block's `_rebuild()` closure.
-
-Option 2 is the smaller change and matches the existing rendering pipeline; option 1 is more idiomatic Qt but a bigger refactor.
-
-**Workaround for users today:** close the file and re-open it after switching theme.
-
-**Tracking:** address in the next batch alongside Settings UI / user themes work, or as a standalone small PR.
+`add_hunk_widget` in `git_gui/presentation/widgets/diff_block.py` now attaches a per-hunk `connect_widget` rebuild closure that re-runs `render_hunk_content_lines` with a fresh `make_diff_formats()` and re-applies the hunk header label stylesheet. Diff text and overlay backgrounds refresh live along with the rest of the app — no need to close and re-open the file.
