@@ -92,3 +92,22 @@ def test_set_mode_custom_missing_file_falls_back_to_dark(app, isolated_settings,
     assert mgr.mode == "custom"
     assert mgr.current.is_dark is True
     assert any("custom" in r.message.lower() for r in caplog.records)
+
+
+def test_palette_follows_theme(app, isolated_settings):
+    from PySide6.QtGui import QPalette
+    mgr = ThemeManager(app)
+    mgr.set_mode("dark")
+    pal_dark = app.palette()
+    dark_window = pal_dark.color(QPalette.Window).name()
+
+    mgr.set_mode("light")
+    pal_light = app.palette()
+    light_window = pal_light.color(QPalette.Window).name()
+
+    assert dark_window != light_window, "Window palette colour should change between dark and light"
+
+    # Sanity: Highlight should match the theme's primary token in light mode.
+    from git_gui.presentation.theme.loader import load_builtin
+    expected = load_builtin("light").colors.primary
+    assert pal_light.color(QPalette.Highlight).name() == expected
