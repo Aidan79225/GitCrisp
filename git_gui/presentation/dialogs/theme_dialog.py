@@ -75,6 +75,21 @@ def _qcolor_for_hex(hex_str: str) -> QColor:
     return QColor(hex_str)
 
 
+def _readable_fg_for(hex_value: str) -> str:
+    """Return #000 or #fff depending on which contrasts better with hex_value.
+    For overlay (#AARRGGBB) tokens, ignore alpha and judge by RGB."""
+    s = hex_value.lstrip("#")
+    if len(s) == 8:
+        s = s[2:]
+    try:
+        r = int(s[0:2], 16); g = int(s[2:4], 16); b = int(s[4:6], 16)
+    except ValueError:
+        return "#000"
+    # Perceived luminance
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    return "#000" if lum > 140 else "#fff"
+
+
 class ThemeDialog(QDialog):
     """Modal dialog for choosing the active theme."""
 
@@ -215,8 +230,9 @@ class ThemeDialog(QDialog):
     def _apply_swatch_color(self, token: str, hex_value: str) -> None:
         btn = self._swatch_buttons[token]
         btn.setText(hex_value)
+        fg = _readable_fg_for(hex_value)
         btn.setStyleSheet(
-            f"QPushButton {{ background-color: {hex_value}; "
+            f"QPushButton {{ background-color: {hex_value}; color: {fg}; "
             f"border: 1px solid #888; padding: 0px; }}"
         )
 
