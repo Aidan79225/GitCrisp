@@ -90,6 +90,34 @@ QRadioButton, QCheckBox {
     background: transparent;
     color: %(on_surface)s;
 }
+QRadioButton::indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 8px;
+    border: 2px solid %(outline)s;
+    background: %(surface)s;
+}
+QRadioButton::indicator:hover {
+    border-color: %(primary)s;
+}
+QRadioButton::indicator:checked {
+    border: 4px solid %(primary)s;
+    background: %(surface)s;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 2px solid %(outline)s;
+    background: %(surface)s;
+}
+QCheckBox::indicator:hover {
+    border-color: %(primary)s;
+}
+QCheckBox::indicator:checked {
+    background: %(primary)s;
+    border-color: %(primary)s;
+}
 
 /* Scrollbar — once any QApplication stylesheet exists, Qt routes
    scrollbars through stylesheet rendering and we lose the native
@@ -160,6 +188,7 @@ def render(theme: Theme) -> str:
         "outline_variant": c.outline_variant,
         "primary": c.primary,
         "on_primary": c.on_primary,
+        "surface": c.surface,
         "surface_variant": c.surface_variant,
         "surface_container_high": c.surface_container_high,
     }
