@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 from git_gui.domain.entities import Branch, Commit, Tag, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.theme import get_theme_manager  # noqa: F401  (reserved for future theme reads)
 from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate, LANE_W
 from git_gui.presentation.widgets.commit_info_delegate import (
@@ -64,6 +65,7 @@ class _LoadSignals(QObject):
 
 
 _ARTS = get_resource_path("arts")
+# TODO: theme token — semi-transparent hover overlay has no clean token mapping
 _BTN_STYLE = (
     "QPushButton { border: none; border-radius: 4px; min-width: 36px; min-height: 36px; }"
     "QPushButton:hover { background-color: rgba(255, 255, 255, 30); }"
