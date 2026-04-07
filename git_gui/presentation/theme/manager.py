@@ -59,6 +59,18 @@ class ThemeManager(QObject):
         self._app.setStyleSheet(render(self._current))
         palette = _build_palette(self._current)
         self._app.setPalette(palette)
+        # Apply theme typography to the app default font so the scale
+        # slider in the theme dialog actually affects rendered text.
+        from PySide6.QtGui import QFont
+        body = self._current.typography.body_medium
+        font = QFont(self._app.font())
+        if body.family:
+            font.setFamily(body.family)
+        if body.size > 0:
+            font.setPointSize(body.size)
+        if body.weight:
+            font.setWeight(QFont.Weight(body.weight))
+        self._app.setFont(font)
         # QApplication.setPalette only updates the *default* palette in
         # Qt 6 — already-shown widgets keep their inherited copy and
         # don't repaint. Walk every live widget and re-apply, then force
@@ -69,6 +81,7 @@ class ThemeManager(QObject):
         style = self._app.style()
         for w in self._app.allWidgets():
             w.setPalette(palette)
+            w.setFont(font)
             # Force re-evaluation of any inline stylesheet that uses
             # palette(role) references — Qt caches the resolved colors
             # and won't recompute on a palette change without a polish.
