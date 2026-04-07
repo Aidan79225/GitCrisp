@@ -45,6 +45,19 @@ class LogPanel(QWidget):
         self._header.setStyleSheet(
             f"padding: 4px 8px; background: {c.surface_container}; color: {c.on_surface}; font-weight: bold;"
         )
+        self._fmt_default = QTextCharFormat()
+        self._fmt_default.setForeground(c.as_qcolor("on_surface"))
+        self._fmt_error = QTextCharFormat()
+        self._fmt_error.setForeground(c.as_qcolor("error"))
+        # Recolor existing log lines by reapplying the default format to
+        # everything that isn't an error line. We can't tell which is
+        # which after the fact, so just normalize the whole document
+        # foreground via QPlainTextEdit's palette + char format.
+        cursor = self._body.textCursor()
+        cursor.select(QTextCursor.Document)
+        cursor.mergeCharFormat(self._fmt_default)
+        cursor.clearSelection()
+        self._body.setTextCursor(cursor)
 
     def log(self, message: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
