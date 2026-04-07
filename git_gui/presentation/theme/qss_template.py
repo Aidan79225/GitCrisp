@@ -50,6 +50,28 @@ QMenu::separator {
     background: %(outline_variant)s;
 }
 
+/* QDialogButtonBox / generic dialog buttons — once a global stylesheet
+   exists, Qt's native button rendering on Windows can drop palette
+   colors and end up drawing white-on-white. Force readable colors. */
+QDialog QPushButton {
+    background-color: %(surface_variant)s;
+    color: %(on_surface)s;
+    border: 1px solid %(outline)s;
+    border-radius: 4px;
+    padding: 4px 12px;
+    min-width: 72px;
+}
+QDialog QPushButton:hover {
+    background-color: %(surface_container_high)s;
+}
+QDialog QPushButton:pressed {
+    background-color: %(primary)s;
+    color: %(on_primary)s;
+}
+QDialog QPushButton:disabled {
+    color: %(on_surface_variant)s;
+}
+
 /* Scrollbar — once any QApplication stylesheet exists, Qt routes
    scrollbars through stylesheet rendering and we lose the native
    hover-to-expand effect. Re-create it via the :hover pseudo-state:
@@ -119,4 +141,6 @@ def render(theme: Theme) -> str:
         "outline_variant": c.outline_variant,
         "primary": c.primary,
         "on_primary": c.on_primary,
+        "surface_variant": c.surface_variant,
+        "surface_container_high": c.surface_container_high,
     }
