@@ -80,6 +80,21 @@ def test_diff_refreshes_on_theme_change(app, reset_theme):
     assert len(calls) >= 2
 
 
+def test_insight_dialog_refreshes_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.insight_dialog import InsightDialog
+
+    queries = MagicMock()
+    queries.get_commit_stats.execute.return_value = []
+    dialog = InsightDialog(queries=queries)
+    calls = _spy_update(dialog)
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    assert len(calls) >= 2
+
+
 def test_diff_block_refreshes_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.diff_block import make_file_block
 
