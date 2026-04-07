@@ -73,7 +73,6 @@ class DiffWidget(QWidget):
         # ── Row 1: commit detail (3-line metadata) ──────────────────────────
         self._detail = CommitDetailWidget()
         self._detail.setAutoFillBackground(True)
-        self._detail.setStyleSheet("background: palette(tooltip-base);")
 
         # ── Row 2: full commit message ──────────────────────────────────────
         self._msg_view = QPlainTextEdit()
@@ -86,19 +85,11 @@ class DiffWidget(QWidget):
         font = self._msg_view.font()
         font.setFamily("Courier New")
         self._msg_view.setFont(font)
-        self._msg_view.setStyleSheet(
-            "QPlainTextEdit { background: palette(tooltip-base); "
-            "border: 1px solid palette(mid); border-radius: 4px; }"
-        )
 
         # ── Row 3: file list ────────────────────────────────────────────────
         self._file_view = _FileListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDeltaDelegate(self._file_view))
-        self._file_view.setStyleSheet(
-            "QListView { background: palette(tooltip-base); "
-            "border: 1px solid palette(mid); border-radius: 4px; padding: 6px; }"
-        )
 
         # ── Diff area: scrollable container of per-file bordered blocks ─────
         self._diff_scroll = QScrollArea()
@@ -125,8 +116,8 @@ class DiffWidget(QWidget):
         splitter.setStretchFactor(1, 1)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
         layout.addWidget(self._detail, 0)
         layout.addWidget(self._msg_view, 0)
         layout.addWidget(splitter, 1)
@@ -134,7 +125,22 @@ class DiffWidget(QWidget):
         # Diff render formats
         self._formats = make_diff_formats()
 
-        connect_widget(self)
+        self._restyle_themed_panels()
+        connect_widget(self, rebuild=self._restyle_themed_panels)
+
+    def _restyle_themed_panels(self) -> None:
+        c = get_theme_manager().current.colors
+        outline = c.outline
+        bg = c.surface_container_high
+        self._detail.setStyleSheet(f"background: {bg};")
+        self._msg_view.setStyleSheet(
+            f"QPlainTextEdit {{ background: {bg}; "
+            f"border: 1px solid {outline}; border-radius: 4px; }}"
+        )
+        self._file_view.setStyleSheet(
+            f"QListView {{ background: {bg}; "
+            f"border: 1px solid {outline}; border-radius: 4px; padding: 6px; }}"
+        )
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
