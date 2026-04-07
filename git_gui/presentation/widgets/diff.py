@@ -126,7 +126,11 @@ class DiffWidget(QWidget):
         self._formats = make_diff_formats()
 
         self._restyle_themed_panels()
-        connect_widget(self, rebuild=self._restyle_themed_panels)
+        connect_widget(self, rebuild=self._on_theme_changed)
+
+    def _on_theme_changed(self) -> None:
+        self._formats = make_diff_formats()
+        self._restyle_themed_panels()
 
     def _restyle_themed_panels(self) -> None:
         c = get_theme_manager().current.colors
