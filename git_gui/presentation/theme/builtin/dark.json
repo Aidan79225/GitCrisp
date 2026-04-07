@@ -2,10 +2,10 @@
   "name": "Dark",
   "is_dark": true,
   "colors": {
-    "primary": "#264f78",
+    "primary": "#3a6ea5",
     "on_primary": "#ffffff",
-    "primary_container": "#264f78",
-    "on_primary_container": "#ffffff",
+    "primary_container": "#1d3a5f",
+    "on_primary_container": "#cfe2ff",
     "secondary": "#0d6efd",
     "on_secondary": "#ffffff",
     "error": "#f85149",
