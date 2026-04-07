@@ -32,6 +32,7 @@ def _get_cloud_icon() -> QIcon:
         return QIcon(path)
     color = get_theme_manager().current.colors.as_qcolor("on_background")
     tinted = QPixmap(src.size())
+    tinted.setDevicePixelRatio(src.devicePixelRatio())
     tinted.fill(Qt.transparent)
     p = QPainter(tinted)
     p.drawPixmap(0, 0, src)

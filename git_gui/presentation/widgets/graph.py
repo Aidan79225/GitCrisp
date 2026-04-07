@@ -72,6 +72,7 @@ def _tinted_icon(svg_path: str, color: QColor, size: int = 28) -> QIcon:
     if src.isNull():
         return QIcon(svg_path)
     tinted = QPixmap(src.size())
+    tinted.setDevicePixelRatio(src.devicePixelRatio())
     tinted.fill(Qt.transparent)
     p = QPainter(tinted)
     p.drawPixmap(0, 0, src)
@@ -84,7 +85,7 @@ def _tinted_icon(svg_path: str, color: QColor, size: int = 28) -> QIcon:
 def _btn_style() -> str:
     c = get_theme_manager().current.colors
     return (
-        "QPushButton { border: none; border-radius: 4px; min-width: 36px; min-height: 36px; }"
+        "QPushButton { border: none; border-radius: 4px; }"
         f"QPushButton:hover {{ background-color: {c.hover_overlay}; }}"
     )
 
@@ -158,6 +159,7 @@ class GraphWidget(QWidget):
             ("ic_insight", "Git Insight", self.insight_requested),
         ]:
             btn = QPushButton()
+            btn.setFixedSize(QSize(36, 36))
             btn.setIconSize(QSize(28, 28))
             btn.setToolTip(tooltip)
             btn.clicked.connect(signal.emit)
@@ -168,6 +170,7 @@ class GraphWidget(QWidget):
         header_bar.addStretch()
 
         self._stash_btn = QPushButton()
+        self._stash_btn.setFixedSize(QSize(36, 36))
         self._stash_btn.setIconSize(QSize(28, 28))
         self._tinted_button_icons.append((self._stash_btn, "ic_stash"))
         self._stash_btn.setToolTip("Stash")
