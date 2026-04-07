@@ -10,8 +10,9 @@ a = Analysis(
     binaries=[],
     datas=[
         ('arts', 'arts'),
+        ('git_gui/presentation/theme/builtin', 'git_gui/presentation/theme/builtin'),
     ],
-    hiddenimports=['_cffi_backend'],
+    hiddenimports=['_cffi_backend', 'git_gui.presentation.theme.builtin'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
