@@ -20,6 +20,7 @@ from git_gui.presentation.widgets.repo_list import RepoListWidget
 from git_gui.presentation.widgets.sidebar import SidebarWidget
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 from git_gui.presentation.widgets.insight_dialog import InsightDialog
+from git_gui.presentation.menus.appearance import install_appearance_menu
 
 
 class _RemoteSignals(QObject):
@@ -39,6 +40,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle(f"GitCrisp — {repo_path}" if repo_path else "GitCrisp")
         self.resize(1400, 800)
+        install_appearance_menu(self)
 
         self._queries = queries
         self._commands = commands
