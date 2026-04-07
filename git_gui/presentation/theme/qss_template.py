@@ -84,11 +84,8 @@ QAbstractItemView::item:selected {
     color: %(on_primary)s;
 }
 
-/* Radio buttons / checkboxes — same white-hover problem. */
-QRadioButton:hover, QCheckBox:hover {
-    background: %(surface_container_high)s;
-    color: %(on_surface)s;
-}
+/* Radio / checkbox — keep transparent so Qt's native indicator (the
+   dot / tick) handles hover. Only fix the text color. */
 QRadioButton, QCheckBox {
     background: transparent;
     color: %(on_surface)s;
