@@ -101,8 +101,11 @@ QRadioButton::indicator:hover {
     border-color: %(primary)s;
 }
 QRadioButton::indicator:checked {
-    border: 4px solid %(primary)s;
-    background: %(surface)s;
+    border: 2px solid %(primary)s;
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5,
+        fx:0.5, fy:0.5,
+        stop:0 %(primary)s, stop:0.55 %(primary)s,
+        stop:0.6 %(surface)s, stop:1 %(surface)s);
 }
 QCheckBox::indicator {
     width: 14px;
