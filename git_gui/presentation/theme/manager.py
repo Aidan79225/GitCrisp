@@ -110,8 +110,6 @@ def _build_palette(theme: Theme) -> QPalette:
     surf_high   = QColor(c.surface_container_high)
     primary     = QColor(c.primary)
     on_primary  = QColor(c.on_primary)
-    outline     = QColor(c.outline)
-    outline_var = QColor(c.outline_variant)
     error       = QColor(c.error)
 
     # Window / view backgrounds
@@ -139,12 +137,12 @@ def _build_palette(theme: Theme) -> QPalette:
     p.setColor(QPalette.Link,        primary)
     p.setColor(QPalette.LinkVisited, primary)
 
-    # 3D / borders
-    p.setColor(QPalette.Light,    surf_high)
-    p.setColor(QPalette.Midlight, surf_cont)
-    p.setColor(QPalette.Mid,      outline_var)
-    p.setColor(QPalette.Dark,     outline)
-    p.setColor(QPalette.Shadow,   outline)
+    # NOTE: Light / Midlight / Mid / Dark / Shadow are intentionally NOT
+    # set. Qt expects Light > Window > Dark in luminance and uses these
+    # to draw 3D bevels and menu-bar shading. Forcing them to arbitrary
+    # theme tokens (which may invert the relationship in dark mode)
+    # breaks native menu rendering on Windows. Letting Qt derive them
+    # from Window/Button keeps the bevels consistent.
 
     # Disabled group — fade text/buttons toward on_surface_variant
     for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
