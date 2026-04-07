@@ -72,6 +72,8 @@ class DiffWidget(QWidget):
 
         # ── Row 1: commit detail (3-line metadata) ──────────────────────────
         self._detail = CommitDetailWidget()
+        self._detail.setAutoFillBackground(True)
+        self._detail.setStyleSheet("background: palette(alternate-base);")
 
         # ── Row 2: full commit message ──────────────────────────────────────
         self._msg_view = QPlainTextEdit()
@@ -84,11 +86,17 @@ class DiffWidget(QWidget):
         font = self._msg_view.font()
         font.setFamily("Courier New")
         self._msg_view.setFont(font)
+        self._msg_view.setStyleSheet(
+            "QPlainTextEdit { background: palette(alternate-base); border: none; }"
+        )
 
         # ── Row 3: file list ────────────────────────────────────────────────
         self._file_view = _FileListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDeltaDelegate(self._file_view))
+        self._file_view.setStyleSheet(
+            "QListView { background: palette(alternate-base); border: none; }"
+        )
 
         # ── Diff area: scrollable container of per-file bordered blocks ─────
         self._diff_scroll = QScrollArea()
@@ -116,7 +124,7 @@ class DiffWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(6)
         layout.addWidget(self._detail, 0)
         layout.addWidget(self._msg_view, 0)
         layout.addWidget(splitter, 1)
