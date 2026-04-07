@@ -79,6 +79,12 @@ QAbstractItemView::item:selected {
     background: %(primary)s;
     color: %(on_primary)s;
 }
+QAbstractItemView {
+    outline: 0;
+}
+QAbstractItemView::item {
+    border: none;
+}
 
 /* Radio / checkbox — keep transparent so Qt's native indicator (the
    dot / tick) handles hover. Only fix the text color. */
