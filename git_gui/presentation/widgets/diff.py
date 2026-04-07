@@ -87,7 +87,8 @@ class DiffWidget(QWidget):
         font.setFamily("Courier New")
         self._msg_view.setFont(font)
         self._msg_view.setStyleSheet(
-            "QPlainTextEdit { background: palette(tooltip-base); border: none; }"
+            "QPlainTextEdit { background: palette(tooltip-base); "
+            "border: 1px solid palette(mid); border-radius: 4px; }"
         )
 
         # ── Row 3: file list ────────────────────────────────────────────────
@@ -95,7 +96,8 @@ class DiffWidget(QWidget):
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDeltaDelegate(self._file_view))
         self._file_view.setStyleSheet(
-            "QListView { background: palette(tooltip-base); border: none; padding: 6px; }"
+            "QListView { background: palette(tooltip-base); "
+            "border: 1px solid palette(mid); border-radius: 4px; padding: 6px; }"
         )
 
         # ── Diff area: scrollable container of per-file bordered blocks ─────
