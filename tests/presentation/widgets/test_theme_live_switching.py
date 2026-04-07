@@ -95,6 +95,71 @@ def test_insight_dialog_refreshes_on_theme_change(app, reset_theme):
     assert len(calls) >= 2
 
 
+def test_commit_detail_refreshes_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
+
+    widget = CommitDetailWidget()
+    calls = _spy_update(widget)
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    assert len(calls) >= 2
+
+
+def test_graph_refreshes_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.graph import GraphWidget
+
+    widget = GraphWidget(queries=MagicMock(), commands=MagicMock())
+    calls = _spy_update(widget)
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    assert len(calls) >= 2
+
+
+def test_repo_list_refreshes_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.repo_list import RepoListWidget
+
+    widget = RepoListWidget(repo_store=MagicMock())
+    calls = _spy_update(widget)
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    assert len(calls) >= 2
+
+
+def test_clone_dialog_refreshes_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.clone_dialog import CloneDialog
+
+    dialog = CloneDialog()
+    calls = _spy_update(dialog)
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    assert len(calls) >= 2
+
+
+def test_log_panel_refreshes_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.log_panel import LogPanel
+
+    widget = LogPanel()
+    calls = _spy_update(widget)
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    assert len(calls) >= 2
+
+
 def test_diff_block_refreshes_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.diff_block import make_file_block
 

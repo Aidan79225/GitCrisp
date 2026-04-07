@@ -4,7 +4,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 
 
 class LogPanel(QWidget):
@@ -14,9 +14,6 @@ class LogPanel(QWidget):
 
         c = get_theme_manager().current.colors
         self._header = QLabel("▶ Operations Log")
-        self._header.setStyleSheet(
-            f"padding: 4px 8px; background: {c.surface_container}; color: {c.on_surface}; font-weight: bold;"
-        )
         self._header.setCursor(Qt.PointingHandCursor)
         self._header.mousePressEvent = lambda _: self.toggle()
 
@@ -39,6 +36,15 @@ class LogPanel(QWidget):
         layout.setSpacing(0)
         layout.addWidget(self._header)
         layout.addWidget(self._body)
+
+        self._rebuild_styles()
+        connect_widget(self, rebuild=self._rebuild_styles)
+
+    def _rebuild_styles(self) -> None:
+        c = get_theme_manager().current.colors
+        self._header.setStyleSheet(
+            f"padding: 4px 8px; background: {c.surface_container}; color: {c.on_surface}; font-weight: bold;"
+        )
 
     def log(self, message: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")

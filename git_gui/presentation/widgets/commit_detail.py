@@ -4,7 +4,7 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import QWidget
 from git_gui.domain.entities import Commit
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.presentation.widgets.ref_badge_delegate import (
     _badge_color, _badge_display_name, BADGE_RADIUS, BADGE_H_PAD, BADGE_V_PAD, BADGE_GAP,
 )
@@ -22,6 +22,7 @@ class CommitDetailWidget(QWidget):
         super().__init__(parent)
         self._commit: Commit | None = None
         self._refs: list[str] = []
+        connect_widget(self)
 
     def set_commit(self, commit: Commit, refs: list[str]) -> None:
         self._commit = commit
@@ -45,14 +46,15 @@ class CommitDetailWidget(QWidget):
         line_h = fm.height()
         w = self.width()
         c = self._commit
-        # TODO: theme token — default text color (currently hardcoded "white")
+        on_surface = get_theme_manager().current.colors.as_qcolor("on_surface")
+        on_badge = get_theme_manager().current.colors.as_qcolor("on_badge")
 
         # ── Line 1: Author + datetime ────────────────────────────────────────
         y = PAD
         painter.setPen(_muted())
         painter.drawText(PAD, y + fm.ascent(), "Author: ")
         label_w = fm.horizontalAdvance("Author: ")
-        painter.setPen(QColor("white"))
+        painter.setPen(on_surface)
         painter.drawText(PAD + label_w, y + fm.ascent(), c.author)
         ts = c.timestamp.strftime("%Y-%m-%d %H:%M")
         ts_w = fm.horizontalAdvance(ts)
@@ -64,7 +66,7 @@ class CommitDetailWidget(QWidget):
         painter.setPen(_muted())
         painter.drawText(PAD, y + fm.ascent(), "Commit: ")
         x = PAD + fm.horizontalAdvance("Commit: ")
-        painter.setPen(QColor("white"))
+        painter.setPen(on_surface)
         painter.drawText(x, y + fm.ascent(), c.oid)
         x += fm.horizontalAdvance(c.oid) + BADGE_GAP * 2
 
@@ -77,7 +79,7 @@ class CommitDetailWidget(QWidget):
             painter.setBrush(QBrush(_badge_color(name)))
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
-            painter.setPen(QColor("white"))
+            painter.setPen(on_badge)
             painter.drawText(badge_rect, Qt.AlignCenter, display)
             x += badge_w + BADGE_GAP
 
@@ -86,7 +88,7 @@ class CommitDetailWidget(QWidget):
         painter.setPen(_muted())
         painter.drawText(PAD, y + fm.ascent(), "Parent: ")
         x = PAD + fm.horizontalAdvance("Parent: ")
-        painter.setPen(QColor("white"))
+        painter.setPen(on_surface)
         parents_text = "  ".join(c.parents) if c.parents else "(none)"
         painter.drawText(x, y + fm.ascent(), parents_text)
 

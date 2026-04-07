@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 from git_gui.domain.entities import Branch, Commit, Tag, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.presentation.theme import get_theme_manager  # noqa: F401  (reserved for future theme reads)
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate, LANE_W
 from git_gui.presentation.widgets.commit_info_delegate import (
@@ -65,11 +65,14 @@ class _LoadSignals(QObject):
 
 
 _ARTS = get_resource_path("arts")
-# TODO: theme token — semi-transparent hover overlay has no clean token mapping
-_BTN_STYLE = (
-    "QPushButton { border: none; border-radius: 4px; min-width: 36px; min-height: 36px; }"
-    "QPushButton:hover { background-color: rgba(255, 255, 255, 30); }"
-)
+
+
+def _btn_style() -> str:
+    c = get_theme_manager().current.colors
+    return (
+        "QPushButton { border: none; border-radius: 4px; min-width: 36px; min-height: 36px; }"
+        f"QPushButton:hover {{ background-color: {c.hover_overlay}; }}"
+    )
 
 
 class GraphWidget(QWidget):
@@ -131,6 +134,7 @@ class GraphWidget(QWidget):
         # Header bar with action buttons
         header_bar = QHBoxLayout()
         header_bar.setContentsMargins(4, 4, 4, 4)
+        self._styled_buttons: list[QPushButton] = []
         for icon_name, tooltip, signal in [
             ("ic_reload", "Reload (F5)", self.reload_requested),
             ("ic_push", "Push", self.push_requested),
@@ -142,9 +146,9 @@ class GraphWidget(QWidget):
             btn.setIcon(QIcon(str(_ARTS / f"{icon_name}.svg")))
             btn.setIconSize(QSize(28, 28))
             btn.setToolTip(tooltip)
-            btn.setStyleSheet(_BTN_STYLE)
             btn.clicked.connect(signal.emit)
             header_bar.addWidget(btn)
+            self._styled_buttons.append(btn)
 
         header_bar.addStretch()
 
@@ -152,16 +156,24 @@ class GraphWidget(QWidget):
         self._stash_btn.setIcon(QIcon(str(_ARTS / "ic_stash.svg")))
         self._stash_btn.setIconSize(QSize(28, 28))
         self._stash_btn.setToolTip("Stash")
-        self._stash_btn.setStyleSheet(_BTN_STYLE)
         self._stash_btn.clicked.connect(self.stash_requested.emit)
         self._stash_btn.setVisible(False)
         header_bar.addWidget(self._stash_btn)
+        self._styled_buttons.append(self._stash_btn)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addLayout(header_bar)
         layout.addWidget(self._view)
+
+        self._rebuild_styles()
+        connect_widget(self, rebuild=self._rebuild_styles)
+
+    def _rebuild_styles(self) -> None:
+        style = _btn_style()
+        for btn in self._styled_buttons:
+            btn.setStyleSheet(style)
 
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
