@@ -21,9 +21,9 @@
     "background": "#1e1e1e",
     "on_background": "#cccccc",
     "diff_added_bg": "#1d3a26",
-    "diff_added_fg": "#ffffff",
+    "diff_added_fg": "#56d364",
     "diff_removed_bg": "#3e2025",
-    "diff_removed_fg": "#ffffff",
+    "diff_removed_fg": "#f85149",
     "graph_lane_colors": [
       "#4fc1ff",
       "#f9c74f",
