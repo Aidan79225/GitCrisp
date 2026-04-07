@@ -85,6 +85,12 @@ QAbstractItemView {
 QAbstractItemView::item {
     border: none;
 }
+QAbstractItemView::item:hover {
+    background: transparent;
+}
+QTreeView::branch:hover {
+    background: transparent;
+}
 
 /* Radio / checkbox — keep transparent so Qt's native indicator (the
    dot / tick) handles hover. Only fix the text color. */
