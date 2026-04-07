@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from git_gui.domain.entities import Hunk
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 
 # ---------------------------------------------------------------------------
 # Style constants
@@ -25,10 +25,14 @@ def _file_block_style() -> str:
         f"border-radius: 4px; background-color: {c.surface_container_high}; }}"
     )
 
-# TODO(theme): #e3b341 is a yellow accent with no clean MD3 token mapping.
-HEADER_STYLE = "color: #e3b341; font-weight: bold;"
-# TODO(theme): #58a6ff is a domain blue accent with no clean MD3 token mapping.
-HUNK_HEADER_COLOR = "#58a6ff"
+def _header_style() -> str:
+    c = get_theme_manager().current.colors
+    return f"color: {c.diff_file_header_fg}; font-weight: bold;"
+
+
+def _hunk_header_color() -> str:
+    return get_theme_manager().current.colors.diff_hunk_header_fg
+
 HEADER_ROW_HEIGHT = 22  # consistent height for file + hunk header rows
 HEADER_ROW_VPAD = 3      # top/bottom padding inside the header row
 
@@ -71,39 +75,43 @@ def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
     header_row_layout.setContentsMargins(0, HEADER_ROW_VPAD, 0, HEADER_ROW_VPAD)
     header_row_layout.setSpacing(4)
     header_label = QLabel(f"\U0001f4c4 {path}")
-    header_label.setStyleSheet(HEADER_STYLE)
+    header_label.setStyleSheet(_header_style())
     header_row_layout.addWidget(header_label)
     header_row_layout.addStretch()
     header_row.setFixedHeight(HEADER_ROW_HEIGHT + HEADER_ROW_VPAD * 2)
     inner.addWidget(header_row)
+
+    def _rebuild() -> None:
+        frame.setStyleSheet(_file_block_style())
+        header_label.setStyleSheet(_header_style())
+
+    connect_widget(frame, rebuild=_rebuild)
 
     return frame, inner
 
 
 def make_diff_formats() -> DiffFormats:
     """Return a DiffFormats dataclass with all QTextCharFormat / QTextBlockFormat objects."""
-    # TODO(theme): "white" foreground — no clean on-surface token swap without visual change.
-    fmt_added = QTextCharFormat()
-    fmt_added.setForeground(QColor("white"))
+    c = get_theme_manager().current.colors
+    on_surface = c.as_qcolor("on_surface")
 
-    # TODO(theme): "white" foreground — no clean on-surface token swap without visual change.
+    fmt_added = QTextCharFormat()
+    fmt_added.setForeground(on_surface)
+
     fmt_removed = QTextCharFormat()
-    fmt_removed.setForeground(QColor("white"))
+    fmt_removed.setForeground(on_surface)
 
     fmt_header = QTextCharFormat()
-    fmt_header.setForeground(QColor(HUNK_HEADER_COLOR))
+    fmt_header.setForeground(QColor(_hunk_header_color()))
 
-    # TODO(theme): "white" foreground — no clean on-surface token swap without visual change.
     fmt_default = QTextCharFormat()
-    fmt_default.setForeground(QColor("white"))
+    fmt_default.setForeground(on_surface)
 
-    # TODO(theme): semi-transparent green over surface_container_high; preserve exact look.
     blk_added = QTextBlockFormat()
-    blk_added.setBackground(QColor(35, 134, 54, 80))
+    blk_added.setBackground(c.as_qcolor("diff_added_overlay"))
 
-    # TODO(theme): semi-transparent red over surface_container_high; preserve exact look.
     blk_removed = QTextBlockFormat()
-    blk_removed.setBackground(QColor(248, 81, 73, 80))
+    blk_removed.setBackground(c.as_qcolor("diff_removed_overlay"))
 
     blk_default = QTextBlockFormat()
 
@@ -229,7 +237,7 @@ def add_hunk_widget(
     for w in extra_left_widgets:
         header_layout.addWidget(w)
     header_label = QLabel(hunk.header.strip())
-    header_label.setStyleSheet(f"color: {HUNK_HEADER_COLOR};")
+    header_label.setStyleSheet(f"color: {_hunk_header_color()};")
     header_layout.addWidget(header_label)
     header_layout.addStretch()
     for w in extra_right_widgets:

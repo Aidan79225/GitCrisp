@@ -78,3 +78,16 @@ def test_diff_refreshes_on_theme_change(app, reset_theme):
     mgr.set_mode("dark")
 
     assert len(calls) >= 2
+
+
+def test_diff_block_refreshes_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.diff_block import make_file_block
+
+    frame, _inner = make_file_block("path/to/file.py")
+    calls = _spy_update(frame)
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    assert len(calls) >= 2
