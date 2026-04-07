@@ -24,14 +24,21 @@ _ROW_HEIGHT = 28
 _IS_HEAD_ROLE = Qt.UserRole + 2
 _TARGET_OID_ROLE = Qt.UserRole + 3
 
-_CLOUD_ICON = None
-
-
 def _get_cloud_icon() -> QIcon:
-    global _CLOUD_ICON
-    if _CLOUD_ICON is None:
-        _CLOUD_ICON = QIcon(str(get_resource_path("arts") / "ic_cloud_done.svg"))
-    return _CLOUD_ICON
+    from PySide6.QtGui import QPainter, QPixmap
+    path = str(get_resource_path("arts") / "ic_cloud_done.svg")
+    src = QIcon(path).pixmap(16, 16)
+    if src.isNull():
+        return QIcon(path)
+    color = get_theme_manager().current.colors.as_qcolor("on_background")
+    tinted = QPixmap(src.size())
+    tinted.fill(Qt.transparent)
+    p = QPainter(tinted)
+    p.drawPixmap(0, 0, src)
+    p.setCompositionMode(QPainter.CompositionMode_SourceIn)
+    p.fillRect(tinted.rect(), color)
+    p.end()
+    return QIcon(tinted)
 
 
 class _SidebarTree(QTreeView):
