@@ -91,14 +91,7 @@ def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
 
 
 def make_diff_formats() -> DiffFormats:
-    """Return a DiffFormats dataclass with all QTextCharFormat / QTextBlockFormat objects.
-
-    Known limitation: these formats are baked into already-rendered QPlainTextEdit
-    blocks via cursor inserts in render_hunk_*. Live theme switching does not
-    refresh diff text colors — users must close and re-open the diff to see new
-    colors. Tracked in docs/superpowers/specs/2026-04-07-md3-theming-followups.md
-    under "Known limitations carried over from Batch 1".
-    """
+    """Return a DiffFormats dataclass with all QTextCharFormat / QTextBlockFormat objects."""
     c = get_theme_manager().current.colors
     on_surface = c.as_qcolor("on_surface")
 
@@ -253,9 +246,15 @@ def add_hunk_widget(
 
     # --- Diff editor ---
     editor = make_diff_editor()
-    cursor = editor.textCursor()
-    line_count = render_hunk_content_lines(cursor, hunk, formats)
-    editor.setTextCursor(cursor)
+
+    def _render(current_formats: DiffFormats) -> int:
+        editor.clear()
+        cursor = editor.textCursor()
+        count = render_hunk_content_lines(cursor, hunk, current_formats)
+        editor.setTextCursor(cursor)
+        return count
+
+    line_count = _render(formats)
 
     line_height = editor.fontMetrics().lineSpacing()
     margins = editor.contentsMargins()
@@ -263,6 +262,12 @@ def add_hunk_widget(
     total_height = int(line_count * line_height + doc_margin + margins.top() + margins.bottom() + 4)
     editor.setFixedHeight(max(total_height, 4))
     editor.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+    def _rebuild() -> None:
+        header_label.setStyleSheet(f"color: {_hunk_header_color()};")
+        _render(make_diff_formats())
+
+    connect_widget(editor, rebuild=_rebuild)
 
     parent_layout.addWidget(header_row)
     parent_layout.addWidget(editor)

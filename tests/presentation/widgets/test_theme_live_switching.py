@@ -160,6 +160,42 @@ def test_log_panel_refreshes_on_theme_change(app, reset_theme):
     assert len(calls) >= 2
 
 
+def test_diff_block_hunk_rerenders_on_theme_change(app, reset_theme):
+    from PySide6.QtWidgets import QPlainTextEdit
+    from git_gui.domain.entities import Hunk
+    from git_gui.presentation.widgets.diff_block import (
+        add_hunk_widget, make_diff_formats, make_file_block,
+    )
+
+    frame, inner = make_file_block("example.py")
+    hunk = Hunk(
+        header="@@ -1,2 +1,2 @@",
+        lines=[
+            ("-", "old line\n"),
+            ("+", "new line\n"),
+            (" ", "context\n"),
+        ],
+    )
+    formats = make_diff_formats()
+    add_hunk_widget(inner, hunk, formats)
+
+    editors = frame.findChildren(QPlainTextEdit)
+    assert len(editors) == 1
+    editor = editors[0]
+
+    initial_text = editor.toPlainText()
+    assert "old line" in initial_text
+    assert "new line" in initial_text
+
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
+
+    text_after = editor.toPlainText()
+    assert "old line" in text_after
+    assert "new line" in text_after
+
+
 def test_diff_block_refreshes_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.diff_block import make_file_block
 
