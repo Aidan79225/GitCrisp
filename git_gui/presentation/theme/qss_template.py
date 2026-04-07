@@ -72,6 +72,28 @@ QDialog QPushButton:disabled {
     color: %(on_surface_variant)s;
 }
 
+/* Item view hover — Qt's default hover on Windows draws a hard white
+   highlight when a global stylesheet is active. Use a subtle tint from
+   surface_container_high so hover is visible in both light and dark. */
+QAbstractItemView::item:hover {
+    background: %(surface_container_high)s;
+    color: %(on_surface)s;
+}
+QAbstractItemView::item:selected {
+    background: %(primary)s;
+    color: %(on_primary)s;
+}
+
+/* Radio buttons / checkboxes — same white-hover problem. */
+QRadioButton:hover, QCheckBox:hover {
+    background: %(surface_container_high)s;
+    color: %(on_surface)s;
+}
+QRadioButton, QCheckBox {
+    background: transparent;
+    color: %(on_surface)s;
+}
+
 /* Scrollbar — once any QApplication stylesheet exists, Qt routes
    scrollbars through stylesheet rendering and we lose the native
    hover-to-expand effect. Re-create it via the :hover pseudo-state:
