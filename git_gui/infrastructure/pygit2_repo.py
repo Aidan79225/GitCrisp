@@ -8,7 +8,7 @@ import pygit2
 
 from git_gui.resources import subprocess_kwargs
 from git_gui.domain.entities import (
-    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, Remote, Stash, Submodule, Tag, WORKING_TREE_OID,
+    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, Remote, Stash, Submodule, Tag, WORKING_TREE_OID,
 )
 
 
@@ -719,3 +719,41 @@ class Pygit2Repository:
 
     def set_submodule_url(self, path: str, url: str) -> None:
         self._submodule_cli().set_url(path, url)
+
+    # ----- Branch management -----
+
+    def list_local_branches_with_upstream(self) -> list[LocalBranchInfo]:
+        result: list[LocalBranchInfo] = []
+        for name in self._repo.branches.local:
+            br = self._repo.branches.local[name]
+            try:
+                upstream = br.upstream.shorthand if br.upstream else None
+            except Exception:
+                upstream = None
+            commit = br.peel(pygit2.Commit)
+            sha = str(commit.id)[:10]
+            msg = commit.message.strip().split("\n", 1)[0]
+            result.append(LocalBranchInfo(
+                name=name,
+                upstream=upstream,
+                last_commit_sha=sha,
+                last_commit_message=msg,
+            ))
+        return result
+
+    def set_branch_upstream(self, name: str, upstream: str) -> None:
+        local = self._repo.branches.local[name]
+        remote = self._repo.branches.remote[upstream]
+        local.upstream = remote
+
+    def unset_branch_upstream(self, name: str) -> None:
+        local = self._repo.branches.local[name]
+        local.upstream = None
+
+    def rename_branch(self, old_name: str, new_name: str) -> None:
+        self._repo.branches.local[old_name].rename(new_name)
+
+    def reset_branch_to_ref(self, branch: str, ref: str) -> None:
+        target = self._repo.revparse_single(ref)
+        oid = target.id if hasattr(target, "id") else target.target
+        self._repo.reset(oid, pygit2.GIT_RESET_HARD)
