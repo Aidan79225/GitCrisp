@@ -21,6 +21,7 @@ from git_gui.presentation.widgets.sidebar import SidebarWidget
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 from git_gui.presentation.widgets.insight_dialog import InsightDialog
 from git_gui.presentation.menus.appearance import install_appearance_menu
+from git_gui.presentation.menus.git_menu import install_git_menu
 
 
 class _RemoteSignals(QObject):
@@ -142,6 +143,13 @@ class MainWindow(QMainWindow):
         if self._queries is not None:
             self._reload()
         self._repo_list.reload()
+        install_git_menu(
+            self,
+            queries=self._queries,
+            commands=self._commands,
+            repo_workdir=self._repo_path,
+            on_open_submodule=self._on_submodule_open_requested,
+        )
 
     def _on_working_tree_empty(self) -> None:
         """Working tree has no changes — switch back to commit info and refresh graph."""
@@ -362,6 +370,18 @@ class MainWindow(QMainWindow):
         self._repo_store.save()
         self._repo_list.reload()
         self.setWindowTitle(f"GitCrisp — {path}")
+        # Re-install the Git menu so its actions bind to the new repo.
+        bar = self.menuBar()
+        for action in list(bar.actions()):
+            if action.text() == "&Git":
+                bar.removeAction(action)
+        install_git_menu(
+            self,
+            queries=self._queries,
+            commands=self._commands,
+            repo_workdir=self._repo_path,
+            on_open_submodule=self._on_submodule_open_requested,
+        )
         self._right_stack.setCurrentIndex(0)
 
     def _on_repo_failed(self, path: str, error: str) -> None:
@@ -377,6 +397,17 @@ class MainWindow(QMainWindow):
         self._working_tree.set_buses(None, None)
         self._repo_list.reload()
         self.setWindowTitle("GitCrisp")
+        bar = self.menuBar()
+        for action in list(bar.actions()):
+            if action.text() == "&Git":
+                bar.removeAction(action)
+        install_git_menu(
+            self,
+            queries=None,
+            commands=None,
+            repo_workdir=None,
+            on_open_submodule=self._on_submodule_open_requested,
+        )
 
     def _on_repo_open(self, path: str) -> None:
         self._repo_store.add_open(path)
@@ -401,6 +432,12 @@ class MainWindow(QMainWindow):
         dialog = CloneDialog(self)
         dialog.clone_completed.connect(self._on_clone_completed)
         dialog.exec()
+
+    def _on_submodule_open_requested(self, abs_path: str) -> None:
+        """Open a submodule as a top-level repo (one-way switch)."""
+        self._repo_store.add_open(abs_path)
+        self._repo_store.save()
+        self._switch_repo(abs_path)
 
     def _on_clone_completed(self, path: str) -> None:
         self._repo_store.add_open(path)
