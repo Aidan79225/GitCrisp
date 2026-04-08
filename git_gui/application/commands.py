@@ -257,3 +257,35 @@ class SetSubmoduleUrl:
 
     def execute(self, path: str, url: str) -> None:
         self._writer.set_submodule_url(path, url)
+
+
+class SetBranchUpstream:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, upstream: str) -> None:
+        self._writer.set_branch_upstream(name, upstream)
+
+
+class UnsetBranchUpstream:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str) -> None:
+        self._writer.unset_branch_upstream(name)
+
+
+class RenameBranch:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, old_name: str, new_name: str) -> None:
+        self._writer.rename_branch(old_name, new_name)
+
+
+class ResetBranchToRef:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, branch: str, ref: str) -> None:
+        self._writer.reset_branch_to_ref(branch, ref)
