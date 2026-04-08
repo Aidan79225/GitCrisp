@@ -66,3 +66,17 @@ class FileStatus:
 class Hunk:
     header: str
     lines: list[tuple[Literal["+", "-", " "], str]]
+
+
+@dataclass
+class Remote:
+    name: str
+    fetch_url: str
+    push_url: str
+
+
+@dataclass
+class Submodule:
+    path: str
+    url: str
+    head_sha: str | None
