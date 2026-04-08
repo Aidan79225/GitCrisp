@@ -201,3 +201,59 @@ class DiscardHunk:
 
     def execute(self, path: str, hunk_header: str) -> None:
         self._writer.discard_hunk(path, hunk_header)
+
+
+class AddRemote:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, url: str) -> None:
+        self._writer.add_remote(name, url)
+
+
+class RemoveRemote:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str) -> None:
+        self._writer.remove_remote(name)
+
+
+class RenameRemote:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, old_name: str, new_name: str) -> None:
+        self._writer.rename_remote(old_name, new_name)
+
+
+class SetRemoteUrl:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, url: str) -> None:
+        self._writer.set_remote_url(name, url)
+
+
+class AddSubmodule:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, url: str) -> None:
+        self._writer.add_submodule(path, url)
+
+
+class RemoveSubmodule:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str) -> None:
+        self._writer.remove_submodule(path)
+
+
+class SetSubmoduleUrl:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, url: str) -> None:
+        self._writer.set_submodule_url(path, url)
