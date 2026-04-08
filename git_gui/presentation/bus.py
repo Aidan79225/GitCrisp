@@ -6,6 +6,7 @@ from git_gui.application.queries import (
     GetCommitGraph, GetBranches, GetStashes, GetTags, GetRemoteTags, GetCommitStats,
     GetCommitFiles, GetFileDiff, GetStagedDiff, GetWorkingTree,
     GetCommitDetail, IsDirty, GetHeadOid,
+    ListRemotes, ListSubmodules,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
@@ -15,6 +16,8 @@ from git_gui.application.commands import (
     Stash, PopStash, ApplyStash, DropStash,
     StageHunk, UnstageHunk, FetchAllPrune,
     DiscardFile, DiscardHunk,
+    AddRemote, RemoveRemote, RenameRemote, SetRemoteUrl,
+    AddSubmodule, RemoveSubmodule, SetSubmoduleUrl,
 )
 
 
@@ -33,6 +36,8 @@ class QueryBus:
     get_commit_detail: GetCommitDetail
     is_dirty: IsDirty
     get_head_oid: GetHeadOid
+    list_remotes: ListRemotes
+    list_submodules: ListSubmodules
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
@@ -50,6 +55,8 @@ class QueryBus:
             get_commit_detail=GetCommitDetail(reader),
             is_dirty=IsDirty(reader),
             get_head_oid=GetHeadOid(reader),
+            list_remotes=ListRemotes(reader),
+            list_submodules=ListSubmodules(reader),
         )
 
 
@@ -80,6 +87,13 @@ class CommandBus:
     discard_file: DiscardFile
     discard_hunk: DiscardHunk
     fetch_all_prune: FetchAllPrune
+    add_remote: AddRemote
+    remove_remote: RemoveRemote
+    rename_remote: RenameRemote
+    set_remote_url: SetRemoteUrl
+    add_submodule: AddSubmodule
+    remove_submodule: RemoveSubmodule
+    set_submodule_url: SetSubmoduleUrl
 
     @classmethod
     def from_writer(cls, writer: IRepositoryWriter) -> "CommandBus":
@@ -109,4 +123,11 @@ class CommandBus:
             discard_file=DiscardFile(writer),
             discard_hunk=DiscardHunk(writer),
             fetch_all_prune=FetchAllPrune(writer),
+            add_remote=AddRemote(writer),
+            remove_remote=RemoveRemote(writer),
+            rename_remote=RenameRemote(writer),
+            set_remote_url=SetRemoteUrl(writer),
+            add_submodule=AddSubmodule(writer),
+            remove_submodule=RemoveSubmodule(writer),
+            set_submodule_url=SetSubmoduleUrl(writer),
         )
