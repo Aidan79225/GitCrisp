@@ -402,6 +402,7 @@ class GraphWidget(QWidget):
         branch_names = info.branch_names if info else []
 
         menu = QMenu(self)
+        menu.setStyleSheet("QMenu::item { padding-right: 24px; }")
 
         menu.addAction("Create Branch").triggered.connect(
             lambda: self.create_branch_requested.emit(oid))
@@ -412,7 +413,14 @@ class GraphWidget(QWidget):
 
         # Filter out HEAD pseudo-ref and tag refs for branch operations
         real_branches = [n for n in branch_names if n != "HEAD" and not n.startswith("tag:")]
-        local_branches = [n for n in real_branches if "/" not in n]
+        # Distinguish local vs remote branches via the actual branch metadata
+        # (the "/" heuristic is wrong: local branches like "feature/foo" exist).
+        try:
+            all_branches = self._queries.get_branches.execute()
+            local_set = {b.name for b in all_branches if not b.is_remote}
+        except Exception:
+            local_set = set()
+        local_branches = [n for n in real_branches if n in local_set]
 
         if real_branches:
             menu.addSeparator()
