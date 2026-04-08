@@ -655,3 +655,67 @@ class Pygit2Repository:
 
     def set_remote_url(self, name: str, url: str) -> None:
         self._repo.remotes.set_url(name, url)
+
+    # ----- Submodules -----
+
+    def _submodule_cli(self):
+        from git_gui.infrastructure.submodule_cli import SubmoduleCli
+        return SubmoduleCli(self._repo.workdir)
+
+    def list_submodules(self) -> list[Submodule]:
+        result: list[Submodule] = []
+        try:
+            sm_paths = list(self._repo.listall_submodules())
+        except Exception:
+            return result
+        if not sm_paths:
+            return result
+
+        # Parse URLs from .gitmodules config file
+        import os
+        url_map: dict[str, str] = {}
+        gitmodules_path = os.path.join(self._repo.workdir, ".gitmodules")
+        if os.path.exists(gitmodules_path):
+            try:
+                cfg = pygit2.Config(gitmodules_path)
+                for entry in cfg:
+                    # entry.name is like "submodule.libs/foo.url"
+                    parts = entry.name.split(".")
+                    if len(parts) >= 3 and parts[0] == "submodule" and parts[-1] == "url":
+                        sm_path = ".".join(parts[1:-1])
+                        url_map[sm_path] = entry.value
+            except Exception:
+                pass
+
+        # Get head SHAs via git ls-files -s (gitlink entries have mode 160000)
+        sha_map: dict[str, str] = {}
+        try:
+            ls_result = subprocess.run(
+                ["git", "ls-files", "-s", "--"] + sm_paths,
+                capture_output=True, text=True,
+                cwd=self._repo.workdir, **subprocess_kwargs(),
+            )
+            for line in ls_result.stdout.splitlines():
+                # Format: "160000 <sha> <stage>\t<path>"
+                line_parts = line.split("\t", 1)
+                if len(line_parts) == 2:
+                    fields = line_parts[0].split()
+                    if len(fields) >= 2 and fields[0] == "160000":
+                        sha_map[line_parts[1]] = fields[1]
+        except Exception:
+            pass
+
+        for path in sm_paths:
+            url = url_map.get(path, "")
+            head = sha_map.get(path)
+            result.append(Submodule(path=path, url=url, head_sha=head))
+        return result
+
+    def add_submodule(self, path: str, url: str) -> None:
+        self._submodule_cli().add(path=path, url=url)
+
+    def remove_submodule(self, path: str) -> None:
+        self._submodule_cli().remove(path)
+
+    def set_submodule_url(self, path: str, url: str) -> None:
+        self._submodule_cli().set_url(path, url)
