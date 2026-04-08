@@ -5,6 +5,7 @@ from typing import Callable
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMainWindow, QMenu
 
+from git_gui.presentation.dialogs.branches_dialog import BranchesDialog
 from git_gui.presentation.dialogs.remote_dialog import RemoteDialog
 from git_gui.presentation.dialogs.submodule_dialog import SubmoduleDialog
 
@@ -34,6 +35,15 @@ def install_git_menu(
 
     remote_action.triggered.connect(_open_remote)
 
+    branches_action = QAction("&Branches...", window)
+
+    def _open_branches() -> None:
+        if queries is None or commands is None:
+            return
+        BranchesDialog(queries, commands, window).exec()
+
+    branches_action.triggered.connect(_open_branches)
+
     submodule_action = QAction("&Submodules...", window)
 
     def _open_submodule() -> None:
@@ -46,8 +56,10 @@ def install_git_menu(
     submodule_action.triggered.connect(_open_submodule)
 
     git_menu.addAction(remote_action)
+    git_menu.addAction(branches_action)
     git_menu.addAction(submodule_action)
 
     window._git_menu = git_menu  # type: ignore[attr-defined]
     window._git_remote_action = remote_action  # type: ignore[attr-defined]
+    window._git_branches_action = branches_action  # type: ignore[attr-defined]
     window._git_submodule_action = submodule_action  # type: ignore[attr-defined]
