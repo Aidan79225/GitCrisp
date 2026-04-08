@@ -79,6 +79,7 @@ class WorkingTreeWidget(QWidget):
     commit_completed = Signal(str)   # emits first line of commit message
     commit_failed = Signal(str)      # emits error reason
     working_tree_empty = Signal()    # emitted when reload finds no changes
+    submodule_open_requested = Signal(str)  # forwarded from inner HunkDiffWidget
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -142,6 +143,7 @@ class WorkingTreeWidget(QWidget):
         self._file_model.files_changed.connect(self._on_files_changed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
         self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
+        self._hunk_diff.submodule_open_requested.connect(self.submodule_open_requested)
 
         connect_widget(self)
 

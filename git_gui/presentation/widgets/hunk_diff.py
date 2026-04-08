@@ -26,6 +26,7 @@ class _LoadAllSignals(QObject):
 class HunkDiffWidget(QWidget):
     hunk_toggled = Signal()
     discard_hunk_requested = Signal(str, str)  # path, hunk_header
+    submodule_open_requested = Signal(str)  # emits the submodule path (relative)
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -33,6 +34,7 @@ class HunkDiffWidget(QWidget):
         self._commands = commands
         self._current_path: str | None = None
         self._all_paths: list[str] | None = None  # None = single-file or empty mode
+        self._submodule_paths: set[str] = set()
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -118,14 +120,30 @@ class HunkDiffWidget(QWidget):
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _refresh_submodule_paths(self) -> None:
+        if self._queries is None:
+            self._submodule_paths = set()
+            return
+        try:
+            self._submodule_paths = {
+                s.path for s in self._queries.list_submodules.execute()
+            }
+        except Exception:
+            self._submodule_paths = set()
+
     def _make_file_block(self, path: str):
         """Return a bordered QFrame file block and its inner layout."""
-        return make_file_block(path)
+        on_click = (
+            (lambda p=path: self.submodule_open_requested.emit(p))
+            if path in self._submodule_paths else None
+        )
+        return make_file_block(path, on_header_clicked=on_click)
 
     def _on_load_done(self, path: str, staged_hunks: list[Hunk],
                       unstaged_hunks: list[Hunk], is_untracked: bool) -> None:
         if path != self._current_path:
             return
+        self._refresh_submodule_paths()
         self._clear_layout()
 
         frame, inner = self._make_file_block(path)
@@ -143,6 +161,7 @@ class HunkDiffWidget(QWidget):
         # Check we're still in all-files mode and paths haven't changed
         if self._all_paths is None:
             return
+        self._refresh_submodule_paths()
         self._clear_layout()
         for path, staged_hunks, unstaged_hunks, is_untracked in results:
             frame, inner = self._make_file_block(path)
@@ -164,6 +183,7 @@ class HunkDiffWidget(QWidget):
 
     def _render_sync(self) -> None:
         """Post-action refresh for single-file mode."""
+        self._refresh_submodule_paths()
         self._clear_layout()
         if self._current_path is None:
             return
@@ -193,6 +213,7 @@ class HunkDiffWidget(QWidget):
         """Post-action refresh for all-files mode."""
         if self._all_paths is None:
             return
+        self._refresh_submodule_paths()
         self._clear_layout()
         for path in self._all_paths:
             staged_hunks = self._queries.get_staged_diff.execute(path)
@@ -256,12 +277,17 @@ class HunkDiffWidget(QWidget):
             )
             extra_right = [x_btn]
 
+        on_click = (
+            (lambda p=path: self.submodule_open_requested.emit(p))
+            if path in self._submodule_paths else None
+        )
         add_hunk_widget(
             target_layout,
             hunk,
             self._formats,
             extra_left_widgets=[checkbox],
             extra_right_widgets=extra_right,
+            on_header_clicked=on_click,
         )
 
     def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool,

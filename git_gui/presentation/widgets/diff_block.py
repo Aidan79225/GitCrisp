@@ -4,12 +4,29 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget,
 )
+
+
+class _ClickableLabel(QLabel):
+    """QLabel that calls a callback on left-click and shows a pointer cursor."""
+
+    def __init__(self, text: str, on_click: Callable[[], None], parent=None) -> None:
+        super().__init__(text, parent)
+        self._on_click = on_click
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, ev) -> None:  # noqa: N802 (Qt API)
+        if ev.button() == Qt.LeftButton:
+            self._on_click()
+            ev.accept()
+            return
+        super().mousePressEvent(ev)
 
 from git_gui.domain.entities import Hunk
 from git_gui.presentation.theme import get_theme_manager, connect_widget
@@ -56,8 +73,15 @@ class DiffFormats:
 # Factories
 # ---------------------------------------------------------------------------
 
-def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
-    """Return a bordered QFrame with an amber file-header label and its inner layout."""
+def make_file_block(
+    path: str,
+    on_header_clicked: Callable[[], None] | None = None,
+) -> tuple[QFrame, QVBoxLayout]:
+    """Return a bordered QFrame with an amber file-header label and its inner layout.
+
+    If *on_header_clicked* is given, the file header label becomes clickable
+    (left-click invokes the callback) and shows a pointing cursor.
+    """
     frame = QFrame()
     frame.setObjectName("fileBlock")
     frame.setFrameShape(QFrame.StyledPanel)
@@ -74,7 +98,11 @@ def make_file_block(path: str) -> tuple[QFrame, QVBoxLayout]:
     header_row_layout = QHBoxLayout(header_row)
     header_row_layout.setContentsMargins(0, HEADER_ROW_VPAD, 0, HEADER_ROW_VPAD)
     header_row_layout.setSpacing(4)
-    header_label = QLabel(f"\U0001f4c4 {path}")
+    label_text = f"\U0001f4c4 {path}"
+    if on_header_clicked is not None:
+        header_label = _ClickableLabel(label_text, on_header_clicked)
+    else:
+        header_label = QLabel(label_text)
     header_label.setStyleSheet(_header_style())
     header_row_layout.addWidget(header_label)
     header_row_layout.addStretch()
@@ -216,6 +244,7 @@ def add_hunk_widget(
     *,
     extra_left_widgets: list[QWidget] | None = None,
     extra_right_widgets: list[QWidget] | None = None,
+    on_header_clicked: Callable[[], None] | None = None,
 ) -> None:
     """Append a header row + sized-to-fit diff editor for one hunk into parent_layout.
 
@@ -236,7 +265,11 @@ def add_hunk_widget(
     header_layout.setSpacing(4)
     for w in extra_left_widgets:
         header_layout.addWidget(w)
-    header_label = QLabel(hunk.header.strip())
+    header_text = hunk.header.strip()
+    if on_header_clicked is not None:
+        header_label = _ClickableLabel(header_text, on_header_clicked)
+    else:
+        header_label = QLabel(header_text)
     header_label.setStyleSheet(f"color: {_hunk_header_color()};")
     header_layout.addWidget(header_label)
     header_layout.addStretch()
