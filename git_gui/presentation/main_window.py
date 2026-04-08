@@ -41,6 +41,10 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle(f"GitCrisp — {repo_path}" if repo_path else "GitCrisp")
         self.resize(1400, 800)
+        self.menuBar().setStyleSheet(
+            "QMenu { padding: 6px; }"
+            "QMenu::item { padding: 6px 24px 6px 20px; }"
+        )
         install_appearance_menu(self)
 
         self._queries = queries
