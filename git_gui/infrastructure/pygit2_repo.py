@@ -8,7 +8,7 @@ import pygit2
 
 from git_gui.resources import subprocess_kwargs
 from git_gui.domain.entities import (
-    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, Stash, Tag, WORKING_TREE_OID,
+    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, Remote, Stash, Submodule, Tag, WORKING_TREE_OID,
 )
 
 
@@ -634,3 +634,24 @@ class Pygit2Repository:
 
     def drop_stash(self, index: int) -> None:
         self._repo.stash_drop(index=index)
+
+    # ----- Remotes -----
+
+    def list_remotes(self) -> list[Remote]:
+        result: list[Remote] = []
+        for r in self._repo.remotes:
+            push_url = r.push_url if r.push_url else r.url
+            result.append(Remote(name=r.name, fetch_url=r.url, push_url=push_url))
+        return result
+
+    def add_remote(self, name: str, url: str) -> None:
+        self._repo.remotes.create(name, url)
+
+    def remove_remote(self, name: str) -> None:
+        self._repo.remotes.delete(name)
+
+    def rename_remote(self, old_name: str, new_name: str) -> None:
+        self._repo.remotes.rename(old_name, new_name)
+
+    def set_remote_url(self, name: str, url: str) -> None:
+        self._repo.remotes.set_url(name, url)
