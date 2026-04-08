@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, Remote, Stash, Submodule, Tag
+from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, LocalBranchInfo, Remote, Stash, Submodule, Tag
 from git_gui.domain.ports import IRepositoryReader
 
 
@@ -122,3 +122,11 @@ class ListSubmodules:
 
     def execute(self) -> list[Submodule]:
         return self._reader.list_submodules()
+
+
+class ListLocalBranchesWithUpstream:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[LocalBranchInfo]:
+        return self._reader.list_local_branches_with_upstream()
