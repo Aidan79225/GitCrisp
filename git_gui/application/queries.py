@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, Stash, Tag
+from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, Remote, Stash, Submodule, Tag
 from git_gui.domain.ports import IRepositoryReader
 
 
@@ -106,3 +106,19 @@ class GetCommitDetail:
 
     def execute(self, oid: str) -> Commit:
         return self._reader.get_commit(oid)
+
+
+class ListRemotes:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[Remote]:
+        return self._reader.list_remotes()
+
+
+class ListSubmodules:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[Submodule]:
+        return self._reader.list_submodules()
