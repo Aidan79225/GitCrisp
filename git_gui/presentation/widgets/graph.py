@@ -402,7 +402,10 @@ class GraphWidget(QWidget):
         branch_names = info.branch_names if info else []
 
         menu = QMenu(self)
-        menu.setStyleSheet("QMenu::item { padding-right: 24px; }")
+        menu.setStyleSheet(
+            "QMenu { padding: 6px; }"
+            "QMenu::item { padding: 6px 24px 6px 20px; }"
+        )
 
         menu.addAction("Create Branch").triggered.connect(
             lambda: self.create_branch_requested.emit(oid))
