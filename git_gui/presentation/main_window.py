@@ -334,10 +334,29 @@ class MainWindow(QMainWindow):
     def _on_checkout_branch(self, name: str) -> None:
         try:
             if "/" in name:
-                # Remote branch — create local tracking branch
-                self._commands.checkout_remote_branch.execute(name)
                 local_name = name.split("/", 1)[1]
-                self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
+                existing = {
+                    b.name for b in self._queries.get_branches.execute()
+                    if not b.is_remote
+                }
+                if local_name in existing:
+                    reply = QMessageBox.question(
+                        self,
+                        "Local branch exists",
+                        f"Local branch '{local_name}' already exists.\n\n"
+                        f"Reset it to '{name}' (HEAD)? This discards any local "
+                        f"commits and uncommitted changes on '{local_name}'.",
+                        QMessageBox.Yes | QMessageBox.Cancel,
+                        QMessageBox.Cancel,
+                    )
+                    if reply != QMessageBox.Yes:
+                        return
+                    self._commands.checkout.execute(local_name)
+                    self._commands.reset_branch_to_ref.execute(local_name, name)
+                    self._log_panel.log(f"Reset {local_name} to {name}")
+                else:
+                    self._commands.checkout_remote_branch.execute(name)
+                    self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
             else:
                 self._commands.checkout.execute(name)
                 self._log_panel.log(f"Checkout branch: {name}")
