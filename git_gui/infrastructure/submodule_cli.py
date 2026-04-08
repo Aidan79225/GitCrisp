@@ -44,14 +44,7 @@ class SubmoduleCli:
             ) from e
 
     def add(self, path: str, url: str) -> None:
-        # -c protocol.file.allow=always is required for local file:// URLs
-        # (git ≥ 2.38.1 blocks file transport by default; we restore the
-        # pre-CVE-2022-39253 behaviour only for the explicit submodule-add
-        # operation where the caller has already decided to add the repo).
-        self._run(
-            "-c", "protocol.file.allow=always",
-            "submodule", "add", "--", url, path,
-        )
+        self._run("submodule", "add", "--", url, path)
 
     def set_url(self, path: str, url: str) -> None:
         self._run("config", "-f", ".gitmodules", f"submodule.{path}.url", url)

@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 import pytest
@@ -13,7 +14,11 @@ def _run(cwd: str, *args: str) -> None:
 
 
 @pytest.fixture
-def parent_and_child(tmp_path: Path):
+def parent_and_child(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+
     child = tmp_path / "child"
     child.mkdir()
     _run(str(child), "init", "-q", "-b", "main")
@@ -28,7 +33,6 @@ def parent_and_child(tmp_path: Path):
     _run(str(parent), "init", "-q", "-b", "main")
     _run(str(parent), "config", "user.email", "t@t")
     _run(str(parent), "config", "user.name", "t")
-    _run(str(parent), "config", "protocol.file.allow", "always")
     (parent / "r.txt").write_text("root")
     _run(str(parent), "add", ".")
     _run(str(parent), "commit", "-q", "-m", "root")
