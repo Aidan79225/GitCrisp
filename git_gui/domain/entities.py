@@ -80,3 +80,11 @@ class Submodule:
     path: str
     url: str
     head_sha: str | None
+
+
+@dataclass
+class LocalBranchInfo:
+    name: str
+    upstream: str | None
+    last_commit_sha: str
+    last_commit_message: str
