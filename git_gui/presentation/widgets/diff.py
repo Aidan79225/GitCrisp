@@ -1,6 +1,6 @@
 # git_gui/presentation/widgets/diff.py
 from __future__ import annotations
-from PySide6.QtCore import QEvent, QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QListView, QPlainTextEdit, QScrollArea, QSplitter,
@@ -65,10 +65,13 @@ class _FileDeltaDelegate(QStyledItemDelegate):
 
 
 class DiffWidget(QWidget):
+    submodule_open_requested = Signal(str)  # emits the submodule path (relative)
+
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
         self._queries = queries
         self._current_oid: str | None = None
+        self._submodule_paths: set[str] = set()
 
         # ── Row 1: commit detail (3-line metadata) ──────────────────────────
         self._detail = CommitDetailWidget()
@@ -197,12 +200,29 @@ class DiffWidget(QWidget):
             if widget:
                 widget.deleteLater()
 
+    def _refresh_submodule_paths(self) -> None:
+        """Refresh the cached set of submodule paths from the repository."""
+        if self._queries is None:
+            self._submodule_paths = set()
+            return
+        try:
+            self._submodule_paths = {
+                s.path for s in self._queries.list_submodules.execute()
+            }
+        except Exception:
+            self._submodule_paths = set()
+
     def _build_file_block(self, path: str, hunks):
         """Build and return a bordered QFrame containing a file header and per-hunk widgets."""
-        frame, inner = make_file_block(path)
+        is_submodule = path in self._submodule_paths
+        on_click = (
+            (lambda p=path: self.submodule_open_requested.emit(p))
+            if is_submodule else None
+        )
+        frame, inner = make_file_block(path, on_header_clicked=on_click)
 
         for hunk in hunks:
-            add_hunk_widget(inner, hunk, self._formats)
+            add_hunk_widget(inner, hunk, self._formats, on_header_clicked=on_click)
 
         return frame
 
@@ -226,6 +246,7 @@ class DiffWidget(QWidget):
 
     def _render_single_file(self, path: str, hunks) -> None:
         """Clear and render one file as a bordered block."""
+        self._refresh_submodule_paths()
         self._clear_blocks()
         block = self._build_file_block(path, hunks)
         self._diff_layout.addWidget(block)
@@ -234,6 +255,7 @@ class DiffWidget(QWidget):
 
     def _render_all_files(self, oid: str) -> None:
         """Clear and render every file as a bordered block."""
+        self._refresh_submodule_paths()
         self._clear_blocks()
 
         row_count = self._diff_model.rowCount()

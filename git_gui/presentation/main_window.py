@@ -102,6 +102,8 @@ class MainWindow(QMainWindow):
             lambda reason: (self._log_panel.expand(), self._log_panel.log_error(reason))
         )
         self._working_tree.working_tree_empty.connect(self._on_working_tree_empty)
+        self._working_tree.submodule_open_requested.connect(self._on_submodule_path_clicked)
+        self._diff.submodule_open_requested.connect(self._on_submodule_path_clicked)
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
         self._sidebar.branch_clicked.connect(self._graph.reload_with_extra_tip)
         self._sidebar.branch_merge_requested.connect(self._on_merge)
@@ -438,6 +440,14 @@ class MainWindow(QMainWindow):
         self._repo_store.add_open(abs_path)
         self._repo_store.save()
         self._switch_repo(abs_path)
+
+    def _on_submodule_path_clicked(self, rel_path: str) -> None:
+        """Resolve a relative submodule path against the current repo and open it."""
+        if not self._repo_path:
+            return
+        import os
+        abs_path = os.path.abspath(os.path.join(self._repo_path, rel_path))
+        self._on_submodule_open_requested(abs_path)
 
     def _on_clone_completed(self, path: str) -> None:
         self._repo_store.add_open(path)
