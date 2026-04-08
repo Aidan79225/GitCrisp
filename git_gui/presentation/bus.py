@@ -6,7 +6,7 @@ from git_gui.application.queries import (
     GetCommitGraph, GetBranches, GetStashes, GetTags, GetRemoteTags, GetCommitStats,
     GetCommitFiles, GetFileDiff, GetStagedDiff, GetWorkingTree,
     GetCommitDetail, IsDirty, GetHeadOid,
-    ListRemotes, ListSubmodules,
+    ListRemotes, ListSubmodules, ListLocalBranchesWithUpstream,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
@@ -18,6 +18,7 @@ from git_gui.application.commands import (
     DiscardFile, DiscardHunk,
     AddRemote, RemoveRemote, RenameRemote, SetRemoteUrl,
     AddSubmodule, RemoveSubmodule, SetSubmoduleUrl,
+    SetBranchUpstream, UnsetBranchUpstream, RenameBranch, ResetBranchToRef,
 )
 
 
@@ -38,6 +39,7 @@ class QueryBus:
     get_head_oid: GetHeadOid
     list_remotes: ListRemotes
     list_submodules: ListSubmodules
+    list_local_branches_with_upstream: ListLocalBranchesWithUpstream
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
@@ -57,6 +59,7 @@ class QueryBus:
             get_head_oid=GetHeadOid(reader),
             list_remotes=ListRemotes(reader),
             list_submodules=ListSubmodules(reader),
+            list_local_branches_with_upstream=ListLocalBranchesWithUpstream(reader),
         )
 
 
@@ -94,6 +97,10 @@ class CommandBus:
     add_submodule: AddSubmodule
     remove_submodule: RemoveSubmodule
     set_submodule_url: SetSubmoduleUrl
+    set_branch_upstream: SetBranchUpstream
+    unset_branch_upstream: UnsetBranchUpstream
+    rename_branch: RenameBranch
+    reset_branch_to_ref: ResetBranchToRef
 
     @classmethod
     def from_writer(cls, writer: IRepositoryWriter) -> "CommandBus":
@@ -130,4 +137,8 @@ class CommandBus:
             add_submodule=AddSubmodule(writer),
             remove_submodule=RemoveSubmodule(writer),
             set_submodule_url=SetSubmoduleUrl(writer),
+            set_branch_upstream=SetBranchUpstream(writer),
+            unset_branch_upstream=UnsetBranchUpstream(writer),
+            rename_branch=RenameBranch(writer),
+            reset_branch_to_ref=ResetBranchToRef(writer),
         )
