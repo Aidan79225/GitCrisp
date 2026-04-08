@@ -29,7 +29,7 @@ def clone_repo(
     Raises ``subprocess.CalledProcessError`` on failure.
     """
     proc = subprocess.Popen(
-        ["git", "clone", "--progress", url, dest],
+        ["git", "clone", "--progress", "--recurse-submodules", url, dest],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         **subprocess_kwargs(),
@@ -58,6 +58,6 @@ def clone_repo(
     if proc.returncode != 0:
         stderr_output = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
         raise subprocess.CalledProcessError(
-            proc.returncode, ["git", "clone", url, dest],
+            proc.returncode, ["git", "clone", "--recurse-submodules", url, dest],
             output=b"", stderr=stderr_output.encode(),
         )
