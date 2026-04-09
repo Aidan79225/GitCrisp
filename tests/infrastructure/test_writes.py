@@ -129,3 +129,27 @@ def test_merge_commit_fast_forward(writable_repo):
 
     # Assert HEAD oid now equals the new commit oid (fast-forward)
     assert impl.get_head_oid() == new_commit.oid
+
+
+def test_rebase_onto_commit(writable_repo):
+    impl, path = writable_repo
+    # main: A -> B; feature branches off A and adds C; rebase main onto C
+    head_oid = impl.get_head_oid()  # A
+    impl.create_branch("feature", head_oid)
+    # main adds B
+    (path / "b.txt").write_text("b")
+    impl.stage(["b.txt"])
+    b = impl.commit("B on main")
+    # feature adds C
+    impl.checkout("feature")
+    (path / "c.txt").write_text("c")
+    impl.stage(["c.txt"])
+    c = impl.commit("C on feature")
+    # back to main, rebase onto commit C
+    main_name = "main" if "main" in [br.name for br in impl.get_branches() if not br.is_remote] else "master"
+    impl.checkout(main_name)
+
+    impl.rebase_onto_commit(c.oid)
+
+    new_head = impl.get_head_oid()
+    assert impl.is_ancestor(c.oid, new_head) is True
