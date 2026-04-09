@@ -7,6 +7,7 @@ from git_gui.application.queries import (
     GetCommitFiles, GetFileDiff, GetStagedDiff, GetWorkingTree,
     GetCommitDetail, IsDirty, GetHeadOid,
     ListRemotes, ListSubmodules, ListLocalBranchesWithUpstream,
+    GetRepoState, IsAncestor,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
@@ -19,6 +20,7 @@ from git_gui.application.commands import (
     AddRemote, RemoveRemote, RenameRemote, SetRemoteUrl,
     AddSubmodule, RemoveSubmodule, SetSubmoduleUrl,
     SetBranchUpstream, UnsetBranchUpstream, RenameBranch, ResetBranchToRef,
+    MergeCommit, RebaseOntoCommit,
 )
 
 
@@ -40,6 +42,8 @@ class QueryBus:
     list_remotes: ListRemotes
     list_submodules: ListSubmodules
     list_local_branches_with_upstream: ListLocalBranchesWithUpstream
+    get_repo_state: GetRepoState
+    is_ancestor: IsAncestor
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
@@ -60,6 +64,8 @@ class QueryBus:
             list_remotes=ListRemotes(reader),
             list_submodules=ListSubmodules(reader),
             list_local_branches_with_upstream=ListLocalBranchesWithUpstream(reader),
+            get_repo_state=GetRepoState(reader),
+            is_ancestor=IsAncestor(reader),
         )
 
 
@@ -79,6 +85,8 @@ class CommandBus:
     delete_remote_tag: DeleteRemoteTag
     merge: Merge
     rebase: Rebase
+    merge_commit: MergeCommit
+    rebase_onto_commit: RebaseOntoCommit
     push: Push
     pull: Pull
     fetch: Fetch
@@ -120,6 +128,8 @@ class CommandBus:
             delete_remote_tag=DeleteRemoteTag(writer),
             merge=Merge(writer),
             rebase=Rebase(writer),
+            merge_commit=MergeCommit(writer),
+            rebase_onto_commit=RebaseOntoCommit(writer),
             push=Push(writer),
             pull=Pull(writer),
             fetch=Fetch(writer),
