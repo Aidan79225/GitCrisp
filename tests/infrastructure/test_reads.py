@@ -177,6 +177,52 @@ def test_get_commit_stats_returns_initial_commit(repo_impl):
     assert stats[0].files[0].added >= 1
 
 
+def test_repo_state_clean(repo_impl):
+    info = repo_impl.repo_state()
+    assert info.state.name == "CLEAN"
+    assert info.head_branch in ("main", "master")
+
+
+def test_repo_state_detached(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    head_oid = raw.head.target
+    raw.checkout_tree(raw.get(head_oid))
+    raw.set_head(head_oid)
+    info = repo_impl.repo_state()
+    assert info.state.name == "DETACHED_HEAD"
+    assert info.head_branch is None
+
+
+def test_repo_state_merging(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    # Commit A on master (conflicting change to README.md)
+    (repo_path / "README.md").write_text("master change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master change", tree_a, [base])
+
+    # Create feature branch from base with conflicting change
+    raw.branches.local.create("feature", raw.get(base))
+    raw.checkout("refs/heads/feature")
+    (repo_path / "README.md").write_text("feature change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    raw.create_commit("refs/heads/feature", sig, sig, "feature change", tree_b, [base])
+
+    # Switch back to master and merge feature -> produces MERGING state (conflict)
+    raw.checkout("refs/heads/master")
+    raw.merge(raw.branches.local["feature"].target)
+
+    info = repo_impl.repo_state()
+    assert info.state.name == "MERGING"
+    assert info.head_branch == "master"
+
+
 def test_get_commit_stats_with_multiple_commits(repo_path, repo_impl):
     raw = pygit2.Repository(str(repo_path))
     sig = pygit2.Signature("Author Two", "two@example.com")
