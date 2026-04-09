@@ -91,6 +91,14 @@ class PushTag:
         self._writer.push_tag(remote, name)
 
 
+class DeleteRemoteTag:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, name: str) -> None:
+        self._writer.delete_remote_tag(remote, name)
+
+
 class Merge:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
