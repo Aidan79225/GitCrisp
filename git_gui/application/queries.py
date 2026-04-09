@@ -1,5 +1,6 @@
 from __future__ import annotations
-from git_gui.domain.entities import Branch, Commit, FileStatus, Hunk, Stash
+from datetime import datetime
+from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, LocalBranchInfo, Remote, RepoStateInfo, Stash, Submodule, Tag
 from git_gui.domain.ports import IRepositoryReader
 
 
@@ -25,6 +26,30 @@ class GetStashes:
 
     def execute(self) -> list[Stash]:
         return self._reader.get_stashes()
+
+
+class GetTags:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[Tag]:
+        return self._reader.get_tags()
+
+
+class GetRemoteTags:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, remote: str) -> list[str]:
+        return self._reader.get_remote_tags(remote)
+
+
+class GetCommitStats:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, since: datetime | None = None, until: datetime | None = None) -> list[CommitStat]:
+        return self._reader.get_commit_stats(since, until)
 
 
 class GetCommitFiles:
@@ -81,3 +106,43 @@ class GetCommitDetail:
 
     def execute(self, oid: str) -> Commit:
         return self._reader.get_commit(oid)
+
+
+class ListRemotes:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[Remote]:
+        return self._reader.list_remotes()
+
+
+class ListSubmodules:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[Submodule]:
+        return self._reader.list_submodules()
+
+
+class ListLocalBranchesWithUpstream:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[LocalBranchInfo]:
+        return self._reader.list_local_branches_with_upstream()
+
+
+class GetRepoState:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> RepoStateInfo:
+        return self._reader.repo_state()
+
+
+class IsAncestor:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, ancestor_oid: str, descendant_oid: str) -> bool:
+        return self._reader.is_ancestor(ancestor_oid, descendant_oid)

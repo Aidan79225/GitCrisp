@@ -130,3 +130,127 @@ def test_get_commit_returns_commit(repo_impl):
     assert commit.oid == oid
     assert commit.message == "Initial commit"
     assert "Test User" in commit.author
+
+
+def test_get_tags_empty(repo_impl):
+    tags = repo_impl.get_tags()
+    assert tags == []
+
+
+def test_get_tags_lightweight(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    target = raw.head.target
+    raw.references.create("refs/tags/v1.0.0", target)
+    tags = repo_impl.get_tags()
+    assert len(tags) == 1
+    assert tags[0].name == "v1.0.0"
+    assert tags[0].target_oid == str(target)
+    assert tags[0].is_annotated is False
+    assert tags[0].message is None
+
+
+def test_get_remote_tags_no_remote(repo_impl):
+    """Repos without remotes return an empty list."""
+    tags = repo_impl.get_remote_tags("origin")
+    assert tags == []
+
+
+def test_get_tags_annotated(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    target = raw.head.target
+    sig = pygit2.Signature("Tagger", "tagger@example.com")
+    raw.create_tag("v2.0.0", target, pygit2.GIT_OBJECT_COMMIT, sig, "Release 2.0")
+    tags = repo_impl.get_tags()
+    annotated = [t for t in tags if t.name == "v2.0.0"]
+    assert len(annotated) == 1
+    assert annotated[0].is_annotated is True
+    assert annotated[0].message == "Release 2.0"
+    assert "Tagger" in annotated[0].tagger
+
+
+def test_get_commit_stats_returns_initial_commit(repo_impl):
+    stats = repo_impl.get_commit_stats()
+    assert len(stats) == 1
+    assert "Test User" in stats[0].author
+    assert len(stats[0].files) == 1
+    assert stats[0].files[0].path == "README.md"
+    assert stats[0].files[0].added >= 1
+
+
+def test_repo_state_clean(repo_impl):
+    info = repo_impl.repo_state()
+    assert info.state.name == "CLEAN"
+    assert info.head_branch in ("main", "master")
+
+
+def test_repo_state_detached(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    head_oid = raw.head.target
+    raw.checkout_tree(raw.get(head_oid))
+    raw.set_head(head_oid)
+    info = repo_impl.repo_state()
+    assert info.state.name == "DETACHED_HEAD"
+    assert info.head_branch is None
+
+
+def test_repo_state_merging(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    # Commit A on master (conflicting change to README.md)
+    (repo_path / "README.md").write_text("master change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master change", tree_a, [base])
+
+    # Create feature branch from base with conflicting change
+    raw.branches.local.create("feature", raw.get(base))
+    raw.checkout("refs/heads/feature")
+    (repo_path / "README.md").write_text("feature change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    raw.create_commit("refs/heads/feature", sig, sig, "feature change", tree_b, [base])
+
+    # Switch back to master and merge feature -> produces MERGING state (conflict)
+    raw.checkout("refs/heads/master")
+    raw.merge(raw.branches.local["feature"].target)
+
+    info = repo_impl.repo_state()
+    assert info.state.name == "MERGING"
+    assert info.head_branch == "master"
+
+
+def test_get_commit_stats_with_multiple_commits(repo_path, repo_impl):
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("Author Two", "two@example.com")
+    (repo_path / "second.txt").write_text("line1\nline2\nline3\n")
+    raw.index.add("second.txt")
+    raw.index.write()
+    tree = raw.index.write_tree()
+    head_oid = raw.head.target
+    raw.create_commit("refs/heads/master", sig, sig, "Add second", tree, [head_oid])
+
+    stats = repo_impl.get_commit_stats()
+    assert len(stats) == 2
+    authors = [s.author for s in stats]
+    assert any("Author Two" in a for a in authors)
+    assert any("Test User" in a for a in authors)
+
+
+def test_is_ancestor(repo_path, repo_impl):
+    first_oid = repo_impl.get_head_oid()
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("T", "t@t.com")
+    (repo_path / "b.txt").write_text("b")
+    raw.index.add("b.txt")
+    raw.index.write()
+    tree = raw.index.write_tree()
+    head_oid = raw.head.target
+    second_oid = raw.create_commit("refs/heads/master", sig, sig, "Second commit", tree, [head_oid])
+
+    assert repo_impl.is_ancestor(first_oid, str(second_oid)) is True
+    assert repo_impl.is_ancestor(str(second_oid), first_oid) is False
+    assert repo_impl.is_ancestor(first_oid, first_oid) is False

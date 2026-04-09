@@ -1,13 +1,14 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
+import os
 import subprocess
 
 import pygit2
 
 from git_gui.resources import subprocess_kwargs
 from git_gui.domain.entities import (
-    Branch, Commit, FileStatus, Hunk, Stash, WORKING_TREE_OID,
+    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, Remote, RepoState, RepoStateInfo, Stash, Submodule, Tag, WORKING_TREE_OID,
 )
 
 
@@ -51,6 +52,39 @@ def _diff_to_hunks(patch: pygit2.Patch) -> list[Hunk]:
         lines = [(line.origin, line.content) for line in hunk.lines]
         result.append(Hunk(header=hunk.header, lines=lines))
     return result
+
+
+_UNTRACKED_MAX_LINES = 5000
+_UNTRACKED_MAX_BYTES = 1_048_576
+
+
+def _synthesise_untracked_hunk(workdir: str, path: str) -> list[Hunk]:
+    full = os.path.join(workdir, path)
+    try:
+        size = os.path.getsize(full)
+        with open(full, "rb") as f:
+            head = f.read(8192)
+        is_binary = b"\x00" in head
+        if is_binary:
+            return [Hunk(header="@@ -0,0 +1,1 @@",
+                         lines=[("+", "Binary file\n")])]
+        if size > _UNTRACKED_MAX_BYTES:
+            return [Hunk(header="@@ -0,0 +1,1 @@",
+                         lines=[("+", f"Large file ({size} bytes)\n")])]
+        with open(full, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+        lines = text.splitlines(keepends=True)
+        if len(lines) > _UNTRACKED_MAX_LINES:
+            return [Hunk(header="@@ -0,0 +1,1 @@",
+                         lines=[("+", f"Large file ({len(lines)} lines, {size} bytes)\n")])]
+        if not lines:
+            return []
+        return [Hunk(
+            header=f"@@ -0,0 +1,{len(lines)} @@",
+            lines=[("+", line if line.endswith("\n") else line + "\n") for line in lines],
+        )]
+    except OSError:
+        return []
 
 
 class Pygit2Repository:
@@ -157,15 +191,24 @@ class Pygit2Repository:
     def get_file_diff(self, oid: str, path: str) -> list[Hunk]:
         if oid == WORKING_TREE_OID:
             diff = self._repo.diff()
+            for patch in diff:
+                if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
+                    return _diff_to_hunks(patch)
+            # Not found in tracked diff — check if it's an untracked file
+            try:
+                status = self._repo.status_file(path)
+            except KeyError:
+                return []
+            if status & pygit2.GIT_STATUS_WT_NEW:
+                return _synthesise_untracked_hunk(self._repo.workdir, path)
+            return []
+        commit = self._repo.get(oid)
+        if commit.parents:
+            diff = self._repo.diff(commit.parents[0].tree, commit.tree)
         else:
-            commit = self._repo.get(oid)
-            if commit.parents:
-                diff = self._repo.diff(commit.parents[0].tree, commit.tree)
-            else:
-                # Initial commit: diff from empty tree so lines show as added
-                empty_tree_oid = self._repo.TreeBuilder().write()
-                empty_tree = self._repo.get(empty_tree_oid)
-                diff = self._repo.diff(empty_tree, commit.tree)
+            empty_tree_oid = self._repo.TreeBuilder().write()
+            empty_tree = self._repo.get(empty_tree_oid)
+            diff = self._repo.diff(empty_tree, commit.tree)
         for patch in diff:
             if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
                 return _diff_to_hunks(patch)
@@ -185,6 +228,142 @@ class Pygit2Repository:
             if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
                 return _diff_to_hunks(patch)
         return []
+
+    def get_tags(self) -> list[Tag]:
+        tags: list[Tag] = []
+        for ref_name in self._repo.references:
+            if not ref_name.startswith("refs/tags/"):
+                continue
+            ref = self._repo.references[ref_name]
+            name = ref_name[len("refs/tags/"):]
+            target = self._repo.get(ref.target)
+            if isinstance(target, pygit2.Tag):
+                # Annotated tag — peel to get the commit OID
+                peeled = ref.peel(pygit2.Commit)
+                commit_oid = str(peeled.id)
+                ts = datetime.fromtimestamp(target.tagger.time, tz=timezone.utc) if target.tagger else None
+                tagger_str = f"{target.tagger.name} <{target.tagger.email}>" if target.tagger else None
+                tags.append(Tag(
+                    name=name,
+                    target_oid=commit_oid,
+                    is_annotated=True,
+                    message=target.message.strip() if target.message else None,
+                    tagger=tagger_str,
+                    timestamp=ts,
+                ))
+            else:
+                # Lightweight tag — target is a commit directly
+                tags.append(Tag(
+                    name=name,
+                    target_oid=str(ref.target),
+                    is_annotated=False,
+                    message=None,
+                    tagger=None,
+                    timestamp=None,
+                ))
+        return tags
+
+    def get_remote_tags(self, remote: str) -> list[str]:
+        try:
+            result = subprocess.run(
+                ["git", "ls-remote", "--tags", remote],
+                capture_output=True, text=True,
+                cwd=self._repo.workdir, **subprocess_kwargs(),
+            )
+            if result.returncode != 0:
+                return []
+            tags: list[str] = []
+            for line in result.stdout.strip().splitlines():
+                # Format: "<hash>\trefs/tags/<name>"
+                parts = line.split("\t")
+                if len(parts) != 2:
+                    continue
+                ref = parts[1]
+                if not ref.startswith("refs/tags/"):
+                    continue
+                name = ref[len("refs/tags/"):]
+                # Skip dereferenced entries like "v1.0^{}"
+                if name.endswith("^{}"):
+                    continue
+                tags.append(name)
+            return tags
+        except Exception:
+            return []
+
+    def get_commit_stats(self, since: datetime | None = None, until: datetime | None = None) -> list[CommitStat]:
+        cmd = ["git", "log", "--numstat", "--format=__COMMIT__%n%H%n%aN <%aE>%n%aI"]
+        if since:
+            cmd.append(f"--since={since.isoformat()}")
+        if until:
+            cmd.append(f"--until={until.isoformat()}")
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                cwd=self._repo.workdir, **subprocess_kwargs(),
+            )
+            if result.returncode != 0:
+                return []
+        except Exception:
+            return []
+
+        stats: list[CommitStat] = []
+        current_oid: str | None = None
+        current_author: str | None = None
+        current_ts: datetime | None = None
+        current_files: list[FileStat] = []
+        state = "expect_marker"  # expect_marker | oid | author | date | files
+
+        def flush() -> None:
+            if current_oid and current_author and current_ts is not None:
+                stats.append(CommitStat(
+                    oid=current_oid,
+                    author=current_author,
+                    timestamp=current_ts,
+                    files=list(current_files),
+                ))
+
+        for raw_line in result.stdout.splitlines():
+            line = raw_line.rstrip("\r")
+            if line == "__COMMIT__":
+                flush()
+                current_oid = None
+                current_author = None
+                current_ts = None
+                current_files = []
+                state = "oid"
+                continue
+            if state == "oid":
+                current_oid = line
+                state = "author"
+                continue
+            if state == "author":
+                current_author = line
+                state = "date"
+                continue
+            if state == "date":
+                try:
+                    current_ts = datetime.fromisoformat(line)
+                except ValueError:
+                    current_ts = None
+                state = "files"
+                continue
+            if state == "files":
+                if not line.strip():
+                    continue
+                # numstat format: "<added>\t<deleted>\t<path>"
+                parts = line.split("\t")
+                if len(parts) != 3:
+                    continue
+                added_str, deleted_str, path = parts
+                try:
+                    added = int(added_str) if added_str != "-" else 0
+                    deleted = int(deleted_str) if deleted_str != "-" else 0
+                except ValueError:
+                    continue
+                current_files.append(FileStat(path=path, added=added, deleted=deleted))
+
+        flush()
+        return stats
 
     def get_working_tree(self) -> list[FileStatus]:
         files = []
@@ -208,6 +387,34 @@ class Pygit2Repository:
             return None
         return str(self._repo.head.target)
 
+    def is_ancestor(self, ancestor_oid: str, descendant_oid: str) -> bool:
+        if ancestor_oid == descendant_oid:
+            return False
+        return bool(self._repo.descendant_of(descendant_oid, ancestor_oid))
+
+    def repo_state(self) -> RepoStateInfo:
+        if self._repo.head_is_detached:
+            return RepoStateInfo(state=RepoState.DETACHED_HEAD, head_branch=None)
+        state = self._repo.state()
+        raw_map = {
+            "GIT_REPOSITORY_STATE_NONE": RepoState.CLEAN,
+            "GIT_REPOSITORY_STATE_MERGE": RepoState.MERGING,
+            "GIT_REPOSITORY_STATE_REVERT": RepoState.REVERTING,
+            "GIT_REPOSITORY_STATE_CHERRYPICK": RepoState.CHERRY_PICKING,
+            "GIT_REPOSITORY_STATE_REBASE": RepoState.REBASING,
+            "GIT_REPOSITORY_STATE_REBASE_INTERACTIVE": RepoState.REBASING,
+            "GIT_REPOSITORY_STATE_REBASE_MERGE": RepoState.REBASING,
+            "GIT_REPOSITORY_STATE_APPLY_MAILBOX": RepoState.CLEAN,
+            "GIT_REPOSITORY_STATE_APPLY_MAILBOX_OR_REBASE": RepoState.REBASING,
+        }
+        state_map: dict[int, RepoState] = {}
+        for name, mapped_state in raw_map.items():
+            const = getattr(pygit2, name, None)
+            if const is not None:
+                state_map[const] = mapped_state
+        mapped = state_map.get(state, RepoState.CLEAN)
+        return RepoStateInfo(state=mapped, head_branch=self._repo.head.shorthand)
+
     # ----------------------------------------------------------------- helpers
 
     def _get_signature(self) -> pygit2.Signature:
@@ -220,7 +427,15 @@ class Pygit2Repository:
 
     def stage(self, paths: list[str]) -> None:
         for path in paths:
-            self._repo.index.add(path)
+            full = os.path.join(self._repo.workdir, path)
+            if os.path.exists(full):
+                self._repo.index.add(path)
+            else:
+                # Working-tree deletion → stage the deletion
+                try:
+                    self._repo.index.remove(path)
+                except (KeyError, OSError):
+                    pass
         self._repo.index.write()
 
     def unstage(self, paths: list[str]) -> None:
@@ -255,6 +470,49 @@ class Pygit2Repository:
         if patch:
             subprocess.run(
                 ["git", "apply", "--cached", "--reverse"],
+                input=patch.encode("utf-8"), cwd=self._repo.workdir,
+                check=True, capture_output=True, **subprocess_kwargs(),
+            )
+            self._repo.index.read()
+
+    def discard_file(self, path: str) -> None:
+        full = os.path.join(self._repo.workdir, path)
+        head_has_blob = False
+        head_commit = None
+        if not self._repo.head_is_unborn:
+            head_commit = self._repo.head.peel(pygit2.Commit)
+            try:
+                head_commit.tree[path]
+                head_has_blob = True
+            except KeyError:
+                head_has_blob = False
+
+        if head_has_blob:
+            entry = head_commit.tree[path]
+            self._repo.index.add(
+                pygit2.IndexEntry(path, entry.id, entry.filemode)
+            )
+            self._repo.index.write()
+            self._repo.index.read()
+            blob = self._repo.get(entry.id)
+            os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
+            with open(full, "wb") as f:
+                f.write(blob.data)
+        else:
+            try:
+                self._repo.index.remove(path)
+                self._repo.index.write()
+                self._repo.index.read()
+            except (KeyError, OSError):
+                pass
+            if os.path.exists(full):
+                os.remove(full)
+
+    def discard_hunk(self, path: str, hunk_header: str) -> None:
+        patch = self._build_hunk_patch(path, hunk_header, staged=False)
+        if patch:
+            subprocess.run(
+                ["git", "apply", "--reverse"],
                 input=patch.encode("utf-8"), cwd=self._repo.workdir,
                 check=True, capture_output=True, **subprocess_kwargs(),
             )
@@ -324,37 +582,46 @@ class Pygit2Repository:
         self._repo.branches.local[name].delete()
 
     def merge(self, branch: str) -> None:
-        # Support both local ("main") and remote-tracking ("origin/main") branches
         if branch in self._repo.branches.local:
             ref = self._repo.branches.local[branch]
         else:
             ref = self._repo.branches.remote[branch]
-        merge_result, _ = self._repo.merge_analysis(ref.target)
+        self._merge_oid(ref.target, label=f"branch '{branch}'")
+
+    def merge_commit(self, oid: str) -> None:
+        target = pygit2.Oid(hex=oid)
+        self._merge_oid(target, label=f"commit {oid[:7]}")
+
+    def _merge_oid(self, target_oid, label: str) -> None:
+        merge_result, _ = self._repo.merge_analysis(target_oid)
         if merge_result & pygit2.GIT_MERGE_ANALYSIS_FASTFORWARD:
-            self._repo.checkout_tree(self._repo.get(ref.target))
-            self._repo.head.set_target(ref.target)
+            self._repo.checkout_tree(self._repo.get(target_oid))
+            self._repo.head.set_target(target_oid)
         elif merge_result & pygit2.GIT_MERGE_ANALYSIS_NORMAL:
-            self._repo.merge(ref.target)
+            self._repo.merge(target_oid)
             if not self._repo.index.conflicts:
                 self._repo.index.write()
                 tree = self._repo.index.write_tree()
                 sig = self._get_signature()
                 self._repo.create_commit(
                     "HEAD", sig, sig,
-                    f"Merge branch '{branch}'",
+                    f"Merge {label}",
                     tree,
-                    [self._repo.head.target, ref.target],
+                    [self._repo.head.target, target_oid],
                 )
                 self._repo.state_cleanup()
 
     def rebase(self, branch: str) -> None:
         onto_ref = self._repo.branches.local[branch]
-        rebase = self._repo.rebase(onto=onto_ref.target)
-        while True:
-            op = rebase.next()
-            if op is None:
-                break
-        rebase.finish(self._get_signature())
+        self._rebase_onto(onto_ref.target)
+
+    def rebase_onto_commit(self, oid: str) -> None:
+        self._rebase_onto(pygit2.Oid(hex=oid))
+
+    def _rebase_onto(self, target_oid) -> None:
+        # Convert Oid to hex string if needed
+        target_hex = str(target_oid)
+        self._run_git("rebase", target_hex)
 
     def push(self, remote: str, branch: str) -> None:
         self._run_git("push", remote, branch)
@@ -378,6 +645,23 @@ class Pygit2Repository:
             msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
             raise RuntimeError(msg)
 
+    def create_tag(self, name: str, oid: str, message: str | None = None) -> None:
+        target = pygit2.Oid(hex=oid)
+        if message:
+            sig = self._get_signature()
+            self._repo.create_tag(name, target, pygit2.GIT_OBJECT_COMMIT, sig, message)
+        else:
+            self._repo.references.create(f"refs/tags/{name}", target)
+
+    def delete_tag(self, name: str) -> None:
+        self._repo.references.delete(f"refs/tags/{name}")
+
+    def push_tag(self, remote: str, name: str) -> None:
+        self._run_git("push", remote, f"refs/tags/{name}")
+
+    def delete_remote_tag(self, remote: str, name: str) -> None:
+        self._run_git("push", remote, f":refs/tags/{name}")
+
     def stash(self, message: str) -> None:
         sig = self._get_signature()
         self._repo.stash(sig, message=message, include_untracked=True)
@@ -390,3 +674,126 @@ class Pygit2Repository:
 
     def drop_stash(self, index: int) -> None:
         self._repo.stash_drop(index=index)
+
+    # ----- Remotes -----
+
+    def list_remotes(self) -> list[Remote]:
+        result: list[Remote] = []
+        for r in self._repo.remotes:
+            push_url = r.push_url if r.push_url else r.url
+            result.append(Remote(name=r.name, fetch_url=r.url, push_url=push_url))
+        return result
+
+    def add_remote(self, name: str, url: str) -> None:
+        self._repo.remotes.create(name, url)
+
+    def remove_remote(self, name: str) -> None:
+        self._repo.remotes.delete(name)
+
+    def rename_remote(self, old_name: str, new_name: str) -> None:
+        self._repo.remotes.rename(old_name, new_name)
+
+    def set_remote_url(self, name: str, url: str) -> None:
+        self._repo.remotes.set_url(name, url)
+
+    # ----- Submodules -----
+
+    def _submodule_cli(self):
+        from git_gui.infrastructure.submodule_cli import SubmoduleCli
+        return SubmoduleCli(self._repo.workdir)
+
+    def list_submodules(self) -> list[Submodule]:
+        result: list[Submodule] = []
+        try:
+            sm_paths = list(self._repo.listall_submodules())
+        except Exception:
+            return result
+        if not sm_paths:
+            return result
+
+        # Parse URLs from .gitmodules config file
+        import os
+        url_map: dict[str, str] = {}
+        gitmodules_path = os.path.join(self._repo.workdir, ".gitmodules")
+        if os.path.exists(gitmodules_path):
+            try:
+                cfg = pygit2.Config(gitmodules_path)
+                for entry in cfg:
+                    # entry.name is like "submodule.libs/foo.url"
+                    parts = entry.name.split(".")
+                    if len(parts) >= 3 and parts[0] == "submodule" and parts[-1] == "url":
+                        sm_path = ".".join(parts[1:-1])
+                        url_map[sm_path] = entry.value
+            except Exception:
+                pass
+
+        # Get head SHAs via git ls-files -s (gitlink entries have mode 160000)
+        sha_map: dict[str, str] = {}
+        try:
+            ls_result = subprocess.run(
+                ["git", "ls-files", "-s", "--"] + sm_paths,
+                capture_output=True, text=True,
+                cwd=self._repo.workdir, **subprocess_kwargs(),
+            )
+            for line in ls_result.stdout.splitlines():
+                # Format: "160000 <sha> <stage>\t<path>"
+                line_parts = line.split("\t", 1)
+                if len(line_parts) == 2:
+                    fields = line_parts[0].split()
+                    if len(fields) >= 2 and fields[0] == "160000":
+                        sha_map[line_parts[1]] = fields[1]
+        except Exception:
+            pass
+
+        for path in sm_paths:
+            url = url_map.get(path, "")
+            head = sha_map.get(path)
+            result.append(Submodule(path=path, url=url, head_sha=head))
+        return result
+
+    def add_submodule(self, path: str, url: str) -> None:
+        self._submodule_cli().add(path=path, url=url)
+
+    def remove_submodule(self, path: str) -> None:
+        self._submodule_cli().remove(path)
+
+    def set_submodule_url(self, path: str, url: str) -> None:
+        self._submodule_cli().set_url(path, url)
+
+    # ----- Branch management -----
+
+    def list_local_branches_with_upstream(self) -> list[LocalBranchInfo]:
+        result: list[LocalBranchInfo] = []
+        for name in self._repo.branches.local:
+            br = self._repo.branches.local[name]
+            try:
+                upstream = br.upstream.shorthand if br.upstream else None
+            except Exception:
+                upstream = None
+            commit = br.peel(pygit2.Commit)
+            sha = str(commit.id)[:10]
+            msg = commit.message.strip().split("\n", 1)[0]
+            result.append(LocalBranchInfo(
+                name=name,
+                upstream=upstream,
+                last_commit_sha=sha,
+                last_commit_message=msg,
+            ))
+        return result
+
+    def set_branch_upstream(self, name: str, upstream: str) -> None:
+        local = self._repo.branches.local[name]
+        remote = self._repo.branches.remote[upstream]
+        local.upstream = remote
+
+    def unset_branch_upstream(self, name: str) -> None:
+        local = self._repo.branches.local[name]
+        local.upstream = None
+
+    def rename_branch(self, old_name: str, new_name: str) -> None:
+        self._repo.branches.local[old_name].rename(new_name)
+
+    def reset_branch_to_ref(self, branch: str, ref: str) -> None:
+        target = self._repo.revparse_single(ref)
+        oid = target.id if hasattr(target, "id") else target.target
+        self._repo.reset(oid, pygit2.GIT_RESET_HARD)

@@ -9,8 +9,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.ports import IRepoStore
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 
-_ACTIVE_BG = QColor("#264f78")
+
+def _active_bg() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("primary")
+
+
 _IS_ACTIVE_ROLE = Qt.UserRole + 2
 _ROW_HEIGHT = 28
 
@@ -18,16 +23,48 @@ _ROW_HEIGHT = 28
 class _RepoTree(QTreeView):
     """QTreeView that paints full-row hover and active repo highlight."""
 
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        from PySide6.QtCore import QPersistentModelIndex
+        self._hover_idx = QPersistentModelIndex()
+
+    def mouseMoveEvent(self, event) -> None:
+        from PySide6.QtCore import QPersistentModelIndex
+        idx = self.indexAt(event.position().toPoint())
+        new_idx = QPersistentModelIndex(idx) if idx.isValid() else QPersistentModelIndex()
+        if new_idx != self._hover_idx:
+            self._hover_idx = new_idx
+            self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        from PySide6.QtCore import QPersistentModelIndex
+        if self._hover_idx.isValid():
+            self._hover_idx = QPersistentModelIndex()
+            self.viewport().update()
+        super().leaveEvent(event)
+
+    def drawBranches(self, painter, rect, index) -> None:
+        if index.data(_IS_ACTIVE_ROLE):
+            painter.fillRect(rect, _active_bg())
+        elif self._hover_idx.isValid() and index == self._hover_idx:
+            painter.fillRect(
+                rect,
+                get_theme_manager().current.colors.as_qcolor("surface_container_high"),
+            )
+        super().drawBranches(painter, rect, index)
+
     def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         if index.data(_IS_ACTIVE_ROLE):
             painter.save()
-            painter.fillRect(option.rect, _ACTIVE_BG)
+            painter.fillRect(option.rect, _active_bg())
             painter.restore()
-        elif option.state & QStyle.State_MouseOver:
+        elif self._hover_idx.isValid() and index == self._hover_idx:
             painter.save()
-            hover_color = option.palette.highlight().color()
-            hover_color.setAlpha(30)
-            painter.fillRect(option.rect, hover_color)
+            painter.fillRect(
+                option.rect,
+                get_theme_manager().current.colors.as_qcolor("surface_container_high"),
+            )
             painter.restore()
         super().drawRow(painter, option, index)
 
@@ -53,17 +90,31 @@ class RepoListWidget(QWidget):
         title_font.setPointSize(title_font.pointSize() - 1)
         title.setFont(title_font)
         header_layout.addWidget(title, 1)
+        header_layout.addSpacing(8)
 
-        self._btn_add = QPushButton("+")
-        self._btn_add.setFixedSize(22, 22)
+        self._btn_add = QPushButton("Open")
+        self._btn_add.setFixedHeight(28)
+        self._btn_add.setStyleSheet(
+            "QPushButton { padding: 4px 10px; border: none; "
+            "border-radius: 4px; background: palette(button); } "
+            "QPushButton:hover { background: palette(alternate-base); } "
+            "QPushButton:pressed { background: palette(highlight); color: palette(highlighted-text); }"
+        )
         self._btn_add.setToolTip("Open Repository...")
         self._btn_add.clicked.connect(self._on_add_clicked)
 
         self._btn_clone = QPushButton("Clone")
-        self._btn_clone.setFixedHeight(22)
+        self._btn_clone.setFixedHeight(28)
+        self._btn_clone.setStyleSheet(
+            "QPushButton { padding: 4px 10px; border: none; "
+            "border-radius: 4px; background: palette(button); } "
+            "QPushButton:hover { background: palette(alternate-base); } "
+            "QPushButton:pressed { background: palette(highlight); color: palette(highlighted-text); }"
+        )
         self._btn_clone.setToolTip("Clone Repository...")
         self._btn_clone.clicked.connect(lambda: self.clone_requested.emit())
         header_layout.addWidget(self._btn_add)
+        header_layout.addSpacing(6)
         header_layout.addWidget(self._btn_clone)
 
         # Tree view
@@ -71,6 +122,7 @@ class RepoListWidget(QWidget):
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(False)
         self._tree.setMouseTracking(True)
+        self._tree.viewport().setAttribute(Qt.WA_Hover, True)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.clicked.connect(self._on_item_clicked)
@@ -83,6 +135,8 @@ class RepoListWidget(QWidget):
         layout.setSpacing(0)
         layout.addLayout(header_layout)
         layout.addWidget(self._tree)
+
+        connect_widget(self)
 
     def reload(self) -> None:
         self._model.clear()

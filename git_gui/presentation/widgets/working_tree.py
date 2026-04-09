@@ -1,24 +1,27 @@
 # git_gui/presentation/widgets/working_tree.py
 from __future__ import annotations
 import threading
-from PySide6.QtCore import QObject, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QModelIndex, QObject, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
-    QHBoxLayout, QListView, QPlainTextEdit, QPushButton,
+    QHBoxLayout, QListView, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
     QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import FileStatus
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
+from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 
-_DELTA_BADGE = {
-    "modified": ("M", "#1f6feb"),
-    "added":    ("A", "#238636"),
-    "deleted":  ("D", "#da3633"),
-    "renamed":  ("R", "#f0883e"),
-    "unknown":  ("?", "#8b949e"),
+# (label only — color comes from theme.colors.status_color(kind) at paint time)
+_DELTA_LABEL = {
+    "modified": "M",
+    "added":    "A",
+    "deleted":  "D",
+    "renamed":  "R",
+    "unknown":  "?",
 }
 _BADGE_SIZE = 20
 _BADGE_GAP = 6
@@ -33,11 +36,15 @@ class _FileDelegate(QStyledItemDelegate):
         # we'll paint the badge over this prefix area
         fs = index.data(Qt.UserRole)
         delta = fs.delta if fs else "unknown"
-        label, _ = _DELTA_BADGE.get(delta, ("?", "#8b949e"))
+        label = _DELTA_LABEL.get(delta, "?")
         # Add padding spaces to make room for the badge we'll paint
         option.text = "        " + (option.text or "")
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        # Fill selection background explicitly before Qt draws over it
+        if option.state & QStyle.State_Selected:
+            painter.fillRect(option.rect, get_theme_manager().current.colors.as_qcolor("primary"))
+
         # Let Qt draw checkbox + text normally
         super().paint(painter, option, index)
 
@@ -48,16 +55,16 @@ class _FileDelegate(QStyledItemDelegate):
         rect = option.rect
         fs = index.data(Qt.UserRole)
         delta = fs.delta if fs else "unknown"
-        label, color = _DELTA_BADGE.get(delta, ("?", "#8b949e"))
+        label = _DELTA_LABEL.get(delta, "?")
 
         # Position badge after the checkbox area (~30px from left)
         badge_x = rect.left() + 30
         badge_y = rect.top() + (rect.height() - _BADGE_SIZE) // 2
         badge_rect = QRect(badge_x, badge_y, _BADGE_SIZE, _BADGE_SIZE)
-        painter.setBrush(QBrush(QColor(color)))
+        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(delta)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
-        painter.setPen(QColor("white"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 
         painter.restore()
@@ -72,6 +79,7 @@ class WorkingTreeWidget(QWidget):
     commit_completed = Signal(str)   # emits first line of commit message
     commit_failed = Signal(str)      # emits error reason
     working_tree_empty = Signal()    # emitted when reload finds no changes
+    submodule_open_requested = Signal(str)  # forwarded from inner HunkDiffWidget
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -100,13 +108,16 @@ class WorkingTreeWidget(QWidget):
         toolbar_layout.addLayout(btn_layout)
 
         # ── Row 2: file list ─────────────────────────────────────────────────
-        self._file_view = QListView()
+        self._file_view = _FileListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDelegate(self._file_view))
 
         self._file_model = WorkingTreeModel(commands, self)
         self._file_view.setModel(self._file_model)
         self._file_view.selectionModel().currentChanged.connect(self._on_file_selected)
+        self._file_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._file_view.customContextMenuRequested.connect(self._on_file_context_menu)
+        self._file_view.deselected.connect(self._on_file_deselected)
 
         # ── Row 3: hunk diff ─────────────────────────────────────────────────
         self._hunk_diff = HunkDiffWidget(queries, commands, self)
@@ -131,6 +142,10 @@ class WorkingTreeWidget(QWidget):
         self._btn_commit.clicked.connect(self._on_commit)
         self._file_model.files_changed.connect(self._on_files_changed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
+        self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
+        self._hunk_diff.submodule_open_requested.connect(self.submodule_open_requested)
+
+        connect_widget(self)
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
@@ -159,9 +174,12 @@ class WorkingTreeWidget(QWidget):
         if self._queries is None:
             return
         self._file_model.reload(files, partial)
-        self._hunk_diff.clear()
         if not files:
+            self._hunk_diff.clear()
             self.working_tree_empty.emit()
+        else:
+            # No selection after reload — show all files' hunks
+            self._hunk_diff.load_all_files([f.path for f in files])
 
     def _on_file_selected(self, current, previous) -> None:
         if not current.isValid():
@@ -170,6 +188,44 @@ class WorkingTreeWidget(QWidget):
         if fs is None:
             return
         self._hunk_diff.load_file(fs.path)
+
+    def _on_file_deselected(self) -> None:
+        """Switch diff panel back to all-files view when user deselects current row."""
+        files = [
+            self._file_model.data(self._file_model.index(row), Qt.UserRole)
+            for row in range(self._file_model.rowCount())
+        ]
+        paths = [f.path for f in files if f is not None]
+        if paths:
+            self._hunk_diff.load_all_files(paths)
+        else:
+            self._hunk_diff.clear()
+
+    def _on_file_context_menu(self, pos) -> None:
+        index = self._file_view.indexAt(pos)
+        if not index.isValid():
+            return
+        fs = self._file_model.data(index, Qt.UserRole)
+        if fs is None:
+            return
+        menu = QMenu(self._file_view)
+        discard_action = menu.addAction("Discard changes")
+        chosen = menu.exec(self._file_view.viewport().mapToGlobal(pos))
+        if chosen is discard_action:
+            self._discard_file(fs.path)
+
+    def _discard_file(self, path: str) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Discard changes",
+            f"Discard all changes to {path}? This cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        self._commands.discard_file.execute(path)
+        self._on_files_changed()
 
     def _on_stage_all(self) -> None:
         raw_files = self._queries.get_working_tree.execute()
@@ -241,7 +297,9 @@ class WorkingTreeWidget(QWidget):
                     self._file_view.setCurrentIndex(self._file_model.index(row))
                     self._hunk_diff.load_file(selected_path)
                     return
-        self._hunk_diff.clear()
+
+        # No selection (or selected file disappeared) — show all files' hunks
+        self._hunk_diff.load_all_files([f.path for f in files])
 
 
 def _deduplicate(files: list[FileStatus]) -> tuple[list[FileStatus], set[str]]:

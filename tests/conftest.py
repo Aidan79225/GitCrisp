@@ -3,6 +3,16 @@ import pygit2
 from pathlib import Path
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _theme_manager():
+    """Initialize ThemeManager singleton for tests that touch theme-aware code."""
+    from PySide6.QtWidgets import QApplication
+    from git_gui.presentation.theme import ThemeManager, set_theme_manager
+    app = QApplication.instance() or QApplication([])
+    set_theme_manager(ThemeManager(app))
+    yield
+
+
 @pytest.fixture
 def repo_path(tmp_path) -> Path:
     """Creates a temp git repo with one commit on 'master'."""

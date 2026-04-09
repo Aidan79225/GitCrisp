@@ -67,6 +67,38 @@ class DeleteBranch:
         self._writer.delete_branch(name)
 
 
+class CreateTag:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, oid: str, message: str | None = None) -> None:
+        self._writer.create_tag(name, oid, message)
+
+
+class DeleteTag:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str) -> None:
+        self._writer.delete_tag(name)
+
+
+class PushTag:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, name: str) -> None:
+        self._writer.push_tag(remote, name)
+
+
+class DeleteRemoteTag:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, name: str) -> None:
+        self._writer.delete_remote_tag(remote, name)
+
+
 class Merge:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
@@ -81,6 +113,22 @@ class Rebase:
 
     def execute(self, branch: str) -> None:
         self._writer.rebase(branch)
+
+
+class MergeCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str) -> None:
+        self._writer.merge_commit(oid)
+
+
+class RebaseOntoCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str) -> None:
+        self._writer.rebase_onto_commit(oid)
 
 
 class Push:
@@ -161,3 +209,107 @@ class UnstageHunk:
 
     def execute(self, path: str, hunk_header: str) -> None:
         self._writer.unstage_hunk(path, hunk_header)
+
+
+class DiscardFile:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str) -> None:
+        self._writer.discard_file(path)
+
+
+class DiscardHunk:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, hunk_header: str) -> None:
+        self._writer.discard_hunk(path, hunk_header)
+
+
+class AddRemote:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, url: str) -> None:
+        self._writer.add_remote(name, url)
+
+
+class RemoveRemote:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str) -> None:
+        self._writer.remove_remote(name)
+
+
+class RenameRemote:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, old_name: str, new_name: str) -> None:
+        self._writer.rename_remote(old_name, new_name)
+
+
+class SetRemoteUrl:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, url: str) -> None:
+        self._writer.set_remote_url(name, url)
+
+
+class AddSubmodule:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, url: str) -> None:
+        self._writer.add_submodule(path, url)
+
+
+class RemoveSubmodule:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str) -> None:
+        self._writer.remove_submodule(path)
+
+
+class SetSubmoduleUrl:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, url: str) -> None:
+        self._writer.set_submodule_url(path, url)
+
+
+class SetBranchUpstream:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, upstream: str) -> None:
+        self._writer.set_branch_upstream(name, upstream)
+
+
+class UnsetBranchUpstream:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str) -> None:
+        self._writer.unset_branch_upstream(name)
+
+
+class RenameBranch:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, old_name: str, new_name: str) -> None:
+        self._writer.rename_branch(old_name, new_name)
+
+
+class ResetBranchToRef:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, branch: str, ref: str) -> None:
+        self._writer.reset_branch_to_ref(branch, ref)

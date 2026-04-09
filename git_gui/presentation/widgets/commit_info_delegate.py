@@ -3,17 +3,27 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QRect, QSize
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
-from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
+from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.widgets.ref_badge_delegate import _badge_color, _badge_display_name
 
-SELECTION_COLOR = "#264f78"   # dark blue highlight for selected row
-DIVIDER_COLOR = "#30363d"     # subtle separator between rows
+
+def _selection_color() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("primary")
+
+
+def _divider_color() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("outline")
+
+
+def _muted_color() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("on_surface_variant")
+
 
 BADGE_RADIUS = 4
 BADGE_H_PAD = 4
 BADGE_V_PAD = 2
 BADGE_GAP = 4
 
-MUTED_COLOR = "#8b949e"   # author, datetime, hash
 CELL_PAD = 4              # horizontal padding inside cell
 
 
@@ -26,7 +36,8 @@ def _badge_line_count(fm: QFontMetrics, branch_names: list[str],
     x = 0
     max_x = first_line_width
     for name in branch_names:
-        badge_w = fm.horizontalAdvance(name) + BADGE_H_PAD * 2
+        display = _badge_display_name(name)
+        badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
         if x > 0 and x + badge_w > max_x:
             lines += 1
             x = 0
@@ -68,7 +79,7 @@ class CommitInfoDelegate(QStyledItemDelegate):
 
         # ── Selection highlight ───────────────────────────────────────────────
         if option.state & QStyle.State_Selected:
-            painter.fillRect(rect, QColor(SELECTION_COLOR))
+            painter.fillRect(rect, _selection_color())
 
         fm = painter.fontMetrics()
         line_h = fm.height()
@@ -78,9 +89,9 @@ class CommitInfoDelegate(QStyledItemDelegate):
         r1 = QRect(rect.left() + CELL_PAD, rect.top(), rect.width() - CELL_PAD * 2, header_h)
         # Strip email from author: "Alice <a@a.com>" → "Alice"
         author_name = info.author.split("<")[0].strip() if "<" in info.author else info.author
-        painter.setPen(QColor("white"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
         painter.drawText(r1, Qt.AlignVCenter | Qt.AlignLeft, author_name)
-        painter.setPen(QColor(MUTED_COLOR))
+        painter.setPen(_muted_color())
         painter.drawText(r1, Qt.AlignVCenter | Qt.AlignRight, info.timestamp)
 
         # ── Sub-row 2+: branch badges (left, multi-line) + hash (right, first line) ─
@@ -94,7 +105,8 @@ class CommitInfoDelegate(QStyledItemDelegate):
         x = 0
 
         for name in info.branch_names:
-            badge_w = fm.horizontalAdvance(name) + BADGE_H_PAD * 2
+            display = _badge_display_name(name)
+            badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
             max_x = first_line_max_x if badge_line == 0 else cell_w
             if x > 0 and x + badge_w > max_x:
                 badge_line += 1
@@ -106,13 +118,13 @@ class CommitInfoDelegate(QStyledItemDelegate):
             painter.setBrush(QBrush(_badge_color(name, info.head_branch)))
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
-            painter.setPen(QColor("white"))
-            painter.drawText(badge_rect, Qt.AlignCenter, name)
+            painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
+            painter.drawText(badge_rect, Qt.AlignCenter, display)
             x += badge_w + BADGE_GAP
 
         # Hash right-aligned on first badge line
         r2_first = QRect(rect.left() + CELL_PAD, r2_top, cell_w, header_h)
-        painter.setPen(QColor("white"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
         painter.drawText(r2_first, Qt.AlignVCenter | Qt.AlignRight, info.short_oid)
 
         # Total badge lines for message offset
@@ -123,7 +135,7 @@ class CommitInfoDelegate(QStyledItemDelegate):
         msg_w = rect.width() - CELL_PAD * 2
         msg_h = rect.bottom() - msg_top
         r3 = QRect(rect.left() + CELL_PAD, msg_top, msg_w, msg_h)
-        painter.setPen(QColor(MUTED_COLOR))
+        painter.setPen(_muted_color())
 
         max_lines = 3
         words = info.message.split()
@@ -156,7 +168,7 @@ class CommitInfoDelegate(QStyledItemDelegate):
             painter.drawText(line_rect, Qt.AlignVCenter | Qt.AlignLeft, line)
 
         # ── Bottom divider ────────────────────────────────────────────────────
-        painter.setPen(QColor(DIVIDER_COLOR))
+        painter.setPen(_divider_color())
         painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
 
         painter.restore()

@@ -1,0 +1,1 @@
+"""GitStack dialog widgets."""

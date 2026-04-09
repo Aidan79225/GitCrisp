@@ -4,7 +4,7 @@ import threading
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QInputDialog, QMainWindow, QMessageBox, QSplitter, QStackedWidget,
+    QDialog, QInputDialog, QMainWindow, QMessageBox, QSplitter, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import WORKING_TREE_OID
@@ -15,9 +15,13 @@ from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
+from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 from git_gui.presentation.widgets.repo_list import RepoListWidget
 from git_gui.presentation.widgets.sidebar import SidebarWidget
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
+from git_gui.presentation.widgets.insight_dialog import InsightDialog
+from git_gui.presentation.menus.appearance import install_appearance_menu
+from git_gui.presentation.menus.git_menu import install_git_menu
 
 
 class _RemoteSignals(QObject):
@@ -33,15 +37,22 @@ class _RepoReadySignals(QObject):
 
 class MainWindow(QMainWindow):
     def __init__(self, queries: QueryBus | None, commands: CommandBus | None,
-                 repo_store: IRepoStore, repo_path: str | None = None, parent=None) -> None:
+                 repo_store: IRepoStore, remote_tag_cache=None, repo_path: str | None = None, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"GitCrisp — {repo_path}" if repo_path else "GitCrisp")
         self.resize(1400, 800)
+        self.menuBar().setStyleSheet(
+            "QMenu { padding: 6px; }"
+            "QMenu::item { padding: 6px 24px 6px 20px; }"
+        )
+        install_appearance_menu(self)
 
         self._queries = queries
         self._commands = commands
         self._repo_store = repo_store
-        self._sidebar = SidebarWidget(queries, commands)
+        self._remote_tag_cache = remote_tag_cache
+        self._repo_path = repo_path
+        self._sidebar = SidebarWidget(queries, commands, remote_tag_cache, repo_path)
         self._graph = GraphWidget(queries, commands)
         self._diff = DiffWidget(queries, commands)
         self._working_tree = WorkingTreeWidget(queries, commands)
@@ -95,13 +106,14 @@ class MainWindow(QMainWindow):
             lambda reason: (self._log_panel.expand(), self._log_panel.log_error(reason))
         )
         self._working_tree.working_tree_empty.connect(self._on_working_tree_empty)
+        self._working_tree.submodule_open_requested.connect(self._on_submodule_path_clicked)
+        self._diff.submodule_open_requested.connect(self._on_submodule_path_clicked)
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
         self._sidebar.branch_clicked.connect(self._graph.reload_with_extra_tip)
         self._sidebar.branch_merge_requested.connect(self._on_merge)
         self._sidebar.branch_rebase_requested.connect(self._on_rebase)
         self._sidebar.branch_delete_requested.connect(self._on_delete_branch)
-        self._sidebar.fetch_requested.connect(
-            lambda r: self._run_remote_op(f"Fetch {r}", lambda: self._commands.fetch.execute(r)))
+        self._sidebar.fetch_requested.connect(self._on_fetch_single)
         self._sidebar.branch_push_requested.connect(
             lambda b: self._run_remote_op(f"Push origin/{b}", lambda: self._commands.push.execute("origin", b)))
         self._sidebar.stash_pop_requested.connect(self._on_stash_pop)
@@ -119,6 +131,17 @@ class MainWindow(QMainWindow):
         self._graph.pull_requested.connect(self._on_pull)
         self._graph.fetch_all_requested.connect(self._on_fetch_all_prune)
         self._graph.stash_requested.connect(self._on_stash_requested)
+        self._graph.create_tag_requested.connect(self._on_create_tag)
+        self._graph.insight_requested.connect(self._on_insight_requested)
+        self._graph.merge_branch_requested.connect(self._on_merge)
+        self._graph.merge_commit_requested.connect(self._on_merge_commit)
+        self._graph.rebase_onto_branch_requested.connect(self._on_rebase)
+        self._graph.rebase_onto_commit_requested.connect(self._on_rebase_onto_commit)
+
+        # Sidebar tag signals
+        self._sidebar.tag_clicked.connect(self._graph.reload_with_extra_tip)
+        self._sidebar.tag_delete_requested.connect(self._on_delete_tag)
+        self._sidebar.tag_push_requested.connect(self._on_push_tag)
 
         # Repo list signals
         self._repo_list.repo_switch_requested.connect(self._switch_repo)
@@ -130,6 +153,13 @@ class MainWindow(QMainWindow):
         if self._queries is not None:
             self._reload()
         self._repo_list.reload()
+        install_git_menu(
+            self,
+            queries=self._queries,
+            commands=self._commands,
+            repo_workdir=self._repo_path,
+            on_open_submodule=self._on_submodule_open_requested,
+        )
 
     def _on_working_tree_empty(self) -> None:
         """Working tree has no changes — switch back to commit info and refresh graph."""
@@ -191,6 +221,24 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Rebase onto {branch} — ERROR: {e}")
+        self._reload()
+
+    def _on_merge_commit(self, oid: str) -> None:
+        try:
+            self._commands.merge_commit.execute(oid)
+            self._log_panel.log(f"Merge: commit {oid[:7]} into current")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Merge commit {oid[:7]} — ERROR: {e}")
+        self._reload()
+
+    def _on_rebase_onto_commit(self, oid: str) -> None:
+        try:
+            self._commands.rebase_onto_commit.execute(oid)
+            self._log_panel.log(f"Rebase onto commit {oid[:7]}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Rebase onto commit {oid[:7]} — ERROR: {e}")
         self._reload()
 
     def _on_delete_branch(self, branch: str) -> None:
@@ -261,6 +309,104 @@ class MainWindow(QMainWindow):
             self._log_panel.log_error(f"Create branch — ERROR: {e}")
         self._reload()
 
+    def _on_insight_requested(self) -> None:
+        if self._queries is None:
+            return
+        dialog = InsightDialog(self._queries, self)
+        dialog.exec()
+
+    def _on_create_tag(self, oid: str) -> None:
+        dialog = CreateTagDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        name = dialog.tag_name()
+        message = dialog.tag_message()
+        try:
+            self._commands.create_tag.execute(name, oid, message)
+            kind = "annotated" if message else "lightweight"
+            self._log_panel.log(f"Created {kind} tag: {name}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Create tag — ERROR: {e}")
+        self._reload()
+
+    def _on_delete_tag(self, name: str) -> None:
+        # Look up which remotes have this tag (cache only — fast, no network).
+        remotes_with_tag: list[str] = []
+        if self._remote_tag_cache and self._repo_path:
+            try:
+                cache_data = self._remote_tag_cache.load(self._repo_path)
+                for remote, names in cache_data.items():
+                    if name in names:
+                        remotes_with_tag.append(remote)
+            except Exception:
+                pass
+
+        if remotes_with_tag:
+            remote_list = ", ".join(remotes_with_tag)
+            box = QMessageBox(self)
+            box.setWindowTitle("Delete Tag")
+            box.setText(
+                f"Tag '{name}' exists on {remote_list}.\n\n"
+                f"Delete locally and from {remote_list}?"
+            )
+            both_btn = box.addButton("Local + remote", QMessageBox.AcceptRole)
+            local_btn = box.addButton("Local only", QMessageBox.DestructiveRole)
+            box.addButton(QMessageBox.Cancel)
+            # The global QSS sets `QDialog QPushButton { min-width: 72px; }`
+            # which clips longer labels. Override at the dialog level with the
+            # same selector specificity.
+            box.setStyleSheet(
+                "QDialog QPushButton { min-width: 160px; padding: 6px 20px; }"
+            )
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is both_btn:
+                self._delete_tag_local_and_remote(name, remotes_with_tag)
+            elif clicked is local_btn:
+                self._delete_tag_local_only(name)
+            return
+
+        # No remote has it — original simple flow.
+        if QMessageBox.question(self, "Delete Tag", f"Delete tag '{name}'?") != QMessageBox.Yes:
+            return
+        self._delete_tag_local_only(name)
+
+    def _delete_tag_local_only(self, name: str) -> None:
+        try:
+            self._commands.delete_tag.execute(name)
+            self._log_panel.log(f"Deleted tag: {name}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Delete tag {name} — ERROR: {e}")
+        self._reload()
+
+    def _delete_tag_local_and_remote(self, name: str, remotes: list[str]) -> None:
+        # Local delete first (synchronous), then each remote in background.
+        try:
+            self._commands.delete_tag.execute(name)
+            self._log_panel.log(f"Deleted tag: {name}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Delete tag {name} — ERROR: {e}")
+            self._reload()
+            return
+
+        for remote in remotes:
+            def _fn(r=remote):
+                self._commands.delete_remote_tag.execute(r, name)
+                # Update cache: remove the tag from this remote's list.
+                if self._remote_tag_cache and self._repo_path:
+                    try:
+                        data = self._remote_tag_cache.load(self._repo_path)
+                        if r in data and name in data[r]:
+                            data[r] = [t for t in data[r] if t != name]
+                            self._remote_tag_cache.save(self._repo_path, data)
+                    except Exception:
+                        pass
+            self._run_remote_op(f"Delete tag {name} from {remote}", _fn)
+        self._reload()
+
     def _on_checkout_commit(self, oid: str) -> None:
         try:
             self._commands.checkout_commit.execute(oid)
@@ -273,10 +419,29 @@ class MainWindow(QMainWindow):
     def _on_checkout_branch(self, name: str) -> None:
         try:
             if "/" in name:
-                # Remote branch — create local tracking branch
-                self._commands.checkout_remote_branch.execute(name)
                 local_name = name.split("/", 1)[1]
-                self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
+                existing = {
+                    b.name for b in self._queries.get_branches.execute()
+                    if not b.is_remote
+                }
+                if local_name in existing:
+                    reply = QMessageBox.question(
+                        self,
+                        "Local branch exists",
+                        f"Local branch '{local_name}' already exists.\n\n"
+                        f"Reset it to '{name}' (HEAD)? This discards any local "
+                        f"commits and uncommitted changes on '{local_name}'.",
+                        QMessageBox.Yes | QMessageBox.Cancel,
+                        QMessageBox.Cancel,
+                    )
+                    if reply != QMessageBox.Yes:
+                        return
+                    self._commands.checkout.execute(local_name)
+                    self._commands.reset_branch_to_ref.execute(local_name, name)
+                    self._log_panel.log(f"Reset {local_name} to {name}")
+                else:
+                    self._commands.checkout_remote_branch.execute(name)
+                    self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
             else:
                 self._commands.checkout.execute(name)
                 self._log_panel.log(f"Checkout branch: {name}")
@@ -305,6 +470,12 @@ class MainWindow(QMainWindow):
     def _on_repo_ready(self, path: str, queries: QueryBus, commands: CommandBus) -> None:
         self._queries = queries
         self._commands = commands
+        self._repo_path = path
+        # set_repo_path BEFORE set_buses — set_buses immediately triggers
+        # sidebar.reload() which captures _repo_path in a worker thread for the
+        # remote-tag cache lookup. If we set it after, the worker reads the
+        # previous repo's cache and the tag synced markers disappear.
+        self._sidebar.set_repo_path(path)
         self._sidebar.set_buses(self._queries, self._commands)
         self._graph.set_buses(self._queries, self._commands)
         self._diff.set_buses(self._queries, self._commands)
@@ -313,6 +484,18 @@ class MainWindow(QMainWindow):
         self._repo_store.save()
         self._repo_list.reload()
         self.setWindowTitle(f"GitCrisp — {path}")
+        # Re-install the Git menu so its actions bind to the new repo.
+        bar = self.menuBar()
+        for action in list(bar.actions()):
+            if action.text() == "&Git":
+                bar.removeAction(action)
+        install_git_menu(
+            self,
+            queries=self._queries,
+            commands=self._commands,
+            repo_workdir=self._repo_path,
+            on_open_submodule=self._on_submodule_open_requested,
+        )
         self._right_stack.setCurrentIndex(0)
 
     def _on_repo_failed(self, path: str, error: str) -> None:
@@ -328,6 +511,17 @@ class MainWindow(QMainWindow):
         self._working_tree.set_buses(None, None)
         self._repo_list.reload()
         self.setWindowTitle("GitCrisp")
+        bar = self.menuBar()
+        for action in list(bar.actions()):
+            if action.text() == "&Git":
+                bar.removeAction(action)
+        install_git_menu(
+            self,
+            queries=None,
+            commands=None,
+            repo_workdir=None,
+            on_open_submodule=self._on_submodule_open_requested,
+        )
 
     def _on_repo_open(self, path: str) -> None:
         self._repo_store.add_open(path)
@@ -352,6 +546,20 @@ class MainWindow(QMainWindow):
         dialog = CloneDialog(self)
         dialog.clone_completed.connect(self._on_clone_completed)
         dialog.exec()
+
+    def _on_submodule_open_requested(self, abs_path: str) -> None:
+        """Open a submodule as a top-level repo (one-way switch)."""
+        self._repo_store.add_open(abs_path)
+        self._repo_store.save()
+        self._switch_repo(abs_path)
+
+    def _on_submodule_path_clicked(self, rel_path: str) -> None:
+        """Resolve a relative submodule path against the current repo and open it."""
+        if not self._repo_path:
+            return
+        import os
+        abs_path = os.path.abspath(os.path.join(self._repo_path, rel_path))
+        self._on_submodule_open_requested(abs_path)
 
     def _on_clone_completed(self, path: str) -> None:
         self._repo_store.add_open(path)
@@ -418,7 +626,30 @@ class MainWindow(QMainWindow):
             )
 
     def _on_fetch_all_prune(self) -> None:
-        self._run_remote_op(
-            "Fetch --all --prune",
-            lambda: self._commands.fetch_all_prune.execute(),
-        )
+        def _fn():
+            self._commands.fetch_all_prune.execute()
+            self._update_remote_tag_cache("origin")
+        self._run_remote_op("Fetch --all --prune", _fn)
+
+    def _on_fetch_single(self, remote: str) -> None:
+        def _fn():
+            self._commands.fetch.execute(remote)
+            self._update_remote_tag_cache(remote)
+        self._run_remote_op(f"Fetch {remote}", _fn)
+
+    def _on_push_tag(self, name: str) -> None:
+        def _fn():
+            self._commands.push_tag.execute("origin", name)
+            self._update_remote_tag_cache("origin")
+        self._run_remote_op(f"Push tag {name}", _fn)
+
+    def _update_remote_tag_cache(self, remote: str) -> None:
+        if not self._remote_tag_cache or not self._repo_path or not self._queries:
+            return
+        try:
+            remote_tags = self._queries.get_remote_tags.execute(remote)
+            data = self._remote_tag_cache.load(self._repo_path)
+            data[remote] = remote_tags
+            self._remote_tag_cache.save(self._repo_path, data)
+        except Exception:
+            pass  # cache update failure is non-critical

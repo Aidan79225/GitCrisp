@@ -10,8 +10,9 @@ a = Analysis(
     binaries=[],
     datas=[
         ('arts', 'arts'),
+        ('git_gui/presentation/theme/builtin', 'git_gui/presentation/theme/builtin'),
     ],
-    hiddenimports=['_cffi_backend'],
+    hiddenimports=['_cffi_backend', 'git_gui.presentation.theme.builtin'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -33,7 +34,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
 )
@@ -43,7 +44,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='GitCrisp',
 )

@@ -3,8 +3,10 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication, QFileDialog
 from git_gui.infrastructure.pygit2_repo import Pygit2Repository
 from git_gui.infrastructure.repo_store import JsonRepoStore
+from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
+from git_gui.presentation.theme import ThemeManager, set_theme_manager
 
 
 def _pick_repo() -> str:
@@ -38,8 +40,12 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("GitCrisp")
 
+    theme_manager = ThemeManager(app)
+    set_theme_manager(theme_manager)
+
     repo_store = JsonRepoStore()
     repo_store.load()
+    remote_tag_cache = JsonRemoteTagCache()
 
     repo_path = _find_valid_repo(repo_store)
 
@@ -58,7 +64,7 @@ def main() -> None:
     queries = QueryBus.from_reader(repo)
     commands = CommandBus.from_writer(repo)
 
-    window = MainWindow(queries, commands, repo_store, repo_path)
+    window = MainWindow(queries, commands, repo_store, remote_tag_cache, repo_path)
     window.show()
     sys.exit(app.exec())
 

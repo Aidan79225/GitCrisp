@@ -4,13 +4,14 @@ import threading
 from datetime import datetime
 from git_gui.resources import get_resource_path
 from PySide6.QtCore import QModelIndex, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout, QHeaderView, QMenu, QPushButton, QStyle,
     QStyleOptionViewItem, QTableView, QVBoxLayout, QWidget,
 )
-from git_gui.domain.entities import Branch, Commit, WORKING_TREE_OID
+from git_gui.domain.entities import Branch, Commit, Tag, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate, LANE_W
 from git_gui.presentation.widgets.commit_info_delegate import (
@@ -59,28 +60,53 @@ class _GraphTableView(QTableView):
 
 
 class _LoadSignals(QObject):
-    reload_done = Signal(list, list, bool, str)  # commits, branches, is_dirty, head_oid
-    append_done = Signal(list, list)             # more_commits, branches
+    reload_done = Signal(list, list, list, bool, str)  # commits, branches, tags, is_dirty, head_oid
+    append_done = Signal(list, list, list)              # more_commits, branches, tags
 
 
 _ARTS = get_resource_path("arts")
-_BTN_STYLE = (
-    "QPushButton { border: none; border-radius: 4px; min-width: 36px; min-height: 36px; }"
-    "QPushButton:hover { background-color: rgba(255, 255, 255, 30); }"
-)
+
+
+def _tinted_icon(svg_path: str, color: QColor, size: int = 28) -> QIcon:
+    src = QIcon(svg_path).pixmap(size, size)
+    if src.isNull():
+        return QIcon(svg_path)
+    tinted = QPixmap(src.size())
+    tinted.setDevicePixelRatio(src.devicePixelRatio())
+    tinted.fill(Qt.transparent)
+    p = QPainter(tinted)
+    p.drawPixmap(0, 0, src)
+    p.setCompositionMode(QPainter.CompositionMode_SourceIn)
+    p.fillRect(tinted.rect(), color)
+    p.end()
+    return QIcon(tinted)
+
+
+def _btn_style() -> str:
+    c = get_theme_manager().current.colors
+    return (
+        "QPushButton { border: none; border-radius: 4px; }"
+        f"QPushButton:hover {{ background-color: {c.hover_overlay}; }}"
+    )
 
 
 class GraphWidget(QWidget):
     commit_selected = Signal(str)  # emits oid (or WORKING_TREE_OID)
     create_branch_requested = Signal(str)       # oid
+    create_tag_requested = Signal(str)          # oid
     checkout_commit_requested = Signal(str)      # oid
     checkout_branch_requested = Signal(str)      # branch name (local or remote)
     delete_branch_requested = Signal(str)        # local branch name
+    merge_branch_requested = Signal(str)             # branch name (merge into current)
+    merge_commit_requested = Signal(str)             # oid (merge commit into current)
+    rebase_onto_branch_requested = Signal(str)       # branch name (rebase current onto)
+    rebase_onto_commit_requested = Signal(str)       # oid (rebase current onto commit)
     reload_requested = Signal()
     push_requested = Signal()
     pull_requested = Signal()
     fetch_all_requested = Signal()
     stash_requested = Signal()
+    insight_requested = Signal()
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -127,36 +153,52 @@ class GraphWidget(QWidget):
         # Header bar with action buttons
         header_bar = QHBoxLayout()
         header_bar.setContentsMargins(4, 4, 4, 4)
+        self._styled_buttons: list[QPushButton] = []
+        self._tinted_button_icons: list[tuple[QPushButton, str]] = []
         for icon_name, tooltip, signal in [
             ("ic_reload", "Reload (F5)", self.reload_requested),
             ("ic_push", "Push", self.push_requested),
             ("ic_pull", "Pull", self.pull_requested),
             ("ic_fetch", "Fetch All --prune", self.fetch_all_requested),
+            ("ic_insight", "Git Insight", self.insight_requested),
         ]:
             btn = QPushButton()
-            btn.setIcon(QIcon(str(_ARTS / f"{icon_name}.svg")))
+            btn.setFixedSize(QSize(36, 36))
             btn.setIconSize(QSize(28, 28))
             btn.setToolTip(tooltip)
-            btn.setStyleSheet(_BTN_STYLE)
             btn.clicked.connect(signal.emit)
             header_bar.addWidget(btn)
+            self._styled_buttons.append(btn)
+            self._tinted_button_icons.append((btn, icon_name))
 
         header_bar.addStretch()
 
         self._stash_btn = QPushButton()
-        self._stash_btn.setIcon(QIcon(str(_ARTS / "ic_stash.svg")))
+        self._stash_btn.setFixedSize(QSize(36, 36))
         self._stash_btn.setIconSize(QSize(28, 28))
+        self._tinted_button_icons.append((self._stash_btn, "ic_stash"))
         self._stash_btn.setToolTip("Stash")
-        self._stash_btn.setStyleSheet(_BTN_STYLE)
         self._stash_btn.clicked.connect(self.stash_requested.emit)
         self._stash_btn.setVisible(False)
         header_bar.addWidget(self._stash_btn)
+        self._styled_buttons.append(self._stash_btn)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addLayout(header_bar)
         layout.addWidget(self._view)
+
+        self._rebuild_styles()
+        connect_widget(self, rebuild=self._rebuild_styles)
+
+    def _rebuild_styles(self) -> None:
+        style = _btn_style()
+        for btn in self._styled_buttons:
+            btn.setStyleSheet(style)
+        on_bg = get_theme_manager().current.colors.as_qcolor("on_background")
+        for btn, icon_name in self._tinted_button_icons:
+            btn.setIcon(_tinted_icon(str(_ARTS / f"{icon_name}.svg"), on_bg))
 
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
@@ -181,9 +223,10 @@ class GraphWidget(QWidget):
         def _worker():
             commits = queries.get_commit_graph.execute(limit=limit, extra_tips=extra_tips)
             branches = queries.get_branches.execute()
+            tags = queries.get_tags.execute()
             dirty = queries.is_dirty.execute()
             head_oid = queries.get_head_oid.execute() or ""
-            signals.reload_done.emit(commits, branches, dirty, head_oid)
+            signals.reload_done.emit(commits, branches, tags, dirty, head_oid)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -200,7 +243,7 @@ class GraphWidget(QWidget):
         self.reload(extra_tips=[oid])
 
     def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
-                        is_dirty: bool, head_oid: str) -> None:
+                        tags: list[Tag], is_dirty: bool, head_oid: str) -> None:
         self._loading = False
         self._stash_btn.setVisible(is_dirty)
         if self._queries is None:
@@ -215,6 +258,8 @@ class GraphWidget(QWidget):
             refs.setdefault(b.target_oid, []).append(b.name)
             if b.is_head and not b.is_remote:
                 head_branch = b.name
+        for t in tags:
+            refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
 
         # Show HEAD badge only when detached (no local branch is HEAD)
         if head_oid and not head_branch:
@@ -324,11 +369,12 @@ class GraphWidget(QWidget):
         def _worker():
             more = queries.get_commit_graph.execute(limit=PAGE_SIZE, skip=skip, extra_tips=self._extra_tips)
             branches = queries.get_branches.execute()
-            signals.append_done.emit(more, branches)
+            tags = queries.get_tags.execute()
+            signals.append_done.emit(more, branches, tags)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_append_done(self, more: list[Commit], branches: list[Branch]) -> None:
+    def _on_append_done(self, more: list[Commit], branches: list[Branch], tags: list[Tag]) -> None:
         self._loading = False
         if self._queries is None:
             return
@@ -343,6 +389,8 @@ class GraphWidget(QWidget):
         refs: dict[str, list[str]] = {}
         for b in branches:
             refs.setdefault(b.target_oid, []).append(b.name)
+        for t in tags:
+            refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
 
         self._model.append(more, refs)
 
@@ -358,15 +406,29 @@ class GraphWidget(QWidget):
         branch_names = info.branch_names if info else []
 
         menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        menu.setStyleSheet(
+            "QMenu { padding: 6px; }"
+            "QMenu::item { padding: 6px 24px 6px 20px; }"
+        )
 
         menu.addAction("Create Branch").triggered.connect(
             lambda: self.create_branch_requested.emit(oid))
+        menu.addAction("Create Tag...").triggered.connect(
+            lambda: self.create_tag_requested.emit(oid))
         menu.addAction("Checkout (detached HEAD)").triggered.connect(
             lambda: self.checkout_commit_requested.emit(oid))
 
-        # Filter out HEAD pseudo-ref for branch operations
-        real_branches = [n for n in branch_names if n != "HEAD"]
-        local_branches = [n for n in real_branches if "/" not in n]
+        # Filter out HEAD pseudo-ref and tag refs for branch operations
+        real_branches = [n for n in branch_names if n != "HEAD" and not n.startswith("tag:")]
+        # Distinguish local vs remote branches via the actual branch metadata
+        # (the "/" heuristic is wrong: local branches like "feature/foo" exist).
+        try:
+            all_branches = self._queries.get_branches.execute()
+            local_set = {b.name for b in all_branches if not b.is_remote}
+        except Exception:
+            local_set = set()
+        local_branches = [n for n in real_branches if n in local_set]
 
         if real_branches:
             menu.addSeparator()
@@ -391,7 +453,101 @@ class GraphWidget(QWidget):
                     sub.addAction(name).triggered.connect(
                         lambda _checked=False, n=name: self.delete_branch_requested.emit(n))
 
+        self._add_merge_rebase_section(menu, oid, real_branches)
+
         menu.exec(self._view.viewport().mapToGlobal(pos))
+
+    def _add_merge_rebase_section(self, menu: QMenu, oid: str, branches_on_commit: list[str]) -> None:
+        """Append the Merge / Rebase section to a context menu, applying disable rules."""
+        try:
+            state_info = self._queries.get_repo_state.execute()
+        except Exception:
+            return
+
+        head_branch = state_info.head_branch
+        state_name = state_info.state.name
+
+        # Determine global disable reason (applies to every action)
+        global_disable_reason: str | None = None
+        if state_name == "DETACHED_HEAD":
+            global_disable_reason = "HEAD is detached — checkout a branch first"
+        elif state_name != "CLEAN":
+            global_disable_reason = f"Repository is in {state_name} — resolve or abort first"
+
+        # Compute candidate actions
+        branch_targets = [b for b in branches_on_commit if b != head_branch]
+
+        try:
+            head_oid = self._queries.get_head_oid.execute()
+        except Exception:
+            head_oid = None
+
+        show_commit_merge = bool(head_oid) and oid != head_oid
+        show_commit_rebase = bool(head_oid) and oid != head_oid
+
+        is_ancestor_of_head = False
+        if show_commit_merge and head_oid:
+            try:
+                is_ancestor_of_head = self._queries.is_ancestor.execute(oid, head_oid)
+            except Exception:
+                is_ancestor_of_head = False
+
+        if show_commit_merge and is_ancestor_of_head:
+            show_commit_merge = False
+
+        # If nothing to show, bail before adding the separator
+        if not branch_targets and not show_commit_merge and not show_commit_rebase:
+            return
+
+        menu.addSeparator()
+
+        short_oid = oid[:7]
+        head_label = head_branch or "HEAD"
+
+        def _add(label: str, tooltip: str | None, signal_emit) -> None:
+            action = menu.addAction(label)
+            if global_disable_reason:
+                action.setEnabled(False)
+                action.setToolTip(global_disable_reason)
+            elif tooltip:
+                action.setEnabled(False)
+                action.setToolTip(tooltip)
+            else:
+                action.triggered.connect(signal_emit)
+
+        for b in branch_targets:
+            ancestor_tooltip = None
+            try:
+                if head_oid and self._queries.is_ancestor.execute(oid, head_oid):
+                    ancestor_tooltip = "Already up to date"
+            except Exception:
+                pass
+            _add(
+                f"Merge {b} into {head_label}",
+                ancestor_tooltip,
+                lambda _checked=False, n=b: self.merge_branch_requested.emit(n),
+            )
+
+        for b in branch_targets:
+            _add(
+                f"Rebase {head_label} onto {b}",
+                None,
+                lambda _checked=False, n=b: self.rebase_onto_branch_requested.emit(n),
+            )
+
+        if show_commit_merge:
+            _add(
+                f"Merge commit {short_oid} into {head_label}",
+                None,
+                lambda _checked=False, o=oid: self.merge_commit_requested.emit(o),
+            )
+
+        if show_commit_rebase:
+            _add(
+                f"Rebase {head_label} onto commit {short_oid}",
+                None,
+                lambda _checked=False, o=oid: self.rebase_onto_commit_requested.emit(o),
+            )
 
     def reload_and_scroll_to(self, oid: str) -> None:
         """Reload and scroll to the given oid after load completes."""

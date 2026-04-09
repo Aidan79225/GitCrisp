@@ -3,25 +3,46 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QRect
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
+from git_gui.presentation.theme import get_theme_manager
 
 BADGE_RADIUS = 4   # rounded corner radius
 BADGE_H_PAD = 4    # horizontal padding inside badge
 BADGE_V_PAD = 2    # vertical padding inside badge
 BADGE_GAP = 4      # gap between consecutive badges, and after last badge
 
-COLOR_HEAD = "#238636"    # green — HEAD / current branch
-COLOR_REMOTE = "#1f4287"  # dark blue — remote-tracking branch (contains "/")
-COLOR_LOCAL = "#0d6efd"   # blue — local branch
+def _color_head() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("branch_head_bg")
+
+
+def _color_local() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("ref_badge_branch_bg")
+
+
+def _color_remote() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("ref_badge_remote_bg")
+
+
+def _color_tag() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("ref_badge_tag_bg")
 
 
 def _badge_color(name: str, head_branch: str | None = None) -> QColor:
     if name == "HEAD" or name.startswith("HEAD ->"):
-        return QColor(COLOR_HEAD)
+        return _color_head()
     if head_branch and name == head_branch:
-        return QColor(COLOR_HEAD)
+        return _color_head()
+    if name.startswith("tag:"):
+        return _color_tag()
     if "/" in name:
-        return QColor(COLOR_REMOTE)
-    return QColor(COLOR_LOCAL)
+        return _color_remote()
+    return _color_local()
+
+
+def _badge_display_name(name: str) -> str:
+    """Strip 'tag:' prefix for display."""
+    if name.startswith("tag:"):
+        return name[4:]
+    return name
 
 
 class RefBadgeDelegate(QStyledItemDelegate):
@@ -39,15 +60,16 @@ class RefBadgeDelegate(QStyledItemDelegate):
         badge_h = fm.height() + BADGE_V_PAD * 2
 
         for name in branch_names:
-            badge_w = fm.horizontalAdvance(name) + BADGE_H_PAD * 2
+            display = _badge_display_name(name)
+            badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
             badge_rect = QRect(x, cy - badge_h // 2, badge_w, badge_h)
 
             painter.setBrush(QBrush(_badge_color(name)))
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
 
-            painter.setPen(QColor("white"))
-            painter.drawText(badge_rect, Qt.AlignCenter, name)
+            painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
+            painter.drawText(badge_rect, Qt.AlignCenter, display)
 
             x += badge_w + BADGE_GAP
 
