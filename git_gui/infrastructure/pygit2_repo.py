@@ -387,6 +387,11 @@ class Pygit2Repository:
             return None
         return str(self._repo.head.target)
 
+    def is_ancestor(self, ancestor_oid: str, descendant_oid: str) -> bool:
+        if ancestor_oid == descendant_oid:
+            return False
+        return bool(self._repo.descendant_of(descendant_oid, ancestor_oid))
+
     def repo_state(self) -> RepoStateInfo:
         if self._repo.head_is_detached:
             return RepoStateInfo(state=RepoState.DETACHED_HEAD, head_branch=None)
