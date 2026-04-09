@@ -330,7 +330,12 @@ class MainWindow(QMainWindow):
             )
             both_btn = box.addButton("Local + remote", QMessageBox.AcceptRole)
             local_btn = box.addButton("Local only", QMessageBox.DestructiveRole)
-            box.addButton(QMessageBox.Cancel)
+            cancel_btn = box.addButton(QMessageBox.Cancel)
+            # Force buttons wide enough that the text isn't clipped by the
+            # default QMessageBox button sizing.
+            for btn in (both_btn, local_btn, cancel_btn):
+                btn.setMinimumWidth(140)
+                btn.setStyleSheet("QPushButton { padding: 6px 16px; }")
             box.exec()
             clicked = box.clickedButton()
             if clicked is both_btn:
