@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import Literal
 
 WORKING_TREE_OID = "WORKING_TREE"
@@ -88,3 +89,18 @@ class LocalBranchInfo:
     upstream: str | None
     last_commit_sha: str
     last_commit_message: str
+
+
+class RepoState(str, Enum):
+    CLEAN = "CLEAN"
+    MERGING = "MERGING"
+    REBASING = "REBASING"
+    CHERRY_PICKING = "CHERRY_PICKING"
+    REVERTING = "REVERTING"
+    DETACHED_HEAD = "DETACHED_HEAD"
+
+
+@dataclass(frozen=True)
+class RepoStateInfo:
+    state: RepoState
+    head_branch: str | None
