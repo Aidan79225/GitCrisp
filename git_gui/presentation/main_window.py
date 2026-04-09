@@ -385,9 +385,13 @@ class MainWindow(QMainWindow):
     def _on_repo_ready(self, path: str, queries: QueryBus, commands: CommandBus) -> None:
         self._queries = queries
         self._commands = commands
-        self._sidebar.set_buses(self._queries, self._commands)
         self._repo_path = path
+        # set_repo_path BEFORE set_buses — set_buses immediately triggers
+        # sidebar.reload() which captures _repo_path in a worker thread for the
+        # remote-tag cache lookup. If we set it after, the worker reads the
+        # previous repo's cache and the tag synced markers disappear.
         self._sidebar.set_repo_path(path)
+        self._sidebar.set_buses(self._queries, self._commands)
         self._graph.set_buses(self._queries, self._commands)
         self._diff.set_buses(self._queries, self._commands)
         self._working_tree.set_buses(self._queries, self._commands)
