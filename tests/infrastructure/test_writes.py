@@ -101,3 +101,31 @@ def test_delete_tag(writable_repo):
     impl.delete_tag("to-delete")
     raw = pygit2.Repository(str(path))
     assert "refs/tags/to-delete" not in list(raw.references)
+
+
+def test_merge_commit_fast_forward(writable_repo):
+    impl, path = writable_repo
+    # Get the current HEAD oid
+    head_oid = impl.get_head_oid()
+    # Create a feature branch at HEAD
+    impl.create_branch("feature", head_oid)
+    # Checkout feature branch
+    impl.checkout("feature")
+    # Add a file on feature branch
+    (path / "f.txt").write_text("f")
+    impl.stage(["f.txt"])
+    new_commit = impl.commit("on feature")
+    # Get main/master branch name dynamically
+    branches = impl.get_branches()
+    main_branch_name = next(
+        (b.name for b in branches if not b.is_remote and b.name in ["main", "master"]),
+        "master"
+    )
+    # Checkout main/master branch
+    impl.checkout(main_branch_name)
+
+    # Merge the new commit
+    impl.merge_commit(new_commit.oid)
+
+    # Assert HEAD oid now equals the new commit oid (fast-forward)
+    assert impl.get_head_oid() == new_commit.oid
