@@ -95,3 +95,17 @@ def test_get_repo_state_passthrough():
     info = RepoStateInfo(state=RepoState.MERGING, head_branch="main")
     q = GetRepoState(_FakeReader(info))
     assert q.execute() == info
+
+
+from git_gui.application.queries import IsAncestor
+
+
+class _FakeAncestorReader:
+    def is_ancestor(self, a, d):
+        return (a, d) == ("anc", "desc")
+
+
+def test_is_ancestor_query_passthrough():
+    q = IsAncestor(_FakeAncestorReader())
+    assert q.execute("anc", "desc") is True
+    assert q.execute("x", "y") is False
