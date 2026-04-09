@@ -622,6 +622,9 @@ class Pygit2Repository:
     def push_tag(self, remote: str, name: str) -> None:
         self._run_git("push", remote, f"refs/tags/{name}")
 
+    def delete_remote_tag(self, remote: str, name: str) -> None:
+        self._run_git("push", remote, f":refs/tags/{name}")
+
     def stash(self, message: str) -> None:
         sig = self._get_signature()
         self._repo.stash(sig, message=message, include_untracked=True)
