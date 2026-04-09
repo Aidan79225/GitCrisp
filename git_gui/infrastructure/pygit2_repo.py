@@ -8,7 +8,7 @@ import pygit2
 
 from git_gui.resources import subprocess_kwargs
 from git_gui.domain.entities import (
-    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, Remote, Stash, Submodule, Tag, WORKING_TREE_OID,
+    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, Remote, RepoState, RepoStateInfo, Stash, Submodule, Tag, WORKING_TREE_OID,
 )
 
 
@@ -386,6 +386,29 @@ class Pygit2Repository:
         if self._repo.head_is_unborn:
             return None
         return str(self._repo.head.target)
+
+    def repo_state(self) -> RepoStateInfo:
+        if self._repo.head_is_detached:
+            return RepoStateInfo(state=RepoState.DETACHED_HEAD, head_branch=None)
+        state = self._repo.state()
+        raw_map = {
+            "GIT_REPOSITORY_STATE_NONE": RepoState.CLEAN,
+            "GIT_REPOSITORY_STATE_MERGE": RepoState.MERGING,
+            "GIT_REPOSITORY_STATE_REVERT": RepoState.REVERTING,
+            "GIT_REPOSITORY_STATE_CHERRYPICK": RepoState.CHERRY_PICKING,
+            "GIT_REPOSITORY_STATE_REBASE": RepoState.REBASING,
+            "GIT_REPOSITORY_STATE_REBASE_INTERACTIVE": RepoState.REBASING,
+            "GIT_REPOSITORY_STATE_REBASE_MERGE": RepoState.REBASING,
+            "GIT_REPOSITORY_STATE_APPLY_MAILBOX": RepoState.CLEAN,
+            "GIT_REPOSITORY_STATE_APPLY_MAILBOX_OR_REBASE": RepoState.REBASING,
+        }
+        state_map: dict[int, RepoState] = {}
+        for name, mapped_state in raw_map.items():
+            const = getattr(pygit2, name, None)
+            if const is not None:
+                state_map[const] = mapped_state
+        mapped = state_map.get(state, RepoState.CLEAN)
+        return RepoStateInfo(state=mapped, head_branch=self._repo.head.shorthand)
 
     # ----------------------------------------------------------------- helpers
 
