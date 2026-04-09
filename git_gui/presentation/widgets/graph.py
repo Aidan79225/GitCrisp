@@ -97,6 +97,10 @@ class GraphWidget(QWidget):
     checkout_commit_requested = Signal(str)      # oid
     checkout_branch_requested = Signal(str)      # branch name (local or remote)
     delete_branch_requested = Signal(str)        # local branch name
+    merge_branch_requested = Signal(str)             # branch name (merge into current)
+    merge_commit_requested = Signal(str)             # oid (merge commit into current)
+    rebase_onto_branch_requested = Signal(str)       # branch name (rebase current onto)
+    rebase_onto_commit_requested = Signal(str)       # oid (rebase current onto commit)
     reload_requested = Signal()
     push_requested = Signal()
     pull_requested = Signal()
@@ -402,6 +406,7 @@ class GraphWidget(QWidget):
         branch_names = info.branch_names if info else []
 
         menu = QMenu(self)
+        menu.setToolTipsVisible(True)
         menu.setStyleSheet(
             "QMenu { padding: 6px; }"
             "QMenu::item { padding: 6px 24px 6px 20px; }"
@@ -448,7 +453,101 @@ class GraphWidget(QWidget):
                     sub.addAction(name).triggered.connect(
                         lambda _checked=False, n=name: self.delete_branch_requested.emit(n))
 
+        self._add_merge_rebase_section(menu, oid, real_branches)
+
         menu.exec(self._view.viewport().mapToGlobal(pos))
+
+    def _add_merge_rebase_section(self, menu: QMenu, oid: str, branches_on_commit: list[str]) -> None:
+        """Append the Merge / Rebase section to a context menu, applying disable rules."""
+        try:
+            state_info = self._queries.get_repo_state.execute()
+        except Exception:
+            return
+
+        head_branch = state_info.head_branch
+        state_name = state_info.state.name
+
+        # Determine global disable reason (applies to every action)
+        global_disable_reason: str | None = None
+        if state_name == "DETACHED_HEAD":
+            global_disable_reason = "HEAD is detached — checkout a branch first"
+        elif state_name != "CLEAN":
+            global_disable_reason = f"Repository is in {state_name} — resolve or abort first"
+
+        # Compute candidate actions
+        branch_targets = [b for b in branches_on_commit if b != head_branch]
+
+        try:
+            head_oid = self._queries.get_head_oid.execute()
+        except Exception:
+            head_oid = None
+
+        show_commit_merge = bool(head_oid) and oid != head_oid
+        show_commit_rebase = bool(head_oid) and oid != head_oid
+
+        is_ancestor_of_head = False
+        if show_commit_merge and head_oid:
+            try:
+                is_ancestor_of_head = self._queries.is_ancestor.execute(oid, head_oid)
+            except Exception:
+                is_ancestor_of_head = False
+
+        if show_commit_merge and is_ancestor_of_head:
+            show_commit_merge = False
+
+        # If nothing to show, bail before adding the separator
+        if not branch_targets and not show_commit_merge and not show_commit_rebase:
+            return
+
+        menu.addSeparator()
+
+        short_oid = oid[:7]
+        head_label = head_branch or "HEAD"
+
+        def _add(label: str, tooltip: str | None, signal_emit) -> None:
+            action = menu.addAction(label)
+            if global_disable_reason:
+                action.setEnabled(False)
+                action.setToolTip(global_disable_reason)
+            elif tooltip:
+                action.setEnabled(False)
+                action.setToolTip(tooltip)
+            else:
+                action.triggered.connect(signal_emit)
+
+        for b in branch_targets:
+            ancestor_tooltip = None
+            try:
+                if head_oid and self._queries.is_ancestor.execute(oid, head_oid):
+                    ancestor_tooltip = "Already up to date"
+            except Exception:
+                pass
+            _add(
+                f"Merge {b} into {head_label}",
+                ancestor_tooltip,
+                lambda _checked=False, n=b: self.merge_branch_requested.emit(n),
+            )
+
+        for b in branch_targets:
+            _add(
+                f"Rebase {head_label} onto {b}",
+                None,
+                lambda _checked=False, n=b: self.rebase_onto_branch_requested.emit(n),
+            )
+
+        if show_commit_merge:
+            _add(
+                f"Merge commit {short_oid} into {head_label}",
+                None,
+                lambda _checked=False, o=oid: self.merge_commit_requested.emit(o),
+            )
+
+        if show_commit_rebase:
+            _add(
+                f"Rebase {head_label} onto commit {short_oid}",
+                None,
+                lambda _checked=False, o=oid: self.rebase_onto_commit_requested.emit(o),
+            )
 
     def reload_and_scroll_to(self, oid: str) -> None:
         """Reload and scroll to the given oid after load completes."""
