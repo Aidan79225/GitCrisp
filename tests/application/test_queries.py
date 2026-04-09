@@ -78,3 +78,20 @@ def test_get_staged_diff_delegates_to_reader():
     result = GetStagedDiff(reader).execute("a.py")
     reader.get_staged_diff.assert_called_once_with("a.py")
     assert len(result) == 1
+
+
+from git_gui.application.queries import GetRepoState
+from git_gui.domain.entities import RepoState, RepoStateInfo
+
+
+class _FakeReader:
+    def __init__(self, info):
+        self._info = info
+    def repo_state(self):
+        return self._info
+
+
+def test_get_repo_state_passthrough():
+    info = RepoStateInfo(state=RepoState.MERGING, head_branch="main")
+    q = GetRepoState(_FakeReader(info))
+    assert q.execute() == info
