@@ -330,12 +330,13 @@ class MainWindow(QMainWindow):
             )
             both_btn = box.addButton("Local + remote", QMessageBox.AcceptRole)
             local_btn = box.addButton("Local only", QMessageBox.DestructiveRole)
-            cancel_btn = box.addButton(QMessageBox.Cancel)
-            # Force buttons wide enough that the text isn't clipped by the
-            # default QMessageBox button sizing.
-            for btn in (both_btn, local_btn, cancel_btn):
-                btn.setMinimumWidth(140)
-                btn.setStyleSheet("QPushButton { padding: 6px 16px; }")
+            box.addButton(QMessageBox.Cancel)
+            # The global QSS sets `QDialog QPushButton { min-width: 72px; }`
+            # which clips longer labels. Override at the dialog level with the
+            # same selector specificity.
+            box.setStyleSheet(
+                "QDialog QPushButton { min-width: 160px; padding: 6px 20px; }"
+            )
             box.exec()
             clicked = box.clickedButton()
             if clicked is both_btn:
