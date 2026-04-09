@@ -97,3 +97,28 @@ def test_pop_stash():
     w = _writer()
     PopStash(w).execute(0)
     w.pop_stash.assert_called_once_with(0)
+
+
+from git_gui.application.commands import MergeCommit, RebaseOntoCommit
+
+
+class _FakeMergeCommitWriter:
+    def __init__(self):
+        self.merge_commit_called = None
+        self.rebase_onto_commit_called = None
+    def merge_commit(self, oid):
+        self.merge_commit_called = oid
+    def rebase_onto_commit(self, oid):
+        self.rebase_onto_commit_called = oid
+
+
+def test_merge_commit_passes_oid():
+    w = _FakeMergeCommitWriter()
+    MergeCommit(w).execute("abcdef1234")
+    assert w.merge_commit_called == "abcdef1234"
+
+
+def test_rebase_onto_commit_passes_oid():
+    w = _FakeMergeCommitWriter()
+    RebaseOntoCommit(w).execute("abcdef1234")
+    assert w.rebase_onto_commit_called == "abcdef1234"
