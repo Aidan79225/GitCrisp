@@ -138,3 +138,11 @@ class GetRepoState:
 
     def execute(self) -> RepoStateInfo:
         return self._reader.repo_state()
+
+
+class IsAncestor:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, ancestor_oid: str, descendant_oid: str) -> bool:
+        return self._reader.is_ancestor(ancestor_oid, descendant_oid)
