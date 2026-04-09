@@ -133,6 +133,10 @@ class MainWindow(QMainWindow):
         self._graph.stash_requested.connect(self._on_stash_requested)
         self._graph.create_tag_requested.connect(self._on_create_tag)
         self._graph.insight_requested.connect(self._on_insight_requested)
+        self._graph.merge_branch_requested.connect(self._on_merge)
+        self._graph.merge_commit_requested.connect(self._on_merge_commit)
+        self._graph.rebase_onto_branch_requested.connect(self._on_rebase)
+        self._graph.rebase_onto_commit_requested.connect(self._on_rebase_onto_commit)
 
         # Sidebar tag signals
         self._sidebar.tag_clicked.connect(self._graph.reload_with_extra_tip)
@@ -217,6 +221,24 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Rebase onto {branch} — ERROR: {e}")
+        self._reload()
+
+    def _on_merge_commit(self, oid: str) -> None:
+        try:
+            self._commands.merge_commit.execute(oid)
+            self._log_panel.log(f"Merge: commit {oid[:7]} into current")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Merge commit {oid[:7]} — ERROR: {e}")
+        self._reload()
+
+    def _on_rebase_onto_commit(self, oid: str) -> None:
+        try:
+            self._commands.rebase_onto_commit.execute(oid)
+            self._log_panel.log(f"Rebase onto commit {oid[:7]}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Rebase onto commit {oid[:7]} — ERROR: {e}")
         self._reload()
 
     def _on_delete_branch(self, branch: str) -> None:
