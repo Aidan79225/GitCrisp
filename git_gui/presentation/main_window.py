@@ -328,9 +328,7 @@ class MainWindow(QMainWindow):
                 f"Tag '{name}' exists on {remote_list}.\n\n"
                 f"Delete locally and from {remote_list}?"
             )
-            both_btn = box.addButton(
-                f"Delete locally and from {remote_list}", QMessageBox.AcceptRole
-            )
+            both_btn = box.addButton("Local + remote", QMessageBox.AcceptRole)
             local_btn = box.addButton("Local only", QMessageBox.DestructiveRole)
             box.addButton(QMessageBox.Cancel)
             box.exec()
