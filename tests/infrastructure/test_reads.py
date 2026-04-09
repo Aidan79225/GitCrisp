@@ -238,3 +238,19 @@ def test_get_commit_stats_with_multiple_commits(repo_path, repo_impl):
     authors = [s.author for s in stats]
     assert any("Author Two" in a for a in authors)
     assert any("Test User" in a for a in authors)
+
+
+def test_is_ancestor(repo_path, repo_impl):
+    first_oid = repo_impl.get_head_oid()
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("T", "t@t.com")
+    (repo_path / "b.txt").write_text("b")
+    raw.index.add("b.txt")
+    raw.index.write()
+    tree = raw.index.write_tree()
+    head_oid = raw.head.target
+    second_oid = raw.create_commit("refs/heads/master", sig, sig, "Second commit", tree, [head_oid])
+
+    assert repo_impl.is_ancestor(first_oid, str(second_oid)) is True
+    assert repo_impl.is_ancestor(str(second_oid), first_oid) is False
+    assert repo_impl.is_ancestor(first_oid, first_oid) is False
