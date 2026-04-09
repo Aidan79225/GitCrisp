@@ -13,11 +13,16 @@
   <section class="hero">
     <h1>GitCrisp</h1>
     <p class="tagline">A clean, focused Git GUI</p>
-    <p class="subtitle">Visual commit graph, per-hunk staging, and streamlined remote operations — built with Python and Qt.</p>
+    <p class="subtitle">Visual commit graph, per-hunk staging, full management dialogs for branches, remotes, submodules, and tags &mdash; built with Python and Qt.</p>
     <div class="hero-actions">
       <a href="https://github.com/Aidan79225/GitCrisp/releases/latest" class="btn btn-primary">Download</a>
       <a href="https://github.com/Aidan79225/GitCrisp" class="btn btn-secondary">View on GitHub</a>
     </div>
+  </section>
+
+  <!-- Hero Screenshot -->
+  <section class="hero-shot">
+    <img src="{{ '/screenshot/basic-view.png' | relative_url }}" alt="GitCrisp main window" />
   </section>
 
   <!-- Features -->
@@ -32,7 +37,17 @@
       <div class="feature-card">
         <div class="feature-icon">&#x1F9E9;</div>
         <h3>Per-Hunk Staging</h3>
-        <p>Stage or unstage individual diff hunks within a file. See exactly what goes into each commit.</p>
+        <p>Stage or unstage individual diff hunks within a file. Discard hunks or whole files inline.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F33F;</div>
+        <h3>Branch Management</h3>
+        <p>Sidebar tree, graph context menu, and a dedicated dialog for upstream tracking, rename, and the checkout-conflict reset prompt.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F3F7;&#xFE0F;</div>
+        <h3>Tag Management</h3>
+        <p>Create lightweight or annotated tags from any commit, delete tags, and push individual tags to a remote.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F4E6;</div>
@@ -42,13 +57,42 @@
       <div class="feature-card">
         <div class="feature-icon">&#x1F310;</div>
         <h3>Remote Operations</h3>
-        <p>Push, pull, and fetch run in background threads with real-time status logging. No UI freezes.</p>
+        <p>Push, pull, fetch, and a Remotes CRUD dialog. All network ops run in background threads with status logging.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F517;</div>
+        <h3>Submodule Support</h3>
+        <p>Manage submodules from a dedicated dialog, recursive clone by default, and click submodule diffs to jump into the submodule repo.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F4C2;</div>
         <h3>Multi-Repository</h3>
         <p>Switch between repositories with persistent open and recent lists. Clone new repos from URL.</p>
       </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F3A8;</div>
+        <h3>Theming &amp; Insights</h3>
+        <p>Light and dark themes with a custom typography scale, plus per-author commit stats over a configurable date range.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screenshot Strip -->
+  <section class="screenshot-strip">
+    <h2>A Closer Look</h2>
+    <div class="shot-grid">
+      <figure class="shot-card">
+        <img src="{{ '/screenshot/branches-dialog.png' | relative_url }}" alt="Branches dialog" onerror="this.parentElement.style.display='none'" />
+        <figcaption>Branches dialog &mdash; upstream tracking and inline management</figcaption>
+      </figure>
+      <figure class="shot-card">
+        <img src="{{ '/screenshot/theme-dialog.png' | relative_url }}" alt="Theme dialog" onerror="this.parentElement.style.display='none'" />
+        <figcaption>Appearance &mdash; light/dark themes and typography scale</figcaption>
+      </figure>
+      <figure class="shot-card">
+        <img src="{{ '/screenshot/insight-dialog.png' | relative_url }}" alt="Insight dialog" onerror="this.parentElement.style.display='none'" />
+        <figcaption>Insights &mdash; per-author commit stats over time</figcaption>
+      </figure>
     </div>
   </section>
 
@@ -67,27 +111,11 @@
       </div>
       <div class="arch-layer layer-infrastructure">
         <strong>Infrastructure</strong>
-        <span>pygit2 Adapter &amp; Repo Store</span>
+        <span>pygit2 Adapter, Submodule CLI &amp; Repo Store</span>
       </div>
       <div class="arch-layer layer-presentation">
         <strong>Presentation</strong>
-        <span>Qt Widgets &amp; Signal Bus</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- Philosophy -->
-  <section class="philosophy">
-    <h2>Design Philosophy</h2>
-    <p>Some Git operations are intentionally left out. This is not a limitation — it is a design choice.</p>
-    <div class="philosophy-grid">
-      <div class="philosophy-card">
-        <h3>No Merge Button</h3>
-        <p>Branch merging in a team workflow is best done through <strong>pull requests</strong>, where code review, CI checks, and approval gates provide a safer and more traceable process.</p>
-      </div>
-      <div class="philosophy-card">
-        <h3>No Rebase or Cherry-Pick</h3>
-        <p>These operations frequently involve <strong>merge conflicts</strong> that require manual resolution. No GUI can match the flexibility of a CLI paired with your preferred editor.</p>
+        <span>Qt Widgets, Dialogs &amp; Signal Bus</span>
       </div>
     </div>
   </section>

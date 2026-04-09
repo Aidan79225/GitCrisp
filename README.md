@@ -1,6 +1,6 @@
 # GitCrisp
 
-A desktop Git GUI client built with Python and PySide6 (Qt), designed for everyday Git workflows. GitCrisp provides a visual commit graph, per-hunk staging, multi-repository management, and streamlined remote operations — while deliberately leaving conflict-heavy operations to the CLI where they belong.
+A clean, focused desktop Git client built with Python and PySide6 (Qt) for everyday Git workflows. Visual commit graph, per-hunk staging, multi-repository management, and full management dialogs for branches, remotes, submodules, tags, and themes.
 
 ## Screenshot
 
@@ -8,43 +8,63 @@ A desktop Git GUI client built with Python and PySide6 (Qt), designed for everyd
 
 ## Features
 
-### Commit Graph
-- Visual lane-based graph showing branching and merging history
-- Topological + time-sorted commit display with lazy pagination
+### Commit Graph & History
+- Lane-based visual graph with topological + time sort
+- Lazy pagination — automatically expands the loaded range to reach distant branches
 - Click any commit to view its file list and unified diff
-- Click a branch in the sidebar to scroll the graph to its HEAD and display commit details
-- Dynamic page loading — automatically expands the loaded range to reach distant branches
+- Click a branch in the sidebar to scroll the graph to its HEAD
 
-### Staging & Committing
+### Working Tree & Staging
 - File-level stage / unstage with checkbox toggles
 - **Per-hunk staging** — stage or unstage individual diff hunks within a file
-- Inline diff viewer with syntax-highlighted additions / deletions and line numbers
+- Inline diff viewer with line numbers, monospace font, and added/removed highlighting
+- Discard a single hunk or an entire file from the diff view
 - Commit message editor with immediate feedback
 
 ### Branch Management
-- Local and remote branch listing in a collapsible sidebar tree
-- Create, delete, and checkout branches from the graph context menu
-- Checkout remote branches (automatically creates local tracking branch)
-- HEAD branch highlighted in the sidebar
+- Local + remote branches in a collapsible sidebar tree (HEAD highlighted)
+- Graph context menu — create, delete, checkout, merge, rebase
+- **`Git → Branches...`** dialog: list local branches with their upstream and last commit; checkout, create, rename, delete, and set/unset upstream
+- **Checkout-conflict prompt** — when checking out a remote branch whose same-named local branch already exists, offer to hard-reset the local to the remote HEAD
+
+### Tags
+- Create lightweight or annotated tags from any commit
+- Delete tags
+- Push individual tags to a remote
+- Tag refs shown in the sidebar and on the graph
 
 ### Stash
-- One-click stash from the toolbar with confirmation dialog
+- One-click stash from the toolbar with confirmation
 - View stash contents (file list + diff) by clicking a stash in the sidebar
-- Pop, apply, and drop stashes via context menu
+- Pop, apply, or drop stashes via context menu
 
 ### Remote Operations
-- Push, pull, and fetch from the toolbar
+- Push, pull, fetch, and fetch-all-prune from the toolbar
 - Fetch from a specific remote via sidebar context menu
-- Fetch all with prune (`--all --prune`)
-- Clone repositories via dialog
+- **`Git → Remotes...`** dialog: list, add, edit (rename / change URL), and remove remotes
 - All remote operations run in background threads with status logging
 
-### Repository Management
-- Multi-repo switcher with open and recent repository lists
-- Persistent repo state stored in `~/.gitcrisp/repos.json`
-- Open repositories from the file system or clone from URL
+### Submodule Support
+- **`Git → Submodules...`** dialog: list, add, edit URL, remove submodules; click "Open" to switch the current window to the submodule repo
+- **Click-to-open in diffs** — file and hunk headers for submodule changes are clickable; click to jump into the submodule repo
+- Clone with `--recurse-submodules` automatically
+
+### Multi-Repository
+- Switch between repositories with persistent open and recent lists
+- Open repositories from disk or clone from URL
+- Persistent state in `~/.gitcrisp/repos.json`
+
+### Theming
+- Light and dark themes selectable from **`View → Appearance...`**
+- Custom typography scale (snaps to 10% steps) for the entire UI
+- Live preview, no restart needed
+
+### Insights
+- Per-author commit stats over a configurable date range
+- Useful for retrospectives and contribution overviews
 
 ### Keyboard Shortcuts
+
 | Key | Action |
 |-----|--------|
 | F5  | Reload |
@@ -55,23 +75,32 @@ GitCrisp follows **Clean Architecture** with strict layer separation:
 
 ```
 git_gui/
-├── domain/           # Entities (Commit, Branch, Stash, FileStatus, Hunk)
+├── domain/           # Entities (Commit, Branch, Tag, Stash, Remote, Submodule,
+│                     #            LocalBranchInfo, FileStatus, Hunk, ...)
 │                     # Protocols (IRepositoryReader, IRepositoryWriter, IRepoStore)
 │
 ├── application/      # Use cases — one class per operation
-│   ├── commands.py   # Write: stage, commit, checkout, push, stash, ...
-│   └── queries.py    # Read: get_commits, get_branches, get_file_diff, ...
+│   ├── commands.py   # Write: stage, commit, checkout, push, stash, create_tag,
+│   │                 #         add_remote, add_submodule, set_branch_upstream, ...
+│   └── queries.py    # Read: get_commits, get_branches, get_file_diff,
+│                     #        list_remotes, list_submodules,
+│                     #        list_local_branches_with_upstream, ...
 │
 ├── infrastructure/   # Adapters
-│   ├── pygit2_repo.py   # Implements Reader & Writer via pygit2
-│   ├── repo_store.py    # JSON-based repository persistence
-│   └── git_clone.py     # Clone helper
+│   ├── pygit2_repo.py    # Implements Reader & Writer via pygit2
+│   ├── submodule_cli.py  # `git submodule` subprocess wrapper
+│   ├── repo_store.py     # JSON-based repository persistence
+│   └── git_clone.py      # Clone helper (recursive)
 │
 └── presentation/     # Qt UI layer
-    ├── main_window.py       # Signal orchestration between widgets
-    ├── bus.py               # Command / Query bus (DI containers)
-    ├── models/              # QAbstractTableModel / QAbstractListModel
-    └── widgets/             # Graph, Sidebar, Diff, WorkingTree, etc.
+    ├── main_window.py        # Signal orchestration between widgets
+    ├── bus.py                # Command / Query bus (DI containers)
+    ├── menus/                # Menubar installers (View, Git)
+    ├── dialogs/              # Branches, Remotes, Submodules, Theme,
+    │                         #   Insight, Clone, CreateTag
+    ├── theme/                # Theme manager + tokens
+    ├── models/               # QAbstractTableModel / QAbstractListModel
+    └── widgets/              # Graph, Sidebar, Diff, WorkingTree, LogPanel, ...
 ```
 
 **Key design decisions:**
@@ -79,16 +108,7 @@ git_gui/
 - **Protocol-based dependency injection** — domain defines interfaces, infrastructure implements them, presentation consumes them through buses.
 - **Signal-bridge pattern** — no widget-to-widget references. `MainWindow` wires all cross-widget communication via Qt signals.
 - **Background threading** — remote operations and data loading run in worker threads; results are marshalled to the main thread via `QObject` signal bridges.
-
-## Deliberately Omitted Features
-
-Some Git operations are intentionally left out of GitCrisp. This is not a limitation — it is a design choice.
-
-### Merge
-Branch merging in a team workflow is best done through **pull requests** on platforms like GitHub or GitLab, where code review, CI checks, and approval gates provide a safer and more traceable process than a local merge button.
-
-### Rebase & Cherry-Pick
-These operations frequently involve **merge conflicts** that require manual resolution. No GUI can match the flexibility of a CLI paired with your preferred editor (Vim, VS Code, etc.) for resolving conflicts, editing rebase todo lists, or handling interactive rebases. Attempting to replicate this in a GUI would result in a worse experience than the tools developers already use.
+- **pygit2 first, subprocess where needed** — branch / remote / tag / stash operations use pygit2 directly; submodule mutations shell out to `git` because pygit2 lacks reliable submodule add / remove support.
 
 ## Requirements
 
