@@ -115,6 +115,22 @@ class Rebase:
         self._writer.rebase(branch)
 
 
+class MergeCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str) -> None:
+        self._writer.merge_commit(oid)
+
+
+class RebaseOntoCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str) -> None:
+        self._writer.rebase_onto_commit(oid)
+
+
 class Push:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
