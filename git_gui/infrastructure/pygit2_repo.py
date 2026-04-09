@@ -582,26 +582,32 @@ class Pygit2Repository:
         self._repo.branches.local[name].delete()
 
     def merge(self, branch: str) -> None:
-        # Support both local ("main") and remote-tracking ("origin/main") branches
         if branch in self._repo.branches.local:
             ref = self._repo.branches.local[branch]
         else:
             ref = self._repo.branches.remote[branch]
-        merge_result, _ = self._repo.merge_analysis(ref.target)
+        self._merge_oid(ref.target, label=f"branch '{branch}'")
+
+    def merge_commit(self, oid: str) -> None:
+        target = pygit2.Oid(hex=oid)
+        self._merge_oid(target, label=f"commit {oid[:7]}")
+
+    def _merge_oid(self, target_oid, label: str) -> None:
+        merge_result, _ = self._repo.merge_analysis(target_oid)
         if merge_result & pygit2.GIT_MERGE_ANALYSIS_FASTFORWARD:
-            self._repo.checkout_tree(self._repo.get(ref.target))
-            self._repo.head.set_target(ref.target)
+            self._repo.checkout_tree(self._repo.get(target_oid))
+            self._repo.head.set_target(target_oid)
         elif merge_result & pygit2.GIT_MERGE_ANALYSIS_NORMAL:
-            self._repo.merge(ref.target)
+            self._repo.merge(target_oid)
             if not self._repo.index.conflicts:
                 self._repo.index.write()
                 tree = self._repo.index.write_tree()
                 sig = self._get_signature()
                 self._repo.create_commit(
                     "HEAD", sig, sig,
-                    f"Merge branch '{branch}'",
+                    f"Merge {label}",
                     tree,
-                    [self._repo.head.target, ref.target],
+                    [self._repo.head.target, target_oid],
                 )
                 self._repo.state_cleanup()
 
