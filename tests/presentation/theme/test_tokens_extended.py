@@ -4,7 +4,7 @@ from PySide6.QtGui import QColor
 
 _NEW_TOKEN_NAMES = [
     "status_modified", "status_added", "status_deleted",
-    "status_renamed", "status_unknown",
+    "status_renamed", "status_unknown", "status_conflicted",
     "branch_head_bg",
     "diff_file_header_fg", "diff_hunk_header_fg",
     "diff_added_overlay", "diff_removed_overlay",
@@ -35,6 +35,7 @@ def _make_colors(**overrides):
         status_deleted="#da3633",
         status_renamed="#f0883e",
         status_unknown="#8b949e",
+        status_conflicted="#f85149",
         branch_head_bg="#238636",
         diff_file_header_fg="#e3b341",
         diff_hunk_header_fg="#58a6ff",

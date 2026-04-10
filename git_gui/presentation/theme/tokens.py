@@ -38,6 +38,7 @@ class Colors:
     status_deleted: str
     status_renamed: str
     status_unknown: str
+    status_conflicted: str
     # Branch
     branch_head_bg: str
     # Diff accents

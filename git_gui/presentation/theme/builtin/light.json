@@ -42,6 +42,7 @@
     "status_deleted": "#cf222e",
     "status_renamed": "#bc4c00",
     "status_unknown": "#59636e",
+    "status_conflicted": "#cf222e",
     "branch_head_bg": "#1a7f37",
     "diff_file_header_fg": "#9a6700",
     "diff_hunk_header_fg": "#0969da",

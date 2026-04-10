@@ -17,11 +17,12 @@ from git_gui.presentation.widgets.file_list_view import FileListView as _FileLis
 
 # (label only — color comes from theme.colors.status_color(kind) at paint time)
 _DELTA_LABEL = {
-    "modified": "M",
-    "added":    "A",
-    "deleted":  "D",
-    "renamed":  "R",
-    "unknown":  "?",
+    "modified":    "M",
+    "added":       "A",
+    "deleted":     "D",
+    "renamed":     "R",
+    "unknown":     "?",
+    "conflicted":  "C",
 }
 _BADGE_SIZE = 20
 _BADGE_GAP = 6
@@ -35,8 +36,10 @@ class _FileDelegate(QStyledItemDelegate):
         # Prefix badge letter to display text so Qt reserves space;
         # we'll paint the badge over this prefix area
         fs = index.data(Qt.UserRole)
+        kind = fs.status if fs else "unknown"
         delta = fs.delta if fs else "unknown"
-        label = _DELTA_LABEL.get(delta, "?")
+        badge_key = kind if kind == "conflicted" else delta
+        label = _DELTA_LABEL.get(badge_key, "?")
         # Add padding spaces to make room for the badge we'll paint
         option.text = "        " + (option.text or "")
 
@@ -54,14 +57,16 @@ class _FileDelegate(QStyledItemDelegate):
 
         rect = option.rect
         fs = index.data(Qt.UserRole)
+        kind = fs.status if fs else "unknown"
         delta = fs.delta if fs else "unknown"
-        label = _DELTA_LABEL.get(delta, "?")
+        badge_key = kind if kind == "conflicted" else delta
+        label = _DELTA_LABEL.get(badge_key, "?")
 
         # Position badge after the checkbox area (~30px from left)
         badge_x = rect.left() + 30
         badge_y = rect.top() + (rect.height() - _BADGE_SIZE) // 2
         badge_rect = QRect(badge_x, badge_y, _BADGE_SIZE, _BADGE_SIZE)
-        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(delta)))
+        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(badge_key)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
         painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
@@ -173,7 +178,8 @@ class WorkingTreeWidget(QWidget):
     def _on_reload_done(self, files: list[FileStatus], partial: set[str]) -> None:
         if self._queries is None:
             return
-        self._file_model.reload(files, partial)
+        sorted_files = sorted(files, key=lambda f: (0 if f.status == "conflicted" else 1, f.path))
+        self._file_model.reload(sorted_files, partial)
         if not files:
             self._hunk_diff.clear()
             self.working_tree_empty.emit()
