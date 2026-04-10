@@ -60,7 +60,8 @@ def test_delete_branch():
 def test_merge():
     w = _writer()
     Merge(w).execute("feature/x")
-    w.merge.assert_called_once_with("feature/x")
+    from git_gui.domain.entities import MergeStrategy
+    w.merge.assert_called_once_with("feature/x", MergeStrategy.ALLOW_FF, None)
 
 
 def test_rebase():
@@ -106,7 +107,7 @@ class _FakeMergeCommitWriter:
     def __init__(self):
         self.merge_commit_called = None
         self.rebase_onto_commit_called = None
-    def merge_commit(self, oid):
+    def merge_commit(self, oid, strategy=None, message=None):
         self.merge_commit_called = oid
     def rebase_onto_commit(self, oid):
         self.rebase_onto_commit_called = oid
