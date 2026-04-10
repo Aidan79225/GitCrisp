@@ -10,12 +10,13 @@ def _make_widget(qtbot) -> WorkingTreeWidget:
     """Create a WorkingTreeWidget with minimal init bypass."""
     w = WorkingTreeWidget.__new__(WorkingTreeWidget)
     QWidget.__init__(w)
-    from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton
+    from PySide6.QtWidgets import QHBoxLayout, QLabel, QPlainTextEdit, QPushButton
     w._conflict_banner = QWidget()
     banner_layout = QHBoxLayout(w._conflict_banner)
     w._banner_label = QLabel("")
     w._btn_abort = QPushButton("Abort")
     w._btn_commit = QPushButton("Commit")
+    w._msg_edit = QPlainTextEdit()
     banner_layout.addWidget(w._banner_label, 1)
     banner_layout.addWidget(w._btn_abort)
     w._conflict_banner.setVisible(False)
