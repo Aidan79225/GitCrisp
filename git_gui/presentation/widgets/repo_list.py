@@ -1,6 +1,7 @@
 # git_gui/presentation/widgets/repo_list.py
 from __future__ import annotations
 from pathlib import Path
+import pygit2
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
@@ -8,7 +9,6 @@ from PySide6.QtWidgets import (
     QStyle, QStyleOptionViewItem, QTreeView,
     QVBoxLayout, QWidget,
 )
-import pygit2
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.theme import get_theme_manager, connect_widget
 
