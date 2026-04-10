@@ -313,3 +313,27 @@ class ResetBranchToRef:
 
     def execute(self, branch: str, ref: str) -> None:
         self._writer.reset_branch_to_ref(branch, ref)
+
+
+class MergeAbort:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.merge_abort()
+
+
+class RebaseAbort:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.rebase_abort()
+
+
+class RebaseContinue:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.rebase_continue()

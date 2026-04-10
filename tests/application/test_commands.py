@@ -145,3 +145,33 @@ def test_merge_commit_passes_strategy_and_message():
     w = _FakeStrategyWriter()
     MergeCommit(w).execute("abc123", strategy=MergeStrategy.FF_ONLY, message=None)
     assert w.merge_commit_args == ("abc123", MergeStrategy.FF_ONLY, None)
+
+
+from git_gui.application.commands import MergeAbort, RebaseAbort, RebaseContinue
+
+class _FakeAbortWriter:
+    def __init__(self):
+        self.merge_abort_called = False
+        self.rebase_abort_called = False
+        self.rebase_continue_called = False
+    def merge_abort(self):
+        self.merge_abort_called = True
+    def rebase_abort(self):
+        self.rebase_abort_called = True
+    def rebase_continue(self):
+        self.rebase_continue_called = True
+
+def test_merge_abort_delegates():
+    w = _FakeAbortWriter()
+    MergeAbort(w).execute()
+    assert w.merge_abort_called
+
+def test_rebase_abort_delegates():
+    w = _FakeAbortWriter()
+    RebaseAbort(w).execute()
+    assert w.rebase_abort_called
+
+def test_rebase_continue_delegates():
+    w = _FakeAbortWriter()
+    RebaseContinue(w).execute()
+    assert w.rebase_continue_called
