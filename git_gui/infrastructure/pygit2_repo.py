@@ -674,6 +674,15 @@ class Pygit2Repository:
     def rebase_onto_commit(self, oid: str) -> None:
         self._rebase_onto(pygit2.Oid(hex=oid))
 
+    def merge_abort(self) -> None:
+        self._run_git("merge", "--abort")
+
+    def rebase_abort(self) -> None:
+        self._run_git("rebase", "--abort")
+
+    def rebase_continue(self) -> None:
+        self._run_git("rebase", "--continue")
+
     def _rebase_onto(self, target_oid) -> None:
         # Convert Oid to hex string if needed
         target_hex = str(target_oid)

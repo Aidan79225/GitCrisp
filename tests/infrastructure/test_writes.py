@@ -2,7 +2,7 @@ import pygit2
 import pytest
 from pathlib import Path
 from git_gui.infrastructure.pygit2_repo import Pygit2Repository
-from git_gui.domain.entities import MergeStrategy
+from git_gui.domain.entities import MergeStrategy, RepoState
 
 
 @pytest.fixture
@@ -209,3 +209,91 @@ def test_merge_allow_ff_fast_forwards_when_possible(writable_repo):
     assert impl.get_head_oid() == feat_commit.oid
     new_head = impl.get_commit(impl.get_head_oid())
     assert len(new_head.parents) == 1
+
+
+# ---- merge_abort / rebase_abort / rebase_continue ----
+
+
+def _create_merge_conflict(impl, repo_path):
+    """Helper: create divergent branches with conflicting changes, trigger merge conflict."""
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    # Commit on master
+    (repo_path / "README.md").write_text("master change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master change", tree_a, [base])
+
+    # Create branch from base with conflicting change
+    raw.branches.local.create("conflict-branch", raw.get(base))
+    raw.checkout("refs/heads/conflict-branch")
+    (repo_path / "README.md").write_text("branch change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    raw.create_commit("refs/heads/conflict-branch", sig, sig, "branch change", tree_b, [base])
+
+    # Switch back to master and merge -> conflict
+    raw.checkout("refs/heads/master")
+    raw.merge(raw.branches.local["conflict-branch"].target)
+
+
+def test_merge_abort_restores_clean_state(writable_repo):
+    impl, path = writable_repo
+    _create_merge_conflict(impl, path)
+    # Verify we are in MERGING state
+    info = impl.repo_state()
+    assert info.state == RepoState.MERGING
+
+    impl.merge_abort()
+
+    info = impl.repo_state()
+    assert info.state == RepoState.CLEAN
+    assert impl.get_merge_head() is None
+
+
+def test_rebase_abort_restores_clean_state(writable_repo):
+    impl, path = writable_repo
+    raw = pygit2.Repository(str(path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    # Commit on master
+    (path / "README.md").write_text("master rebase change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master rebase", tree_a, [base])
+
+    # Create branch from base with conflicting change
+    raw.branches.local.create("rebase-branch", raw.get(base))
+    raw.checkout("refs/heads/rebase-branch")
+    (path / "README.md").write_text("rebase branch change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    raw.create_commit("refs/heads/rebase-branch", sig, sig, "rebase branch", tree_b, [base])
+
+    # Trigger rebase conflict via git rebase master
+    with pytest.raises(RuntimeError):
+        impl.rebase("master")
+
+    # During rebase, git detaches HEAD so repo_state returns DETACHED_HEAD;
+    # verify rebase is in progress via the rebase-merge directory
+    import os
+    raw2 = pygit2.Repository(str(path))
+    assert raw2.state() != pygit2.GIT_REPOSITORY_STATE_NONE
+
+    impl.rebase_abort()
+
+    raw3 = pygit2.Repository(str(path))
+    assert raw3.state() == pygit2.GIT_REPOSITORY_STATE_NONE
+
+
+def test_rebase_continue_errors_on_clean_repo(writable_repo):
+    impl, path = writable_repo
+    with pytest.raises(RuntimeError):
+        impl.rebase_continue()
