@@ -3,8 +3,7 @@ import pytest
 from pathlib import Path
 
 
-def _is_git_repo(path: str) -> bool:
-    return pygit2.discover_repository(path) is not None
+from main import _is_git_repo
 
 
 class TestIsGitRepo:
@@ -56,3 +55,19 @@ class TestFindValidRepoPruning:
 
         result = _find_valid_repo(store)
         assert result == str(repo_dir)
+
+    def test_prunes_active_non_git_directory(self, tmp_path):
+        """Active path that is a dir but not a git repo gets pruned."""
+        plain_dir = tmp_path / "not_a_repo"
+        plain_dir.mkdir()
+
+        store_path = tmp_path / "repos.json"
+        store = JsonRepoStore(store_path)
+        store.load()
+        store.add_open(str(plain_dir))  # This also sets active
+        store.save()
+
+        from main import _find_valid_repo
+        result = _find_valid_repo(store)
+        assert result is None
+        assert store.get_active() is None
