@@ -300,3 +300,67 @@ def test_merge_analysis_up_to_date(repo_impl, repo_path):
     head_oid = repo_impl.get_head_oid()
     result = repo_impl.merge_analysis(head_oid)
     assert result.is_up_to_date is True
+
+
+# ---- get_merge_head / get_merge_msg / has_unresolved_conflicts ----
+
+
+def _create_merge_conflict(repo_path):
+    """Helper: create divergent branches with conflicting changes, trigger merge."""
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    # Commit on master (conflicting change to README.md)
+    (repo_path / "README.md").write_text("master change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master change", tree_a, [base])
+
+    # Create branch from base with conflicting change
+    raw.branches.local.create("conflict-branch", raw.get(base))
+    raw.checkout("refs/heads/conflict-branch")
+    (repo_path / "README.md").write_text("branch change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    branch_tip = raw.create_commit(
+        "refs/heads/conflict-branch", sig, sig, "branch change", tree_b, [base]
+    )
+
+    # Switch back to master and merge -> conflict
+    raw.checkout("refs/heads/master")
+    raw.merge(raw.branches.local["conflict-branch"].target)
+    return str(branch_tip)
+
+
+def test_get_merge_head_returns_none_when_clean(repo_impl):
+    assert repo_impl.get_merge_head() is None
+
+
+def test_get_merge_head_returns_oid_during_merge(repo_path, repo_impl):
+    branch_tip = _create_merge_conflict(repo_path)
+    result = repo_impl.get_merge_head()
+    assert result is not None
+    assert result == branch_tip
+
+
+def test_get_merge_msg_returns_none_when_clean(repo_impl):
+    assert repo_impl.get_merge_msg() is None
+
+
+def test_get_merge_msg_returns_content_during_merge(repo_path, repo_impl):
+    _create_merge_conflict(repo_path)
+    msg = repo_impl.get_merge_msg()
+    assert msg is not None
+    assert "Merge" in msg or "conflict-branch" in msg
+
+
+def test_has_unresolved_conflicts_false_when_clean(repo_impl):
+    assert repo_impl.has_unresolved_conflicts() is False
+
+
+def test_has_unresolved_conflicts_true_during_merge(repo_path, repo_impl):
+    _create_merge_conflict(repo_path)
+    assert repo_impl.has_unresolved_conflicts() is True

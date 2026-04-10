@@ -415,6 +415,30 @@ class Pygit2Repository:
         mapped = state_map.get(state, RepoState.CLEAN)
         return RepoStateInfo(state=mapped, head_branch=self._repo.head.shorthand)
 
+    def get_merge_head(self) -> str | None:
+        merge_head_path = os.path.join(self._repo.path, "MERGE_HEAD")
+        if not os.path.exists(merge_head_path):
+            return None
+        with open(merge_head_path) as f:
+            return f.readline().strip()
+
+    def get_merge_msg(self) -> str | None:
+        merge_msg_path = os.path.join(self._repo.path, "MERGE_MSG")
+        if not os.path.exists(merge_msg_path):
+            return None
+        with open(merge_msg_path) as f:
+            return f.read()
+
+    def has_unresolved_conflicts(self) -> bool:
+        self._repo.index.read()
+        if self._repo.index.conflicts is None:
+            return False
+        try:
+            next(iter(self._repo.index.conflicts))
+            return True
+        except StopIteration:
+            return False
+
     # ----------------------------------------------------------------- helpers
 
     def _get_signature(self) -> pygit2.Signature:
