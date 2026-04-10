@@ -3,12 +3,6 @@ description: A clean, focused Git GUI
 baseurl: /GitCrisp
 url: https://aidan79225.github.io
 
-defaults:
-  - scope:
-      path: "superpowers/plans"
-    values:
-      render_with_liquid: false
-  - scope:
-      path: "superpowers/specs"
-    values:
-      render_with_liquid: false
+exclude:
+  - superpowers/plans
+  - superpowers/specs
