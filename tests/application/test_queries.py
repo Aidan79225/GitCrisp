@@ -123,3 +123,30 @@ def test_get_merge_analysis_passthrough():
     result = q.execute("abc123")
     assert result.can_ff is True
     assert result.is_up_to_date is False
+
+
+from git_gui.application.queries import GetMergeHead, GetMergeMsg, HasUnresolvedConflicts
+
+class _FakeMergeHeadReader:
+    def get_merge_head(self):
+        return "abc123"
+
+class _FakeMergeMsgReader:
+    def get_merge_msg(self):
+        return "Merge branch 'feature'"
+
+class _FakeConflictReader:
+    def __init__(self, val):
+        self._val = val
+    def has_unresolved_conflicts(self):
+        return self._val
+
+def test_get_merge_head_passthrough():
+    assert GetMergeHead(_FakeMergeHeadReader()).execute() == "abc123"
+
+def test_get_merge_msg_passthrough():
+    assert GetMergeMsg(_FakeMergeMsgReader()).execute() == "Merge branch 'feature'"
+
+def test_has_unresolved_conflicts_passthrough():
+    assert HasUnresolvedConflicts(_FakeConflictReader(True)).execute() is True
+    assert HasUnresolvedConflicts(_FakeConflictReader(False)).execute() is False

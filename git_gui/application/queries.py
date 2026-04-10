@@ -153,3 +153,24 @@ class GetMergeAnalysis:
         self._reader = reader
     def execute(self, oid: str) -> MergeAnalysisResult:
         return self._reader.merge_analysis(oid)
+
+
+class GetMergeHead:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+    def execute(self) -> str | None:
+        return self._reader.get_merge_head()
+
+
+class GetMergeMsg:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+    def execute(self) -> str | None:
+        return self._reader.get_merge_msg()
+
+
+class HasUnresolvedConflicts:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+    def execute(self) -> bool:
+        return self._reader.has_unresolved_conflicts()
