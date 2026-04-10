@@ -109,3 +109,17 @@ def test_is_ancestor_query_passthrough():
     q = IsAncestor(_FakeAncestorReader())
     assert q.execute("anc", "desc") is True
     assert q.execute("x", "y") is False
+
+
+from git_gui.application.queries import GetMergeAnalysis
+from git_gui.domain.entities import MergeAnalysisResult
+
+class _FakeMergeAnalysisReader:
+    def merge_analysis(self, oid):
+        return MergeAnalysisResult(can_ff=True, is_up_to_date=False)
+
+def test_get_merge_analysis_passthrough():
+    q = GetMergeAnalysis(_FakeMergeAnalysisReader())
+    result = q.execute("abc123")
+    assert result.can_ff is True
+    assert result.is_up_to_date is False
