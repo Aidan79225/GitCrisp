@@ -8,7 +8,7 @@ import pygit2
 
 from git_gui.resources import subprocess_kwargs
 from git_gui.domain.entities import (
-    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, MergeAnalysisResult, Remote, RepoState, RepoStateInfo, Stash, Submodule, Tag, WORKING_TREE_OID,
+    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, MergeAnalysisResult, MergeStrategy, Remote, RepoState, RepoStateInfo, Stash, Submodule, Tag, WORKING_TREE_OID,
 )
 
 
@@ -581,16 +581,18 @@ class Pygit2Repository:
     def delete_branch(self, name: str) -> None:
         self._repo.branches.local[name].delete()
 
-    def merge(self, branch: str) -> None:
+    def merge(self, branch: str, strategy: MergeStrategy = MergeStrategy.ALLOW_FF, message: str | None = None) -> None:
         if branch in self._repo.branches.local:
             ref = self._repo.branches.local[branch]
         else:
             ref = self._repo.branches.remote[branch]
-        self._merge_oid(ref.target, label=f"branch '{branch}'")
+        default_label = f"branch '{branch}'"
+        self._merge_oid(ref.target, label=default_label, strategy=strategy, message=message)
 
-    def merge_commit(self, oid: str) -> None:
+    def merge_commit(self, oid: str, strategy: MergeStrategy = MergeStrategy.ALLOW_FF, message: str | None = None) -> None:
         target = pygit2.Oid(hex=oid)
-        self._merge_oid(target, label=f"commit {oid[:7]}")
+        default_label = f"commit {oid[:7]}"
+        self._merge_oid(target, label=default_label, strategy=strategy, message=message)
 
     def merge_analysis(self, oid: str) -> MergeAnalysisResult:
         target = pygit2.Oid(hex=oid)
@@ -599,12 +601,18 @@ class Pygit2Repository:
         is_up_to_date = bool(result & pygit2.GIT_MERGE_ANALYSIS_UP_TO_DATE)
         return MergeAnalysisResult(can_ff=can_ff, is_up_to_date=is_up_to_date)
 
-    def _merge_oid(self, target_oid, label: str) -> None:
+    def _merge_oid(self, target_oid, label: str, strategy: MergeStrategy = MergeStrategy.ALLOW_FF, message: str | None = None) -> None:
         merge_result, _ = self._repo.merge_analysis(target_oid)
-        if merge_result & pygit2.GIT_MERGE_ANALYSIS_FASTFORWARD:
-            self._repo.checkout_tree(self._repo.get(target_oid))
-            self._repo.head.set_target(target_oid)
-        elif merge_result & pygit2.GIT_MERGE_ANALYSIS_NORMAL:
+        can_ff = bool(merge_result & pygit2.GIT_MERGE_ANALYSIS_FASTFORWARD)
+        commit_message = message if message else f"Merge {label}"
+
+        if strategy == MergeStrategy.FF_ONLY:
+            if can_ff:
+                self._repo.checkout_tree(self._repo.get(target_oid))
+                self._repo.head.set_target(target_oid)
+            else:
+                raise RuntimeError("Cannot fast-forward this merge")
+        elif strategy == MergeStrategy.NO_FF:
             self._repo.merge(target_oid)
             if not self._repo.index.conflicts:
                 self._repo.index.write()
@@ -612,11 +620,28 @@ class Pygit2Repository:
                 sig = self._get_signature()
                 self._repo.create_commit(
                     "HEAD", sig, sig,
-                    f"Merge {label}",
+                    commit_message,
                     tree,
                     [self._repo.head.target, target_oid],
                 )
                 self._repo.state_cleanup()
+        else:  # ALLOW_FF
+            if can_ff:
+                self._repo.checkout_tree(self._repo.get(target_oid))
+                self._repo.head.set_target(target_oid)
+            elif merge_result & pygit2.GIT_MERGE_ANALYSIS_NORMAL:
+                self._repo.merge(target_oid)
+                if not self._repo.index.conflicts:
+                    self._repo.index.write()
+                    tree = self._repo.index.write_tree()
+                    sig = self._get_signature()
+                    self._repo.create_commit(
+                        "HEAD", sig, sig,
+                        commit_message,
+                        tree,
+                        [self._repo.head.target, target_oid],
+                    )
+                    self._repo.state_cleanup()
 
     def rebase(self, branch: str) -> None:
         onto_ref = self._repo.branches.local[branch]

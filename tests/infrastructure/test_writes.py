@@ -2,6 +2,7 @@ import pygit2
 import pytest
 from pathlib import Path
 from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+from git_gui.domain.entities import MergeStrategy
 
 
 @pytest.fixture
@@ -153,3 +154,58 @@ def test_rebase_onto_commit(writable_repo):
 
     new_head = impl.get_head_oid()
     assert impl.is_ancestor(c.oid, new_head) is True
+
+
+def test_merge_no_ff_creates_merge_commit_when_ff_possible(writable_repo):
+    """NO_FF forces merge commit even on linear history."""
+    impl, path = writable_repo
+    head_oid = impl.get_head_oid()
+    impl.create_branch("feature-noff", head_oid)
+    impl.checkout("feature-noff")
+    (path / "noff.txt").write_text("noff")
+    impl.stage(["noff.txt"])
+    impl.commit("feature work")
+    branches = impl.get_branches()
+    main_name = next(b.name for b in branches if not b.is_remote and b.name != "feature-noff")
+    impl.checkout(main_name)
+    impl.merge("feature-noff", strategy=MergeStrategy.NO_FF, message="Custom merge msg")
+    new_head = impl.get_commit(impl.get_head_oid())
+    assert len(new_head.parents) == 2
+    assert "Custom merge msg" in new_head.message
+
+
+def test_merge_ff_only_raises_when_not_possible(writable_repo):
+    """FF_ONLY on diverged history raises."""
+    impl, path = writable_repo
+    head_oid = impl.get_head_oid()
+    impl.create_branch("diverge", head_oid)
+    (path / "m.txt").write_text("m")
+    impl.stage(["m.txt"])
+    impl.commit("main side")
+    impl.checkout("diverge")
+    (path / "d.txt").write_text("d")
+    impl.stage(["d.txt"])
+    impl.commit("diverge side")
+    branches = impl.get_branches()
+    main_name = next(b.name for b in branches if not b.is_remote and b.name != "diverge")
+    impl.checkout(main_name)
+    with pytest.raises(RuntimeError, match="[Cc]annot fast-forward"):
+        impl.merge("diverge", strategy=MergeStrategy.FF_ONLY)
+
+
+def test_merge_allow_ff_fast_forwards_when_possible(writable_repo):
+    """ALLOW_FF on linear history fast-forwards (no merge commit)."""
+    impl, path = writable_repo
+    head_oid = impl.get_head_oid()
+    impl.create_branch("feature-af", head_oid)
+    impl.checkout("feature-af")
+    (path / "af.txt").write_text("af")
+    impl.stage(["af.txt"])
+    feat_commit = impl.commit("feature work")
+    branches = impl.get_branches()
+    main_name = next(b.name for b in branches if not b.is_remote and b.name != "feature-af")
+    impl.checkout(main_name)
+    impl.merge("feature-af", strategy=MergeStrategy.ALLOW_FF)
+    assert impl.get_head_oid() == feat_commit.oid
+    new_head = impl.get_commit(impl.get_head_oid())
+    assert len(new_head.parents) == 1
