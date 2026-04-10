@@ -128,6 +128,7 @@ QCheckBox::indicator:hover {
 QCheckBox::indicator:checked {
     background: %(primary)s;
     border-color: %(primary)s;
+    image: url(arts/ic_check.svg);
 }
 
 /* Scrollbar — once any QApplication stylesheet exists, Qt routes

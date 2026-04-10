@@ -41,7 +41,7 @@ class _FileDelegate(QStyledItemDelegate):
         badge_key = kind if kind == "conflicted" else delta
         label = _DELTA_LABEL.get(badge_key, "?")
         # Add padding spaces to make room for the badge we'll paint
-        option.text = "        " + (option.text or "")
+        option.text = "          " + (option.text or "")
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         # Fill selection background explicitly before Qt draws over it
@@ -102,12 +102,10 @@ class WorkingTreeWidget(QWidget):
         self._banner_label = QLabel("")
         self._banner_label.setStyleSheet("font-weight: bold;")
         self._btn_abort = QPushButton("Abort")
-        self._btn_continue = QPushButton("Continue")
         banner_layout.addWidget(self._banner_label, 1)
         banner_layout.addWidget(self._btn_abort)
-        banner_layout.addWidget(self._btn_continue)
         self._conflict_banner.setStyleSheet(
-            "background-color: #5c2d2d; border-bottom: 1px solid #da3633; padding: 2px;"
+            "background-color: #5c2d2d; border: none; padding: 2px;"
         )
         self._conflict_banner.setVisible(False)
 
@@ -171,7 +169,6 @@ class WorkingTreeWidget(QWidget):
         self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
         self._hunk_diff.submodule_open_requested.connect(self.submodule_open_requested)
         self._btn_abort.clicked.connect(self._on_abort_clicked)
-        self._btn_continue.clicked.connect(self._on_continue_clicked)
 
         connect_widget(self)
 
@@ -273,6 +270,13 @@ class WorkingTreeWidget(QWidget):
             self._on_files_changed()
 
     def _on_commit(self) -> None:
+        state = getattr(self, "_current_state", "CLEAN")
+        if state == "MERGING":
+            self.merge_continue_requested.emit()
+            return
+        if state == "REBASING":
+            self.rebase_continue_requested.emit()
+            return
         msg = self._msg_edit.toPlainText().strip()
         if not msg:
             self.commit_failed.emit("Commit message is empty")
@@ -336,11 +340,14 @@ class WorkingTreeWidget(QWidget):
         if state_name == "MERGING":
             self._banner_label.setText("\u26a0 Merge in progress")
             self._conflict_banner.setVisible(True)
+            self._btn_commit.setText("Finish Merge")
         elif state_name == "REBASING":
             self._banner_label.setText("\u26a0 Rebase in progress")
             self._conflict_banner.setVisible(True)
+            self._btn_commit.setText("Continue Rebase")
         else:
             self._conflict_banner.setVisible(False)
+            self._btn_commit.setText("Commit")
 
     def _on_abort_clicked(self) -> None:
         state = getattr(self, "_current_state", "CLEAN")
@@ -349,12 +356,6 @@ class WorkingTreeWidget(QWidget):
         elif state == "REBASING":
             self.rebase_abort_requested.emit()
 
-    def _on_continue_clicked(self) -> None:
-        state = getattr(self, "_current_state", "CLEAN")
-        if state == "MERGING":
-            self.merge_continue_requested.emit()
-        elif state == "REBASING":
-            self.rebase_continue_requested.emit()
 
 
 def _deduplicate(files: list[FileStatus]) -> tuple[list[FileStatus], set[str]]:
