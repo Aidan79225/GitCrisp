@@ -100,6 +100,10 @@ class MainWindow(QMainWindow):
         # Wire cross-widget signals
         self._graph.commit_selected.connect(self._on_commit_selected)
         self._working_tree.reload_requested.connect(self._reload)
+        self._working_tree.merge_abort_requested.connect(self._on_merge_abort)
+        self._working_tree.rebase_abort_requested.connect(self._on_rebase_abort)
+        self._working_tree.merge_continue_requested.connect(self._on_merge_continue)
+        self._working_tree.rebase_continue_requested.connect(self._on_rebase_continue)
         self._working_tree.commit_completed.connect(
             lambda msg: self._log_panel.log(f'Commit: "{msg}"')
         )
@@ -195,6 +199,12 @@ class MainWindow(QMainWindow):
         self._graph.reload()
         if self._right_stack.currentIndex() == 1:
             self._working_tree.reload()
+        if self._queries is not None:
+            try:
+                state_info = self._queries.get_repo_state.execute()
+                self._working_tree.update_conflict_banner(state_info.state.name)
+            except Exception:
+                self._working_tree.update_conflict_banner("CLEAN")
 
     def _on_branch_changed(self, branch: str) -> None:
         if self._queries is None:
@@ -274,6 +284,51 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Rebase onto commit {oid[:7]} — ERROR: {e}")
+        self._reload()
+
+    def _on_merge_abort(self) -> None:
+        try:
+            self._commands.merge_abort.execute()
+            self._log_panel.log("Merge aborted")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Merge abort — ERROR: {e}")
+        self._reload()
+
+    def _on_rebase_abort(self) -> None:
+        try:
+            self._commands.rebase_abort.execute()
+            self._log_panel.log("Rebase aborted")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Rebase abort — ERROR: {e}")
+        self._reload()
+
+    def _on_merge_continue(self) -> None:
+        try:
+            if self._queries.has_unresolved_conflicts.execute():
+                self._log_panel.expand()
+                self._log_panel.log_error("Resolve all conflicts and stage files first")
+                return
+            merge_msg = self._queries.get_merge_msg.execute() or "Merge commit"
+            self._commands.create_commit.execute(merge_msg)
+            self._log_panel.log("Merge completed")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Merge continue — ERROR: {e}")
+        self._reload()
+
+    def _on_rebase_continue(self) -> None:
+        try:
+            if self._queries.has_unresolved_conflicts.execute():
+                self._log_panel.expand()
+                self._log_panel.log_error("Resolve all conflicts and stage files first")
+                return
+            self._commands.rebase_continue.execute()
+            self._log_panel.log("Rebase continued")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Rebase continue — ERROR: {e}")
         self._reload()
 
     def _on_delete_branch(self, branch: str) -> None:
