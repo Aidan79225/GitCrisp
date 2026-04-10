@@ -393,8 +393,8 @@ class Pygit2Repository:
         return bool(self._repo.descendant_of(descendant_oid, ancestor_oid))
 
     def repo_state(self) -> RepoStateInfo:
-        if self._repo.head_is_detached:
-            return RepoStateInfo(state=RepoState.DETACHED_HEAD, head_branch=None)
+        # Check operation state FIRST — git detaches HEAD during rebase,
+        # but we want to report REBASING, not DETACHED_HEAD.
         state = self._repo.state()
         raw_map = {
             "GIT_REPOSITORY_STATE_NONE": RepoState.CLEAN,
@@ -413,7 +413,18 @@ class Pygit2Repository:
             if const is not None:
                 state_map[const] = mapped_state
         mapped = state_map.get(state, RepoState.CLEAN)
-        return RepoStateInfo(state=mapped, head_branch=self._repo.head.shorthand)
+
+        # If in an active operation (merge/rebase/etc), report that state
+        # even if HEAD is detached (rebase detaches HEAD).
+        if mapped != RepoState.CLEAN:
+            head_branch = None if self._repo.head_is_detached else self._repo.head.shorthand
+            return RepoStateInfo(state=mapped, head_branch=head_branch)
+
+        # No operation in progress — check for plain detached HEAD
+        if self._repo.head_is_detached:
+            return RepoStateInfo(state=RepoState.DETACHED_HEAD, head_branch=None)
+
+        return RepoStateInfo(state=RepoState.CLEAN, head_branch=self._repo.head.shorthand)
 
     def get_merge_head(self) -> str | None:
         merge_head_path = os.path.join(self._repo.path, "MERGE_HEAD")
