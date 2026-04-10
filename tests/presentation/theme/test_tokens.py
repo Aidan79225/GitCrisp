@@ -26,6 +26,7 @@ def _minimal_theme(name="Test", is_dark=False) -> Theme:
         status_deleted="#da3633",
         status_renamed="#f0883e",
         status_unknown="#8b949e",
+        status_conflicted="#f85149",
         branch_head_bg="#238636",
         diff_file_header_fg="#e3b341",
         diff_hunk_header_fg="#58a6ff",

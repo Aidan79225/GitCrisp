@@ -31,6 +31,7 @@ def _valid_dict() -> dict:
             "status_deleted": "#da3633",
             "status_renamed": "#f0883e",
             "status_unknown": "#8b949e",
+            "status_conflicted": "#f85149",
             "branch_head_bg": "#238636",
             "diff_file_header_fg": "#9a6700",
             "diff_hunk_header_fg": "#0969da",
