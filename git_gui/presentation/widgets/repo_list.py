@@ -4,10 +4,11 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QMenu, QPushButton,
+    QFileDialog, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
     QStyle, QStyleOptionViewItem, QTreeView,
     QVBoxLayout, QWidget,
 )
+import pygit2
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.theme import get_theme_manager, connect_widget
 
@@ -218,11 +219,23 @@ class RepoListWidget(QWidget):
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 
     def _on_add_clicked(self) -> None:
-        dialog = QFileDialog(self)
-        dialog.setWindowTitle("Open Repository")
-        dialog.setFileMode(QFileDialog.Directory)
-        dialog.setOption(QFileDialog.ShowDirsOnly, True)
-        if dialog.exec() == QFileDialog.Accepted:
+        while True:
+            dialog = QFileDialog(self)
+            dialog.setWindowTitle("Open Repository")
+            dialog.setFileMode(QFileDialog.Directory)
+            dialog.setOption(QFileDialog.ShowDirsOnly, True)
+            if dialog.exec() != QFileDialog.Accepted:
+                return
             dirs = dialog.selectedFiles()
-            if dirs:
-                self.repo_open_requested.emit(dirs[0])
+            if not dirs:
+                return
+            path = dirs[0]
+            if pygit2.discover_repository(path) is not None:
+                self.repo_open_requested.emit(path)
+                return
+            QMessageBox.warning(
+                self,
+                "Not a Git Repository",
+                "The selected folder is not a Git repository.\n"
+                "Please choose a folder that contains a Git repository.",
+            )
