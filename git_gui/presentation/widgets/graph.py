@@ -504,8 +504,8 @@ class GraphWidget(QWidget):
         short_oid = oid[:7]
         head_label = head_branch or "HEAD"
 
-        def _add(label: str, tooltip: str | None, signal_emit) -> None:
-            action = menu.addAction(label)
+        def _add(target_menu: QMenu, label: str, tooltip: str | None, signal_emit) -> None:
+            action = target_menu.addAction(label)
             if global_disable_reason:
                 action.setEnabled(False)
                 action.setToolTip(global_disable_reason)
@@ -515,6 +515,8 @@ class GraphWidget(QWidget):
             else:
                 action.triggered.connect(signal_emit)
 
+        # Collect merge actions
+        merge_actions: list[tuple[str, str | None, object]] = []
         for b in branch_targets:
             ancestor_tooltip = None
             try:
@@ -522,32 +524,52 @@ class GraphWidget(QWidget):
                     ancestor_tooltip = "Already up to date"
             except Exception:
                 pass
-            _add(
-                f"Merge {b} into {head_label}",
+            merge_actions.append((
+                f"{b} into {head_label}",
                 ancestor_tooltip,
                 lambda _checked=False, n=b: self.merge_branch_requested.emit(n),
-            )
-
-        for b in branch_targets:
-            _add(
-                f"Rebase {head_label} onto {b}",
-                None,
-                lambda _checked=False, n=b: self.rebase_onto_branch_requested.emit(n),
-            )
-
+            ))
         if show_commit_merge:
-            _add(
-                f"Merge commit {short_oid} into {head_label}",
+            merge_actions.append((
+                f"commit {short_oid} into {head_label}",
                 None,
                 lambda _checked=False, o=oid: self.merge_commit_requested.emit(o),
-            )
+            ))
 
+        # Collect rebase actions
+        rebase_actions: list[tuple[str, str | None, object]] = []
+        for b in branch_targets:
+            rebase_actions.append((
+                f"{head_label} onto {b}",
+                None,
+                lambda _checked=False, n=b: self.rebase_onto_branch_requested.emit(n),
+            ))
         if show_commit_rebase:
-            _add(
-                f"Rebase {head_label} onto commit {short_oid}",
+            rebase_actions.append((
+                f"{head_label} onto commit {short_oid}",
                 None,
                 lambda _checked=False, o=oid: self.rebase_onto_commit_requested.emit(o),
-            )
+            ))
+
+        # Add merge actions: submenu if ≥2, top-level if 1
+        if len(merge_actions) == 1:
+            label, tooltip, emit = merge_actions[0]
+            _add(menu, f"Merge {label}", tooltip, emit)
+        elif merge_actions:
+            sub = menu.addMenu("Merge")
+            sub.setToolTipsVisible(True)
+            for label, tooltip, emit in merge_actions:
+                _add(sub, label, tooltip, emit)
+
+        # Add rebase actions: submenu if ≥2, top-level if 1
+        if len(rebase_actions) == 1:
+            label, tooltip, emit = rebase_actions[0]
+            _add(menu, f"Rebase {label}", tooltip, emit)
+        elif rebase_actions:
+            sub = menu.addMenu("Rebase")
+            sub.setToolTipsVisible(True)
+            for label, tooltip, emit in rebase_actions:
+                _add(sub, label, tooltip, emit)
 
     def reload_and_scroll_to(self, oid: str) -> None:
         """Reload and scroll to the given oid after load completes."""
