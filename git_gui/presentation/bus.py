@@ -7,7 +7,7 @@ from git_gui.application.queries import (
     GetCommitFiles, GetFileDiff, GetStagedDiff, GetWorkingTree,
     GetCommitDetail, IsDirty, GetHeadOid,
     ListRemotes, ListSubmodules, ListLocalBranchesWithUpstream,
-    GetRepoState, IsAncestor,
+    GetRepoState, IsAncestor, GetMergeAnalysis,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
@@ -44,6 +44,7 @@ class QueryBus:
     list_local_branches_with_upstream: ListLocalBranchesWithUpstream
     get_repo_state: GetRepoState
     is_ancestor: IsAncestor
+    get_merge_analysis: GetMergeAnalysis
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
@@ -66,6 +67,7 @@ class QueryBus:
             list_local_branches_with_upstream=ListLocalBranchesWithUpstream(reader),
             get_repo_state=GetRepoState(reader),
             is_ancestor=IsAncestor(reader),
+            get_merge_analysis=GetMergeAnalysis(reader),
         )
 
 
