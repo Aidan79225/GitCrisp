@@ -8,7 +8,7 @@ import pygit2
 
 from git_gui.resources import subprocess_kwargs
 from git_gui.domain.entities import (
-    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, Remote, RepoState, RepoStateInfo, Stash, Submodule, Tag, WORKING_TREE_OID,
+    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, MergeAnalysisResult, Remote, RepoState, RepoStateInfo, Stash, Submodule, Tag, WORKING_TREE_OID,
 )
 
 
@@ -591,6 +591,13 @@ class Pygit2Repository:
     def merge_commit(self, oid: str) -> None:
         target = pygit2.Oid(hex=oid)
         self._merge_oid(target, label=f"commit {oid[:7]}")
+
+    def merge_analysis(self, oid: str) -> MergeAnalysisResult:
+        target = pygit2.Oid(hex=oid)
+        result, _ = self._repo.merge_analysis(target)
+        can_ff = bool(result & pygit2.GIT_MERGE_ANALYSIS_FASTFORWARD)
+        is_up_to_date = bool(result & pygit2.GIT_MERGE_ANALYSIS_UP_TO_DATE)
+        return MergeAnalysisResult(can_ff=can_ff, is_up_to_date=is_up_to_date)
 
     def _merge_oid(self, target_oid, label: str) -> None:
         merge_result, _ = self._repo.merge_analysis(target_oid)
