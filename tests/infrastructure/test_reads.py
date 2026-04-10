@@ -254,3 +254,49 @@ def test_is_ancestor(repo_path, repo_impl):
     assert repo_impl.is_ancestor(first_oid, str(second_oid)) is True
     assert repo_impl.is_ancestor(str(second_oid), first_oid) is False
     assert repo_impl.is_ancestor(first_oid, first_oid) is False
+
+
+def test_merge_analysis_can_ff(repo_impl, repo_path):
+    """Linear history: feature is ahead of main → can fast-forward."""
+    head_oid = repo_impl.get_head_oid()
+    repo_impl.create_branch("feature", head_oid)
+    repo_impl.checkout("feature")
+    (repo_path / "ff.txt").write_text("ff")
+    repo_impl.stage(["ff.txt"])
+    new = repo_impl.commit("ahead")
+    branches = repo_impl.get_branches()
+    main_name = next(b.name for b in branches if not b.is_remote and b.name != "feature")
+    repo_impl.checkout(main_name)
+
+    result = repo_impl.merge_analysis(new.oid)
+    assert result.can_ff is True
+    assert result.is_up_to_date is False
+
+
+def test_merge_analysis_normal(repo_impl, repo_path):
+    """Diverged history → cannot fast-forward."""
+    head_oid = repo_impl.get_head_oid()
+    repo_impl.create_branch("diverge", head_oid)
+    # Commit on main
+    (repo_path / "main_side.txt").write_text("m")
+    repo_impl.stage(["main_side.txt"])
+    repo_impl.commit("main side")
+    # Commit on diverge
+    repo_impl.checkout("diverge")
+    (repo_path / "diverge_side.txt").write_text("d")
+    repo_impl.stage(["diverge_side.txt"])
+    diverge_commit = repo_impl.commit("diverge side")
+    branches = repo_impl.get_branches()
+    main_name = next(b.name for b in branches if not b.is_remote and b.name not in ("diverge",))
+    repo_impl.checkout(main_name)
+
+    result = repo_impl.merge_analysis(diverge_commit.oid)
+    assert result.can_ff is False
+    assert result.is_up_to_date is False
+
+
+def test_merge_analysis_up_to_date(repo_impl, repo_path):
+    """Same commit → already up to date."""
+    head_oid = repo_impl.get_head_oid()
+    result = repo_impl.merge_analysis(head_oid)
+    assert result.is_up_to_date is True
