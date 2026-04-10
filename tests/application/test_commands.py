@@ -122,3 +122,25 @@ def test_rebase_onto_commit_passes_oid():
     w = _FakeMergeCommitWriter()
     RebaseOntoCommit(w).execute("abcdef1234")
     assert w.rebase_onto_commit_called == "abcdef1234"
+
+
+from git_gui.domain.entities import MergeStrategy
+
+class _FakeStrategyWriter:
+    def __init__(self):
+        self.merge_args = None
+        self.merge_commit_args = None
+    def merge(self, branch, strategy=None, message=None):
+        self.merge_args = (branch, strategy, message)
+    def merge_commit(self, oid, strategy=None, message=None):
+        self.merge_commit_args = (oid, strategy, message)
+
+def test_merge_passes_strategy_and_message():
+    w = _FakeStrategyWriter()
+    Merge(w).execute("feature", strategy=MergeStrategy.NO_FF, message="custom")
+    assert w.merge_args == ("feature", MergeStrategy.NO_FF, "custom")
+
+def test_merge_commit_passes_strategy_and_message():
+    w = _FakeStrategyWriter()
+    MergeCommit(w).execute("abc123", strategy=MergeStrategy.FF_ONLY, message=None)
+    assert w.merge_commit_args == ("abc123", MergeStrategy.FF_ONLY, None)
