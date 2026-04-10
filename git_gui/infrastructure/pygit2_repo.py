@@ -657,7 +657,14 @@ class Pygit2Repository:
         tree = self._repo.index.write_tree()
         sig = self._get_signature()
         parents = [] if self._repo.head_is_unborn else [self._repo.head.target]
+        # During a merge, include MERGE_HEAD as second parent
+        merge_head = self.get_merge_head()
+        if merge_head:
+            parents.append(pygit2.Oid(hex=merge_head))
         oid = self._repo.create_commit("HEAD", sig, sig, message, tree, parents)
+        # Clean up merge state files after successful merge commit
+        if merge_head:
+            self._repo.state_cleanup()
         return _commit_to_entity(self._repo.get(oid))
 
     def create_branch(self, name: str, from_oid: str) -> "Branch":
@@ -762,8 +769,42 @@ class Pygit2Repository:
     def rebase_abort(self) -> None:
         self._run_git("rebase", "--abort")
 
-    def rebase_continue(self) -> None:
-        self._run_git("rebase", "--continue")
+    def rebase_continue(self, message: str = "") -> None:
+        import sys, tempfile
+        env = os.environ.copy()
+        if message:
+            # Write the message to a temp file, then set GIT_EDITOR to a
+            # command that copies it over the file git passes to the editor.
+            msg_file = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, encoding="utf-8",
+            )
+            msg_file.write(message)
+            msg_file.close()
+            # Use python to copy the temp file content into the editor target
+            python = sys.executable.replace("\\", "/")
+            msg_path = msg_file.name.replace("\\", "/")
+            env["GIT_EDITOR"] = (
+                f'{python} -c "'
+                f"import shutil,sys; shutil.copy('{msg_path}', sys.argv[1])"
+                f'"'
+            )
+        else:
+            env["GIT_EDITOR"] = "true"
+        try:
+            result = subprocess.run(
+                ["git", "rebase", "--continue"],
+                cwd=self._repo.workdir, capture_output=True, text=True,
+                env=env, **subprocess_kwargs(),
+            )
+            if result.returncode != 0:
+                msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+                raise RuntimeError(msg)
+        finally:
+            if message:
+                try:
+                    os.unlink(msg_file.name)
+                except OSError:
+                    pass
 
     def _rebase_onto(self, target_oid) -> None:
         # Convert Oid to hex string if needed

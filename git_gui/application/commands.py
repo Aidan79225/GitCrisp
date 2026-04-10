@@ -335,5 +335,5 @@ class RebaseContinue:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
 
-    def execute(self) -> None:
-        self._writer.rebase_continue()
+    def execute(self, message: str = "") -> None:
+        self._writer.rebase_continue(message)

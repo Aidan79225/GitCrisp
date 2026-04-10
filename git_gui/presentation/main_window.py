@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
         self._sidebar = SidebarWidget(queries, commands, remote_tag_cache, repo_path)
         self._graph = GraphWidget(queries, commands)
         self._diff = DiffWidget(queries, commands)
-        self._working_tree = WorkingTreeWidget(queries, commands)
+        self._working_tree = WorkingTreeWidget(queries, commands, repo_path=repo_path)
         self._repo_list = RepoListWidget(repo_store)
         self._log_panel = LogPanel()
         self._remote_running = False
@@ -202,7 +202,8 @@ class MainWindow(QMainWindow):
         if self._queries is not None:
             try:
                 state_info = self._queries.get_repo_state.execute()
-                self._working_tree.update_conflict_banner(state_info.state.name)
+                merge_msg = self._queries.get_merge_msg.execute() if state_info.state.name == "MERGING" else None
+                self._working_tree.update_conflict_banner(state_info.state.name, merge_msg)
             except Exception:
                 self._working_tree.update_conflict_banner("CLEAN")
 
@@ -304,27 +305,27 @@ class MainWindow(QMainWindow):
             self._log_panel.log_error(f"Rebase abort — ERROR: {e}")
         self._reload()
 
-    def _on_merge_continue(self) -> None:
+    def _on_merge_continue(self, msg: str) -> None:
         try:
             if self._queries.has_unresolved_conflicts.execute():
                 self._log_panel.expand()
                 self._log_panel.log_error("Resolve all conflicts and stage files first")
                 return
-            merge_msg = self._queries.get_merge_msg.execute() or "Merge commit"
-            self._commands.create_commit.execute(merge_msg)
+            commit_msg = msg or self._queries.get_merge_msg.execute() or "Merge commit"
+            self._commands.create_commit.execute(commit_msg)
             self._log_panel.log("Merge completed")
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Merge continue — ERROR: {e}")
         self._reload()
 
-    def _on_rebase_continue(self) -> None:
+    def _on_rebase_continue(self, msg: str) -> None:
         try:
             if self._queries.has_unresolved_conflicts.execute():
                 self._log_panel.expand()
                 self._log_panel.log_error("Resolve all conflicts and stage files first")
                 return
-            self._commands.rebase_continue.execute()
+            self._commands.rebase_continue.execute(msg)
             self._log_panel.log("Rebase continued")
         except Exception as e:
             self._log_panel.expand()

@@ -87,13 +87,14 @@ class WorkingTreeWidget(QWidget):
     submodule_open_requested = Signal(str)  # forwarded from inner HunkDiffWidget
     merge_abort_requested = Signal()
     rebase_abort_requested = Signal()
-    merge_continue_requested = Signal()
-    rebase_continue_requested = Signal()
+    merge_continue_requested = Signal(str)   # commit message
+    rebase_continue_requested = Signal(str)  # commit message
 
-    def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
+    def __init__(self, queries: QueryBus, commands: CommandBus, repo_path: str | None = None, parent=None) -> None:
         super().__init__(parent)
         self._queries = queries
         self._commands = commands
+        self._repo_path = repo_path
 
         # ── Conflict banner (hidden by default) ─────────────────────────
         self._conflict_banner = QWidget()
@@ -236,9 +237,12 @@ class WorkingTreeWidget(QWidget):
             return
         menu = QMenu(self._file_view)
         discard_action = menu.addAction("Discard changes")
+        ignore_action = menu.addAction("Add to .gitignore")
         chosen = menu.exec(self._file_view.viewport().mapToGlobal(pos))
         if chosen is discard_action:
             self._discard_file(fs.path)
+        elif chosen is ignore_action:
+            self._ignore_file(fs.path)
 
     def _discard_file(self, path: str) -> None:
         reply = QMessageBox.question(
@@ -251,6 +255,23 @@ class WorkingTreeWidget(QWidget):
         if reply != QMessageBox.Yes:
             return
         self._commands.discard_file.execute(path)
+        self._on_files_changed()
+
+    def _ignore_file(self, path: str) -> None:
+        import os
+        if not self._repo_path:
+            return
+        gitignore_path = os.path.join(self._repo_path, ".gitignore")
+        entry = path + "\n"
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, "r", encoding="utf-8") as f:
+                existing = f.read()
+            if path in existing.splitlines():
+                return
+            if not existing.endswith("\n") and existing:
+                entry = "\n" + entry
+        with open(gitignore_path, "a", encoding="utf-8") as f:
+            f.write(entry)
         self._on_files_changed()
 
     def _on_stage_all(self) -> None:
@@ -271,13 +292,13 @@ class WorkingTreeWidget(QWidget):
 
     def _on_commit(self) -> None:
         state = getattr(self, "_current_state", "CLEAN")
+        msg = self._msg_edit.toPlainText().strip()
         if state == "MERGING":
-            self.merge_continue_requested.emit()
+            self.merge_continue_requested.emit(msg)
             return
         if state == "REBASING":
-            self.rebase_continue_requested.emit()
+            self.rebase_continue_requested.emit(msg)
             return
-        msg = self._msg_edit.toPlainText().strip()
         if not msg:
             self.commit_failed.emit("Commit message is empty")
             return
@@ -334,13 +355,15 @@ class WorkingTreeWidget(QWidget):
         # No selection (or selected file disappeared) — show all files' hunks
         self._hunk_diff.load_all_files([f.path for f in files])
 
-    def update_conflict_banner(self, state_name: str) -> None:
+    def update_conflict_banner(self, state_name: str, merge_msg: str | None = None) -> None:
         """Show or hide the conflict banner based on repo state."""
         self._current_state = state_name
         if state_name == "MERGING":
             self._banner_label.setText("\u26a0 Merge in progress")
             self._conflict_banner.setVisible(True)
             self._btn_commit.setText("Finish Merge")
+            if merge_msg and not self._msg_edit.toPlainText().strip():
+                self._msg_edit.setPlainText(merge_msg.strip())
         elif state_name == "REBASING":
             self._banner_label.setText("\u26a0 Rebase in progress")
             self._conflict_banner.setVisible(True)

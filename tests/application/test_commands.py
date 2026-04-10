@@ -158,7 +158,7 @@ class _FakeAbortWriter:
         self.merge_abort_called = True
     def rebase_abort(self):
         self.rebase_abort_called = True
-    def rebase_continue(self):
+    def rebase_continue(self, message=""):
         self.rebase_continue_called = True
 
 def test_merge_abort_delegates():
