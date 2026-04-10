@@ -14,6 +14,7 @@ from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
+from git_gui.presentation.dialogs.merge_dialog import MergeDialog
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
 from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 from git_gui.presentation.widgets.repo_list import RepoListWidget
@@ -207,8 +208,29 @@ class MainWindow(QMainWindow):
 
     def _on_merge(self, branch: str) -> None:
         try:
-            self._commands.merge.execute(branch)
-            self._log_panel.log(f"Merge: {branch} into current")
+            all_branches = self._queries.get_branches.execute()
+            target = None
+            for b in all_branches:
+                if b.name == branch:
+                    target = b
+                    break
+            if not target:
+                self._log_panel.log_error(f"Branch not found: {branch}")
+                return
+            analysis = self._queries.get_merge_analysis.execute(target.target_oid)
+            head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
+            default_msg = f"Merge branch '{branch}'"
+
+            if analysis.is_up_to_date:
+                self._log_panel.log(f"Merge {branch}: already up to date")
+                return
+
+            dlg = MergeDialog(branch, head_branch, analysis.can_ff, default_msg, parent=self)
+            if dlg.exec() != MergeDialog.Accepted:
+                return
+            req = dlg.result_value()
+            self._commands.merge.execute(branch, strategy=req.strategy, message=req.message)
+            self._log_panel.log(f"Merge: {branch} into {head_branch}")
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Merge {branch} — ERROR: {e}")
@@ -225,11 +247,24 @@ class MainWindow(QMainWindow):
 
     def _on_merge_commit(self, oid: str) -> None:
         try:
-            self._commands.merge_commit.execute(oid)
-            self._log_panel.log(f"Merge: commit {oid[:7]} into current")
+            analysis = self._queries.get_merge_analysis.execute(oid)
+            head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
+            short_oid = oid[:7]
+            default_msg = f"Merge commit {short_oid}"
+
+            if analysis.is_up_to_date:
+                self._log_panel.log(f"Merge commit {short_oid}: already up to date")
+                return
+
+            dlg = MergeDialog(f"commit {short_oid}", head_branch, analysis.can_ff, default_msg, parent=self)
+            if dlg.exec() != MergeDialog.Accepted:
+                return
+            req = dlg.result_value()
+            self._commands.merge_commit.execute(oid, strategy=req.strategy, message=req.message)
+            self._log_panel.log(f"Merge: commit {short_oid} into {head_branch}")
         except Exception as e:
             self._log_panel.expand()
-            self._log_panel.log_error(f"Merge commit {oid[:7]} — ERROR: {e}")
+            self._log_panel.log_error(f"Merge commit {short_oid} — ERROR: {e}")
         self._reload()
 
     def _on_rebase_onto_commit(self, oid: str) -> None:
