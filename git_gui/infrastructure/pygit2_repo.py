@@ -87,6 +87,51 @@ def _synthesise_untracked_hunk(workdir: str, path: str) -> list[Hunk]:
         return []
 
 
+def _synthesise_conflict_hunk(workdir: str, path: str) -> list[Hunk]:
+    """Read a conflicted file and return one hunk per conflict block (<<<<<<<...>>>>>>>)."""
+    full = os.path.join(workdir, path)
+    try:
+        with open(full, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+    if not lines:
+        return []
+
+    hunks: list[Hunk] = []
+    block: list[tuple[str, str]] = []
+    block_start = 0
+    in_conflict = False
+    in_ours = False
+
+    for i, raw in enumerate(lines):
+        line = raw if raw.endswith("\n") else raw + "\n"
+        if line.startswith("<<<<<<<"):
+            in_conflict = True
+            in_ours = True
+            block_start = i + 1  # 1-based
+            block.append((" ", line))
+        elif line.startswith("=======") and in_conflict:
+            in_ours = False
+            block.append((" ", line))
+        elif line.startswith(">>>>>>>") and in_conflict:
+            block.append((" ", line))
+            n = len(block)
+            hunks.append(Hunk(
+                header=f"@@ -{block_start},{n} +{block_start},{n} @@",
+                lines=block,
+            ))
+            block = []
+            in_conflict = False
+        elif in_conflict:
+            if in_ours:
+                block.append(("-", line))
+            else:
+                block.append(("+", line))
+
+    return hunks
+
+
 class Pygit2Repository:
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(path)
@@ -193,12 +238,22 @@ class Pygit2Repository:
             diff = self._repo.diff()
             for patch in diff:
                 if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
-                    return _diff_to_hunks(patch)
-            # Not found in tracked diff — check if it's an untracked file
+                    hunks = _diff_to_hunks(patch)
+                    if hunks:
+                        return hunks
+                    # Patch found but 0 hunks (e.g. conflicted) — fall through
+                    break
+            # Not found in tracked diff, or found with 0 hunks — check status
             try:
                 status = self._repo.status_file(path)
             except KeyError:
                 return []
+            if status & pygit2.GIT_STATUS_CONFLICTED:
+                hunks = _synthesise_conflict_hunk(self._repo.workdir, path)
+                if hunks:
+                    return hunks
+                # Conflict markers resolved — diff working tree against HEAD
+                return self._diff_workfile_against_head(path)
             if status & pygit2.GIT_STATUS_WT_NEW:
                 return _synthesise_untracked_hunk(self._repo.workdir, path)
             return []
@@ -214,19 +269,35 @@ class Pygit2Repository:
                 return _diff_to_hunks(patch)
         return []
 
+    def _diff_workfile_against_head(self, path: str) -> list[Hunk]:
+        """Diff the working-tree file against the HEAD version."""
+        try:
+            head_commit = self._repo.head.peel(pygit2.Commit)
+            diff = self._repo.diff(head_commit.tree, flags=pygit2.GIT_DIFF_FORCE_TEXT)
+            for patch in diff:
+                if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
+                    return _diff_to_hunks(patch)
+        except Exception:
+            pass
+        return []
+
     def get_staged_diff(self, path: str) -> list[Hunk]:
         # Diff the index against HEAD tree to show what is staged for commit.
         # For unborn HEAD (no commits yet), diff against an empty tree.
-        if self._repo.head_is_unborn:
-            empty_tree_oid = self._repo.TreeBuilder().write()
-            empty_tree = self._repo.get(empty_tree_oid)
-            diff = self._repo.index.diff_to_tree(empty_tree)
-        else:
-            head_commit = self._repo.head.peel(pygit2.Commit)
-            diff = self._repo.index.diff_to_tree(head_commit.tree)
-        for patch in diff:
-            if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
-                return _diff_to_hunks(patch)
+        # When the index has conflicts, diff_to_tree may fail — return empty.
+        try:
+            if self._repo.head_is_unborn:
+                empty_tree_oid = self._repo.TreeBuilder().write()
+                empty_tree = self._repo.get(empty_tree_oid)
+                diff = self._repo.index.diff_to_tree(empty_tree)
+            else:
+                head_commit = self._repo.head.peel(pygit2.Commit)
+                diff = self._repo.index.diff_to_tree(head_commit.tree)
+            for patch in diff:
+                if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
+                    return _diff_to_hunks(patch)
+        except Exception:
+            pass
         return []
 
     def get_tags(self) -> list[Tag]:

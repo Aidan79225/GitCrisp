@@ -80,8 +80,14 @@ class HunkDiffWidget(QWidget):
         def _worker():
             results = []
             for path in all_paths:
-                staged_hunks = queries.get_staged_diff.execute(path)
-                unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
+                try:
+                    staged_hunks = queries.get_staged_diff.execute(path)
+                except Exception:
+                    staged_hunks = []
+                try:
+                    unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
+                except Exception:
+                    unstaged_hunks = []
                 is_untracked = (
                     not staged_hunks
                     and bool(unstaged_hunks)
@@ -108,9 +114,14 @@ class HunkDiffWidget(QWidget):
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            staged_hunks = queries.get_staged_diff.execute(path)
-            unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
-            # untracked when there is content in unstaged but nothing staged AND no header has @@ -<n>
+            try:
+                staged_hunks = queries.get_staged_diff.execute(path)
+            except Exception:
+                staged_hunks = []
+            try:
+                unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
+            except Exception:
+                unstaged_hunks = []
             is_untracked = (
                 not staged_hunks
                 and bool(unstaged_hunks)
