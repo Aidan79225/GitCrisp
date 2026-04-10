@@ -8,6 +8,7 @@ from git_gui.application.queries import (
     GetCommitDetail, IsDirty, GetHeadOid,
     ListRemotes, ListSubmodules, ListLocalBranchesWithUpstream,
     GetRepoState, IsAncestor, GetMergeAnalysis,
+    GetMergeHead, GetMergeMsg, HasUnresolvedConflicts,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
@@ -21,6 +22,7 @@ from git_gui.application.commands import (
     AddSubmodule, RemoveSubmodule, SetSubmoduleUrl,
     SetBranchUpstream, UnsetBranchUpstream, RenameBranch, ResetBranchToRef,
     MergeCommit, RebaseOntoCommit,
+    MergeAbort, RebaseAbort, RebaseContinue,
 )
 
 
@@ -45,6 +47,9 @@ class QueryBus:
     get_repo_state: GetRepoState
     is_ancestor: IsAncestor
     get_merge_analysis: GetMergeAnalysis
+    get_merge_head: GetMergeHead
+    get_merge_msg: GetMergeMsg
+    has_unresolved_conflicts: HasUnresolvedConflicts
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
@@ -68,6 +73,9 @@ class QueryBus:
             get_repo_state=GetRepoState(reader),
             is_ancestor=IsAncestor(reader),
             get_merge_analysis=GetMergeAnalysis(reader),
+            get_merge_head=GetMergeHead(reader),
+            get_merge_msg=GetMergeMsg(reader),
+            has_unresolved_conflicts=HasUnresolvedConflicts(reader),
         )
 
 
@@ -112,6 +120,9 @@ class CommandBus:
     unset_branch_upstream: UnsetBranchUpstream
     rename_branch: RenameBranch
     reset_branch_to_ref: ResetBranchToRef
+    merge_abort: MergeAbort
+    rebase_abort: RebaseAbort
+    rebase_continue: RebaseContinue
 
     @classmethod
     def from_writer(cls, writer: IRepositoryWriter) -> "CommandBus":
@@ -155,4 +166,7 @@ class CommandBus:
             unset_branch_upstream=UnsetBranchUpstream(writer),
             rename_branch=RenameBranch(writer),
             reset_branch_to_ref=ResetBranchToRef(writer),
+            merge_abort=MergeAbort(writer),
+            rebase_abort=RebaseAbort(writer),
+            rebase_continue=RebaseContinue(writer),
         )
