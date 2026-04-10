@@ -60,7 +60,7 @@ class _GraphTableView(QTableView):
 
 
 class _LoadSignals(QObject):
-    reload_done = Signal(list, list, list, bool, str)  # commits, branches, tags, is_dirty, head_oid
+    reload_done = Signal(list, list, list, bool, str, object, object)  # commits, branches, tags, is_dirty, head_oid, repo_state, merge_head
     append_done = Signal(list, list, list)              # more_commits, branches, tags
 
 
@@ -226,7 +226,9 @@ class GraphWidget(QWidget):
             tags = queries.get_tags.execute()
             dirty = queries.is_dirty.execute()
             head_oid = queries.get_head_oid.execute() or ""
-            signals.reload_done.emit(commits, branches, tags, dirty, head_oid)
+            repo_state = queries.get_repo_state.execute()
+            merge_head = queries.get_merge_head.execute()
+            signals.reload_done.emit(commits, branches, tags, dirty, head_oid, repo_state, merge_head)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -243,7 +245,8 @@ class GraphWidget(QWidget):
         self.reload(extra_tips=[oid])
 
     def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
-                        tags: list[Tag], is_dirty: bool, head_oid: str) -> None:
+                        tags: list[Tag], is_dirty: bool, head_oid: str,
+                        repo_state_info, merge_head: str | None) -> None:
         self._loading = False
         self._stash_btn.setVisible(is_dirty)
         if self._queries is None:
@@ -267,12 +270,23 @@ class GraphWidget(QWidget):
 
         all_commits = list(commits)
         if is_dirty:
+            state_name = repo_state_info.state.name if repo_state_info else "CLEAN"
+            if state_name == "MERGING":
+                message = "Merge in progress (conflicts)"
+                parents = [head_oid, merge_head] if merge_head else [head_oid]
+            elif state_name == "REBASING":
+                message = "Rebase in progress"
+                parents = [head_oid] if head_oid else []
+            else:
+                message = "Uncommitted Changes"
+                parents = [head_oid] if head_oid else []
+            parents = [p for p in parents if p]
             synthetic = Commit(
                 oid=WORKING_TREE_OID,
-                message="Uncommitted Changes",
+                message=message,
                 author="",
                 timestamp=datetime.now(),
-                parents=[head_oid] if head_oid else [],
+                parents=parents,
             )
             all_commits.insert(0, synthetic)
 
