@@ -364,3 +364,35 @@ def test_has_unresolved_conflicts_false_when_clean(repo_impl):
 def test_has_unresolved_conflicts_true_during_merge(repo_path, repo_impl):
     _create_merge_conflict(repo_path)
     assert repo_impl.has_unresolved_conflicts() is True
+
+
+def test_get_commit_diff_map_returns_all_files(repo_impl, repo_path):
+    """A commit with 3 modified files returns all 3 in the diff map."""
+    (repo_path / "a.txt").write_text("a1\n")
+    (repo_path / "b.txt").write_text("b1\n")
+    (repo_path / "c.txt").write_text("c1\n")
+    repo_impl.stage(["a.txt", "b.txt", "c.txt"])
+    repo_impl.commit("initial")
+    (repo_path / "a.txt").write_text("a2\n")
+    (repo_path / "b.txt").write_text("b2\n")
+    (repo_path / "c.txt").write_text("c2\n")
+    repo_impl.stage(["a.txt", "b.txt", "c.txt"])
+    second = repo_impl.commit("second")
+
+    result = repo_impl.get_commit_diff_map(second.oid)
+
+    assert set(result.keys()) == {"a.txt", "b.txt", "c.txt"}
+    for path in ("a.txt", "b.txt", "c.txt"):
+        assert len(result[path]) > 0, f"{path} has no hunks"
+
+
+def test_get_commit_diff_map_initial_commit(repo_impl, repo_path):
+    """Initial commit (no parent) returns all files as additions."""
+    (repo_path / "new.txt").write_text("hello\n")
+    repo_impl.stage(["new.txt"])
+    first = repo_impl.commit("first")
+
+    result = repo_impl.get_commit_diff_map(first.oid)
+
+    assert "new.txt" in result
+    assert len(result["new.txt"]) > 0

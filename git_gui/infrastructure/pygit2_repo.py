@@ -269,6 +269,25 @@ class Pygit2Repository:
                 return _diff_to_hunks(patch)
         return []
 
+    def get_commit_diff_map(self, oid: str) -> dict[str, list[Hunk]]:
+        """Return a dict of {path: [Hunk, ...]} for every changed file in the commit.
+
+        Computes the full tree diff exactly once, instead of the per-file diff pattern.
+        """
+        commit = self._repo.get(oid)
+        if commit.parents:
+            diff = self._repo.diff(commit.parents[0].tree, commit.tree)
+        else:
+            empty_tree_oid = self._repo.TreeBuilder().write()
+            empty_tree = self._repo.get(empty_tree_oid)
+            diff = self._repo.diff(empty_tree, commit.tree)
+        result: dict[str, list[Hunk]] = {}
+        for patch in diff:
+            path = patch.delta.new_file.path or patch.delta.old_file.path
+            if path:
+                result[path] = _diff_to_hunks(patch)
+        return result
+
     def _diff_workfile_against_head(self, path: str) -> list[Hunk]:
         """Diff the working-tree file against the HEAD version."""
         try:
