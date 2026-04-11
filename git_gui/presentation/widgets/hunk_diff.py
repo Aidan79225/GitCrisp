@@ -267,31 +267,8 @@ class HunkDiffWidget(QWidget):
         """Post-action refresh for all-files mode."""
         if self._all_paths is None:
             return
-        self._refresh_submodule_paths()
-        self._clear_layout()
-        for path in self._all_paths:
-            staged_hunks = self._queries.get_staged_diff.execute(path)
-            unstaged_hunks = self._queries.get_file_diff.execute(WORKING_TREE_OID, path)
-            is_untracked = (
-                not staged_hunks
-                and bool(unstaged_hunks)
-                and unstaged_hunks[0].header.startswith("@@ -0,0")
-            )
-
-            frame, inner = self._make_file_block(path)
-            for hunk in staged_hunks:
-                self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
-                                     path=path, parent_layout=inner)
-            for hunk in unstaged_hunks:
-                self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
-                                     path=path, parent_layout=inner)
-
-            self._layout.addWidget(frame)
-
-            spacer = QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
-            self._layout.addItem(spacer)
-
-        self._layout.addStretch()
+        # Reload via the lazy pipeline
+        self.load_all_files(self._all_paths)
 
     def _add_hunk_block(self, hunk: Hunk, is_staged: bool, is_untracked: bool,
                         path: str | None = None,
