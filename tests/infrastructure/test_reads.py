@@ -529,3 +529,37 @@ def test_resolve_gitdir_uninitialized_submodule_nested(tmp_path):
 
     import os
     assert os.path.normpath(result) == os.path.normpath(str(submodule_gitdir))
+
+
+# ---------- _parse_gitmodules_paths ----------
+
+def test_parse_gitmodules_paths_empty(tmp_path):
+    from git_gui.infrastructure.pygit2_repo import _parse_gitmodules_paths
+    assert _parse_gitmodules_paths(str(tmp_path)) == []
+
+
+def test_parse_gitmodules_paths_multiple(tmp_path):
+    from git_gui.infrastructure.pygit2_repo import _parse_gitmodules_paths
+    (tmp_path / ".gitmodules").write_text(
+        '[submodule "apps/a"]\n'
+        '\tpath = apps/a\n'
+        '\turl = https://example.com/a.git\n'
+        '[submodule "libs/b"]\n'
+        '\tpath = libs/b\n'
+        '\turl = https://example.com/b.git\n',
+        encoding="utf-8",
+    )
+    result = _parse_gitmodules_paths(str(tmp_path))
+    assert result == ["apps/a", "libs/b"]
+
+
+# ---------- _submodule_diff_hunk ----------
+
+def test_submodule_diff_hunk_format():
+    from git_gui.infrastructure.pygit2_repo import _submodule_diff_hunk
+    hunk = _submodule_diff_hunk("aaa111", "bbb222")
+    assert hunk.header == "@@ -1,1 +1,1 @@"
+    assert hunk.lines == [
+        ("-", "Subproject commit aaa111\n"),
+        ("+", "Subproject commit bbb222\n"),
+    ]
