@@ -215,7 +215,19 @@ class Pygit2Repository:
     def get_stashes(self) -> list[Stash]:
         result = []
         for i, stash in enumerate(self._repo.listall_stashes()):
-            result.append(Stash(index=i, message=stash.message, oid=str(stash.commit_id)))
+            ts: datetime | None = None
+            try:
+                commit = self._repo.get(stash.commit_id)
+                if commit is not None:
+                    ts = datetime.fromtimestamp(commit.commit_time, tz=timezone.utc)
+            except Exception as e:
+                logger.warning("Failed to read stash %d timestamp: %s", i, e)
+            result.append(Stash(
+                index=i,
+                message=stash.message,
+                oid=str(stash.commit_id),
+                timestamp=ts,
+            ))
         return result
 
     def get_commit_files(self, oid: str) -> list[FileStatus]:

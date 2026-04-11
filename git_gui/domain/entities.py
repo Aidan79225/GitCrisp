@@ -29,6 +29,7 @@ class Stash:
     index: int
     message: str
     oid: str
+    timestamp: datetime | None = None
 
 
 @dataclass

@@ -206,17 +206,25 @@ class SidebarWidget(QWidget):
             (b.name, b.name, "remote_branch", b.target_oid) for b in remote
         ])
 
-        # Stashes
+        # Stashes — most recent first. Stashes without a timestamp fall to the end.
+        from datetime import datetime, timezone
+        _stash_epoch = datetime.fromtimestamp(0, tz=timezone.utc)
+        stashes_sorted = sorted(
+            stashes,
+            key=lambda s: s.timestamp or _stash_epoch,
+            reverse=True,
+        )
         self._add_section("STASHES", [
-            (s.message, str(s.index), "stash", s.oid) for s in stashes
+            (s.message, str(s.index), "stash", s.oid) for s in stashes_sorted
         ])
 
-        # Tags — with cloud icon for remote tags
+        # Tags — sorted by name descending. Cloud icon for remote tags.
+        tags_sorted = sorted(tags, key=lambda t: t.name, reverse=True)
         tag_header = QStandardItem("TAGS")
         tag_header.setEditable(False)
         tag_header.setData("header", Qt.UserRole + 1)
         tag_header.setSizeHint(QSize(0, _ROW_HEIGHT))
-        for t in tags:
+        for t in tags_sorted:
             child = QStandardItem(t.name)
             child.setEditable(False)
             child.setData(t.name, Qt.UserRole)
