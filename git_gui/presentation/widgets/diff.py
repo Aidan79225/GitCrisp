@@ -127,25 +127,34 @@ class DiffWidget(QWidget):
         self._file_view.deselected.connect(self._on_file_deselected)
 
         # ── Row 3+4: file list + diff in splitter ───────────────────────────
-        splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(self._file_view)
-        splitter.addWidget(self._diff_scroll)
-        splitter.setSizes([160, 400])
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        self._splitter = QSplitter(Qt.Vertical)
+        self._splitter.addWidget(self._file_view)
+        self._splitter.addWidget(self._diff_scroll)
+        self._splitter.setSizes([160, 400])
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
         layout.addWidget(self._detail, 0)
         layout.addWidget(self._msg_view, 0)
-        layout.addWidget(splitter, 1)
+        layout.addWidget(self._splitter, 1)
 
         # Diff render formats
         self._formats = make_diff_formats()
 
         self._restyle_themed_panels()
         connect_widget(self, rebuild=self._on_theme_changed)
+
+        # Start in empty state — nothing to show until a commit is loaded.
+        self._set_empty_state(True)
+
+    def _set_empty_state(self, empty: bool) -> None:
+        """Hide or show all sub-panels based on whether a commit is loaded."""
+        self._detail.setVisible(not empty)
+        self._msg_view.setVisible(not empty)
+        self._splitter.setVisible(not empty)
 
     def _on_theme_changed(self) -> None:
         self._formats = make_diff_formats()
@@ -172,6 +181,7 @@ class DiffWidget(QWidget):
         self._msg_view.clear()
         self._diff_model.reload([])
         self._clear_blocks()
+        self._set_empty_state(True)
 
     def eventFilter(self, obj, event):
         if obj is self._msg_view.viewport() and event.type() in (
@@ -196,7 +206,9 @@ class DiffWidget(QWidget):
             self._msg_view.clear()
             self._diff_model.reload([])
             self._clear_blocks()
+            self._set_empty_state(True)
             return
+        self._set_empty_state(False)
         branches = self._queries.get_branches.execute()
         refs = [b.name for b in branches if b.target_oid == oid]
         self._detail.set_commit(commit, refs)
