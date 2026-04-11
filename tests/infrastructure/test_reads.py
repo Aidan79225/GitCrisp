@@ -437,3 +437,95 @@ def test_get_working_tree_diff_map_empty_when_clean(repo_impl, repo_path):
     result = repo_impl.get_working_tree_diff_map()
 
     assert result == {}
+
+
+# ---------- _resolve_gitdir ----------
+
+def test_resolve_gitdir_normal_repo_passthrough(tmp_path):
+    """A normal repo where .git is a directory is returned unchanged."""
+    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+    (tmp_path / ".git").mkdir()
+
+    result = _resolve_gitdir(str(tmp_path))
+
+    assert result == str(tmp_path)
+
+
+def test_resolve_gitdir_submodule_follows_gitlink(tmp_path):
+    """A submodule where .git is a gitlink file is resolved to the real gitdir."""
+    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+    # Simulate a submodule layout:
+    #   parent/
+    #     .git/modules/sub/      <-- the real gitdir
+    #     sub/
+    #       .git                 <-- gitlink file containing "gitdir: ../.git/modules/sub"
+    parent = tmp_path / "parent"
+    real_gitdir = parent / ".git" / "modules" / "sub"
+    real_gitdir.mkdir(parents=True)
+    sub = parent / "sub"
+    sub.mkdir()
+    (sub / ".git").write_text("gitdir: ../.git/modules/sub\n", encoding="utf-8")
+
+    result = _resolve_gitdir(str(sub))
+
+    import os
+    assert os.path.normpath(result) == os.path.normpath(str(real_gitdir))
+
+
+def test_resolve_gitdir_missing_dot_git_passthrough(tmp_path):
+    """A path with no .git at all and no parent submodule context is returned unchanged."""
+    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+
+    result = _resolve_gitdir(str(tmp_path))
+
+    assert result == str(tmp_path)
+
+
+def test_resolve_gitdir_uninitialized_submodule(tmp_path):
+    """Submodule workdir with no .git file at all — resolved via parent .gitmodules."""
+    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+    # Simulate:
+    #   parent/
+    #     .git/                                        <-- parent repo
+    #     .git/modules/apps/sub/                       <-- submodule gitdir
+    #     .gitmodules                                  <-- lists apps/sub
+    #     apps/sub/                                    <-- EMPTY workdir (no .git)
+    parent = tmp_path / "parent"
+    (parent / ".git").mkdir(parents=True)
+    submodule_gitdir = parent / ".git" / "modules" / "apps" / "sub"
+    submodule_gitdir.mkdir(parents=True)
+    (parent / ".gitmodules").write_text(
+        '[submodule "apps/sub"]\n'
+        '\tpath = apps/sub\n'
+        '\turl = https://example.com/sub.git\n',
+        encoding="utf-8",
+    )
+    sub_workdir = parent / "apps" / "sub"
+    sub_workdir.mkdir(parents=True)
+
+    result = _resolve_gitdir(str(sub_workdir))
+
+    import os
+    assert os.path.normpath(result) == os.path.normpath(str(submodule_gitdir))
+
+
+def test_resolve_gitdir_uninitialized_submodule_nested(tmp_path):
+    """Walk up multiple levels to find the parent repo when the path is nested."""
+    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+    parent = tmp_path / "parent"
+    (parent / ".git").mkdir(parents=True)
+    submodule_gitdir = parent / ".git" / "modules" / "libs" / "foo" / "bar"
+    submodule_gitdir.mkdir(parents=True)
+    (parent / ".gitmodules").write_text(
+        '[submodule "libs/foo/bar"]\n'
+        '\tpath = libs/foo/bar\n'
+        '\turl = https://example.com/bar.git\n',
+        encoding="utf-8",
+    )
+    sub_workdir = parent / "libs" / "foo" / "bar"
+    sub_workdir.mkdir(parents=True)
+
+    result = _resolve_gitdir(str(sub_workdir))
+
+    import os
+    assert os.path.normpath(result) == os.path.normpath(str(submodule_gitdir))
