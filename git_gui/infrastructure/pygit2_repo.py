@@ -202,9 +202,95 @@ def _resolve_gitdir(path: str) -> str:
     return path
 
 
+def _parse_gitmodules_paths(workdir: str) -> list[str]:
+    """Parse ``.gitmodules`` under ``workdir`` and return the list of submodule paths."""
+    gitmodules = os.path.join(workdir, ".gitmodules")
+    if not os.path.isfile(gitmodules):
+        return []
+    paths: list[str] = []
+    try:
+        with open(gitmodules, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError:
+        return []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("path"):
+            _, _, value = stripped.partition("=")
+            value = value.strip()
+            if value:
+                paths.append(value)
+    return paths
+
+
+def _read_submodule_head_oid(parent_workdir: str, sub_path: str) -> str | None:
+    """Return the submodule's current HEAD oid, working even for empty workdirs.
+
+    Uses ``_resolve_gitdir`` to find the submodule's real gitdir (either via a
+    ``.git`` gitlink file or by walking up to the parent's ``.git/modules/``
+    entry), opens it, and returns the HEAD oid. Returns ``None`` if the
+    submodule can't be opened or is unborn.
+    """
+    abs_path = os.path.join(parent_workdir, sub_path)
+    resolved = _resolve_gitdir(abs_path)
+    if resolved == abs_path:
+        # _resolve_gitdir couldn't find a gitdir for this submodule
+        return None
+    try:
+        sub_repo = pygit2.Repository(resolved)
+        if sub_repo.head_is_unborn:
+            return None
+        return str(sub_repo.head.target)
+    except Exception:
+        return None
+
+
+def _submodule_diff_hunk(old_oid: str, new_oid: str) -> Hunk:
+    """Build a two-line hunk that mirrors git's ``Subproject commit`` diff format."""
+    return Hunk(
+        header="@@ -1,1 +1,1 @@",
+        lines=[
+            ("-", f"Subproject commit {old_oid}\n"),
+            ("+", f"Subproject commit {new_oid}\n"),
+        ],
+    )
+
+
 class Pygit2Repository:
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(_resolve_gitdir(path))
+
+    def _detect_diverged_submodules(self) -> list[tuple[str, str, str, str]]:
+        """Return ``(path, tree_oid, index_oid, actual_oid)`` for each submodule
+        where at least one of the three oids differs.
+
+        Surfaces submodule changes that pygit2's ``status()``/``diff()`` misses
+        when the submodule workdir has no ``.git`` link file (an "uninitialized"
+        or broken checkout). The gitdir is still found via ``_resolve_gitdir``.
+        """
+        if self._repo.head_is_unborn:
+            return []
+        result: list[tuple[str, str, str, str]] = []
+        try:
+            head_tree = self._repo.head.peel(pygit2.Commit).tree
+            index = self._repo.index
+            for sub_path in _parse_gitmodules_paths(self._repo.workdir):
+                try:
+                    tree_oid = str(head_tree[sub_path].id)
+                except KeyError:
+                    continue
+                try:
+                    index_oid = str(index[sub_path].id)
+                except KeyError:
+                    index_oid = tree_oid
+                actual_oid = _read_submodule_head_oid(self._repo.workdir, sub_path)
+                if actual_oid is None:
+                    continue
+                if tree_oid != index_oid or index_oid != actual_oid:
+                    result.append((sub_path, tree_oid, index_oid, actual_oid))
+        except Exception as e:
+            logger.warning("Failed to detect submodule changes: %s", e)
+        return result
 
     @property
     def _git_env(self) -> dict:
@@ -447,6 +533,16 @@ class Pygit2Repository:
         except Exception as e:
             logger.warning("Failed to enumerate untracked files for diff map: %s", e)
 
+        # Submodule changes that pygit2's diff() misses for uninitialized workdirs.
+        # Override any existing empty entry — pygit2 sometimes returns an empty
+        # patch for a submodule, which would leave the UI with no hunks to show.
+        for sub_path, tree_oid, index_oid, actual_oid in self._detect_diverged_submodules():
+            entry = result.setdefault(sub_path, {"staged": [], "unstaged": []})
+            if index_oid != tree_oid:
+                entry["staged"] = [_submodule_diff_hunk(tree_oid, index_oid)]
+            if actual_oid != index_oid:
+                entry["unstaged"] = [_submodule_diff_hunk(index_oid, actual_oid)]
+
         return result
 
     def _diff_workfile_against_head(self, path: str) -> list[Hunk]:
@@ -625,6 +721,18 @@ class Pygit2Repository:
                 continue
             for status, delta in _map_statuses(flags):
                 files.append(FileStatus(path=path, status=status, delta=delta))
+
+        # Surface submodule changes that pygit2's status() misses when the
+        # submodule workdir has no .git link file.
+        seen = {f.path for f in files}
+        for sub_path, tree_oid, index_oid, actual_oid in self._detect_diverged_submodules():
+            if sub_path in seen:
+                continue
+            if index_oid != tree_oid:
+                files.append(FileStatus(path=sub_path, status="staged", delta="modified"))
+            if actual_oid != index_oid:
+                files.append(FileStatus(path=sub_path, status="unstaged", delta="modified"))
+
         return files
 
     def is_dirty(self) -> bool:
