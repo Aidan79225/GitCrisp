@@ -1,6 +1,6 @@
 # git_gui/presentation/widgets/diff.py
 from __future__ import annotations
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
     QListView, QPlainTextEdit, QScrollArea, QSplitter,
@@ -73,6 +73,18 @@ class DiffWidget(QWidget):
         self._current_oid: str | None = None
         self._submodule_paths: set[str] = set()
 
+        # Lazy loading state
+        self._diff_map: dict[str, list] = {}
+        # Each entry: (path, frame_widget, inner_layout, skeleton_widget_or_none)
+        self._block_refs: list[tuple[str, QWidget, object, object]] = []
+        self._loaded_paths: set[str] = set()
+
+        # Scroll debounce timer
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setSingleShot(True)
+        self._scroll_timer.setInterval(50)
+        self._scroll_timer.timeout.connect(self._check_viewport_and_load)
+
         # ── Row 1: commit detail (3-line metadata) ──────────────────────────
         self._detail = CommitDetailWidget()
         self._detail.setAutoFillBackground(True)
@@ -102,6 +114,7 @@ class DiffWidget(QWidget):
         self._diff_layout.setContentsMargins(0, 4, 0, 4)
         self._diff_layout.setSpacing(8)
         self._diff_scroll.setWidget(self._diff_container)
+        self._diff_scroll.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
         self._diff_model = DiffModel([])
         self._file_view.setModel(self._diff_model)
@@ -226,6 +239,59 @@ class DiffWidget(QWidget):
 
         return frame
 
+    def _build_skeleton_block(self, path: str):
+        """Build a file block with a skeleton placeholder. Returns (frame, inner, skeleton)."""
+        from git_gui.presentation.widgets.diff_block import make_skeleton_container
+        is_submodule = path in self._submodule_paths
+        on_click = (
+            (lambda p=path: self.submodule_open_requested.emit(p))
+            if is_submodule else None
+        )
+        frame, inner = make_file_block(path, on_header_clicked=on_click)
+        skeleton = make_skeleton_container()
+        inner.addWidget(skeleton)
+        return frame, inner, skeleton
+
+    def _on_scroll(self, value: int) -> None:
+        """Debounced scroll handler — restart the timer on every scroll."""
+        self._scroll_timer.start()
+
+    def _check_viewport_and_load(self) -> None:
+        """Realize any skeleton blocks currently intersecting the viewport."""
+        if not self._block_refs or not self._diff_map:
+            return
+        viewport = self._diff_scroll.viewport()
+        vp_rect = viewport.rect()
+        for path, frame, inner, skeleton in list(self._block_refs):
+            if path in self._loaded_paths:
+                continue
+            if frame is None:
+                continue
+            # Translate frame geometry into viewport coordinates
+            top_left = frame.mapTo(viewport, QPoint(0, 0))
+            frame_rect = frame.rect().translated(top_left)
+            if frame_rect.intersects(vp_rect):
+                self._realize_block(path, inner, skeleton)
+
+    def _realize_block(self, path: str, inner, skeleton) -> None:
+        """Replace the skeleton with real hunk widgets for the given path."""
+        if path in self._loaded_paths:
+            return
+        hunks = self._diff_map.get(path, [])
+        # Remove skeleton
+        if skeleton is not None:
+            inner.removeWidget(skeleton)
+            skeleton.deleteLater()
+        # Add hunk widgets
+        is_submodule = path in self._submodule_paths
+        on_click = (
+            (lambda p=path: self.submodule_open_requested.emit(p))
+            if is_submodule else None
+        )
+        for hunk in hunks:
+            add_hunk_widget(inner, hunk, self._formats, on_header_clicked=on_click)
+        self._loaded_paths.add(path)
+
     def _on_file_selected(self, index) -> None:
         if self._current_oid is None:
             return
@@ -248,15 +314,23 @@ class DiffWidget(QWidget):
         """Clear and render one file as a bordered block."""
         self._refresh_submodule_paths()
         self._clear_blocks()
+        self._block_refs = []
+        self._loaded_paths = set()
         block = self._build_file_block(path, hunks)
         self._diff_layout.addWidget(block)
         self._diff_layout.addStretch()
         self._diff_scroll.verticalScrollBar().setValue(0)
 
     def _render_all_files(self, oid: str) -> None:
-        """Clear and render every file as a bordered block."""
+        """Render all file blocks as skeletons immediately, then fetch diffs in background."""
+        import threading
+        from PySide6.QtCore import QObject, Signal
+
         self._refresh_submodule_paths()
         self._clear_blocks()
+        self._block_refs = []
+        self._loaded_paths = set()
+        self._diff_map = {}
 
         row_count = self._diff_model.rowCount()
         for row in range(row_count):
@@ -265,9 +339,33 @@ class DiffWidget(QWidget):
             if file_status is None:
                 continue
             path = file_status.path
-            hunks = self._queries.get_file_diff.execute(oid, path)
-            block = self._build_file_block(path, hunks)
-            self._diff_layout.addWidget(block)
+            frame, inner, skeleton = self._build_skeleton_block(path)
+            self._diff_layout.addWidget(frame)
+            self._block_refs.append((path, frame, inner, skeleton))
 
         self._diff_layout.addStretch()
         self._diff_scroll.verticalScrollBar().setValue(0)
+
+        # Dispatch background fetch
+        queries = self._queries
+
+        class _MapSignals(QObject):
+            done = Signal(object)  # dict
+
+        signals = _MapSignals()
+        signals.done.connect(self._on_diff_map_loaded)
+        self._diff_map_signals = signals  # prevent GC
+
+        def _worker():
+            try:
+                result = queries.get_commit_diff_map.execute(oid)
+            except Exception:
+                result = {}
+            signals.done.emit(result)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_diff_map_loaded(self, diff_map: dict) -> None:
+        """Background fetch finished — store the map and realize visible blocks."""
+        self._diff_map = diff_map
+        self._check_viewport_and_load()
