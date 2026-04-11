@@ -212,6 +212,10 @@ class DiffWidget(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
+        # Invalidate tracked block refs — their frames are now deleted.
+        # Any pending QTimer callbacks must not touch them.
+        self._block_refs = []
+        self._loaded_paths = set()
 
     def _refresh_submodule_paths(self) -> None:
         """Refresh the cached set of submodule paths from the repository."""
@@ -263,18 +267,29 @@ class DiffWidget(QWidget):
         reschedule the check via QTimer.singleShot(0, ...) to let Qt process
         the layout before re-checking. This prevents a thundering-herd of
         simultaneous realizations when skeletons are smaller than real hunks.
+
+        If the widget has been reloaded since a check was scheduled, the old
+        frames may already be deleted by Qt. A stale frame reference manifests
+        as a ``RuntimeError`` from shiboken; we skip those entries silently.
         """
         if not self._block_refs or not self._diff_map:
             return
-        viewport = self._diff_scroll.viewport()
-        vp_rect = viewport.rect()
+        try:
+            viewport = self._diff_scroll.viewport()
+            vp_rect = viewport.rect()
+        except RuntimeError:
+            return
         for path, frame, inner, skeleton in list(self._block_refs):
             if path in self._loaded_paths:
                 continue
             if frame is None:
                 continue
-            top_left = frame.mapTo(viewport, QPoint(0, 0))
-            frame_rect = frame.rect().translated(top_left)
+            try:
+                top_left = frame.mapTo(viewport, QPoint(0, 0))
+                frame_rect = frame.rect().translated(top_left)
+            except RuntimeError:
+                # Frame was deleted by a newer load — stale entry, skip.
+                continue
             if frame_rect.intersects(vp_rect):
                 self._realize_block(path, inner, skeleton)
                 # Re-check after Qt processes the layout change
