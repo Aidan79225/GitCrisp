@@ -1,12 +1,15 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
+import logging
 import os
 import subprocess
 
 import pygit2
 
 from git_gui.resources import subprocess_kwargs
+
+logger = logging.getLogger(__name__)
 from git_gui.domain.entities import (
     Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, MergeAnalysisResult, MergeStrategy, Remote, RepoState, RepoStateInfo, Stash, Submodule, Tag, WORKING_TREE_OID,
 )
@@ -184,7 +187,8 @@ class Pygit2Repository:
         # so only the actual checked-out branch is marked as head.
         try:
             head_ref_name = self._repo.head.name if not self._repo.head_is_unborn else None
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to read HEAD ref name: %s", e)
             head_ref_name = None
 
         for name in self._repo.branches.local:
@@ -310,8 +314,8 @@ class Pygit2Repository:
                     continue
                 result.setdefault(path, {"staged": [], "unstaged": []})
                 result[path]["staged"] = _diff_to_hunks(patch)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to compute staged diff map: %s", e)
 
         # Unstaged: workdir vs index
         try:
@@ -334,8 +338,8 @@ class Pygit2Repository:
                         else:
                             hunks = self._diff_workfile_against_head(path)
                 result[path]["unstaged"] = hunks
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to compute unstaged diff map: %s", e)
 
         # Untracked files
         try:
@@ -343,8 +347,8 @@ class Pygit2Repository:
                 if status & pygit2.GIT_STATUS_WT_NEW:
                     result.setdefault(path, {"staged": [], "unstaged": []})
                     result[path]["unstaged"] = _synthesise_untracked_hunk(self._repo.workdir, path)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to enumerate untracked files for diff map: %s", e)
 
         return result
 
@@ -356,8 +360,8 @@ class Pygit2Repository:
             for patch in diff:
                 if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
                     return _diff_to_hunks(patch)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to diff %r against HEAD: %s", path, e)
         return []
 
     def get_staged_diff(self, path: str) -> list[Hunk]:
@@ -375,8 +379,8 @@ class Pygit2Repository:
             for patch in diff:
                 if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
                     return _diff_to_hunks(patch)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to compute staged diff for %r: %s", path, e)
         return []
 
     def get_tags(self) -> list[Tag]:
