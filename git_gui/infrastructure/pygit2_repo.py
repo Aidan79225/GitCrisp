@@ -135,9 +135,76 @@ def _synthesise_conflict_hunk(workdir: str, path: str) -> list[Hunk]:
     return hunks
 
 
+def _resolve_gitdir(path: str) -> str:
+    """Resolve a submodule workdir path to its real .git directory.
+
+    Handles three cases:
+
+    1. ``<path>/.git`` is a directory → normal repo, return path unchanged.
+    2. ``<path>/.git`` is a gitlink file containing ``gitdir: <rel>`` → follow
+       the gitlink to the real gitdir under ``<parent>/.git/modules/<name>/``.
+    3. ``<path>/.git`` does not exist (uninitialized / broken submodule
+       checkout) → walk up the directory tree looking for a parent repo
+       whose ``.gitmodules`` lists ``<path>``, and use that parent's
+       ``.git/modules/<relpath>/`` as the gitdir.
+
+    Without this, pygit2's own discovery walks up past the submodule workdir
+    and opens the *parent* repo, so the UI shows the parent's commit graph
+    when the user opens a submodule.
+    """
+    dot_git = os.path.join(path, ".git")
+
+    # Case 1: normal repo with .git directory → passthrough
+    if os.path.isdir(dot_git):
+        return path
+
+    # Case 2: gitlink file (initialized submodule)
+    if os.path.isfile(dot_git):
+        try:
+            with open(dot_git, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+        except OSError:
+            return path
+        if content.startswith("gitdir:"):
+            rel = content[len("gitdir:"):].strip()
+            return os.path.normpath(os.path.join(path, rel))
+        return path
+
+    # Case 3: no .git at all — try to find a parent repo whose .gitmodules
+    # lists this path as a submodule.
+    abs_path = os.path.abspath(path)
+    current = os.path.dirname(abs_path)
+    while True:
+        parent_git = os.path.join(current, ".git")
+        gitmodules_path = os.path.join(current, ".gitmodules")
+        if os.path.isdir(parent_git) and os.path.isfile(gitmodules_path):
+            rel_path = os.path.relpath(abs_path, current).replace("\\", "/")
+            try:
+                with open(gitmodules_path, "r", encoding="utf-8") as f:
+                    modules_content = f.read()
+            except OSError:
+                return path
+            for line in modules_content.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("path"):
+                    _, _, value = stripped.partition("=")
+                    if value.strip() == rel_path:
+                        candidate = os.path.join(parent_git, "modules", rel_path)
+                        if os.path.isdir(candidate):
+                            return os.path.normpath(candidate)
+                        break
+            return path  # matched a parent but no gitdir — give up
+        next_parent = os.path.dirname(current)
+        if next_parent == current:
+            break
+        current = next_parent
+
+    return path
+
+
 class Pygit2Repository:
     def __init__(self, path: str) -> None:
-        self._repo = pygit2.Repository(path)
+        self._repo = pygit2.Repository(_resolve_gitdir(path))
 
     # ------------------------------------------------------------------ reads
 
