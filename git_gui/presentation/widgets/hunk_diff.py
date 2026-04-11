@@ -190,16 +190,28 @@ class HunkDiffWidget(QWidget):
         self._scroll_timer.start()
 
     def _on_diff_map_loaded(self, diff_map: dict) -> None:
-        """Background fetch finished - store the map and realize visible blocks."""
+        """Background fetch finished - store the map and realize visible blocks.
+
+        Defer the viewport check one event loop tick so Qt has a chance to lay
+        out the skeleton blocks; otherwise their positions may still be (0, 0)
+        and every block would look visible.
+        """
         if self._all_paths is None:
             return
         self._diff_map = diff_map
-        self._check_viewport_and_load()
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._check_viewport_and_load)
 
     def _check_viewport_and_load(self) -> None:
-        """Realize any skeleton blocks currently intersecting the viewport."""
+        """Realize the first skeleton block intersecting the viewport.
+
+        Only one block per call — after realization, the layout shifts, so we
+        reschedule the check via QTimer.singleShot(0, ...) to let Qt process
+        the layout before re-checking. Prevents a thundering-herd of realizations.
+        """
         if not self._block_refs or not self._diff_map:
             return
+        from PySide6.QtCore import QTimer
         viewport = self._scroll.viewport()
         vp_rect = viewport.rect()
         for path, frame, inner, skeleton in list(self._block_refs):
@@ -211,6 +223,8 @@ class HunkDiffWidget(QWidget):
             frame_rect = frame.rect().translated(top_left)
             if frame_rect.intersects(vp_rect):
                 self._realize_block(path, inner, skeleton)
+                QTimer.singleShot(0, self._check_viewport_and_load)
+                return
 
     def _realize_block(self, path: str, inner, skeleton) -> None:
         """Replace the skeleton with real hunk widgets for the given path."""
