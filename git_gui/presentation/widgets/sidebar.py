@@ -67,11 +67,13 @@ class _SidebarTree(QTreeView):
         super().leaveEvent(event)
 
     def drawBranches(self, painter, rect, index) -> None:
-        # Only fill on HEAD highlight. Hover fill is handled by drawRow for
-        # the whole row; filling here too would overdraw the expand/collapse
-        # arrow that super().drawBranches() paints for section headers.
         if index.data(_IS_HEAD_ROLE):
             painter.fillRect(rect, _head_bg())
+        elif self._hover_idx.isValid() and index == self._hover_idx:
+            painter.fillRect(
+                rect,
+                get_theme_manager().current.colors.as_qcolor("surface_container_high"),
+            )
         super().drawBranches(painter, rect, index)
 
     def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
