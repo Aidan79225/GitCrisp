@@ -192,17 +192,23 @@ def render_hunk_header_line(cursor, hunk: Hunk, formats: DiffFormats) -> None:
     cursor.insertText(hunk.header + "\n")
 
 
-def render_hunk_content_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
-    """Insert the +/-/context lines of *hunk* into *cursor*.
+_CHUNK_SIZE = 100
 
-    Returns the number of lines inserted (== len(hunk.lines)).
-    Zero-line hunks are a no-op returning 0.
-    """
-    if not hunk.lines:
-        return 0
 
+def _render_lines_range(cursor, hunk, formats, start, end) -> None:
+    """Render hunk.lines[start:end] into cursor, tracking line numbers."""
     old_line, new_line = parse_hunk_header(hunk.header)
-    for origin, content in hunk.lines:
+    # Fast-forward past already-rendered lines to keep line numbers accurate
+    for origin, _ in hunk.lines[:start]:
+        if origin == "+":
+            new_line += 1
+        elif origin == "-":
+            old_line += 1
+        else:
+            old_line += 1
+            new_line += 1
+
+    for origin, content in hunk.lines[start:end]:
         if origin == "+":
             cursor.setBlockFormat(formats.blk_added)
             cursor.setCharFormat(formats.fmt_added)
@@ -222,7 +228,45 @@ def render_hunk_content_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
         line = content if content.endswith("\n") else content + "\n"
         cursor.insertText(prefix + line)
 
-    return len(hunk.lines)
+
+def render_hunk_content_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
+    """Insert the +/-/context lines of *hunk* into *cursor*.
+
+    For small hunks (<= _CHUNK_SIZE lines), renders synchronously.
+    For large hunks, renders the first chunk immediately and schedules
+    the rest via QTimer.singleShot to keep the UI responsive.
+
+    Returns the number of lines that will ultimately be inserted.
+    """
+    if not hunk.lines:
+        return 0
+
+    total = len(hunk.lines)
+    if total <= _CHUNK_SIZE:
+        _render_lines_range(cursor, hunk, formats, 0, total)
+        return total
+
+    # Render first chunk synchronously
+    _render_lines_range(cursor, hunk, formats, 0, _CHUNK_SIZE)
+
+    # Schedule remaining chunks
+    from PySide6.QtCore import QTimer
+    state = {"start": _CHUNK_SIZE}
+
+    def _next_chunk():
+        try:
+            start = state["start"]
+            end = min(start + _CHUNK_SIZE, total)
+            _render_lines_range(cursor, hunk, formats, start, end)
+            state["start"] = end
+            if end < total:
+                QTimer.singleShot(0, _next_chunk)
+        except RuntimeError:
+            # Cursor's underlying document was destroyed — abort silently
+            pass
+
+    QTimer.singleShot(0, _next_chunk)
+    return total
 
 
 def render_hunk_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
