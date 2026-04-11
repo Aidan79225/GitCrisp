@@ -8,6 +8,7 @@ from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
 from git_gui.presentation.theme import ThemeManager, set_theme_manager
+from git_gui.logging_setup import setup_logging
 
 
 def _is_git_repo(path: str) -> bool:
@@ -53,6 +54,7 @@ def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
 
 
 def main() -> None:
+    setup_logging()
     app = QApplication(sys.argv)
     app.setApplicationName("GitCrisp")
 
