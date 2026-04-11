@@ -9,6 +9,7 @@ from git_gui.application.queries import (
     ListRemotes, ListSubmodules, ListLocalBranchesWithUpstream,
     GetRepoState, IsAncestor, GetMergeAnalysis,
     GetMergeHead, GetMergeMsg, HasUnresolvedConflicts,
+    GetCommitDiffMap, GetWorkingTreeDiffMap,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
@@ -50,6 +51,8 @@ class QueryBus:
     get_merge_head: GetMergeHead
     get_merge_msg: GetMergeMsg
     has_unresolved_conflicts: HasUnresolvedConflicts
+    get_commit_diff_map: GetCommitDiffMap
+    get_working_tree_diff_map: GetWorkingTreeDiffMap
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
@@ -76,6 +79,8 @@ class QueryBus:
             get_merge_head=GetMergeHead(reader),
             get_merge_msg=GetMergeMsg(reader),
             has_unresolved_conflicts=HasUnresolvedConflicts(reader),
+            get_commit_diff_map=GetCommitDiffMap(reader),
+            get_working_tree_diff_map=GetWorkingTreeDiffMap(reader),
         )
 
 
