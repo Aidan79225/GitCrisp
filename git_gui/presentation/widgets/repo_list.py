@@ -2,11 +2,11 @@
 from __future__ import annotations
 from pathlib import Path
 import pygit2
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
+from PySide6.QtCore import QRect, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
-    QStyle, QStyleOptionViewItem, QTreeView,
+    QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTreeView,
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.ports import IRepoStore
@@ -86,6 +86,79 @@ class _RepoTree(QTreeView):
         super().drawRow(painter, option, index)
 
 
+_REPO_ROW_HEIGHT = 40
+_ROW_H_PADDING = 8
+
+
+class _RepoItemDelegate(QStyledItemDelegate):
+    """Two-line item delegate for repo rows.
+
+    Line 1: the repo name (Path.name), default font.
+    Line 2: _display_path(path), smaller font, dimmer color, middle-elided.
+
+    Header rows (marked with "header" in Qt.UserRole + 1) keep their default
+    rendering by deferring to super().paint/sizeHint.
+    """
+
+    def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
+        if index.data(Qt.UserRole + 1) == "header":
+            return super().sizeHint(option, index)
+        return QSize(option.rect.width(), _REPO_ROW_HEIGHT)
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        if index.data(Qt.UserRole + 1) == "header":
+            super().paint(painter, option, index)
+            return
+
+        path = index.data(Qt.UserRole)
+        if not path:
+            super().paint(painter, option, index)
+            return
+
+        name = Path(path).name
+        disp = _display_path(path)
+        is_active = bool(index.data(_IS_ACTIVE_ROLE))
+
+        colors = get_theme_manager().current.colors
+        name_color = colors.as_qcolor("on_primary") if is_active else colors.as_qcolor("on_surface")
+        path_color = colors.as_qcolor("on_surface_variant")
+
+        rect = option.rect
+        text_left = rect.left() + _ROW_H_PADDING
+        text_right = rect.right() - _ROW_H_PADDING
+        text_width = max(0, text_right - text_left)
+
+        # Top half: repo name
+        name_font = QFont(option.font)
+        if is_active:
+            name_font.setBold(True)
+        name_metrics = QFontMetrics(name_font)
+        name_height = name_metrics.height()
+        name_top = rect.top() + (rect.height() // 2) - name_height
+        name_rect = QRect(text_left, name_top, text_width, name_height)
+
+        painter.save()
+        painter.setFont(name_font)
+        painter.setPen(name_color)
+        elided_name = name_metrics.elidedText(name, Qt.ElideMiddle, text_width)
+        painter.drawText(name_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_name)
+
+        # Bottom half: display path
+        path_font = QFont(option.font)
+        path_font.setPointSizeF(max(1.0, path_font.pointSizeF() * 0.85))
+        path_metrics = QFontMetrics(path_font)
+        path_height = path_metrics.height()
+        path_top = name_rect.bottom() + 2
+        path_rect = QRect(text_left, path_top, text_width, path_height)
+
+        painter.setFont(path_font)
+        painter.setPen(path_color)
+        elided_path = path_metrics.elidedText(disp, Qt.ElideMiddle, text_width)
+        painter.drawText(path_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_path)
+
+        painter.restore()
+
+
 class RepoListWidget(QWidget):
     repo_switch_requested = Signal(str)
     repo_open_requested = Signal(str)
@@ -146,6 +219,7 @@ class RepoListWidget(QWidget):
 
         self._model = QStandardItemModel()
         self._tree.setModel(self._model)
+        self._tree.setItemDelegate(_RepoItemDelegate(self._tree))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -194,7 +268,6 @@ class RepoListWidget(QWidget):
         item.setToolTip(path)
         item.setData(path, Qt.UserRole)
         item.setData(kind, Qt.UserRole + 1)
-        item.setSizeHint(QSize(0, _ROW_HEIGHT))
         if is_active:
             font = item.font()
             font.setBold(True)
