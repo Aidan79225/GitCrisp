@@ -1,5 +1,6 @@
 # git_gui/presentation/widgets/diff.py
 from __future__ import annotations
+import logging
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
@@ -14,6 +15,8 @@ from git_gui.presentation.widgets.file_list_view import FileListView as _FileLis
 from git_gui.presentation.widgets.diff_block import (
     make_file_block, make_diff_formats, add_hunk_widget,
 )
+
+logger = logging.getLogger(__name__)
 
 # (label only — color comes from theme.colors.status_color(kind) at paint time)
 _DELTA_LABEL = {
@@ -181,8 +184,19 @@ class DiffWidget(QWidget):
     def load_commit(self, oid: str) -> None:
         self._current_oid = oid
 
-        # Fetch commit detail + refs
-        commit = self._queries.get_commit_detail.execute(oid)
+        # Fetch commit detail + refs. If the commit no longer exists (e.g. the
+        # graph selection points at a rebased/reset commit), clear the panel
+        # and bail out instead of crashing.
+        try:
+            commit = self._queries.get_commit_detail.execute(oid)
+        except Exception as e:
+            logger.warning("Failed to load commit %r: %s", oid, e)
+            self._current_oid = None
+            self._detail.clear()
+            self._msg_view.clear()
+            self._diff_model.reload([])
+            self._clear_blocks()
+            return
         branches = self._queries.get_branches.execute()
         refs = [b.name for b in branches if b.target_oid == oid]
         self._detail.set_commit(commit, refs)

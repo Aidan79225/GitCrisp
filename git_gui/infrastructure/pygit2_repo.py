@@ -179,7 +179,10 @@ class Pygit2Repository:
         return [_commit_to_entity(c) for c, _ in zip(walker, range(limit))]
 
     def get_commit(self, oid: str) -> Commit:
-        return _commit_to_entity(self._repo.get(oid))
+        obj = self._repo.get(oid)
+        if obj is None:
+            raise KeyError(f"Commit not found: {oid}")
+        return _commit_to_entity(obj)
 
     def get_branches(self) -> list[Branch]:
         branches: list[Branch] = []
