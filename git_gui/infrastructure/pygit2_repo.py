@@ -441,7 +441,8 @@ class Pygit2Repository:
                     continue
                 tags.append(name)
             return tags
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to list remote tags for %r: %s", remote, e)
             return []
 
     def get_commit_stats(self, since: datetime | None = None, until: datetime | None = None) -> list[CommitStat]:
@@ -457,7 +458,8 @@ class Pygit2Repository:
             )
             if result.returncode != 0:
                 return []
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to run git log for commit stats: %s", e)
             return []
 
         stats: list[CommitStat] = []
@@ -977,7 +979,8 @@ class Pygit2Repository:
         result: list[Submodule] = []
         try:
             sm_paths = list(self._repo.listall_submodules())
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to list submodules: %s", e)
             return result
         if not sm_paths:
             return result
@@ -995,8 +998,8 @@ class Pygit2Repository:
                     if len(parts) >= 3 and parts[0] == "submodule" and parts[-1] == "url":
                         sm_path = ".".join(parts[1:-1])
                         url_map[sm_path] = entry.value
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to parse .gitmodules at %r: %s", gitmodules_path, e)
 
         # Get head SHAs via git ls-files -s (gitlink entries have mode 160000)
         sha_map: dict[str, str] = {}
@@ -1013,8 +1016,8 @@ class Pygit2Repository:
                     fields = line_parts[0].split()
                     if len(fields) >= 2 and fields[0] == "160000":
                         sha_map[line_parts[1]] = fields[1]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to read submodule SHAs via git ls-files: %s", e)
 
         for path in sm_paths:
             url = url_map.get(path, "")
@@ -1039,7 +1042,8 @@ class Pygit2Repository:
             br = self._repo.branches.local[name]
             try:
                 upstream = br.upstream.shorthand if br.upstream else None
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to read upstream for branch %r: %s", name, e)
                 upstream = None
             commit = br.peel(pygit2.Commit)
             sha = str(commit.id)[:10]
