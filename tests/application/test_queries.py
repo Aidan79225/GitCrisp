@@ -150,3 +150,24 @@ def test_get_merge_msg_passthrough():
 def test_has_unresolved_conflicts_passthrough():
     assert HasUnresolvedConflicts(_FakeConflictReader(True)).execute() is True
     assert HasUnresolvedConflicts(_FakeConflictReader(False)).execute() is False
+
+
+from git_gui.application.queries import GetCommitDiffMap, GetWorkingTreeDiffMap
+
+
+class _FakeDiffMapReader:
+    def get_commit_diff_map(self, oid):
+        return {"a.txt": ["hunk1"]}
+
+    def get_working_tree_diff_map(self):
+        return {"b.txt": {"staged": ["h1"], "unstaged": []}}
+
+
+def test_get_commit_diff_map_passthrough():
+    q = GetCommitDiffMap(_FakeDiffMapReader())
+    assert q.execute("abc123") == {"a.txt": ["hunk1"]}
+
+
+def test_get_working_tree_diff_map_passthrough():
+    q = GetWorkingTreeDiffMap(_FakeDiffMapReader())
+    assert q.execute() == {"b.txt": {"staged": ["h1"], "unstaged": []}}
