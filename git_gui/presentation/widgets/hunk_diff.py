@@ -208,19 +208,30 @@ class HunkDiffWidget(QWidget):
         Only one block per call — after realization, the layout shifts, so we
         reschedule the check via QTimer.singleShot(0, ...) to let Qt process
         the layout before re-checking. Prevents a thundering-herd of realizations.
+
+        If the widget has been reloaded since a check was scheduled, the old
+        frames may already be deleted by Qt. A stale frame reference manifests
+        as a ``RuntimeError`` from shiboken; we skip those entries silently.
         """
         if not self._block_refs or not self._diff_map:
             return
         from PySide6.QtCore import QTimer
-        viewport = self._scroll.viewport()
-        vp_rect = viewport.rect()
+        try:
+            viewport = self._scroll.viewport()
+            vp_rect = viewport.rect()
+        except RuntimeError:
+            return
         for path, frame, inner, skeleton in list(self._block_refs):
             if path in self._loaded_paths:
                 continue
             if frame is None:
                 continue
-            top_left = frame.mapTo(viewport, QPoint(0, 0))
-            frame_rect = frame.rect().translated(top_left)
+            try:
+                top_left = frame.mapTo(viewport, QPoint(0, 0))
+                frame_rect = frame.rect().translated(top_left)
+            except RuntimeError:
+                # Frame was deleted by a newer load — stale entry, skip.
+                continue
             if frame_rect.intersects(vp_rect):
                 self._realize_block(path, inner, skeleton)
                 QTimer.singleShot(0, self._check_viewport_and_load)
@@ -391,3 +402,7 @@ class HunkDiffWidget(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
+        # Invalidate tracked block refs — their frames are now deleted.
+        # Any pending QTimer callbacks must not touch them.
+        self._block_refs = []
+        self._loaded_paths = set()
