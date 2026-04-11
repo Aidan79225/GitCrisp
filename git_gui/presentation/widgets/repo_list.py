@@ -17,6 +17,22 @@ def _active_bg() -> QColor:
     return get_theme_manager().current.colors.as_qcolor("primary")
 
 
+def _display_path(path: str) -> str:
+    """Convert an absolute repo path into a display-friendly form.
+
+    Paths under the user's home directory are shortened with ``~``.
+    All returned paths use forward slashes, regardless of OS.
+    """
+    p = Path(path)
+    try:
+        rel = p.relative_to(Path.home())
+    except ValueError:
+        return p.as_posix()
+    if rel == Path("."):
+        return "~"
+    return "~/" + rel.as_posix()
+
+
 _IS_ACTIVE_ROLE = Qt.UserRole + 2
 _ROW_HEIGHT = 28
 
