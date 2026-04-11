@@ -257,7 +257,13 @@ class DiffWidget(QWidget):
         self._scroll_timer.start()
 
     def _check_viewport_and_load(self) -> None:
-        """Realize any skeleton blocks currently intersecting the viewport."""
+        """Realize the first skeleton block intersecting the viewport.
+
+        Only one block per call — after realization, the layout shifts, so we
+        reschedule the check via QTimer.singleShot(0, ...) to let Qt process
+        the layout before re-checking. This prevents a thundering-herd of
+        simultaneous realizations when skeletons are smaller than real hunks.
+        """
         if not self._block_refs or not self._diff_map:
             return
         viewport = self._diff_scroll.viewport()
@@ -267,11 +273,13 @@ class DiffWidget(QWidget):
                 continue
             if frame is None:
                 continue
-            # Translate frame geometry into viewport coordinates
             top_left = frame.mapTo(viewport, QPoint(0, 0))
             frame_rect = frame.rect().translated(top_left)
             if frame_rect.intersects(vp_rect):
                 self._realize_block(path, inner, skeleton)
+                # Re-check after Qt processes the layout change
+                QTimer.singleShot(0, self._check_viewport_and_load)
+                return
 
     def _realize_block(self, path: str, inner, skeleton) -> None:
         """Replace the skeleton with real hunk widgets for the given path."""
@@ -366,6 +374,11 @@ class DiffWidget(QWidget):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_diff_map_loaded(self, diff_map: dict) -> None:
-        """Background fetch finished — store the map and realize visible blocks."""
+        """Background fetch finished — store the map and realize visible blocks.
+
+        Defer the viewport check one event loop tick so Qt has a chance to lay
+        out the skeleton blocks; otherwise their positions may still be (0, 0)
+        and every block would look visible.
+        """
         self._diff_map = diff_map
-        self._check_viewport_and_load()
+        QTimer.singleShot(0, self._check_viewport_and_load)
