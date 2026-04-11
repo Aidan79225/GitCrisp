@@ -1,7 +1,7 @@
 # git_gui/presentation/widgets/hunk_diff.py
 from __future__ import annotations
 import threading
-from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtCore import QObject, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox, QHBoxLayout, QLabel, QMessageBox, QScrollArea,
@@ -19,8 +19,8 @@ class _LoadSignals(QObject):
     done = Signal(str, list, list, bool)  # path, staged_hunks, unstaged_hunks, is_untracked
 
 
-class _LoadAllSignals(QObject):
-    done = Signal(list)  # list of (path, staged_hunks, unstaged_hunks, is_untracked) tuples
+class _DiffMapSignals(QObject):
+    done = Signal(object)  # dict[str, dict[str, list[Hunk]]]
 
 
 class HunkDiffWidget(QWidget):
@@ -36,6 +36,17 @@ class HunkDiffWidget(QWidget):
         self._all_paths: list[str] | None = None  # None = single-file or empty mode
         self._submodule_paths: set[str] = set()
 
+        # Lazy loading state (all-files mode)
+        self._diff_map: dict[str, dict[str, list]] = {}
+        self._block_refs: list = []
+        self._loaded_paths: set[str] = set()
+
+        from PySide6.QtCore import QTimer
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setSingleShot(True)
+        self._scroll_timer.setInterval(50)
+        self._scroll_timer.timeout.connect(self._check_viewport_and_load)
+
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
 
@@ -50,6 +61,8 @@ class HunkDiffWidget(QWidget):
 
         # Diff formats
         self._formats = make_diff_formats()
+
+        self._scroll.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
@@ -70,31 +83,35 @@ class HunkDiffWidget(QWidget):
             self._clear_layout()
             return
 
-        queries = self._queries
-        all_paths = self._all_paths
+        self._refresh_submodule_paths()
+        self._clear_layout()
+        self._block_refs = []
+        self._loaded_paths = set()
+        self._diff_map = {}
 
-        signals = _LoadAllSignals()
-        signals.done.connect(self._on_load_all_done)
+        from git_gui.presentation.widgets.diff_block import make_skeleton_container
+        for path in paths:
+            frame, inner = self._make_file_block(path)
+            skeleton = make_skeleton_container()
+            inner.addWidget(skeleton)
+            self._layout.addWidget(frame)
+            spacer = QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
+            self._layout.addItem(spacer)
+            self._block_refs.append((path, frame, inner, skeleton))
+
+        self._layout.addStretch()
+
+        queries = self._queries
+        signals = _DiffMapSignals()
+        signals.done.connect(self._on_diff_map_loaded)
         self._load_all_signals = signals  # prevent GC
 
         def _worker():
-            results = []
-            for path in all_paths:
-                try:
-                    staged_hunks = queries.get_staged_diff.execute(path)
-                except Exception:
-                    staged_hunks = []
-                try:
-                    unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
-                except Exception:
-                    unstaged_hunks = []
-                is_untracked = (
-                    not staged_hunks
-                    and bool(unstaged_hunks)
-                    and unstaged_hunks[0].header.startswith("@@ -0,0")
-                )
-                results.append((path, staged_hunks, unstaged_hunks, is_untracked))
-            signals.done.emit(results)
+            try:
+                result = queries.get_working_tree_diff_map.execute()
+            except Exception:
+                result = {}
+            signals.done.emit(result)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -168,29 +185,55 @@ class HunkDiffWidget(QWidget):
         self._layout.addWidget(frame)
         self._layout.addStretch()
 
-    def _on_load_all_done(self, results: list) -> None:
-        # Check we're still in all-files mode and paths haven't changed
+    def _on_scroll(self, value: int) -> None:
+        """Debounced scroll handler."""
+        self._scroll_timer.start()
+
+    def _on_diff_map_loaded(self, diff_map: dict) -> None:
+        """Background fetch finished - store the map and realize visible blocks."""
         if self._all_paths is None:
             return
-        self._refresh_submodule_paths()
-        self._clear_layout()
-        for path, staged_hunks, unstaged_hunks, is_untracked in results:
-            frame, inner = self._make_file_block(path)
+        self._diff_map = diff_map
+        self._check_viewport_and_load()
 
-            for hunk in staged_hunks:
-                self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
-                                     path=path, parent_layout=inner)
-            for hunk in unstaged_hunks:
-                self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
-                                     path=path, parent_layout=inner)
+    def _check_viewport_and_load(self) -> None:
+        """Realize any skeleton blocks currently intersecting the viewport."""
+        if not self._block_refs or not self._diff_map:
+            return
+        viewport = self._scroll.viewport()
+        vp_rect = viewport.rect()
+        for path, frame, inner, skeleton in list(self._block_refs):
+            if path in self._loaded_paths:
+                continue
+            if frame is None:
+                continue
+            top_left = frame.mapTo(viewport, QPoint(0, 0))
+            frame_rect = frame.rect().translated(top_left)
+            if frame_rect.intersects(vp_rect):
+                self._realize_block(path, inner, skeleton)
 
-            self._layout.addWidget(frame)
-
-            # Small vertical spacer between file blocks
-            spacer = QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
-            self._layout.addItem(spacer)
-
-        self._layout.addStretch()
+    def _realize_block(self, path: str, inner, skeleton) -> None:
+        """Replace the skeleton with real hunk widgets for the given path."""
+        if path in self._loaded_paths:
+            return
+        entry = self._diff_map.get(path, {"staged": [], "unstaged": []})
+        staged_hunks = entry.get("staged", [])
+        unstaged_hunks = entry.get("unstaged", [])
+        is_untracked = (
+            not staged_hunks
+            and bool(unstaged_hunks)
+            and unstaged_hunks[0].header.startswith("@@ -0,0")
+        )
+        if skeleton is not None:
+            inner.removeWidget(skeleton)
+            skeleton.deleteLater()
+        for hunk in staged_hunks:
+            self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
+                                 path=path, parent_layout=inner)
+        for hunk in unstaged_hunks:
+            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
+                                 path=path, parent_layout=inner)
+        self._loaded_paths.add(path)
 
     def _render_sync(self) -> None:
         """Post-action refresh for single-file mode."""
