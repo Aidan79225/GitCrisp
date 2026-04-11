@@ -288,6 +288,66 @@ class Pygit2Repository:
                 result[path] = _diff_to_hunks(patch)
         return result
 
+    def get_working_tree_diff_map(self) -> dict[str, dict[str, list[Hunk]]]:
+        """Return {path: {"staged": [...], "unstaged": [...]}} for every changed file.
+
+        Computes the full staged diff and unstaged diff exactly once each.
+        """
+        result: dict[str, dict[str, list[Hunk]]] = {}
+
+        # Staged: index vs HEAD
+        try:
+            if self._repo.head_is_unborn:
+                empty_tree_oid = self._repo.TreeBuilder().write()
+                empty_tree = self._repo.get(empty_tree_oid)
+                staged_diff = self._repo.index.diff_to_tree(empty_tree)
+            else:
+                head_commit = self._repo.head.peel(pygit2.Commit)
+                staged_diff = self._repo.index.diff_to_tree(head_commit.tree)
+            for patch in staged_diff:
+                path = patch.delta.new_file.path or patch.delta.old_file.path
+                if not path:
+                    continue
+                result.setdefault(path, {"staged": [], "unstaged": []})
+                result[path]["staged"] = _diff_to_hunks(patch)
+        except Exception:
+            pass
+
+        # Unstaged: workdir vs index
+        try:
+            unstaged_diff = self._repo.diff()
+            for patch in unstaged_diff:
+                path = patch.delta.new_file.path or patch.delta.old_file.path
+                if not path:
+                    continue
+                result.setdefault(path, {"staged": [], "unstaged": []})
+                hunks = _diff_to_hunks(patch)
+                if not hunks:
+                    try:
+                        status = self._repo.status_file(path)
+                    except KeyError:
+                        status = 0
+                    if status & pygit2.GIT_STATUS_CONFLICTED:
+                        conflict_hunks = _synthesise_conflict_hunk(self._repo.workdir, path)
+                        if conflict_hunks:
+                            hunks = conflict_hunks
+                        else:
+                            hunks = self._diff_workfile_against_head(path)
+                result[path]["unstaged"] = hunks
+        except Exception:
+            pass
+
+        # Untracked files
+        try:
+            for path, status in self._repo.status().items():
+                if status & pygit2.GIT_STATUS_WT_NEW:
+                    result.setdefault(path, {"staged": [], "unstaged": []})
+                    result[path]["unstaged"] = _synthesise_untracked_hunk(self._repo.workdir, path)
+        except Exception:
+            pass
+
+        return result
+
     def _diff_workfile_against_head(self, path: str) -> list[Hunk]:
         """Diff the working-tree file against the HEAD version."""
         try:

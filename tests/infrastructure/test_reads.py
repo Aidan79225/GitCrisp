@@ -396,3 +396,44 @@ def test_get_commit_diff_map_initial_commit(repo_impl, repo_path):
 
     assert "new.txt" in result
     assert len(result["new.txt"]) > 0
+
+
+def test_get_working_tree_diff_map_staged_and_unstaged(repo_impl, repo_path):
+    """Staged + unstaged changes appear in the map with correct sub-dict keys."""
+    (repo_path / "base.txt").write_text("base\n")
+    repo_impl.stage(["base.txt"])
+    repo_impl.commit("base")
+    (repo_path / "staged.txt").write_text("staged content\n")
+    repo_impl.stage(["staged.txt"])
+    (repo_path / "base.txt").write_text("base modified\n")
+
+    result = repo_impl.get_working_tree_diff_map()
+
+    assert "staged.txt" in result
+    assert result["staged.txt"]["staged"], "staged.txt should have staged hunks"
+    assert "base.txt" in result
+    assert result["base.txt"]["unstaged"], "base.txt should have unstaged hunks"
+
+
+def test_get_working_tree_diff_map_includes_untracked(repo_impl, repo_path):
+    """Untracked files appear in the map with unstaged hunks."""
+    (repo_path / "base.txt").write_text("base\n")
+    repo_impl.stage(["base.txt"])
+    repo_impl.commit("base")
+    (repo_path / "untracked.txt").write_text("hi\n")
+
+    result = repo_impl.get_working_tree_diff_map()
+
+    assert "untracked.txt" in result
+    assert result["untracked.txt"]["unstaged"]
+
+
+def test_get_working_tree_diff_map_empty_when_clean(repo_impl, repo_path):
+    """A clean working tree returns an empty dict."""
+    (repo_path / "base.txt").write_text("base\n")
+    repo_impl.stage(["base.txt"])
+    repo_impl.commit("base")
+
+    result = repo_impl.get_working_tree_diff_map()
+
+    assert result == {}
