@@ -206,6 +206,21 @@ class Pygit2Repository:
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(_resolve_gitdir(path))
 
+    @property
+    def _git_env(self) -> dict:
+        """Environment dict forcing git CLI to use this repo's gitdir/worktree.
+
+        Without this, ``subprocess.run(["git", ...], cwd=workdir)`` lets git
+        walk up looking for ``.git`` — which for a submodule workdir that
+        has no ``.git`` file lands on the *parent* repo and runs the command
+        against the wrong remote.
+        """
+        env = os.environ.copy()
+        env["GIT_DIR"] = self._repo.path
+        if self._repo.workdir:
+            env["GIT_WORK_TREE"] = self._repo.workdir
+        return env
+
     # ------------------------------------------------------------------ reads
 
     def get_commits(self, limit: int, skip: int = 0, extra_tips: list[str] | None = None) -> list[Commit]:
@@ -504,7 +519,7 @@ class Pygit2Repository:
             result = subprocess.run(
                 ["git", "ls-remote", "--tags", remote],
                 capture_output=True, text=True,
-                cwd=self._repo.workdir, **subprocess_kwargs(),
+                cwd=self._repo.workdir, env=self._git_env, **subprocess_kwargs(),
             )
             if result.returncode != 0:
                 return []
@@ -536,7 +551,7 @@ class Pygit2Repository:
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
-                cwd=self._repo.workdir, **subprocess_kwargs(),
+                cwd=self._repo.workdir, env=self._git_env, **subprocess_kwargs(),
             )
             if result.returncode != 0:
                 return []
@@ -616,7 +631,7 @@ class Pygit2Repository:
         result = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True, text=True,
-            cwd=self._repo.workdir, **subprocess_kwargs(),
+            cwd=self._repo.workdir, env=self._git_env, **subprocess_kwargs(),
         )
         return bool(result.stdout.strip())
 
@@ -734,6 +749,7 @@ class Pygit2Repository:
             subprocess.run(
                 ["git", "apply", "--cached"],
                 input=patch.encode("utf-8"), cwd=self._repo.workdir,
+                env=self._git_env,
                 check=True, capture_output=True, **subprocess_kwargs(),
             )
             self._repo.index.read()
@@ -744,6 +760,7 @@ class Pygit2Repository:
             subprocess.run(
                 ["git", "apply", "--cached", "--reverse"],
                 input=patch.encode("utf-8"), cwd=self._repo.workdir,
+                env=self._git_env,
                 check=True, capture_output=True, **subprocess_kwargs(),
             )
             self._repo.index.read()
@@ -787,6 +804,7 @@ class Pygit2Repository:
             subprocess.run(
                 ["git", "apply", "--reverse"],
                 input=patch.encode("utf-8"), cwd=self._repo.workdir,
+                env=self._git_env,
                 check=True, capture_output=True, **subprocess_kwargs(),
             )
             self._repo.index.read()
@@ -938,7 +956,7 @@ class Pygit2Repository:
 
     def rebase_continue(self, message: str = "") -> None:
         import sys, tempfile
-        env = os.environ.copy()
+        env = self._git_env
         if message:
             # Write the message to a temp file, then set GIT_EDITOR to a
             # command that copies it over the file git passes to the editor.
@@ -994,7 +1012,7 @@ class Pygit2Repository:
         result = subprocess.run(
             ["git", *args],
             cwd=self._repo.workdir, capture_output=True, text=True,
-            **subprocess_kwargs(),
+            env=self._git_env, **subprocess_kwargs(),
         )
         if result.returncode != 0:
             msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
@@ -1089,7 +1107,7 @@ class Pygit2Repository:
             ls_result = subprocess.run(
                 ["git", "ls-files", "-s", "--"] + sm_paths,
                 capture_output=True, text=True,
-                cwd=self._repo.workdir, **subprocess_kwargs(),
+                cwd=self._repo.workdir, env=self._git_env, **subprocess_kwargs(),
             )
             for line in ls_result.stdout.splitlines():
                 # Format: "160000 <sha> <stage>\t<path>"
