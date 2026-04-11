@@ -350,3 +350,24 @@ def add_hunk_widget(
 
     parent_layout.addWidget(header_row)
     parent_layout.addWidget(editor)
+
+
+def make_skeleton_container() -> QWidget:
+    """Return a QWidget containing 4 gray placeholder bars that mimic diff rows.
+
+    Used as a placeholder inside a file block while the real hunks are being loaded.
+    """
+    from PySide6.QtWidgets import QVBoxLayout, QFrame
+    container = QWidget()
+    layout = QVBoxLayout(container)
+    layout.setContentsMargins(8, 6, 8, 6)
+    layout.setSpacing(4)
+    for width_pct in (90, 60, 75, 50):
+        bar = QFrame()
+        bar.setFixedHeight(10)
+        bar.setMinimumWidth(40)
+        bar.setStyleSheet(
+            "background-color: rgba(128, 128, 128, 40); border-radius: 3px;"
+        )
+        layout.addWidget(bar)
+    return container
