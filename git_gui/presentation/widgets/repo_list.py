@@ -258,7 +258,7 @@ class RepoListWidget(QWidget):
             for path in open_repos:
                 item = self._make_repo_item(path, "open", is_active=(path == active))
                 item.setDragEnabled(True)
-                item.setDropEnabled(False)
+                item.setDropEnabled(True)
                 open_header.appendRow(item)
             self._model.appendRow(open_header)
 
@@ -297,28 +297,31 @@ class RepoListWidget(QWidget):
 
     def _on_drop_completed(self) -> None:
         """Persist the new open-repo order after a drag-and-drop reorder."""
-        # Find the OPEN header in the model and read the children's paths.
-        # Deduplicate: Qt's InternalMove for tree-model children can leave
-        # copies in edge cases.
+        # Find the OPEN header and collect all repo paths from its children.
+        # Items are drop-enabled so Qt can compute between-row positions for
+        # downward drags. This means a drop might nest an item under another
+        # item instead of between siblings — we flatten by walking the full
+        # subtree and deduplicating.
         for i in range(self._model.rowCount()):
             header = self._model.item(i)
             if header and header.data(Qt.UserRole + 1) == "header" and header.text() == "OPEN":
                 seen: set[str] = set()
                 new_order: list[str] = []
-                for r in range(header.rowCount()):
-                    child = header.child(r)
-                    if child:
-                        path = child.data(Qt.UserRole)
-                        if path and path not in seen:
-                            seen.add(path)
-                            new_order.append(path)
+
+                def _collect(parent_item) -> None:
+                    for r in range(parent_item.rowCount()):
+                        child = parent_item.child(r)
+                        if child:
+                            path = child.data(Qt.UserRole)
+                            if path and path not in seen:
+                                seen.add(path)
+                                new_order.append(path)
+                            _collect(child)
+
+                _collect(header)
                 if new_order:
                     self._store.set_open_order(new_order)
                     self._store.save()
-                    # Defer reload so the DnD event processing finishes
-                    # before we rebuild the model. Reloading during
-                    # dropEvent breaks Qt's internal DnD state cleanup
-                    # and prevents subsequent drags.
                     from PySide6.QtCore import QTimer
                     QTimer.singleShot(0, self.reload)
                 break
