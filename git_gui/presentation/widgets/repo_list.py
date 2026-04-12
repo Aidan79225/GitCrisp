@@ -51,6 +51,7 @@ class _RepoTree(QTreeView):
         super().__init__(*a, **kw)
         from PySide6.QtCore import QPersistentModelIndex
         self._hover_idx = QPersistentModelIndex()
+        self._drop_indicator_y: int | None = None  # y position in viewport
 
     def startDrag(self, supportedActions) -> None:
         """Override Qt's drag start to use our own mime data (repo path as text)."""
@@ -76,29 +77,64 @@ class _RepoTree(QTreeView):
 
     def dragMoveEvent(self, event) -> None:
         if event.mimeData().hasText():
-            # Let Qt draw the drop indicator line
-            super().dragMoveEvent(event)
-            # Re-accept in case super rejected based on model validation
+            # Compute drop indicator position
+            pos = event.position().toPoint()
+            idx = self.indexAt(pos)
+            if idx.isValid() and idx.data(Qt.UserRole + 1) == "open":
+                rect = self.visualRect(idx)
+                mid = rect.top() + rect.height() // 2
+                if pos.y() < mid:
+                    self._drop_indicator_y = rect.top()
+                else:
+                    self._drop_indicator_y = rect.bottom()
+            else:
+                self._drop_indicator_y = None
+            self.viewport().update()
             event.acceptProposedAction()
         else:
             event.ignore()
 
+    def dragLeaveEvent(self, event) -> None:
+        self._drop_indicator_y = None
+        self.viewport().update()
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event) -> None:
+        self._drop_indicator_y = None
+        self.viewport().update()
         if not event.mimeData().hasText():
             return
         dragged_path = event.mimeData().text()
-        drop_idx = self.indexAt(event.position().toPoint())
+        pos = event.position().toPoint()
+        drop_idx = self.indexAt(pos)
         if not drop_idx.isValid():
             return
         # Only allow drop within the OPEN section
-        if drop_idx.data(Qt.UserRole + 1) not in ("open", "header"):
+        kind = drop_idx.data(Qt.UserRole + 1)
+        if kind not in ("open", "header"):
             return
-        if drop_idx.data(Qt.UserRole + 1) == "header":
+        if kind == "header":
             target_row = 0
         else:
-            target_row = drop_idx.row()
+            rect = self.visualRect(drop_idx)
+            mid = rect.top() + rect.height() // 2
+            if pos.y() < mid:
+                target_row = drop_idx.row()
+            else:
+                target_row = drop_idx.row() + 1
         self.repo_reorder_requested.emit(dragged_path, target_row)
         event.acceptProposedAction()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self._drop_indicator_y is not None:
+            from PySide6.QtGui import QPainter, QPen
+            painter = QPainter(self.viewport())
+            pen = QPen(get_theme_manager().current.colors.as_qcolor("primary"), 2)
+            painter.setPen(pen)
+            y = self._drop_indicator_y
+            painter.drawLine(0, y, self.viewport().width(), y)
+            painter.end()
 
     def mouseMoveEvent(self, event) -> None:
         from PySide6.QtCore import QPersistentModelIndex
@@ -339,7 +375,12 @@ class RepoListWidget(QWidget):
         current = self._store.get_open_repos()
         if path not in current:
             return
+        old_idx = current.index(path)
         current.remove(path)
+        # Adjust target if the item was above the target position
+        if old_idx < target_row:
+            target_row = max(0, target_row - 1)
+        target_row = min(target_row, len(current))
         current.insert(target_row, path)
         self._store.set_open_order(current)
         self._store.save()
