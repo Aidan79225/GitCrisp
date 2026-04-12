@@ -1,8 +1,8 @@
 # git_gui/presentation/widgets/diff.py
 from __future__ import annotations
 import logging
-from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
+from PySide6.QtGui import QBrush, QPainter
 from PySide6.QtWidgets import (
     QListView, QPlainTextEdit, QScrollArea, QSplitter,
     QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
@@ -15,6 +15,7 @@ from git_gui.presentation.widgets.file_list_view import FileListView as _FileLis
 from git_gui.presentation.widgets.diff_block import (
     make_file_block, make_diff_formats, add_hunk_widget,
 )
+from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
 logger = logging.getLogger(__name__)
 
@@ -76,17 +77,8 @@ class DiffWidget(QWidget):
         self._current_oid: str | None = None
         self._submodule_paths: set[str] = set()
 
-        # Lazy loading state
-        self._diff_map: dict[str, list] = {}
-        # Each entry: (path, frame_widget, inner_layout, skeleton_widget_or_none)
-        self._block_refs: list[tuple[str, QWidget, object, object]] = []
-        self._loaded_paths: set[str] = set()
-
-        # Scroll debounce timer
-        self._scroll_timer = QTimer(self)
-        self._scroll_timer.setSingleShot(True)
-        self._scroll_timer.setInterval(50)
-        self._scroll_timer.timeout.connect(self._check_viewport_and_load)
+        # Lazy loading — initialized after scroll area is created (see below)
+        self._loader: ViewportBlockLoader | None = None
 
         # ── Row 1: commit detail (3-line metadata) ──────────────────────────
         self._detail = CommitDetailWidget()
@@ -117,7 +109,7 @@ class DiffWidget(QWidget):
         self._diff_layout.setContentsMargins(0, 4, 0, 4)
         self._diff_layout.setSpacing(8)
         self._diff_scroll.setWidget(self._diff_container)
-        self._diff_scroll.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        self._loader = ViewportBlockLoader(self._diff_scroll, self._realize_block)
 
         self._diff_model = DiffModel([])
         self._file_view.setModel(self._diff_model)
@@ -238,10 +230,8 @@ class DiffWidget(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-        # Invalidate tracked block refs — their frames are now deleted.
-        # Any pending QTimer callbacks must not touch them.
-        self._block_refs = []
-        self._loaded_paths = set()
+        if self._loader:
+            self._loader.clear()
 
     def _refresh_submodule_paths(self) -> None:
         """Refresh the cached set of submodule paths from the repository."""
@@ -282,56 +272,11 @@ class DiffWidget(QWidget):
         inner.addWidget(skeleton)
         return frame, inner, skeleton
 
-    def _on_scroll(self, value: int) -> None:
-        """Debounced scroll handler — restart the timer on every scroll."""
-        self._scroll_timer.start()
-
-    def _check_viewport_and_load(self) -> None:
-        """Realize the first skeleton block intersecting the viewport.
-
-        Only one block per call — after realization, the layout shifts, so we
-        reschedule the check via QTimer.singleShot(0, ...) to let Qt process
-        the layout before re-checking. This prevents a thundering-herd of
-        simultaneous realizations when skeletons are smaller than real hunks.
-
-        If the widget has been reloaded since a check was scheduled, the old
-        frames may already be deleted by Qt. A stale frame reference manifests
-        as a ``RuntimeError`` from shiboken; we skip those entries silently.
-        """
-        if not self._block_refs or not self._diff_map:
-            return
-        try:
-            viewport = self._diff_scroll.viewport()
-            vp_rect = viewport.rect()
-        except RuntimeError:
-            return
-        for path, frame, inner, skeleton in list(self._block_refs):
-            if path in self._loaded_paths:
-                continue
-            if frame is None:
-                continue
-            try:
-                top_left = frame.mapTo(viewport, QPoint(0, 0))
-                frame_rect = frame.rect().translated(top_left)
-            except RuntimeError:
-                # Frame was deleted by a newer load — stale entry, skip.
-                continue
-            if frame_rect.intersects(vp_rect):
-                self._realize_block(path, inner, skeleton)
-                # Re-check after Qt processes the layout change
-                QTimer.singleShot(0, self._check_viewport_and_load)
-                return
-
-    def _realize_block(self, path: str, inner, skeleton) -> None:
-        """Replace the skeleton with real hunk widgets for the given path."""
-        if path in self._loaded_paths:
-            return
-        hunks = self._diff_map.get(path, [])
-        # Remove skeleton
+    def _realize_block(self, path: str, inner, skeleton, hunks) -> None:
+        """Callback for ViewportBlockLoader — replace skeleton with hunk widgets."""
         if skeleton is not None:
             inner.removeWidget(skeleton)
             skeleton.deleteLater()
-        # Add hunk widgets
         is_submodule = path in self._submodule_paths
         on_click = (
             (lambda p=path: self.submodule_open_requested.emit(p))
@@ -339,7 +284,6 @@ class DiffWidget(QWidget):
         )
         for hunk in hunks:
             add_hunk_widget(inner, hunk, self._formats, on_header_clicked=on_click)
-        self._loaded_paths.add(path)
 
     def _on_file_selected(self, index) -> None:
         if self._current_oid is None:
@@ -363,8 +307,8 @@ class DiffWidget(QWidget):
         """Clear and render one file as a bordered block."""
         self._refresh_submodule_paths()
         self._clear_blocks()
-        self._block_refs = []
-        self._loaded_paths = set()
+        if self._loader:
+            self._loader.clear()
         block = self._build_file_block(path, hunks)
         self._diff_layout.addWidget(block)
         self._diff_layout.addStretch()
@@ -377,9 +321,8 @@ class DiffWidget(QWidget):
 
         self._refresh_submodule_paths()
         self._clear_blocks()
-        self._block_refs = []
-        self._loaded_paths = set()
-        self._diff_map = {}
+
+        block_refs = []
 
         row_count = self._diff_model.rowCount()
         for row in range(row_count):
@@ -390,10 +333,12 @@ class DiffWidget(QWidget):
             path = file_status.path
             frame, inner, skeleton = self._build_skeleton_block(path)
             self._diff_layout.addWidget(frame)
-            self._block_refs.append((path, frame, inner, skeleton))
+            block_refs.append((path, frame, inner, skeleton))
 
         self._diff_layout.addStretch()
         self._diff_scroll.verticalScrollBar().setValue(0)
+
+        self._loader.set_blocks(block_refs)
 
         # Dispatch background fetch
         queries = self._queries
@@ -402,7 +347,7 @@ class DiffWidget(QWidget):
             done = Signal(object)  # dict
 
         signals = _MapSignals()
-        signals.done.connect(self._on_diff_map_loaded)
+        signals.done.connect(lambda diff_map: self._loader.set_diff_map(diff_map))
         self._diff_map_signals = signals  # prevent GC
 
         def _worker():
@@ -413,13 +358,3 @@ class DiffWidget(QWidget):
             signals.done.emit(result)
 
         threading.Thread(target=_worker, daemon=True).start()
-
-    def _on_diff_map_loaded(self, diff_map: dict) -> None:
-        """Background fetch finished — store the map and realize visible blocks.
-
-        Defer the viewport check one event loop tick so Qt has a chance to lay
-        out the skeleton blocks; otherwise their positions may still be (0, 0)
-        and every block would look visible.
-        """
-        self._diff_map = diff_map
-        QTimer.singleShot(0, self._check_viewport_and_load)
