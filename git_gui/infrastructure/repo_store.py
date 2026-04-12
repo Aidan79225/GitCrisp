@@ -40,8 +40,9 @@ class JsonRepoStore:
         return self._active
 
     def add_open(self, path: str) -> None:
-        if path not in self._open:
-            self._open.append(path)
+        if path in self._open:
+            self._open.remove(path)
+        self._open.insert(0, path)
         if path in self._recent:
             self._recent.remove(path)
         self._active = path
