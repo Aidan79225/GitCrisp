@@ -297,20 +297,27 @@ class RepoListWidget(QWidget):
 
     def _on_drop_completed(self) -> None:
         """Persist the new open-repo order after a drag-and-drop reorder."""
-        # Find the OPEN header in the model
+        # Find the OPEN header in the model and read the children's paths.
+        # Deduplicate: Qt's InternalMove for tree-model children can leave
+        # copies in edge cases.
         for i in range(self._model.rowCount()):
             header = self._model.item(i)
             if header and header.data(Qt.UserRole + 1) == "header" and header.text() == "OPEN":
-                new_order = []
+                seen: set[str] = set()
+                new_order: list[str] = []
                 for r in range(header.rowCount()):
                     child = header.child(r)
                     if child:
                         path = child.data(Qt.UserRole)
-                        if path:
+                        if path and path not in seen:
+                            seen.add(path)
                             new_order.append(path)
                 if new_order:
                     self._store.set_open_order(new_order)
                     self._store.save()
+                    # Reload the view to clean up any visual duplicates
+                    # left by the DnD move.
+                    self.reload()
                 break
 
     def _on_item_clicked(self, index) -> None:
