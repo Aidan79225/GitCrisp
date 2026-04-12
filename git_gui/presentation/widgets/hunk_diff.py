@@ -1,10 +1,10 @@
 # git_gui/presentation/widgets/hunk_diff.py
 from __future__ import annotations
 import threading
-from PySide6.QtCore import QObject, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QCheckBox, QHBoxLayout, QLabel, QMessageBox, QScrollArea,
+    QCheckBox, QMessageBox, QScrollArea,
     QSpacerItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Hunk
@@ -13,6 +13,7 @@ from git_gui.domain.entities import WORKING_TREE_OID
 from git_gui.presentation.widgets.diff_block import (
     make_file_block, make_diff_formats, add_hunk_widget,
 )
+from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
 
 class _LoadSignals(QObject):
@@ -36,16 +37,8 @@ class HunkDiffWidget(QWidget):
         self._all_paths: list[str] | None = None  # None = single-file or empty mode
         self._submodule_paths: set[str] = set()
 
-        # Lazy loading state (all-files mode)
-        self._diff_map: dict[str, dict[str, list]] = {}
-        self._block_refs: list = []
-        self._loaded_paths: set[str] = set()
-
-        from PySide6.QtCore import QTimer
-        self._scroll_timer = QTimer(self)
-        self._scroll_timer.setSingleShot(True)
-        self._scroll_timer.setInterval(50)
-        self._scroll_timer.timeout.connect(self._check_viewport_and_load)
+        # Lazy loading — initialized after scroll area is created (see below)
+        self._loader: ViewportBlockLoader | None = None
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -62,7 +55,7 @@ class HunkDiffWidget(QWidget):
         # Diff formats
         self._formats = make_diff_formats()
 
-        self._scroll.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        self._loader = ViewportBlockLoader(self._scroll, self._realize_block_from_loader)
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
@@ -85,11 +78,9 @@ class HunkDiffWidget(QWidget):
 
         self._refresh_submodule_paths()
         self._clear_layout()
-        self._block_refs = []
-        self._loaded_paths = set()
-        self._diff_map = {}
 
         from git_gui.presentation.widgets.diff_block import make_skeleton_container
+        block_refs = []
         for path in paths:
             frame, inner = self._make_file_block(path)
             skeleton = make_skeleton_container()
@@ -97,13 +88,14 @@ class HunkDiffWidget(QWidget):
             self._layout.addWidget(frame)
             spacer = QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
             self._layout.addItem(spacer)
-            self._block_refs.append((path, frame, inner, skeleton))
+            block_refs.append((path, frame, inner, skeleton))
 
         self._layout.addStretch()
+        self._loader.set_blocks(block_refs)
 
         queries = self._queries
         signals = _DiffMapSignals()
-        signals.done.connect(self._on_diff_map_loaded)
+        signals.done.connect(lambda diff_map: self._loader.set_diff_map(diff_map))
         self._load_all_signals = signals  # prevent GC
 
         def _worker():
@@ -185,63 +177,8 @@ class HunkDiffWidget(QWidget):
         self._layout.addWidget(frame)
         self._layout.addStretch()
 
-    def _on_scroll(self, value: int) -> None:
-        """Debounced scroll handler."""
-        self._scroll_timer.start()
-
-    def _on_diff_map_loaded(self, diff_map: dict) -> None:
-        """Background fetch finished - store the map and realize visible blocks.
-
-        Defer the viewport check one event loop tick so Qt has a chance to lay
-        out the skeleton blocks; otherwise their positions may still be (0, 0)
-        and every block would look visible.
-        """
-        if self._all_paths is None:
-            return
-        self._diff_map = diff_map
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, self._check_viewport_and_load)
-
-    def _check_viewport_and_load(self) -> None:
-        """Realize the first skeleton block intersecting the viewport.
-
-        Only one block per call — after realization, the layout shifts, so we
-        reschedule the check via QTimer.singleShot(0, ...) to let Qt process
-        the layout before re-checking. Prevents a thundering-herd of realizations.
-
-        If the widget has been reloaded since a check was scheduled, the old
-        frames may already be deleted by Qt. A stale frame reference manifests
-        as a ``RuntimeError`` from shiboken; we skip those entries silently.
-        """
-        if not self._block_refs or not self._diff_map:
-            return
-        from PySide6.QtCore import QTimer
-        try:
-            viewport = self._scroll.viewport()
-            vp_rect = viewport.rect()
-        except RuntimeError:
-            return
-        for path, frame, inner, skeleton in list(self._block_refs):
-            if path in self._loaded_paths:
-                continue
-            if frame is None:
-                continue
-            try:
-                top_left = frame.mapTo(viewport, QPoint(0, 0))
-                frame_rect = frame.rect().translated(top_left)
-            except RuntimeError:
-                # Frame was deleted by a newer load — stale entry, skip.
-                continue
-            if frame_rect.intersects(vp_rect):
-                self._realize_block(path, inner, skeleton)
-                QTimer.singleShot(0, self._check_viewport_and_load)
-                return
-
-    def _realize_block(self, path: str, inner, skeleton) -> None:
-        """Replace the skeleton with real hunk widgets for the given path."""
-        if path in self._loaded_paths:
-            return
-        entry = self._diff_map.get(path, {"staged": [], "unstaged": []})
+    def _realize_block_from_loader(self, path: str, inner, skeleton, entry) -> None:
+        """Callback for ViewportBlockLoader — replace skeleton with staged/unstaged hunks."""
         staged_hunks = entry.get("staged", [])
         unstaged_hunks = entry.get("unstaged", [])
         is_untracked = (
@@ -258,7 +195,6 @@ class HunkDiffWidget(QWidget):
         for hunk in unstaged_hunks:
             self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
                                  path=path, parent_layout=inner)
-        self._loaded_paths.add(path)
 
     def _render_sync(self) -> None:
         """Post-action refresh for single-file mode."""
@@ -402,7 +338,5 @@ class HunkDiffWidget(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-        # Invalidate tracked block refs — their frames are now deleted.
-        # Any pending QTimer callbacks must not touch them.
-        self._block_refs = []
-        self._loaded_paths = set()
+        if self._loader:
+            self._loader.clear()
