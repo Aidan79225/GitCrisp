@@ -672,8 +672,12 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_submodule_open_requested(self, abs_path: str) -> None:
-        """Open a submodule as a top-level repo (one-way switch)."""
-        self._repo_store.add_open(abs_path)
+        """Open a submodule as a top-level repo (one-way switch).
+
+        Inserts the submodule right after the current (parent) repo in the
+        open list, so the sidebar shows submodules grouped under their parent.
+        """
+        self._repo_store.add_open(abs_path, after=self._repo_path)
         self._repo_store.save()
         self._switch_repo(abs_path)
 
