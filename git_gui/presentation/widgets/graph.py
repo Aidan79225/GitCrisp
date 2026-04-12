@@ -4,9 +4,9 @@ import threading
 from datetime import datetime
 from git_gui.resources import get_resource_path
 from PySide6.QtCore import QModelIndex, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QHBoxLayout, QHeaderView, QMenu, QPushButton, QStyle,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QStyle,
     QStyleOptionViewItem, QTableView, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Branch, Commit, Tag, WORKING_TREE_OID
@@ -88,6 +88,87 @@ def _btn_style() -> str:
         "QPushButton { border: none; border-radius: 4px; }"
         f"QPushButton:hover {{ background-color: {c.hover_overlay}; }}"
     )
+
+
+class _SearchBar(QWidget):
+    """Inline search bar for filtering commits by message, author, hash, or date."""
+
+    navigate_requested = Signal(int)   # +1 = next, -1 = prev
+    closed = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setVisible(False)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText("Search commits — message, author, hash, date …")
+        self._input.setClearButtonEnabled(True)
+        self._input.returnPressed.connect(lambda: self.navigate_requested.emit(1))
+        layout.addWidget(self._input, 1)
+
+        self._label = QLabel()
+        self._label.setFixedWidth(60)
+        self._label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self._label)
+
+        btn_prev = QPushButton("▲")
+        btn_prev.setFixedSize(28, 28)
+        btn_prev.setToolTip("Previous match (Shift+Enter)")
+        btn_prev.clicked.connect(lambda: self.navigate_requested.emit(-1))
+        layout.addWidget(btn_prev)
+
+        btn_next = QPushButton("▼")
+        btn_next.setFixedSize(28, 28)
+        btn_next.setToolTip("Next match (Enter)")
+        btn_next.clicked.connect(lambda: self.navigate_requested.emit(1))
+        layout.addWidget(btn_next)
+
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(28, 28)
+        btn_close.setToolTip("Close (Escape)")
+        btn_close.clicked.connect(self.closed.emit)
+        layout.addWidget(btn_close)
+
+        # Shift+Enter for previous match
+        self._input.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        from PySide6.QtCore import QEvent
+        if obj is self._input and event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_Escape:
+                self.closed.emit()
+                return True
+            if event.key() == Qt.Key_Return and event.modifiers() & Qt.ShiftModifier:
+                self.navigate_requested.emit(-1)
+                return True
+        return super().eventFilter(obj, event)
+
+    def open(self) -> None:
+        self.setVisible(True)
+        self._input.setFocus()
+        self._input.selectAll()
+
+    def close_bar(self) -> None:
+        self.setVisible(False)
+        self._input.clear()
+        self._label.clear()
+
+    def text(self) -> str:
+        return self._input.text()
+
+    def set_match_label(self, current: int, total: int) -> None:
+        if total == 0:
+            self._label.setText("0 / 0")
+        else:
+            self._label.setText(f"{current + 1} / {total}")
+
+    @property
+    def input_widget(self) -> QLineEdit:
+        return self._input
 
 
 class GraphWidget(QWidget):
@@ -183,10 +264,19 @@ class GraphWidget(QWidget):
         header_bar.addWidget(self._stash_btn)
         self._styled_buttons.append(self._stash_btn)
 
+        # Search bar (hidden by default, toggled by Ctrl+F)
+        self._search_bar = _SearchBar()
+        self._search_matches: list[int] = []  # row indices of matching commits
+        self._search_idx = -1  # current position in _search_matches
+        self._search_bar.input_widget.textChanged.connect(self._on_search_text_changed)
+        self._search_bar.navigate_requested.connect(self._on_search_navigate)
+        self._search_bar.closed.connect(self._close_search)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addLayout(header_bar)
+        layout.addWidget(self._search_bar)
         layout.addWidget(self._view)
 
         self._rebuild_styles()
@@ -607,6 +697,54 @@ class GraphWidget(QWidget):
 
     def set_stash_visible(self, visible: bool) -> None:
         self._stash_btn.setVisible(visible)
+
+    # ── Search ───────────────────────────────────────────────────────────
+    def open_search(self) -> None:
+        """Show the search bar and focus its input."""
+        self._search_bar.open()
+
+    def _close_search(self) -> None:
+        self._search_bar.close_bar()
+        self._search_matches.clear()
+        self._search_idx = -1
+        self._view.setFocus()
+
+    def _on_search_text_changed(self, text: str) -> None:
+        needle = text.strip().lower()
+        self._search_matches.clear()
+        self._search_idx = -1
+        if not needle:
+            self._search_bar.set_match_label(0, 0)
+            return
+        for row in range(self._model.rowCount()):
+            info = self._model.data(self._model.index(row, 1), Qt.UserRole + 1)
+            if info is None:
+                continue
+            # Search across: message, author, short_oid, date
+            haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
+            if needle in haystack:
+                self._search_matches.append(row)
+        if self._search_matches:
+            self._search_idx = 0
+            self._jump_to_match()
+        self._search_bar.set_match_label(
+            self._search_idx, len(self._search_matches),
+        )
+
+    def _on_search_navigate(self, direction: int) -> None:
+        if not self._search_matches:
+            return
+        self._search_idx = (self._search_idx + direction) % len(self._search_matches)
+        self._jump_to_match()
+        self._search_bar.set_match_label(
+            self._search_idx, len(self._search_matches),
+        )
+
+    def _jump_to_match(self) -> None:
+        row = self._search_matches[self._search_idx]
+        index = self._model.index(row, 0)
+        self._view.scrollTo(index, QTableView.PositionAtCenter)
+        self._view.setCurrentIndex(index)
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)

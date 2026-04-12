@@ -95,6 +95,22 @@ class MainWindow(QMainWindow):
         # F5 reload shortcut (global)
         self._reload_shortcut = QShortcut(QKeySequence(Qt.Key_F5), self)
         self._reload_shortcut.activated.connect(self._reload)
+
+        # Ctrl+F — search commits
+        self._search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self._search_shortcut.activated.connect(self._graph.open_search)
+
+        # Ctrl+W — close current repo (switch to previous open repo)
+        self._close_repo_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
+        self._close_repo_shortcut.activated.connect(self._close_current_repo)
+
+        # Ctrl+1..9 — switch to Nth open repo
+        self._repo_shortcuts: list[QShortcut] = []
+        for i in range(1, 10):
+            sc = QShortcut(QKeySequence(f"Ctrl+{i}"), self)
+            sc.activated.connect(lambda idx=i: self._switch_to_repo_index(idx))
+            self._repo_shortcuts.append(sc)
+
         self.setCentralWidget(central)
 
         # Wire cross-widget signals
@@ -627,6 +643,23 @@ class MainWindow(QMainWindow):
             self._switch_repo(open_repos[0])
         else:
             self._enter_empty_state()
+
+    def _close_current_repo(self) -> None:
+        """Ctrl+W: close the active repo and switch to the previous open one."""
+        if not self._repo_path:
+            return
+        self._on_repo_close(self._repo_path)
+
+    def _switch_to_repo_index(self, index: int) -> None:
+        """Ctrl+1..9: switch to the Nth open repo (1-based)."""
+        open_repos = self._repo_store.get_open_repos()
+        i = index - 1  # 0-based
+        if i < 0 or i >= len(open_repos):
+            return
+        path = open_repos[i]
+        if path == self._repo_path:
+            return  # already active
+        self._switch_repo(path)
 
     def _on_repo_remove_recent(self, path: str) -> None:
         self._repo_store.remove_recent(path)
