@@ -754,6 +754,10 @@ class Pygit2Repository:
         return bool(self._repo.descendant_of(descendant_oid, ancestor_oid))
 
     def repo_state(self) -> RepoStateInfo:
+        # Unborn HEAD (fresh `git init`, no commits yet) — CLEAN with no branch.
+        if self._repo.head_is_unborn:
+            return RepoStateInfo(state=RepoState.CLEAN, head_branch=None)
+
         # Check operation state FIRST — git detaches HEAD during rebase,
         # but we want to report REBASING, not DETACHED_HEAD.
         state = self._repo.state()
