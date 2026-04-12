@@ -217,7 +217,13 @@ class RepoListWidget(QWidget):
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.clicked.connect(self._on_item_clicked)
 
+        # Enable drag-and-drop reordering within the OPEN section
+        from PySide6.QtWidgets import QAbstractItemView
+        self._tree.setDragDropMode(QAbstractItemView.InternalMove)
+        self._tree.setDefaultDropAction(Qt.MoveAction)
+
         self._model = QStandardItemModel()
+        self._model.rowsInserted.connect(self._on_rows_moved)
         self._tree.setModel(self._model)
         self._tree.setItemDelegate(_RepoItemDelegate(self._tree))
 
@@ -233,7 +239,7 @@ class RepoListWidget(QWidget):
         self._model.clear()
         active = self._store.get_active()
 
-        # Open repos section
+        # Open repos section (drag-and-drop reorderable)
         open_repos = self._store.get_open_repos()
         if open_repos:
             open_header = QStandardItem("OPEN")
@@ -241,12 +247,16 @@ class RepoListWidget(QWidget):
             open_header.setSelectable(False)
             open_header.setData("header", Qt.UserRole + 1)
             open_header.setSizeHint(QSize(0, _ROW_HEIGHT))
+            open_header.setDropEnabled(True)
+            open_header.setDragEnabled(False)
             for path in open_repos:
                 item = self._make_repo_item(path, "open", is_active=(path == active))
+                item.setDragEnabled(True)
+                item.setDropEnabled(False)
                 open_header.appendRow(item)
             self._model.appendRow(open_header)
 
-        # Recent repos section
+        # Recent repos section (not reorderable)
         recent_repos = self._store.get_recent_repos()
         if recent_repos:
             recent_header = QStandardItem("RECENT")
@@ -254,8 +264,12 @@ class RepoListWidget(QWidget):
             recent_header.setSelectable(False)
             recent_header.setData("header", Qt.UserRole + 1)
             recent_header.setSizeHint(QSize(0, _ROW_HEIGHT))
+            recent_header.setDragEnabled(False)
+            recent_header.setDropEnabled(False)
             for path in recent_repos:
                 item = self._make_repo_item(path, "recent", is_active=False)
+                item.setDragEnabled(False)
+                item.setDropEnabled(False)
                 recent_header.appendRow(item)
             self._model.appendRow(recent_header)
 
@@ -274,6 +288,24 @@ class RepoListWidget(QWidget):
             item.setFont(font)
             item.setData(True, _IS_ACTIVE_ROLE)
         return item
+
+    def _on_rows_moved(self, parent, first, last, destination, row) -> None:
+        """Persist the new open-repo order after a drag-and-drop reorder."""
+        # Find the OPEN header in the model
+        for i in range(self._model.rowCount()):
+            header = self._model.item(i)
+            if header and header.data(Qt.UserRole + 1) == "header" and header.text() == "OPEN":
+                new_order = []
+                for r in range(header.rowCount()):
+                    child = header.child(r)
+                    if child:
+                        path = child.data(Qt.UserRole)
+                        if path:
+                            new_order.append(path)
+                if new_order:
+                    self._store.set_open_order(new_order)
+                    self._store.save()
+                break
 
     def _on_item_clicked(self, index) -> None:
         kind = index.data(Qt.UserRole + 1)
