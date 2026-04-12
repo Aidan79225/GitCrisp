@@ -47,6 +47,19 @@ def test_add_submodule_creates_gitmodules(parent_and_child):
     assert (parent / "libs" / "foo" / "f.txt").exists()
 
 
+def test_add_submodule_leaves_dot_git_gitlink(parent_and_child):
+    """After add, the submodule workdir must have a .git file or dir so that
+    git and pygit2 can find the submodule's gitdir without walking up."""
+    parent, child = parent_and_child
+    cli = SubmoduleCli(str(parent))
+    cli.add(path="libs/foo", url=str(child))
+    dot_git = parent / "libs" / "foo" / ".git"
+    assert dot_git.exists(), (
+        "submodule workdir is missing .git — submodule is not initialized. "
+        "git/pygit2 will walk up to the parent repo when operating on it."
+    )
+
+
 def test_set_url_updates_gitmodules(parent_and_child):
     parent, child = parent_and_child
     cli = SubmoduleCli(str(parent))
