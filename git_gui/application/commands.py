@@ -139,6 +139,14 @@ class Push:
         self._writer.push(remote, branch)
 
 
+class ForcePush:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, branch: str) -> None:
+        self._writer.force_push(remote, branch)
+
+
 class Pull:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
