@@ -736,6 +736,26 @@ class MainWindow(QMainWindow):
         self.statusBar().clearMessage()
         self._reload()
 
+        # Detect push rejection and offer force push
+        if name.startswith("Push ") and "non-fast-forward" in error:
+            branch = self._get_current_branch()
+            if branch:
+                reply = QMessageBox.warning(
+                    self,
+                    "Push Rejected",
+                    f"Push was rejected because the remote branch has changes "
+                    f"you don't have locally.\n\n"
+                    f"Would you like to force push with --force-with-lease?\n"
+                    f"This will overwrite the remote branch.",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if reply == QMessageBox.Yes:
+                    self._run_remote_op(
+                        f"Force push origin/{branch}",
+                        lambda: self._commands.force_push.execute("origin", branch),
+                    )
+
     def _on_push(self) -> None:
         branch = self._get_current_branch()
         if branch:

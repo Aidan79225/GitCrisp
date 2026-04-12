@@ -15,7 +15,7 @@ from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
     Checkout, CheckoutCommit, CheckoutRemoteBranch, CreateBranch, DeleteBranch,
     CreateTag, DeleteTag, PushTag, DeleteRemoteTag,
-    Merge, Rebase, Push, Pull, Fetch,
+    Merge, Rebase, Push, ForcePush, Pull, Fetch,
     Stash, PopStash, ApplyStash, DropStash,
     StageHunk, UnstageHunk, FetchAllPrune,
     DiscardFile, DiscardHunk,
@@ -103,6 +103,7 @@ class CommandBus:
     merge_commit: MergeCommit
     rebase_onto_commit: RebaseOntoCommit
     push: Push
+    force_push: ForcePush
     pull: Pull
     fetch: Fetch
     stash: Stash
@@ -149,6 +150,7 @@ class CommandBus:
             merge_commit=MergeCommit(writer),
             rebase_onto_commit=RebaseOntoCommit(writer),
             push=Push(writer),
+            force_push=ForcePush(writer),
             pull=Pull(writer),
             fetch=Fetch(writer),
             stash=Stash(writer),

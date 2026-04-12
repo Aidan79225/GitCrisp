@@ -1107,6 +1107,9 @@ class Pygit2Repository:
     def push(self, remote: str, branch: str) -> None:
         self._run_git("push", remote, branch)
 
+    def force_push(self, remote: str, branch: str) -> None:
+        self._run_git("push", "--force-with-lease", remote, branch)
+
     def pull(self, remote: str, branch: str) -> None:
         self._run_git("pull", "--rebase", remote, branch)
 
