@@ -87,6 +87,7 @@ class TestGraphSearch:
         w = GraphWidget(queries, commands)
         qtbot.addWidget(w)
         w._model.reload(commits, refs or {})
+        w._has_more = False  # all commits are pre-loaded in tests
         return w
 
     def test_open_search_shows_bar(self, qtbot):

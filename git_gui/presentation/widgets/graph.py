@@ -268,6 +268,7 @@ class GraphWidget(QWidget):
         self._search_bar = _SearchBar()
         self._search_matches: list[int] = []  # row indices of matching commits
         self._search_idx = -1  # current position in _search_matches
+        self._pending_search: str | None = None  # search to re-run after full reload
         self._search_bar.input_widget.textChanged.connect(self._on_search_text_changed)
         self._search_bar.navigate_requested.connect(self._on_search_navigate)
         self._search_bar.closed.connect(self._close_search)
@@ -403,6 +404,12 @@ class GraphWidget(QWidget):
             else:
                 # No more commits to load — give up
                 self._pending_scroll_oid = None
+
+        # If a search was deferred until all commits were loaded, run it now.
+        if self._pending_search:
+            needle = self._pending_search
+            self._pending_search = None
+            self._run_search(needle)
 
     def _get_visible_rows(self) -> tuple[int, int]:
         """Return (first_visible_row, last_visible_row) indices."""
@@ -716,11 +723,25 @@ class GraphWidget(QWidget):
         if not needle:
             self._search_bar.set_match_label(0, 0)
             return
+
+        # If not all commits are loaded yet, reload with a large limit so the
+        # search covers the full history. The reload callback will re-trigger
+        # the search via _run_search_after_load.
+        if self._has_more:
+            self._pending_search = needle
+            self.reload(limit=999_999)
+            return
+
+        self._run_search(needle)
+
+    def _run_search(self, needle: str) -> None:
+        """Search through all loaded commits for the given needle."""
+        self._search_matches.clear()
+        self._search_idx = -1
         for row in range(self._model.rowCount()):
             info = self._model.data(self._model.index(row, 1), Qt.UserRole + 1)
             if info is None:
                 continue
-            # Search across: message, author, short_oid, date
             haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
             if needle in haystack:
                 self._search_matches.append(row)
