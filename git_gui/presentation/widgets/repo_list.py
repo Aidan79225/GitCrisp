@@ -315,9 +315,12 @@ class RepoListWidget(QWidget):
                 if new_order:
                     self._store.set_open_order(new_order)
                     self._store.save()
-                    # Reload the view to clean up any visual duplicates
-                    # left by the DnD move.
-                    self.reload()
+                    # Defer reload so the DnD event processing finishes
+                    # before we rebuild the model. Reloading during
+                    # dropEvent breaks Qt's internal DnD state cleanup
+                    # and prevents subsequent drags.
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, self.reload)
                 break
 
     def _on_item_clicked(self, index) -> None:
