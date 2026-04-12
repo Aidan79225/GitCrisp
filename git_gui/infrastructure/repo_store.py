@@ -66,3 +66,7 @@ class JsonRepoStore:
 
     def set_active(self, path: str) -> None:
         self._active = path
+
+    def set_open_order(self, paths: list[str]) -> None:
+        """Replace the open repos list with a new ordering."""
+        self._open = list(paths)
