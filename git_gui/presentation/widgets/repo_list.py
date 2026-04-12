@@ -38,18 +38,87 @@ _ROW_HEIGHT = 28
 
 
 class _RepoTree(QTreeView):
-    """QTreeView that paints full-row hover and active repo highlight."""
+    """QTreeView that paints full-row hover and active repo highlight.
 
-    drop_completed = Signal()
+    Implements manual drag-and-drop reordering for OPEN section items
+    because Qt's built-in InternalMove doesn't handle downward drops
+    reliably for tree-model children.
+    """
+
+    repo_reorder_requested = Signal(str, int)  # (path, target_row)
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         from PySide6.QtCore import QPersistentModelIndex
         self._hover_idx = QPersistentModelIndex()
+        self._drag_start_pos = None
+        self._drag_path: str | None = None
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            idx = self.indexAt(event.position().toPoint())
+            if idx.isValid() and idx.data(Qt.UserRole + 1) == "open":
+                self._drag_start_pos = event.position().toPoint()
+                self._drag_path = idx.data(Qt.UserRole)
+            else:
+                self._drag_start_pos = None
+                self._drag_path = None
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        from PySide6.QtCore import QPersistentModelIndex
+        from PySide6.QtWidgets import QApplication
+
+        # Hover tracking
+        idx = self.indexAt(event.position().toPoint())
+        new_idx = QPersistentModelIndex(idx) if idx.isValid() else QPersistentModelIndex()
+        if new_idx != self._hover_idx:
+            self._hover_idx = new_idx
+            self.viewport().update()
+
+        # Manual drag detection
+        if (self._drag_start_pos is not None
+                and self._drag_path
+                and (event.position().toPoint() - self._drag_start_pos).manhattanLength()
+                    >= QApplication.startDragDistance()):
+            from PySide6.QtCore import QMimeData
+            from PySide6.QtGui import QDrag
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setText(self._drag_path)
+            drag.setMimeData(mime)
+            drag.exec(Qt.MoveAction)
+            self._drag_start_pos = None
+            self._drag_path = None
+            return
+
+        super().mouseMoveEvent(event)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event) -> None:
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
 
     def dropEvent(self, event) -> None:
-        super().dropEvent(event)
-        self.drop_completed.emit()
+        if not event.mimeData().hasText():
+            return
+        dragged_path = event.mimeData().text()
+        drop_idx = self.indexAt(event.position().toPoint())
+        if not drop_idx.isValid():
+            return
+        # Only allow drop within the OPEN section
+        if drop_idx.data(Qt.UserRole + 1) not in ("open", "header"):
+            return
+        # Determine target row within the OPEN header's children
+        if drop_idx.data(Qt.UserRole + 1) == "header":
+            target_row = 0
+        else:
+            target_row = drop_idx.row()
+        self.repo_reorder_requested.emit(dragged_path, target_row)
+        event.acceptProposedAction()
 
     def mouseMoveEvent(self, event) -> None:
         from PySide6.QtCore import QPersistentModelIndex
@@ -218,18 +287,14 @@ class RepoListWidget(QWidget):
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(False)
         self._tree.setMouseTracking(True)
+        self._tree.setAcceptDrops(True)
         self._tree.viewport().setAttribute(Qt.WA_Hover, True)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.clicked.connect(self._on_item_clicked)
 
-        # Enable drag-and-drop reordering within the OPEN section
-        from PySide6.QtWidgets import QAbstractItemView
-        self._tree.setDragDropMode(QAbstractItemView.InternalMove)
-        self._tree.setDefaultDropAction(Qt.MoveAction)
-
         self._model = QStandardItemModel()
-        self._tree.drop_completed.connect(self._on_drop_completed)
+        self._tree.repo_reorder_requested.connect(self._on_repo_reorder)
         self._tree.setModel(self._model)
         self._tree.setItemDelegate(_RepoItemDelegate(self._tree))
 
@@ -245,7 +310,7 @@ class RepoListWidget(QWidget):
         self._model.clear()
         active = self._store.get_active()
 
-        # Open repos section (drag-and-drop reorderable)
+        # Open repos section (drag-and-drop reorderable via custom DnD)
         open_repos = self._store.get_open_repos()
         if open_repos:
             open_header = QStandardItem("OPEN")
@@ -253,12 +318,8 @@ class RepoListWidget(QWidget):
             open_header.setSelectable(False)
             open_header.setData("header", Qt.UserRole + 1)
             open_header.setSizeHint(QSize(0, _ROW_HEIGHT))
-            open_header.setDropEnabled(True)
-            open_header.setDragEnabled(False)
             for path in open_repos:
                 item = self._make_repo_item(path, "open", is_active=(path == active))
-                item.setDragEnabled(True)
-                item.setDropEnabled(True)
                 open_header.appendRow(item)
             self._model.appendRow(open_header)
 
@@ -270,12 +331,8 @@ class RepoListWidget(QWidget):
             recent_header.setSelectable(False)
             recent_header.setData("header", Qt.UserRole + 1)
             recent_header.setSizeHint(QSize(0, _ROW_HEIGHT))
-            recent_header.setDragEnabled(False)
-            recent_header.setDropEnabled(False)
             for path in recent_repos:
                 item = self._make_repo_item(path, "recent", is_active=False)
-                item.setDragEnabled(False)
-                item.setDropEnabled(False)
                 recent_header.appendRow(item)
             self._model.appendRow(recent_header)
 
@@ -295,36 +352,16 @@ class RepoListWidget(QWidget):
             item.setData(True, _IS_ACTIVE_ROLE)
         return item
 
-    def _on_drop_completed(self) -> None:
-        """Persist the new open-repo order after a drag-and-drop reorder."""
-        # Find the OPEN header and collect all repo paths from its children.
-        # Items are drop-enabled so Qt can compute between-row positions for
-        # downward drags. This means a drop might nest an item under another
-        # item instead of between siblings — we flatten by walking the full
-        # subtree and deduplicating.
-        for i in range(self._model.rowCount()):
-            header = self._model.item(i)
-            if header and header.data(Qt.UserRole + 1) == "header" and header.text() == "OPEN":
-                seen: set[str] = set()
-                new_order: list[str] = []
-
-                def _collect(parent_item) -> None:
-                    for r in range(parent_item.rowCount()):
-                        child = parent_item.child(r)
-                        if child:
-                            path = child.data(Qt.UserRole)
-                            if path and path not in seen:
-                                seen.add(path)
-                                new_order.append(path)
-                            _collect(child)
-
-                _collect(header)
-                if new_order:
-                    self._store.set_open_order(new_order)
-                    self._store.save()
-                    from PySide6.QtCore import QTimer
-                    QTimer.singleShot(0, self.reload)
-                break
+    def _on_repo_reorder(self, path: str, target_row: int) -> None:
+        """Move *path* to *target_row* within the open repos list and reload."""
+        current = self._store.get_open_repos()
+        if path not in current:
+            return
+        current.remove(path)
+        current.insert(target_row, path)
+        self._store.set_open_order(current)
+        self._store.save()
+        self.reload()
 
     def _on_item_clicked(self, index) -> None:
         kind = index.data(Qt.UserRole + 1)
