@@ -674,6 +674,7 @@ class MainWindow(QMainWindow):
         self._log_panel.expand()
         self._log_panel.log(f"{name} — started...")
         self._remote_running = True
+        self.statusBar().showMessage(f"\u23f3 {name}...")
 
         signals = _RemoteSignals()
         signals.finished.connect(self._on_remote_done)
@@ -693,11 +694,13 @@ class MainWindow(QMainWindow):
     def _on_remote_done(self, name: str) -> None:
         self._log_panel.log(f"{name} — done")
         self._remote_running = False
+        self.statusBar().clearMessage()
         self._reload()
 
     def _on_remote_error(self, name: str, error: str) -> None:
         self._log_panel.log_error(f"{name} — ERROR: {error}")
         self._remote_running = False
+        self.statusBar().clearMessage()
         self._reload()
 
     def _on_push(self) -> None:
