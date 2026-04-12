@@ -40,9 +40,9 @@ _ROW_HEIGHT = 28
 class _RepoTree(QTreeView):
     """QTreeView that paints full-row hover and active repo highlight.
 
-    Implements manual drag-and-drop reordering for OPEN section items
-    because Qt's built-in InternalMove doesn't handle downward drops
-    reliably for tree-model children.
+    Implements manual drag-and-drop reordering for OPEN section items.
+    Uses Qt's drag detection (setDragEnabled) but overrides startDrag
+    and dropEvent so we control the data and the reorder logic.
     """
 
     repo_reorder_requested = Signal(str, int)  # (path, target_row)
@@ -51,56 +51,34 @@ class _RepoTree(QTreeView):
         super().__init__(*a, **kw)
         from PySide6.QtCore import QPersistentModelIndex
         self._hover_idx = QPersistentModelIndex()
-        self._drag_start_pos = None
-        self._drag_path: str | None = None
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton:
-            idx = self.indexAt(event.position().toPoint())
-            if idx.isValid() and idx.data(Qt.UserRole + 1) == "open":
-                self._drag_start_pos = event.position().toPoint()
-                self._drag_path = idx.data(Qt.UserRole)
-            else:
-                self._drag_start_pos = None
-                self._drag_path = None
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event) -> None:
-        from PySide6.QtCore import QPersistentModelIndex
-        from PySide6.QtWidgets import QApplication
-
-        # Hover tracking
-        idx = self.indexAt(event.position().toPoint())
-        new_idx = QPersistentModelIndex(idx) if idx.isValid() else QPersistentModelIndex()
-        if new_idx != self._hover_idx:
-            self._hover_idx = new_idx
-            self.viewport().update()
-
-        # Manual drag detection
-        if (self._drag_start_pos is not None
-                and self._drag_path
-                and (event.position().toPoint() - self._drag_start_pos).manhattanLength()
-                    >= QApplication.startDragDistance()):
-            from PySide6.QtCore import QMimeData
-            from PySide6.QtGui import QDrag
-            drag = QDrag(self)
-            mime = QMimeData()
-            mime.setText(self._drag_path)
-            drag.setMimeData(mime)
-            drag.exec(Qt.MoveAction)
-            self._drag_start_pos = None
-            self._drag_path = None
+    def startDrag(self, supportedActions) -> None:
+        """Override Qt's drag start to use our own mime data (repo path as text)."""
+        idx = self.currentIndex()
+        if not idx.isValid() or idx.data(Qt.UserRole + 1) != "open":
             return
-
-        super().mouseMoveEvent(event)
+        path = idx.data(Qt.UserRole)
+        if not path:
+            return
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QDrag
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setText(path)
+        drag.setMimeData(mime)
+        drag.exec(Qt.MoveAction)
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasText():
             event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def dragMoveEvent(self, event) -> None:
         if event.mimeData().hasText():
             event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def dropEvent(self, event) -> None:
         if not event.mimeData().hasText():
@@ -112,7 +90,6 @@ class _RepoTree(QTreeView):
         # Only allow drop within the OPEN section
         if drop_idx.data(Qt.UserRole + 1) not in ("open", "header"):
             return
-        # Determine target row within the OPEN header's children
         if drop_idx.data(Qt.UserRole + 1) == "header":
             target_row = 0
         else:
@@ -287,6 +264,7 @@ class RepoListWidget(QWidget):
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(False)
         self._tree.setMouseTracking(True)
+        self._tree.setDragEnabled(True)
         self._tree.setAcceptDrops(True)
         self._tree.viewport().setAttribute(Qt.WA_Hover, True)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
