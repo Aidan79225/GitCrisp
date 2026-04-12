@@ -76,6 +76,9 @@ class _RepoTree(QTreeView):
 
     def dragMoveEvent(self, event) -> None:
         if event.mimeData().hasText():
+            # Let Qt draw the drop indicator line
+            super().dragMoveEvent(event)
+            # Re-accept in case super rejected based on model validation
             event.acceptProposedAction()
         else:
             event.ignore()
@@ -266,6 +269,7 @@ class RepoListWidget(QWidget):
         self._tree.setMouseTracking(True)
         self._tree.setDragEnabled(True)
         self._tree.setAcceptDrops(True)
+        self._tree.setDropIndicatorShown(True)
         self._tree.viewport().setAttribute(Qt.WA_Hover, True)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
