@@ -39,10 +39,14 @@ class JsonRepoStore:
     def get_active(self) -> str | None:
         return self._active
 
-    def add_open(self, path: str) -> None:
+    def add_open(self, path: str, after: str | None = None) -> None:
         if path in self._open:
             self._open.remove(path)
-        self._open.insert(0, path)
+        if after and after in self._open:
+            idx = self._open.index(after) + 1
+            self._open.insert(idx, path)
+        else:
+            self._open.insert(0, path)
         if path in self._recent:
             self._recent.remove(path)
         self._active = path
