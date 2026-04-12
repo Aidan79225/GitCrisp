@@ -40,10 +40,16 @@ _ROW_HEIGHT = 28
 class _RepoTree(QTreeView):
     """QTreeView that paints full-row hover and active repo highlight."""
 
+    drop_completed = Signal()
+
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         from PySide6.QtCore import QPersistentModelIndex
         self._hover_idx = QPersistentModelIndex()
+
+    def dropEvent(self, event) -> None:
+        super().dropEvent(event)
+        self.drop_completed.emit()
 
     def mouseMoveEvent(self, event) -> None:
         from PySide6.QtCore import QPersistentModelIndex
@@ -223,7 +229,7 @@ class RepoListWidget(QWidget):
         self._tree.setDefaultDropAction(Qt.MoveAction)
 
         self._model = QStandardItemModel()
-        self._model.rowsInserted.connect(self._on_rows_moved)
+        self._tree.drop_completed.connect(self._on_drop_completed)
         self._tree.setModel(self._model)
         self._tree.setItemDelegate(_RepoItemDelegate(self._tree))
 
@@ -289,7 +295,7 @@ class RepoListWidget(QWidget):
             item.setData(True, _IS_ACTIVE_ROLE)
         return item
 
-    def _on_rows_moved(self, parent, first, last, destination, row) -> None:
+    def _on_drop_completed(self) -> None:
         """Persist the new open-repo order after a drag-and-drop reorder."""
         # Find the OPEN header in the model
         for i in range(self._model.rowCount()):
