@@ -1,5 +1,5 @@
 from __future__ import annotations
-from git_gui.domain.entities import Branch, Commit
+from git_gui.domain.entities import Branch, Commit, MergeStrategy
 from git_gui.domain.ports import IRepositoryWriter
 
 
@@ -103,8 +103,8 @@ class Merge:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
 
-    def execute(self, branch: str) -> None:
-        self._writer.merge(branch)
+    def execute(self, branch: str, strategy: MergeStrategy = MergeStrategy.ALLOW_FF, message: str | None = None) -> None:
+        self._writer.merge(branch, strategy, message)
 
 
 class Rebase:
@@ -119,8 +119,8 @@ class MergeCommit:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
 
-    def execute(self, oid: str) -> None:
-        self._writer.merge_commit(oid)
+    def execute(self, oid: str, strategy: MergeStrategy = MergeStrategy.ALLOW_FF, message: str | None = None) -> None:
+        self._writer.merge_commit(oid, strategy, message)
 
 
 class RebaseOntoCommit:
@@ -137,6 +137,14 @@ class Push:
 
     def execute(self, remote: str, branch: str) -> None:
         self._writer.push(remote, branch)
+
+
+class ForcePush:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, branch: str) -> None:
+        self._writer.force_push(remote, branch)
 
 
 class Pull:
@@ -313,3 +321,35 @@ class ResetBranchToRef:
 
     def execute(self, branch: str, ref: str) -> None:
         self._writer.reset_branch_to_ref(branch, ref)
+
+
+class MergeAbort:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.merge_abort()
+
+
+class RebaseAbort:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.rebase_abort()
+
+
+class RebaseContinue:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, message: str = "") -> None:
+        self._writer.rebase_continue(message)
+
+
+class InteractiveRebase:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, target_oid: str, entries: list[tuple[str, str]]) -> None:
+        self._writer.interactive_rebase(target_oid, entries)

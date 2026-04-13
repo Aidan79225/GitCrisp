@@ -45,6 +45,13 @@ class SubmoduleCli:
 
     def add(self, path: str, url: str) -> None:
         self._run("submodule", "add", "--", url, path)
+        # Explicitly re-init after add. `git submodule add` normally leaves
+        # the submodule in a fully-initialized state (workdir populated,
+        # .git gitlink file written), but in practice we have seen broken
+        # states where the .git gitlink was missing. `update --init` is a
+        # no-op when everything is already correct, so it is safe to run
+        # unconditionally and ensures the submodule is usable afterwards.
+        self._run("submodule", "update", "--init", "--", path)
 
     def set_url(self, path: str, url: str) -> None:
         self._run("config", "-f", ".gitmodules", f"submodule.{path}.url", url)

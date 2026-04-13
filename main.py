@@ -1,33 +1,50 @@
 import sys
+import pygit2
 from pathlib import Path
-from PySide6.QtWidgets import QApplication, QFileDialog
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from git_gui.infrastructure.pygit2_repo import Pygit2Repository
 from git_gui.infrastructure.repo_store import JsonRepoStore
 from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
 from git_gui.presentation.theme import ThemeManager, set_theme_manager
+from git_gui.logging_setup import setup_logging
+
+
+def _is_git_repo(path: str) -> bool:
+    return pygit2.discover_repository(path) is not None
 
 
 def _pick_repo() -> str:
-    dialog = QFileDialog()
-    dialog.setWindowTitle("Open Repository")
-    dialog.setFileMode(QFileDialog.Directory)
-    dialog.setOption(QFileDialog.ShowDirsOnly, True)
-    if dialog.exec() == QFileDialog.Accepted:
+    while True:
+        dialog = QFileDialog()
+        dialog.setWindowTitle("Open Repository")
+        dialog.setFileMode(QFileDialog.Directory)
+        dialog.setOption(QFileDialog.ShowDirsOnly, True)
+        if dialog.exec() != QFileDialog.Accepted:
+            return ""
         dirs = dialog.selectedFiles()
-        return dirs[0] if dirs else ""
-    return ""
+        if not dirs:
+            return ""
+        path = dirs[0]
+        if _is_git_repo(path):
+            return path
+        QMessageBox.warning(
+            None,
+            "Not a Git Repository",
+            "The selected folder is not a Git repository.\n"
+            "Please choose a folder that contains a Git repository.",
+        )
 
 
 def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
     """Return the first valid repo path from active or open list, pruning invalid ones."""
     active = repo_store.get_active()
-    if active and Path(active).is_dir():
+    if active and Path(active).is_dir() and _is_git_repo(active):
         return active
 
     for path in list(repo_store.get_open_repos()):
-        if Path(path).is_dir():
+        if Path(path).is_dir() and _is_git_repo(path):
             repo_store.set_active(path)
             return path
         repo_store.close_repo(path)
@@ -37,6 +54,7 @@ def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
 
 
 def main() -> None:
+    setup_logging()
     app = QApplication(sys.argv)
     app.setApplicationName("GitCrisp")
 

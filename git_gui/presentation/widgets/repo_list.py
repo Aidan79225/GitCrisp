@@ -1,11 +1,12 @@
 # git_gui/presentation/widgets/repo_list.py
 from __future__ import annotations
 from pathlib import Path
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
+import pygit2
+from PySide6.QtCore import QRect, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QMenu, QPushButton,
-    QStyle, QStyleOptionViewItem, QTreeView,
+    QFileDialog, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
+    QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTreeView,
     QVBoxLayout, QWidget,
 )
 from git_gui.domain.ports import IRepoStore
@@ -16,17 +17,124 @@ def _active_bg() -> QColor:
     return get_theme_manager().current.colors.as_qcolor("primary")
 
 
+def _display_path(path: str) -> str:
+    """Convert an absolute repo path into a display-friendly form.
+
+    Paths under the user's home directory are shortened with ``~``.
+    All returned paths use forward slashes, regardless of OS.
+    """
+    p = Path(path)
+    try:
+        rel = p.relative_to(Path.home())
+    except ValueError:
+        return p.as_posix()
+    if rel == Path("."):
+        return "~"
+    return "~/" + rel.as_posix()
+
+
 _IS_ACTIVE_ROLE = Qt.UserRole + 2
 _ROW_HEIGHT = 28
 
 
 class _RepoTree(QTreeView):
-    """QTreeView that paints full-row hover and active repo highlight."""
+    """QTreeView that paints full-row hover and active repo highlight.
+
+    Implements manual drag-and-drop reordering for OPEN section items.
+    Uses Qt's drag detection (setDragEnabled) but overrides startDrag
+    and dropEvent so we control the data and the reorder logic.
+    """
+
+    repo_reorder_requested = Signal(str, int)  # (path, target_row)
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         from PySide6.QtCore import QPersistentModelIndex
         self._hover_idx = QPersistentModelIndex()
+        self._drop_indicator_y: int | None = None  # y position in viewport
+
+    def startDrag(self, supportedActions) -> None:
+        """Override Qt's drag start to use our own mime data (repo path as text)."""
+        idx = self.currentIndex()
+        if not idx.isValid() or idx.data(Qt.UserRole + 1) != "open":
+            return
+        path = idx.data(Qt.UserRole)
+        if not path:
+            return
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QDrag
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setText(path)
+        drag.setMimeData(mime)
+        drag.exec(Qt.MoveAction)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        if event.mimeData().hasText():
+            # Compute drop indicator position
+            pos = event.position().toPoint()
+            idx = self.indexAt(pos)
+            if idx.isValid() and idx.data(Qt.UserRole + 1) == "open":
+                rect = self.visualRect(idx)
+                mid = rect.top() + rect.height() // 2
+                if pos.y() < mid:
+                    self._drop_indicator_y = rect.top()
+                else:
+                    self._drop_indicator_y = rect.bottom()
+            else:
+                self._drop_indicator_y = None
+            self.viewport().update()
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:
+        self._drop_indicator_y = None
+        self.viewport().update()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event) -> None:
+        self._drop_indicator_y = None
+        self.viewport().update()
+        if not event.mimeData().hasText():
+            return
+        dragged_path = event.mimeData().text()
+        pos = event.position().toPoint()
+        drop_idx = self.indexAt(pos)
+        if not drop_idx.isValid():
+            return
+        # Only allow drop within the OPEN section
+        kind = drop_idx.data(Qt.UserRole + 1)
+        if kind not in ("open", "header"):
+            return
+        if kind == "header":
+            target_row = 0
+        else:
+            rect = self.visualRect(drop_idx)
+            mid = rect.top() + rect.height() // 2
+            if pos.y() < mid:
+                target_row = drop_idx.row()
+            else:
+                target_row = drop_idx.row() + 1
+        self.repo_reorder_requested.emit(dragged_path, target_row)
+        event.acceptProposedAction()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self._drop_indicator_y is not None:
+            from PySide6.QtGui import QPainter, QPen
+            painter = QPainter(self.viewport())
+            pen = QPen(get_theme_manager().current.colors.as_qcolor("primary"), 2)
+            painter.setPen(pen)
+            y = self._drop_indicator_y
+            painter.drawLine(0, y, self.viewport().width(), y)
+            painter.end()
 
     def mouseMoveEvent(self, event) -> None:
         from PySide6.QtCore import QPersistentModelIndex
@@ -67,6 +175,79 @@ class _RepoTree(QTreeView):
             )
             painter.restore()
         super().drawRow(painter, option, index)
+
+
+_REPO_ROW_HEIGHT = 40
+_ROW_H_PADDING = 8
+
+
+class _RepoItemDelegate(QStyledItemDelegate):
+    """Two-line item delegate for repo rows.
+
+    Line 1: the repo name (Path.name), default font.
+    Line 2: _display_path(path), smaller font, dimmer color, middle-elided.
+
+    Header rows (marked with "header" in Qt.UserRole + 1) keep their default
+    rendering by deferring to super().paint/sizeHint.
+    """
+
+    def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
+        if index.data(Qt.UserRole + 1) == "header":
+            return super().sizeHint(option, index)
+        return QSize(option.rect.width(), _REPO_ROW_HEIGHT)
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        if index.data(Qt.UserRole + 1) == "header":
+            super().paint(painter, option, index)
+            return
+
+        path = index.data(Qt.UserRole)
+        if not path:
+            super().paint(painter, option, index)
+            return
+
+        name = Path(path).name
+        disp = _display_path(path)
+        is_active = bool(index.data(_IS_ACTIVE_ROLE))
+
+        colors = get_theme_manager().current.colors
+        name_color = colors.as_qcolor("on_primary") if is_active else colors.as_qcolor("on_surface")
+        path_color = colors.as_qcolor("on_surface_variant")
+
+        rect = option.rect
+        text_left = rect.left() + _ROW_H_PADDING
+        text_right = rect.right() - _ROW_H_PADDING
+        text_width = max(0, text_right - text_left)
+
+        # Top half: repo name
+        name_font = QFont(option.font)
+        if is_active:
+            name_font.setBold(True)
+        name_metrics = QFontMetrics(name_font)
+        name_height = name_metrics.height()
+        name_top = rect.top() + (rect.height() // 2) - name_height
+        name_rect = QRect(text_left, name_top, text_width, name_height)
+
+        painter.save()
+        painter.setFont(name_font)
+        painter.setPen(name_color)
+        elided_name = name_metrics.elidedText(name, Qt.ElideMiddle, text_width)
+        painter.drawText(name_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_name)
+
+        # Bottom half: display path
+        path_font = QFont(option.font)
+        path_font.setPointSizeF(max(1.0, path_font.pointSizeF() * 0.85))
+        path_metrics = QFontMetrics(path_font)
+        path_height = path_metrics.height()
+        path_top = name_rect.bottom() + 2
+        path_rect = QRect(text_left, path_top, text_width, path_height)
+
+        painter.setFont(path_font)
+        painter.setPen(path_color)
+        elided_path = path_metrics.elidedText(disp, Qt.ElideMiddle, text_width)
+        painter.drawText(path_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_path)
+
+        painter.restore()
 
 
 class RepoListWidget(QWidget):
@@ -122,13 +303,18 @@ class RepoListWidget(QWidget):
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(False)
         self._tree.setMouseTracking(True)
+        self._tree.setDragEnabled(True)
+        self._tree.setAcceptDrops(True)
+        self._tree.setDropIndicatorShown(True)
         self._tree.viewport().setAttribute(Qt.WA_Hover, True)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.clicked.connect(self._on_item_clicked)
 
         self._model = QStandardItemModel()
+        self._tree.repo_reorder_requested.connect(self._on_repo_reorder)
         self._tree.setModel(self._model)
+        self._tree.setItemDelegate(_RepoItemDelegate(self._tree))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -142,7 +328,7 @@ class RepoListWidget(QWidget):
         self._model.clear()
         active = self._store.get_active()
 
-        # Open repos section
+        # Open repos section (drag-and-drop reorderable via custom DnD)
         open_repos = self._store.get_open_repos()
         if open_repos:
             open_header = QStandardItem("OPEN")
@@ -155,7 +341,7 @@ class RepoListWidget(QWidget):
                 open_header.appendRow(item)
             self._model.appendRow(open_header)
 
-        # Recent repos section
+        # Recent repos section (not reorderable)
         recent_repos = self._store.get_recent_repos()
         if recent_repos:
             recent_header = QStandardItem("RECENT")
@@ -177,13 +363,28 @@ class RepoListWidget(QWidget):
         item.setToolTip(path)
         item.setData(path, Qt.UserRole)
         item.setData(kind, Qt.UserRole + 1)
-        item.setSizeHint(QSize(0, _ROW_HEIGHT))
         if is_active:
             font = item.font()
             font.setBold(True)
             item.setFont(font)
             item.setData(True, _IS_ACTIVE_ROLE)
         return item
+
+    def _on_repo_reorder(self, path: str, target_row: int) -> None:
+        """Move *path* to *target_row* within the open repos list and reload."""
+        current = self._store.get_open_repos()
+        if path not in current:
+            return
+        old_idx = current.index(path)
+        current.remove(path)
+        # Adjust target if the item was above the target position
+        if old_idx < target_row:
+            target_row = max(0, target_row - 1)
+        target_row = min(target_row, len(current))
+        current.insert(target_row, path)
+        self._store.set_open_order(current)
+        self._store.save()
+        self.reload()
 
     def _on_item_clicked(self, index) -> None:
         kind = index.data(Qt.UserRole + 1)
@@ -218,11 +419,23 @@ class RepoListWidget(QWidget):
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 
     def _on_add_clicked(self) -> None:
-        dialog = QFileDialog(self)
-        dialog.setWindowTitle("Open Repository")
-        dialog.setFileMode(QFileDialog.Directory)
-        dialog.setOption(QFileDialog.ShowDirsOnly, True)
-        if dialog.exec() == QFileDialog.Accepted:
+        while True:
+            dialog = QFileDialog(self)
+            dialog.setWindowTitle("Open Repository")
+            dialog.setFileMode(QFileDialog.Directory)
+            dialog.setOption(QFileDialog.ShowDirsOnly, True)
+            if dialog.exec() != QFileDialog.Accepted:
+                return
             dirs = dialog.selectedFiles()
-            if dirs:
-                self.repo_open_requested.emit(dirs[0])
+            if not dirs:
+                return
+            path = dirs[0]
+            if pygit2.discover_repository(path) is not None:
+                self.repo_open_requested.emit(path)
+                return
+            QMessageBox.warning(
+                self,
+                "Not a Git Repository",
+                "The selected folder is not a Git repository.\n"
+                "Please choose a folder that contains a Git repository.",
+            )

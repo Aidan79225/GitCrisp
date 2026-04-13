@@ -83,8 +83,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pygit2", specifier = ">=1.19.2" },
-    { name = "pyside6", specifier = ">=6.11.0" },
+    { name = "pygit2", specifier = ">=1.19.2,<2" },
+    { name = "pyside6", specifier = ">=6.11.0,<7" },
 ]
 
 [package.metadata.requires-dev]

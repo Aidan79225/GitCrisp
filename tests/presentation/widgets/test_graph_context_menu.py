@@ -28,38 +28,51 @@ class _FakeQueryBus:
         self.is_ancestor = _FakeQuery(is_ancestor)
 
 
-class _Stub(GraphWidget.__mro__[0]):  # type: ignore[misc]
-    pass
-
-
 def _make_widget_with_queries(qtbot, queries) -> GraphWidget:
     # GraphWidget.__init__ does a lot — bypass it for these unit tests.
     w = GraphWidget.__new__(GraphWidget)
     w._queries = queries
-    # GraphWidget inherits from QWidget; QObject signal infrastructure requires
-    # the C++ part to exist. Initialise the QWidget base only.
     from PySide6.QtWidgets import QWidget
     QWidget.__init__(w)
     qtbot.addWidget(w)
     return w
 
 
+@dataclass
+class _ActionInfo:
+    text: str
+    enabled: bool
+    tooltip: str
+    action: object  # QAction reference
+
+
+def _collect_actions(menu: QMenu) -> list[_ActionInfo]:
+    """Collect all actions (including submenu children) as data."""
+    result = []
+    for a in menu.actions():
+        sub = a.menu()
+        if sub:
+            for sa in sub.actions():
+                if sa.text():
+                    result.append(_ActionInfo(sa.text(), sa.isEnabled(), sa.toolTip(), sa))
+        elif a.text():
+            result.append(_ActionInfo(a.text(), a.isEnabled(), a.toolTip(), a))
+    return result
+
+
+def _find_action(menu: QMenu, label: str) -> _ActionInfo | None:
+    for info in _collect_actions(menu):
+        if info.text == label:
+            return info
+    return None
+
+
 def _labels(menu: QMenu) -> list[str]:
-    return [a.text() for a in menu.actions() if a.text()]
+    return [info.text for info in _collect_actions(menu)]
 
 
-def _enabled(menu: QMenu, label: str) -> bool:
-    for a in menu.actions():
-        if a.text() == label:
-            return a.isEnabled()
-    raise AssertionError(f"action {label!r} not in menu")
-
-
-def _tooltip(menu: QMenu, label: str) -> str:
-    for a in menu.actions():
-        if a.text() == label:
-            return a.toolTip()
-    raise AssertionError(f"action {label!r} not in menu")
+def _submenu_titles(menu: QMenu) -> list[str]:
+    return [a.text() for a in menu.actions() if a.menu()]
 
 
 def test_detached_head_disables_everything(qtbot):
@@ -72,8 +85,11 @@ def test_detached_head_disables_everything(qtbot):
     menu.setToolTipsVisible(True)
     w._add_merge_rebase_section(menu, oid="bbbbbbbbbbbb", branches_on_commit=["feature"])
 
-    assert _enabled(menu, "Merge feature into HEAD") is False
-    assert "detached" in _tooltip(menu, "Merge feature into HEAD").lower()
+    # 1 branch + 1 commit = 2 actions each → submenus
+    info = _find_action(menu, "feature into HEAD")
+    assert info is not None
+    assert info.enabled is False
+    assert "detached" in info.tooltip.lower()
 
 
 def test_merging_state_disables_everything(qtbot):
@@ -86,8 +102,10 @@ def test_merging_state_disables_everything(qtbot):
     menu.setToolTipsVisible(True)
     w._add_merge_rebase_section(menu, oid="bbbbbbbbbbbb", branches_on_commit=["feature"])
 
-    assert _enabled(menu, "Merge feature into main") is False
-    assert "MERGING" in _tooltip(menu, "Merge feature into main")
+    info = _find_action(menu, "feature into main")
+    assert info is not None
+    assert info.enabled is False
+    assert "MERGING" in info.tooltip
 
 
 def test_head_commit_with_no_other_branches_hides_section(qtbot):
@@ -113,10 +131,17 @@ def test_ancestor_branch_merge_disabled_with_already_up_to_date(qtbot):
     menu.setToolTipsVisible(True)
     w._add_merge_rebase_section(menu, oid="anc12345678", branches_on_commit=["old-branch"])
 
-    assert _enabled(menu, "Merge old-branch into main") is False
-    assert _tooltip(menu, "Merge old-branch into main") == "Already up to date"
-    # Rebase still allowed
-    assert _enabled(menu, "Rebase main onto old-branch") is True
+    # Only 1 merge action (branch, no commit merge since ancestor) → top-level
+    merge_info = _find_action(menu, "Merge old-branch into main")
+    assert merge_info is not None
+    assert merge_info.enabled is False
+    assert merge_info.tooltip == "Already up to date"
+
+    # 2 rebase actions (branch + commit) → submenu
+    assert "Rebase" in _submenu_titles(menu)
+    rebase_info = _find_action(menu, "main onto old-branch")
+    assert rebase_info is not None
+    assert rebase_info.enabled is True
 
 
 def test_normal_commit_emits_signals(qtbot):
@@ -138,16 +163,20 @@ def test_normal_commit_emits_signals(qtbot):
     menu = QMenu()
     w._add_merge_rebase_section(menu, oid="newcommit12", branches_on_commit=["feature"])
 
-    # Trigger each action
-    for a in menu.actions():
-        if a.text() == "Merge feature into main":
-            a.trigger()
-        elif a.text() == "Merge commit newcomm into main":
-            a.trigger()
-        elif a.text() == "Rebase main onto feature":
-            a.trigger()
-        elif a.text() == "Rebase main onto commit newcomm":
-            a.trigger()
+    # 2 merge + 2 rebase → submenus
+    assert "Merge" in _submenu_titles(menu)
+    assert "Rebase" in _submenu_titles(menu)
+
+    # Trigger each action via submenu
+    for info in _collect_actions(menu):
+        if info.text == "feature into main":
+            info.action.trigger()
+        elif info.text == "commit newcomm into main":
+            info.action.trigger()
+        elif info.text == "main onto feature":
+            info.action.trigger()
+        elif info.text == "main onto commit newcomm":
+            info.action.trigger()
 
     assert received_branch_merge == ["feature"]
     assert received_commit_merge == ["newcommit12"]
@@ -155,7 +184,7 @@ def test_normal_commit_emits_signals(qtbot):
     assert received_commit_rebase == ["newcommit12"]
 
 
-def test_multiple_branches_produce_one_action_each(qtbot):
+def test_multiple_branches_use_submenus(qtbot):
     queries = _FakeQueryBus(
         state=RepoStateInfo(state=RepoState.CLEAN, head_branch="main"),
         head_oid="head1234567",
@@ -164,8 +193,30 @@ def test_multiple_branches_produce_one_action_each(qtbot):
     menu = QMenu()
     w._add_merge_rebase_section(menu, oid="other123456", branches_on_commit=["a", "b"])
 
+    # 3 merge + 3 rebase → submenus
+    assert "Merge" in _submenu_titles(menu)
+    assert "Rebase" in _submenu_titles(menu)
+
     labels = _labels(menu)
-    assert "Merge a into main" in labels
-    assert "Merge b into main" in labels
-    assert "Rebase main onto a" in labels
-    assert "Rebase main onto b" in labels
+    assert "a into main" in labels
+    assert "b into main" in labels
+    assert "main onto a" in labels
+    assert "main onto b" in labels
+
+
+def test_single_action_stays_top_level(qtbot):
+    """When only 1 merge and 1 rebase action, they stay at top level (no submenu)."""
+    queries = _FakeQueryBus(
+        state=RepoStateInfo(state=RepoState.CLEAN, head_branch="main"),
+        head_oid="aaaaaaaaaaaa",
+        # Make oid == head so no commit-targeted actions
+    )
+    w = _make_widget_with_queries(qtbot, queries)
+    menu = QMenu()
+    # oid == head_oid → no commit merge/rebase, only branch actions
+    w._add_merge_rebase_section(menu, oid="aaaaaaaaaaaa", branches_on_commit=["feature"])
+
+    assert _submenu_titles(menu) == []  # no submenus
+    top_labels = [a.text() for a in menu.actions() if a.text()]
+    assert "Merge feature into main" in top_labels
+    assert "Rebase main onto feature" in top_labels

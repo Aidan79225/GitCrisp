@@ -29,6 +29,7 @@ class Stash:
     index: int
     message: str
     oid: str
+    timestamp: datetime | None = None
 
 
 @dataclass
@@ -104,3 +105,15 @@ class RepoState(str, Enum):
 class RepoStateInfo:
     state: RepoState
     head_branch: str | None
+
+
+class MergeStrategy(str, Enum):
+    NO_FF = "NO_FF"
+    FF_ONLY = "FF_ONLY"
+    ALLOW_FF = "ALLOW_FF"
+
+
+@dataclass(frozen=True)
+class MergeAnalysisResult:
+    can_ff: bool
+    is_up_to_date: bool

@@ -2,6 +2,7 @@ import pygit2
 import pytest
 from pathlib import Path
 from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+from git_gui.domain.entities import MergeStrategy, RepoState
 
 
 @pytest.fixture
@@ -153,3 +154,206 @@ def test_rebase_onto_commit(writable_repo):
 
     new_head = impl.get_head_oid()
     assert impl.is_ancestor(c.oid, new_head) is True
+
+
+def test_merge_no_ff_creates_merge_commit_when_ff_possible(writable_repo):
+    """NO_FF forces merge commit even on linear history."""
+    impl, path = writable_repo
+    head_oid = impl.get_head_oid()
+    impl.create_branch("feature-noff", head_oid)
+    impl.checkout("feature-noff")
+    (path / "noff.txt").write_text("noff")
+    impl.stage(["noff.txt"])
+    impl.commit("feature work")
+    branches = impl.get_branches()
+    main_name = next(b.name for b in branches if not b.is_remote and b.name != "feature-noff")
+    impl.checkout(main_name)
+    impl.merge("feature-noff", strategy=MergeStrategy.NO_FF, message="Custom merge msg")
+    new_head = impl.get_commit(impl.get_head_oid())
+    assert len(new_head.parents) == 2
+    assert "Custom merge msg" in new_head.message
+
+
+def test_merge_ff_only_raises_when_not_possible(writable_repo):
+    """FF_ONLY on diverged history raises."""
+    impl, path = writable_repo
+    head_oid = impl.get_head_oid()
+    impl.create_branch("diverge", head_oid)
+    (path / "m.txt").write_text("m")
+    impl.stage(["m.txt"])
+    impl.commit("main side")
+    impl.checkout("diverge")
+    (path / "d.txt").write_text("d")
+    impl.stage(["d.txt"])
+    impl.commit("diverge side")
+    branches = impl.get_branches()
+    main_name = next(b.name for b in branches if not b.is_remote and b.name != "diverge")
+    impl.checkout(main_name)
+    with pytest.raises(RuntimeError, match="[Cc]annot fast-forward"):
+        impl.merge("diverge", strategy=MergeStrategy.FF_ONLY)
+
+
+def test_merge_allow_ff_fast_forwards_when_possible(writable_repo):
+    """ALLOW_FF on linear history fast-forwards (no merge commit)."""
+    impl, path = writable_repo
+    head_oid = impl.get_head_oid()
+    impl.create_branch("feature-af", head_oid)
+    impl.checkout("feature-af")
+    (path / "af.txt").write_text("af")
+    impl.stage(["af.txt"])
+    feat_commit = impl.commit("feature work")
+    branches = impl.get_branches()
+    main_name = next(b.name for b in branches if not b.is_remote and b.name != "feature-af")
+    impl.checkout(main_name)
+    impl.merge("feature-af", strategy=MergeStrategy.ALLOW_FF)
+    assert impl.get_head_oid() == feat_commit.oid
+    new_head = impl.get_commit(impl.get_head_oid())
+    assert len(new_head.parents) == 1
+
+
+# ---- merge_abort / rebase_abort / rebase_continue ----
+
+
+def _create_merge_conflict(impl, repo_path):
+    """Helper: create divergent branches with conflicting changes, trigger merge conflict."""
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    # Commit on master
+    (repo_path / "README.md").write_text("master change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master change", tree_a, [base])
+
+    # Create branch from base with conflicting change
+    raw.branches.local.create("conflict-branch", raw.get(base))
+    raw.checkout("refs/heads/conflict-branch")
+    (repo_path / "README.md").write_text("branch change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    raw.create_commit("refs/heads/conflict-branch", sig, sig, "branch change", tree_b, [base])
+
+    # Switch back to master and merge -> conflict
+    raw.checkout("refs/heads/master")
+    raw.merge(raw.branches.local["conflict-branch"].target)
+
+
+def test_merge_abort_restores_clean_state(writable_repo):
+    impl, path = writable_repo
+    _create_merge_conflict(impl, path)
+    # Verify we are in MERGING state
+    info = impl.repo_state()
+    assert info.state == RepoState.MERGING
+
+    impl.merge_abort()
+
+    info = impl.repo_state()
+    assert info.state == RepoState.CLEAN
+    assert impl.get_merge_head() is None
+
+
+def test_rebase_abort_restores_clean_state(writable_repo):
+    impl, path = writable_repo
+    raw = pygit2.Repository(str(path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    # Commit on master
+    (path / "README.md").write_text("master rebase change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master rebase", tree_a, [base])
+
+    # Create branch from base with conflicting change
+    raw.branches.local.create("rebase-branch", raw.get(base))
+    raw.checkout("refs/heads/rebase-branch")
+    (path / "README.md").write_text("rebase branch change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    raw.create_commit("refs/heads/rebase-branch", sig, sig, "rebase branch", tree_b, [base])
+
+    # Trigger rebase conflict via git rebase master
+    with pytest.raises(RuntimeError):
+        impl.rebase("master")
+
+    # During rebase, git detaches HEAD so repo_state returns DETACHED_HEAD;
+    # verify rebase is in progress via the rebase-merge directory
+    import os
+    raw2 = pygit2.Repository(str(path))
+    assert raw2.state() != pygit2.GIT_REPOSITORY_STATE_NONE
+
+    impl.rebase_abort()
+
+    raw3 = pygit2.Repository(str(path))
+    assert raw3.state() == pygit2.GIT_REPOSITORY_STATE_NONE
+
+
+def test_rebase_continue_errors_on_clean_repo(writable_repo):
+    impl, path = writable_repo
+    with pytest.raises(RuntimeError):
+        impl.rebase_continue()
+
+
+# ---- interactive_rebase ----
+
+
+def test_interactive_rebase_squash(repo_impl, repo_path):
+    """Squash 3 commits into 2 by squashing the last into its predecessor."""
+    # Create A → B → C chain
+    (repo_path / "b.txt").write_text("b")
+    repo_impl.stage(["b.txt"])
+    commit_b = repo_impl.commit("commit B")
+
+    (repo_path / "c.txt").write_text("c")
+    repo_impl.stage(["c.txt"])
+    commit_c = repo_impl.commit("commit C")
+
+    # Get the initial commit oid (the base)
+    commits = repo_impl.get_commits(limit=10)
+    base_oid = commits[-1].oid  # the initial commit (oldest)
+
+    # Squash C into B
+    entries = [
+        ("pick", commit_b.oid),
+        ("squash", commit_c.oid),
+    ]
+    repo_impl.interactive_rebase(base_oid, entries)
+
+    # After rebase: should have initial commit + one squashed commit = 2 total
+    new_commits = repo_impl.get_commits(limit=10)
+    assert len(new_commits) == 2
+    # The squashed commit should contain both files
+    import os
+    assert os.path.exists(repo_path / "b.txt")
+    assert os.path.exists(repo_path / "c.txt")
+
+
+def test_interactive_rebase_drop(repo_impl, repo_path):
+    """Drop the last commit."""
+    (repo_path / "b.txt").write_text("b")
+    repo_impl.stage(["b.txt"])
+    commit_b = repo_impl.commit("commit B")
+
+    (repo_path / "c.txt").write_text("c")
+    repo_impl.stage(["c.txt"])
+    commit_c = repo_impl.commit("commit C")
+
+    commits = repo_impl.get_commits(limit=10)
+    base_oid = commits[-1].oid
+
+    entries = [
+        ("pick", commit_b.oid),
+        ("drop", commit_c.oid),
+    ]
+    repo_impl.interactive_rebase(base_oid, entries)
+
+    new_commits = repo_impl.get_commits(limit=10)
+    assert len(new_commits) == 2  # initial + B only
+    import os
+    assert os.path.exists(repo_path / "b.txt")
+    assert not os.path.exists(repo_path / "c.txt")

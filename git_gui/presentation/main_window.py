@@ -14,6 +14,7 @@ from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
+from git_gui.presentation.dialogs.merge_dialog import MergeDialog
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
 from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 from git_gui.presentation.widgets.repo_list import RepoListWidget
@@ -22,6 +23,7 @@ from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 from git_gui.presentation.widgets.insight_dialog import InsightDialog
 from git_gui.presentation.menus.appearance import install_appearance_menu
 from git_gui.presentation.menus.git_menu import install_git_menu
+from git_gui.presentation.dialogs.interactive_rebase_dialog import InteractiveRebaseDialog
 
 
 class _RemoteSignals(QObject):
@@ -55,7 +57,7 @@ class MainWindow(QMainWindow):
         self._sidebar = SidebarWidget(queries, commands, remote_tag_cache, repo_path)
         self._graph = GraphWidget(queries, commands)
         self._diff = DiffWidget(queries, commands)
-        self._working_tree = WorkingTreeWidget(queries, commands)
+        self._working_tree = WorkingTreeWidget(queries, commands, repo_path=repo_path)
         self._repo_list = RepoListWidget(repo_store)
         self._log_panel = LogPanel()
         self._remote_running = False
@@ -94,11 +96,31 @@ class MainWindow(QMainWindow):
         # F5 reload shortcut (global)
         self._reload_shortcut = QShortcut(QKeySequence(Qt.Key_F5), self)
         self._reload_shortcut.activated.connect(self._reload)
+
+        # Ctrl+F — search commits
+        self._search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self._search_shortcut.activated.connect(self._graph.open_search)
+
+        # Ctrl+W — close current repo (switch to previous open repo)
+        self._close_repo_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
+        self._close_repo_shortcut.activated.connect(self._close_current_repo)
+
+        # Ctrl+1..9 — switch to Nth open repo
+        self._repo_shortcuts: list[QShortcut] = []
+        for i in range(1, 10):
+            sc = QShortcut(QKeySequence(f"Ctrl+{i}"), self)
+            sc.activated.connect(lambda idx=i: self._switch_to_repo_index(idx))
+            self._repo_shortcuts.append(sc)
+
         self.setCentralWidget(central)
 
         # Wire cross-widget signals
         self._graph.commit_selected.connect(self._on_commit_selected)
         self._working_tree.reload_requested.connect(self._reload)
+        self._working_tree.merge_abort_requested.connect(self._on_merge_abort)
+        self._working_tree.rebase_abort_requested.connect(self._on_rebase_abort)
+        self._working_tree.merge_continue_requested.connect(self._on_merge_continue)
+        self._working_tree.rebase_continue_requested.connect(self._on_rebase_continue)
         self._working_tree.commit_completed.connect(
             lambda msg: self._log_panel.log(f'Commit: "{msg}"')
         )
@@ -108,6 +130,11 @@ class MainWindow(QMainWindow):
         self._working_tree.working_tree_empty.connect(self._on_working_tree_empty)
         self._working_tree.submodule_open_requested.connect(self._on_submodule_path_clicked)
         self._diff.submodule_open_requested.connect(self._on_submodule_path_clicked)
+        self._diff.merge_abort_requested.connect(self._on_merge_abort)
+        self._diff.rebase_abort_requested.connect(self._on_rebase_abort)
+        self._diff.rebase_continue_requested.connect(
+            lambda: self._on_rebase_continue("")
+        )
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
         self._sidebar.branch_clicked.connect(self._graph.reload_with_extra_tip)
         self._sidebar.branch_merge_requested.connect(self._on_merge)
@@ -137,6 +164,8 @@ class MainWindow(QMainWindow):
         self._graph.merge_commit_requested.connect(self._on_merge_commit)
         self._graph.rebase_onto_branch_requested.connect(self._on_rebase)
         self._graph.rebase_onto_commit_requested.connect(self._on_rebase_onto_commit)
+        self._graph.interactive_rebase_branch_requested.connect(self._on_interactive_rebase_branch)
+        self._graph.interactive_rebase_commit_requested.connect(self._on_interactive_rebase_commit)
 
         # Sidebar tag signals
         self._sidebar.tag_clicked.connect(self._graph.reload_with_extra_tip)
@@ -194,6 +223,16 @@ class MainWindow(QMainWindow):
         self._graph.reload()
         if self._right_stack.currentIndex() == 1:
             self._working_tree.reload()
+        if self._queries is not None:
+            try:
+                state_info = self._queries.get_repo_state.execute()
+                state_name = state_info.state.name
+                merge_msg = self._queries.get_merge_msg.execute() if state_name == "MERGING" else None
+                self._working_tree.update_conflict_banner(state_name, merge_msg)
+                self._diff.update_state_banner(state_name)
+            except Exception:
+                self._working_tree.update_conflict_banner("CLEAN")
+                self._diff.update_state_banner("CLEAN")
 
     def _on_branch_changed(self, branch: str) -> None:
         if self._queries is None:
@@ -207,8 +246,29 @@ class MainWindow(QMainWindow):
 
     def _on_merge(self, branch: str) -> None:
         try:
-            self._commands.merge.execute(branch)
-            self._log_panel.log(f"Merge: {branch} into current")
+            all_branches = self._queries.get_branches.execute()
+            target = None
+            for b in all_branches:
+                if b.name == branch:
+                    target = b
+                    break
+            if not target:
+                self._log_panel.log_error(f"Branch not found: {branch}")
+                return
+            analysis = self._queries.get_merge_analysis.execute(target.target_oid)
+            head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
+            default_msg = f"Merge branch '{branch}'"
+
+            if analysis.is_up_to_date:
+                self._log_panel.log(f"Merge {branch}: already up to date")
+                return
+
+            dlg = MergeDialog(branch, head_branch, analysis.can_ff, default_msg, parent=self)
+            if dlg.exec() != MergeDialog.Accepted:
+                return
+            req = dlg.result_value()
+            self._commands.merge.execute(branch, strategy=req.strategy, message=req.message)
+            self._log_panel.log(f"Merge: {branch} into {head_branch}")
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Merge {branch} — ERROR: {e}")
@@ -225,11 +285,24 @@ class MainWindow(QMainWindow):
 
     def _on_merge_commit(self, oid: str) -> None:
         try:
-            self._commands.merge_commit.execute(oid)
-            self._log_panel.log(f"Merge: commit {oid[:7]} into current")
+            analysis = self._queries.get_merge_analysis.execute(oid)
+            head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
+            short_oid = oid[:7]
+            default_msg = f"Merge commit {short_oid}"
+
+            if analysis.is_up_to_date:
+                self._log_panel.log(f"Merge commit {short_oid}: already up to date")
+                return
+
+            dlg = MergeDialog(f"commit {short_oid}", head_branch, analysis.can_ff, default_msg, parent=self)
+            if dlg.exec() != MergeDialog.Accepted:
+                return
+            req = dlg.result_value()
+            self._commands.merge_commit.execute(oid, strategy=req.strategy, message=req.message)
+            self._log_panel.log(f"Merge: commit {short_oid} into {head_branch}")
         except Exception as e:
             self._log_panel.expand()
-            self._log_panel.log_error(f"Merge commit {oid[:7]} — ERROR: {e}")
+            self._log_panel.log_error(f"Merge commit {short_oid} — ERROR: {e}")
         self._reload()
 
     def _on_rebase_onto_commit(self, oid: str) -> None:
@@ -239,6 +312,92 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Rebase onto commit {oid[:7]} — ERROR: {e}")
+        self._reload()
+
+    def _on_interactive_rebase_branch(self, branch: str) -> None:
+        try:
+            all_branches = self._queries.get_branches.execute()
+            target = None
+            for b in all_branches:
+                if b.name == branch:
+                    target = b
+                    break
+            if not target:
+                self._log_panel.log_error(f"Branch not found: {branch}")
+                return
+            self._open_interactive_rebase(target.target_oid, branch)
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Interactive rebase — ERROR: {e}")
+
+    def _on_interactive_rebase_commit(self, oid: str) -> None:
+        self._open_interactive_rebase(oid, f"commit {oid[:7]}")
+
+    def _open_interactive_rebase(self, target_oid: str, target_label: str) -> None:
+        try:
+            head_oid = self._queries.get_head_oid.execute()
+            if not head_oid:
+                self._log_panel.log_error("No HEAD — cannot rebase")
+                return
+            commits = self._queries.get_commit_range.execute(head_oid, target_oid)
+            if not commits:
+                self._log_panel.log("No commits to rebase")
+                return
+            dlg = InteractiveRebaseDialog(commits, target_label, parent=self)
+            if dlg.exec() != InteractiveRebaseDialog.Accepted:
+                return
+            entries = dlg.result_entries()
+            self._run_remote_op(
+                f"Interactive rebase onto {target_label}",
+                lambda: self._commands.interactive_rebase.execute(target_oid, entries),
+            )
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Interactive rebase — ERROR: {e}")
+
+    def _on_merge_abort(self) -> None:
+        try:
+            self._commands.merge_abort.execute()
+            self._log_panel.log("Merge aborted")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Merge abort — ERROR: {e}")
+        self._reload()
+
+    def _on_rebase_abort(self) -> None:
+        try:
+            self._commands.rebase_abort.execute()
+            self._log_panel.log("Rebase aborted")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Rebase abort — ERROR: {e}")
+        self._reload()
+
+    def _on_merge_continue(self, msg: str) -> None:
+        try:
+            if self._queries.has_unresolved_conflicts.execute():
+                self._log_panel.expand()
+                self._log_panel.log_error("Resolve all conflicts and stage files first")
+                return
+            commit_msg = msg or self._queries.get_merge_msg.execute() or "Merge commit"
+            self._commands.create_commit.execute(commit_msg)
+            self._log_panel.log("Merge completed")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Merge continue — ERROR: {e}")
+        self._reload()
+
+    def _on_rebase_continue(self, msg: str) -> None:
+        try:
+            if self._queries.has_unresolved_conflicts.execute():
+                self._log_panel.expand()
+                self._log_panel.log_error("Resolve all conflicts and stage files first")
+                return
+            self._commands.rebase_continue.execute(msg)
+            self._log_panel.log("Rebase continued")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Rebase continue — ERROR: {e}")
         self._reload()
 
     def _on_delete_branch(self, branch: str) -> None:
@@ -537,6 +696,23 @@ class MainWindow(QMainWindow):
         else:
             self._enter_empty_state()
 
+    def _close_current_repo(self) -> None:
+        """Ctrl+W: close the active repo and switch to the previous open one."""
+        if not self._repo_path:
+            return
+        self._on_repo_close(self._repo_path)
+
+    def _switch_to_repo_index(self, index: int) -> None:
+        """Ctrl+1..9: switch to the Nth open repo (1-based)."""
+        open_repos = self._repo_store.get_open_repos()
+        i = index - 1  # 0-based
+        if i < 0 or i >= len(open_repos):
+            return
+        path = open_repos[i]
+        if path == self._repo_path:
+            return  # already active
+        self._switch_repo(path)
+
     def _on_repo_remove_recent(self, path: str) -> None:
         self._repo_store.remove_recent(path)
         self._repo_store.save()
@@ -548,8 +724,12 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_submodule_open_requested(self, abs_path: str) -> None:
-        """Open a submodule as a top-level repo (one-way switch)."""
-        self._repo_store.add_open(abs_path)
+        """Open a submodule as a top-level repo (one-way switch).
+
+        Inserts the submodule right after the current (parent) repo in the
+        open list, so the sidebar shows submodules grouped under their parent.
+        """
+        self._repo_store.add_open(abs_path, after=self._repo_path)
         self._repo_store.save()
         self._switch_repo(abs_path)
 
@@ -583,6 +763,7 @@ class MainWindow(QMainWindow):
         self._log_panel.expand()
         self._log_panel.log(f"{name} — started...")
         self._remote_running = True
+        self.statusBar().showMessage(f"\u23f3 {name}...")
 
         signals = _RemoteSignals()
         signals.finished.connect(self._on_remote_done)
@@ -602,12 +783,34 @@ class MainWindow(QMainWindow):
     def _on_remote_done(self, name: str) -> None:
         self._log_panel.log(f"{name} — done")
         self._remote_running = False
+        self.statusBar().clearMessage()
         self._reload()
 
     def _on_remote_error(self, name: str, error: str) -> None:
         self._log_panel.log_error(f"{name} — ERROR: {error}")
         self._remote_running = False
+        self.statusBar().clearMessage()
         self._reload()
+
+        # Detect push rejection and offer force push
+        if name.startswith("Push ") and "non-fast-forward" in error:
+            branch = self._get_current_branch()
+            if branch:
+                reply = QMessageBox.warning(
+                    self,
+                    "Push Rejected",
+                    f"Push was rejected because the remote branch has changes "
+                    f"you don't have locally.\n\n"
+                    f"Would you like to force push with --force-with-lease?\n"
+                    f"This will overwrite the remote branch.",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if reply == QMessageBox.Yes:
+                    self._run_remote_op(
+                        f"Force push origin/{branch}",
+                        lambda: self._commands.force_push.execute("origin", branch),
+                    )
 
     def _on_push(self) -> None:
         branch = self._get_current_branch()

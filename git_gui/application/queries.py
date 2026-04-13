@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, LocalBranchInfo, Remote, RepoStateInfo, Stash, Submodule, Tag
+from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, LocalBranchInfo, Remote, RepoStateInfo, Stash, Submodule, Tag, MergeAnalysisResult
 from git_gui.domain.ports import IRepositoryReader
 
 
@@ -146,3 +146,55 @@ class IsAncestor:
 
     def execute(self, ancestor_oid: str, descendant_oid: str) -> bool:
         return self._reader.is_ancestor(ancestor_oid, descendant_oid)
+
+
+class GetMergeAnalysis:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+    def execute(self, oid: str) -> MergeAnalysisResult:
+        return self._reader.merge_analysis(oid)
+
+
+class GetMergeHead:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+    def execute(self) -> str | None:
+        return self._reader.get_merge_head()
+
+
+class GetMergeMsg:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+    def execute(self) -> str | None:
+        return self._reader.get_merge_msg()
+
+
+class HasUnresolvedConflicts:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+    def execute(self) -> bool:
+        return self._reader.has_unresolved_conflicts()
+
+
+class GetCommitDiffMap:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, oid: str) -> dict[str, list[Hunk]]:
+        return self._reader.get_commit_diff_map(oid)
+
+
+class GetWorkingTreeDiffMap:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> dict[str, dict[str, list[Hunk]]]:
+        return self._reader.get_working_tree_diff_map()
+
+
+class GetCommitRange:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, head_oid: str, base_oid: str) -> list[Commit]:
+        return self._reader.get_commit_range(head_oid, base_oid)

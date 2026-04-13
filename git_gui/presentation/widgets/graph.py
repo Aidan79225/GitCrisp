@@ -4,9 +4,9 @@ import threading
 from datetime import datetime
 from git_gui.resources import get_resource_path
 from PySide6.QtCore import QModelIndex, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QHBoxLayout, QHeaderView, QMenu, QPushButton, QStyle,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QStyle,
     QStyleOptionViewItem, QTableView, QVBoxLayout, QWidget,
 )
 from git_gui.domain.entities import Branch, Commit, Tag, WORKING_TREE_OID
@@ -60,7 +60,7 @@ class _GraphTableView(QTableView):
 
 
 class _LoadSignals(QObject):
-    reload_done = Signal(list, list, list, bool, str)  # commits, branches, tags, is_dirty, head_oid
+    reload_done = Signal(list, list, list, bool, str, object, object)  # commits, branches, tags, is_dirty, head_oid, repo_state, merge_head
     append_done = Signal(list, list, list)              # more_commits, branches, tags
 
 
@@ -90,6 +90,87 @@ def _btn_style() -> str:
     )
 
 
+class _SearchBar(QWidget):
+    """Inline search bar for filtering commits by message, author, hash, or date."""
+
+    navigate_requested = Signal(int)   # +1 = next, -1 = prev
+    closed = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setVisible(False)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText("Search commits — message, author, hash, date …")
+        self._input.setClearButtonEnabled(True)
+        self._input.returnPressed.connect(lambda: self.navigate_requested.emit(1))
+        layout.addWidget(self._input, 1)
+
+        self._label = QLabel()
+        self._label.setFixedWidth(60)
+        self._label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self._label)
+
+        btn_prev = QPushButton("▲")
+        btn_prev.setFixedSize(28, 28)
+        btn_prev.setToolTip("Previous match (Shift+Enter)")
+        btn_prev.clicked.connect(lambda: self.navigate_requested.emit(-1))
+        layout.addWidget(btn_prev)
+
+        btn_next = QPushButton("▼")
+        btn_next.setFixedSize(28, 28)
+        btn_next.setToolTip("Next match (Enter)")
+        btn_next.clicked.connect(lambda: self.navigate_requested.emit(1))
+        layout.addWidget(btn_next)
+
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(28, 28)
+        btn_close.setToolTip("Close (Escape)")
+        btn_close.clicked.connect(self.closed.emit)
+        layout.addWidget(btn_close)
+
+        # Shift+Enter for previous match
+        self._input.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        from PySide6.QtCore import QEvent
+        if obj is self._input and event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_Escape:
+                self.closed.emit()
+                return True
+            if event.key() == Qt.Key_Return and event.modifiers() & Qt.ShiftModifier:
+                self.navigate_requested.emit(-1)
+                return True
+        return super().eventFilter(obj, event)
+
+    def open(self) -> None:
+        self.setVisible(True)
+        self._input.setFocus()
+        self._input.selectAll()
+
+    def close_bar(self) -> None:
+        self.setVisible(False)
+        self._input.clear()
+        self._label.clear()
+
+    def text(self) -> str:
+        return self._input.text()
+
+    def set_match_label(self, current: int, total: int) -> None:
+        if total == 0:
+            self._label.setText("0 / 0")
+        else:
+            self._label.setText(f"{current + 1} / {total}")
+
+    @property
+    def input_widget(self) -> QLineEdit:
+        return self._input
+
+
 class GraphWidget(QWidget):
     commit_selected = Signal(str)  # emits oid (or WORKING_TREE_OID)
     create_branch_requested = Signal(str)       # oid
@@ -101,6 +182,8 @@ class GraphWidget(QWidget):
     merge_commit_requested = Signal(str)             # oid (merge commit into current)
     rebase_onto_branch_requested = Signal(str)       # branch name (rebase current onto)
     rebase_onto_commit_requested = Signal(str)       # oid (rebase current onto commit)
+    interactive_rebase_branch_requested = Signal(str)   # branch name
+    interactive_rebase_commit_requested = Signal(str)    # oid
     reload_requested = Signal()
     push_requested = Signal()
     pull_requested = Signal()
@@ -183,10 +266,20 @@ class GraphWidget(QWidget):
         header_bar.addWidget(self._stash_btn)
         self._styled_buttons.append(self._stash_btn)
 
+        # Search bar (hidden by default, toggled by Ctrl+F)
+        self._search_bar = _SearchBar()
+        self._search_matches: list[int] = []  # row indices of matching commits
+        self._search_idx = -1  # current position in _search_matches
+        self._pending_search: str | None = None  # search to re-run after full reload
+        self._search_bar.input_widget.textChanged.connect(self._on_search_text_changed)
+        self._search_bar.navigate_requested.connect(self._on_search_navigate)
+        self._search_bar.closed.connect(self._close_search)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addLayout(header_bar)
+        layout.addWidget(self._search_bar)
         layout.addWidget(self._view)
 
         self._rebuild_styles()
@@ -226,7 +319,9 @@ class GraphWidget(QWidget):
             tags = queries.get_tags.execute()
             dirty = queries.is_dirty.execute()
             head_oid = queries.get_head_oid.execute() or ""
-            signals.reload_done.emit(commits, branches, tags, dirty, head_oid)
+            repo_state = queries.get_repo_state.execute()
+            merge_head = queries.get_merge_head.execute()
+            signals.reload_done.emit(commits, branches, tags, dirty, head_oid, repo_state, merge_head)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -243,7 +338,8 @@ class GraphWidget(QWidget):
         self.reload(extra_tips=[oid])
 
     def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
-                        tags: list[Tag], is_dirty: bool, head_oid: str) -> None:
+                        tags: list[Tag], is_dirty: bool, head_oid: str,
+                        repo_state_info, merge_head: str | None) -> None:
         self._loading = False
         self._stash_btn.setVisible(is_dirty)
         if self._queries is None:
@@ -267,12 +363,23 @@ class GraphWidget(QWidget):
 
         all_commits = list(commits)
         if is_dirty:
+            state_name = repo_state_info.state.name if repo_state_info else "CLEAN"
+            if state_name == "MERGING":
+                message = "Merge in progress (conflicts)"
+                parents = [head_oid, merge_head] if merge_head else [head_oid]
+            elif state_name == "REBASING":
+                message = "Rebase in progress"
+                parents = [head_oid] if head_oid else []
+            else:
+                message = "Uncommitted Changes"
+                parents = [head_oid] if head_oid else []
+            parents = [p for p in parents if p]
             synthetic = Commit(
                 oid=WORKING_TREE_OID,
-                message="Uncommitted Changes",
+                message=message,
                 author="",
                 timestamp=datetime.now(),
-                parents=[head_oid] if head_oid else [],
+                parents=parents,
             )
             all_commits.insert(0, synthetic)
 
@@ -299,6 +406,12 @@ class GraphWidget(QWidget):
             else:
                 # No more commits to load — give up
                 self._pending_scroll_oid = None
+
+        # If a search was deferred until all commits were loaded, run it now.
+        if self._pending_search:
+            needle = self._pending_search
+            self._pending_search = None
+            self._run_search(needle)
 
     def _get_visible_rows(self) -> tuple[int, int]:
         """Return (first_visible_row, last_visible_row) indices."""
@@ -504,8 +617,8 @@ class GraphWidget(QWidget):
         short_oid = oid[:7]
         head_label = head_branch or "HEAD"
 
-        def _add(label: str, tooltip: str | None, signal_emit) -> None:
-            action = menu.addAction(label)
+        def _add(target_menu: QMenu, label: str, tooltip: str | None, signal_emit) -> None:
+            action = target_menu.addAction(label)
             if global_disable_reason:
                 action.setEnabled(False)
                 action.setToolTip(global_disable_reason)
@@ -515,6 +628,8 @@ class GraphWidget(QWidget):
             else:
                 action.triggered.connect(signal_emit)
 
+        # Collect merge actions
+        merge_actions: list[tuple[str, str | None, object]] = []
         for b in branch_targets:
             ancestor_tooltip = None
             try:
@@ -522,32 +637,77 @@ class GraphWidget(QWidget):
                     ancestor_tooltip = "Already up to date"
             except Exception:
                 pass
-            _add(
-                f"Merge {b} into {head_label}",
+            merge_actions.append((
+                f"{b} into {head_label}",
                 ancestor_tooltip,
                 lambda _checked=False, n=b: self.merge_branch_requested.emit(n),
-            )
-
-        for b in branch_targets:
-            _add(
-                f"Rebase {head_label} onto {b}",
-                None,
-                lambda _checked=False, n=b: self.rebase_onto_branch_requested.emit(n),
-            )
-
+            ))
         if show_commit_merge:
-            _add(
-                f"Merge commit {short_oid} into {head_label}",
+            merge_actions.append((
+                f"commit {short_oid} into {head_label}",
                 None,
                 lambda _checked=False, o=oid: self.merge_commit_requested.emit(o),
-            )
+            ))
 
+        # Collect rebase actions
+        rebase_actions: list[tuple[str, str | None, object]] = []
+        for b in branch_targets:
+            rebase_actions.append((
+                f"{head_label} onto {b}",
+                None,
+                lambda _checked=False, n=b: self.rebase_onto_branch_requested.emit(n),
+            ))
         if show_commit_rebase:
-            _add(
-                f"Rebase {head_label} onto commit {short_oid}",
+            rebase_actions.append((
+                f"{head_label} onto commit {short_oid}",
                 None,
                 lambda _checked=False, o=oid: self.rebase_onto_commit_requested.emit(o),
-            )
+            ))
+
+        # Collect interactive rebase actions
+        irebase_actions: list[tuple[str, str | None, object]] = []
+        for b in branch_targets:
+            irebase_actions.append((
+                f"Interactive rebase onto {b}",
+                None,
+                lambda _checked=False, n=b: self.interactive_rebase_branch_requested.emit(n),
+            ))
+        if show_commit_rebase:
+            irebase_actions.append((
+                f"Interactive rebase onto commit {short_oid}",
+                None,
+                lambda _checked=False, o=oid: self.interactive_rebase_commit_requested.emit(o),
+            ))
+
+        # Add merge actions: submenu if ≥2, top-level if 1
+        if len(merge_actions) == 1:
+            label, tooltip, emit = merge_actions[0]
+            _add(menu, f"Merge {label}", tooltip, emit)
+        elif merge_actions:
+            sub = menu.addMenu("Merge")
+            sub.setToolTipsVisible(True)
+            for label, tooltip, emit in merge_actions:
+                _add(sub, label, tooltip, emit)
+
+        # Add rebase actions: submenu if ≥2, top-level if 1
+        if len(rebase_actions) == 1:
+            label, tooltip, emit = rebase_actions[0]
+            _add(menu, f"Rebase {label}", tooltip, emit)
+        elif rebase_actions:
+            sub = menu.addMenu("Rebase")
+            sub.setToolTipsVisible(True)
+            for label, tooltip, emit in rebase_actions:
+                _add(sub, label, tooltip, emit)
+
+        # Add interactive rebase actions: submenu if ≥2, top-level if 1
+        if len(irebase_actions) == 1:
+            label, tooltip, emit = irebase_actions[0]
+            _add(menu, label, tooltip, emit)
+        elif irebase_actions:
+            sub = menu.addMenu("Interactive Rebase")
+            sub.setToolTipsVisible(True)
+            for label, tooltip, emit in irebase_actions:
+                _add(sub, label, tooltip, emit)
 
     def reload_and_scroll_to(self, oid: str) -> None:
         """Reload and scroll to the given oid after load completes."""
@@ -571,6 +731,68 @@ class GraphWidget(QWidget):
 
     def set_stash_visible(self, visible: bool) -> None:
         self._stash_btn.setVisible(visible)
+
+    # ── Search ───────────────────────────────────────────────────────────
+    def open_search(self) -> None:
+        """Show the search bar and focus its input."""
+        self._search_bar.open()
+
+    def _close_search(self) -> None:
+        self._search_bar.close_bar()
+        self._search_matches.clear()
+        self._search_idx = -1
+        self._view.setFocus()
+
+    def _on_search_text_changed(self, text: str) -> None:
+        needle = text.strip().lower()
+        self._search_matches.clear()
+        self._search_idx = -1
+        if not needle:
+            self._search_bar.set_match_label(0, 0)
+            return
+
+        # If not all commits are loaded yet, reload with a large limit so the
+        # search covers the full history. The reload callback will re-trigger
+        # the search via _run_search_after_load.
+        if self._has_more:
+            self._pending_search = needle
+            self.reload(limit=999_999)
+            return
+
+        self._run_search(needle)
+
+    def _run_search(self, needle: str) -> None:
+        """Search through all loaded commits for the given needle."""
+        self._search_matches.clear()
+        self._search_idx = -1
+        for row in range(self._model.rowCount()):
+            info = self._model.data(self._model.index(row, 1), Qt.UserRole + 1)
+            if info is None:
+                continue
+            haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
+            if needle in haystack:
+                self._search_matches.append(row)
+        if self._search_matches:
+            self._search_idx = 0
+            self._jump_to_match()
+        self._search_bar.set_match_label(
+            self._search_idx, len(self._search_matches),
+        )
+
+    def _on_search_navigate(self, direction: int) -> None:
+        if not self._search_matches:
+            return
+        self._search_idx = (self._search_idx + direction) % len(self._search_matches)
+        self._jump_to_match()
+        self._search_bar.set_match_label(
+            self._search_idx, len(self._search_matches),
+        )
+
+    def _jump_to_match(self) -> None:
+        row = self._search_matches[self._search_idx]
+        index = self._model.index(row, 0)
+        self._view.scrollTo(index, QTableView.PositionAtCenter)
+        self._view.setCurrentIndex(index)
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)

@@ -109,3 +109,78 @@ def test_is_ancestor_query_passthrough():
     q = IsAncestor(_FakeAncestorReader())
     assert q.execute("anc", "desc") is True
     assert q.execute("x", "y") is False
+
+
+from git_gui.application.queries import GetMergeAnalysis
+from git_gui.domain.entities import MergeAnalysisResult
+
+class _FakeMergeAnalysisReader:
+    def merge_analysis(self, oid):
+        return MergeAnalysisResult(can_ff=True, is_up_to_date=False)
+
+def test_get_merge_analysis_passthrough():
+    q = GetMergeAnalysis(_FakeMergeAnalysisReader())
+    result = q.execute("abc123")
+    assert result.can_ff is True
+    assert result.is_up_to_date is False
+
+
+from git_gui.application.queries import GetMergeHead, GetMergeMsg, HasUnresolvedConflicts
+
+class _FakeMergeHeadReader:
+    def get_merge_head(self):
+        return "abc123"
+
+class _FakeMergeMsgReader:
+    def get_merge_msg(self):
+        return "Merge branch 'feature'"
+
+class _FakeConflictReader:
+    def __init__(self, val):
+        self._val = val
+    def has_unresolved_conflicts(self):
+        return self._val
+
+def test_get_merge_head_passthrough():
+    assert GetMergeHead(_FakeMergeHeadReader()).execute() == "abc123"
+
+def test_get_merge_msg_passthrough():
+    assert GetMergeMsg(_FakeMergeMsgReader()).execute() == "Merge branch 'feature'"
+
+def test_has_unresolved_conflicts_passthrough():
+    assert HasUnresolvedConflicts(_FakeConflictReader(True)).execute() is True
+    assert HasUnresolvedConflicts(_FakeConflictReader(False)).execute() is False
+
+
+from git_gui.application.queries import GetCommitDiffMap, GetWorkingTreeDiffMap
+
+
+class _FakeDiffMapReader:
+    def get_commit_diff_map(self, oid):
+        return {"a.txt": ["hunk1"]}
+
+    def get_working_tree_diff_map(self):
+        return {"b.txt": {"staged": ["h1"], "unstaged": []}}
+
+
+def test_get_commit_diff_map_passthrough():
+    q = GetCommitDiffMap(_FakeDiffMapReader())
+    assert q.execute("abc123") == {"a.txt": ["hunk1"]}
+
+
+def test_get_working_tree_diff_map_passthrough():
+    q = GetWorkingTreeDiffMap(_FakeDiffMapReader())
+    assert q.execute() == {"b.txt": {"staged": ["h1"], "unstaged": []}}
+
+
+from git_gui.application.queries import GetCommitRange
+
+
+class _FakeCommitRangeReader:
+    def get_commit_range(self, head_oid, base_oid):
+        return [f"commit_{head_oid}_{base_oid}"]
+
+
+def test_get_commit_range_passthrough():
+    q = GetCommitRange(_FakeCommitRangeReader())
+    assert q.execute("head", "base") == ["commit_head_base"]

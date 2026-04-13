@@ -7,13 +7,15 @@ from git_gui.application.queries import (
     GetCommitFiles, GetFileDiff, GetStagedDiff, GetWorkingTree,
     GetCommitDetail, IsDirty, GetHeadOid,
     ListRemotes, ListSubmodules, ListLocalBranchesWithUpstream,
-    GetRepoState, IsAncestor,
+    GetRepoState, IsAncestor, GetMergeAnalysis,
+    GetMergeHead, GetMergeMsg, HasUnresolvedConflicts,
+    GetCommitDiffMap, GetWorkingTreeDiffMap, GetCommitRange,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
     Checkout, CheckoutCommit, CheckoutRemoteBranch, CreateBranch, DeleteBranch,
     CreateTag, DeleteTag, PushTag, DeleteRemoteTag,
-    Merge, Rebase, Push, Pull, Fetch,
+    Merge, Rebase, Push, ForcePush, Pull, Fetch,
     Stash, PopStash, ApplyStash, DropStash,
     StageHunk, UnstageHunk, FetchAllPrune,
     DiscardFile, DiscardHunk,
@@ -21,6 +23,8 @@ from git_gui.application.commands import (
     AddSubmodule, RemoveSubmodule, SetSubmoduleUrl,
     SetBranchUpstream, UnsetBranchUpstream, RenameBranch, ResetBranchToRef,
     MergeCommit, RebaseOntoCommit,
+    MergeAbort, RebaseAbort, RebaseContinue,
+    InteractiveRebase,
 )
 
 
@@ -44,6 +48,13 @@ class QueryBus:
     list_local_branches_with_upstream: ListLocalBranchesWithUpstream
     get_repo_state: GetRepoState
     is_ancestor: IsAncestor
+    get_merge_analysis: GetMergeAnalysis
+    get_merge_head: GetMergeHead
+    get_merge_msg: GetMergeMsg
+    has_unresolved_conflicts: HasUnresolvedConflicts
+    get_commit_diff_map: GetCommitDiffMap
+    get_working_tree_diff_map: GetWorkingTreeDiffMap
+    get_commit_range: GetCommitRange
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
@@ -66,6 +77,13 @@ class QueryBus:
             list_local_branches_with_upstream=ListLocalBranchesWithUpstream(reader),
             get_repo_state=GetRepoState(reader),
             is_ancestor=IsAncestor(reader),
+            get_merge_analysis=GetMergeAnalysis(reader),
+            get_merge_head=GetMergeHead(reader),
+            get_merge_msg=GetMergeMsg(reader),
+            has_unresolved_conflicts=HasUnresolvedConflicts(reader),
+            get_commit_diff_map=GetCommitDiffMap(reader),
+            get_working_tree_diff_map=GetWorkingTreeDiffMap(reader),
+            get_commit_range=GetCommitRange(reader),
         )
 
 
@@ -88,6 +106,7 @@ class CommandBus:
     merge_commit: MergeCommit
     rebase_onto_commit: RebaseOntoCommit
     push: Push
+    force_push: ForcePush
     pull: Pull
     fetch: Fetch
     stash: Stash
@@ -110,6 +129,10 @@ class CommandBus:
     unset_branch_upstream: UnsetBranchUpstream
     rename_branch: RenameBranch
     reset_branch_to_ref: ResetBranchToRef
+    merge_abort: MergeAbort
+    rebase_abort: RebaseAbort
+    rebase_continue: RebaseContinue
+    interactive_rebase: InteractiveRebase
 
     @classmethod
     def from_writer(cls, writer: IRepositoryWriter) -> "CommandBus":
@@ -131,6 +154,7 @@ class CommandBus:
             merge_commit=MergeCommit(writer),
             rebase_onto_commit=RebaseOntoCommit(writer),
             push=Push(writer),
+            force_push=ForcePush(writer),
             pull=Pull(writer),
             fetch=Fetch(writer),
             stash=Stash(writer),
@@ -153,4 +177,8 @@ class CommandBus:
             unset_branch_upstream=UnsetBranchUpstream(writer),
             rename_branch=RenameBranch(writer),
             reset_branch_to_ref=ResetBranchToRef(writer),
+            merge_abort=MergeAbort(writer),
+            rebase_abort=RebaseAbort(writer),
+            rebase_continue=RebaseContinue(writer),
+            interactive_rebase=InteractiveRebase(writer),
         )

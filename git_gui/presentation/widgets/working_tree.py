@@ -4,7 +4,7 @@ import threading
 from PySide6.QtCore import QModelIndex, QObject, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
-    QHBoxLayout, QListView, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
+    QHBoxLayout, QLabel, QListView, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
     QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QVBoxLayout, QWidget,
 )
@@ -17,11 +17,12 @@ from git_gui.presentation.widgets.file_list_view import FileListView as _FileLis
 
 # (label only — color comes from theme.colors.status_color(kind) at paint time)
 _DELTA_LABEL = {
-    "modified": "M",
-    "added":    "A",
-    "deleted":  "D",
-    "renamed":  "R",
-    "unknown":  "?",
+    "modified":    "M",
+    "added":       "A",
+    "deleted":     "D",
+    "renamed":     "R",
+    "unknown":     "?",
+    "conflicted":  "C",
 }
 _BADGE_SIZE = 20
 _BADGE_GAP = 6
@@ -35,10 +36,12 @@ class _FileDelegate(QStyledItemDelegate):
         # Prefix badge letter to display text so Qt reserves space;
         # we'll paint the badge over this prefix area
         fs = index.data(Qt.UserRole)
+        kind = fs.status if fs else "unknown"
         delta = fs.delta if fs else "unknown"
-        label = _DELTA_LABEL.get(delta, "?")
+        badge_key = kind if kind == "conflicted" else delta
+        label = _DELTA_LABEL.get(badge_key, "?")
         # Add padding spaces to make room for the badge we'll paint
-        option.text = "        " + (option.text or "")
+        option.text = "          " + (option.text or "")
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         # Fill selection background explicitly before Qt draws over it
@@ -54,14 +57,16 @@ class _FileDelegate(QStyledItemDelegate):
 
         rect = option.rect
         fs = index.data(Qt.UserRole)
+        kind = fs.status if fs else "unknown"
         delta = fs.delta if fs else "unknown"
-        label = _DELTA_LABEL.get(delta, "?")
+        badge_key = kind if kind == "conflicted" else delta
+        label = _DELTA_LABEL.get(badge_key, "?")
 
         # Position badge after the checkbox area (~30px from left)
         badge_x = rect.left() + 30
         badge_y = rect.top() + (rect.height() - _BADGE_SIZE) // 2
         badge_rect = QRect(badge_x, badge_y, _BADGE_SIZE, _BADGE_SIZE)
-        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(delta)))
+        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(badge_key)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
         painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
@@ -80,11 +85,30 @@ class WorkingTreeWidget(QWidget):
     commit_failed = Signal(str)      # emits error reason
     working_tree_empty = Signal()    # emitted when reload finds no changes
     submodule_open_requested = Signal(str)  # forwarded from inner HunkDiffWidget
+    merge_abort_requested = Signal()
+    rebase_abort_requested = Signal()
+    merge_continue_requested = Signal(str)   # commit message
+    rebase_continue_requested = Signal(str)  # commit message
 
-    def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
+    def __init__(self, queries: QueryBus, commands: CommandBus, repo_path: str | None = None, parent=None) -> None:
         super().__init__(parent)
         self._queries = queries
         self._commands = commands
+        self._repo_path = repo_path
+
+        # ── Conflict banner (hidden by default) ─────────────────────────
+        self._conflict_banner = QWidget()
+        banner_layout = QHBoxLayout(self._conflict_banner)
+        banner_layout.setContentsMargins(8, 6, 8, 6)
+        self._banner_label = QLabel("")
+        self._banner_label.setStyleSheet("font-weight: bold;")
+        self._btn_abort = QPushButton("Abort")
+        banner_layout.addWidget(self._banner_label, 1)
+        banner_layout.addWidget(self._btn_abort)
+        self._conflict_banner.setStyleSheet(
+            "background-color: #5c2d2d; border: none; padding: 2px;"
+        )
+        self._conflict_banner.setVisible(False)
 
         # ── Row 1: commit toolbar ────────────────────────────────────────────
         self._msg_edit = QPlainTextEdit()
@@ -134,6 +158,7 @@ class WorkingTreeWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._conflict_banner)
         layout.addWidget(splitter)
 
         # ── Signals ──────────────────────────────────────────────────────────
@@ -144,6 +169,7 @@ class WorkingTreeWidget(QWidget):
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
         self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
         self._hunk_diff.submodule_open_requested.connect(self.submodule_open_requested)
+        self._btn_abort.clicked.connect(self._on_abort_clicked)
 
         connect_widget(self)
 
@@ -173,7 +199,8 @@ class WorkingTreeWidget(QWidget):
     def _on_reload_done(self, files: list[FileStatus], partial: set[str]) -> None:
         if self._queries is None:
             return
-        self._file_model.reload(files, partial)
+        sorted_files = sorted(files, key=lambda f: (0 if f.status == "conflicted" else 1, f.path))
+        self._file_model.reload(sorted_files, partial)
         if not files:
             self._hunk_diff.clear()
             self.working_tree_empty.emit()
@@ -210,9 +237,12 @@ class WorkingTreeWidget(QWidget):
             return
         menu = QMenu(self._file_view)
         discard_action = menu.addAction("Discard changes")
+        ignore_action = menu.addAction("Add to .gitignore")
         chosen = menu.exec(self._file_view.viewport().mapToGlobal(pos))
         if chosen is discard_action:
             self._discard_file(fs.path)
+        elif chosen is ignore_action:
+            self._ignore_file(fs.path)
 
     def _discard_file(self, path: str) -> None:
         reply = QMessageBox.question(
@@ -225,6 +255,23 @@ class WorkingTreeWidget(QWidget):
         if reply != QMessageBox.Yes:
             return
         self._commands.discard_file.execute(path)
+        self._on_files_changed()
+
+    def _ignore_file(self, path: str) -> None:
+        import os
+        if not self._repo_path:
+            return
+        gitignore_path = os.path.join(self._repo_path, ".gitignore")
+        entry = path + "\n"
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, "r", encoding="utf-8") as f:
+                existing = f.read()
+            if path in existing.splitlines():
+                return
+            if not existing.endswith("\n") and existing:
+                entry = "\n" + entry
+        with open(gitignore_path, "a", encoding="utf-8") as f:
+            f.write(entry)
         self._on_files_changed()
 
     def _on_stage_all(self) -> None:
@@ -244,7 +291,14 @@ class WorkingTreeWidget(QWidget):
             self._on_files_changed()
 
     def _on_commit(self) -> None:
+        state = getattr(self, "_current_state", "CLEAN")
         msg = self._msg_edit.toPlainText().strip()
+        if state == "MERGING":
+            self.merge_continue_requested.emit(msg)
+            return
+        if state == "REBASING":
+            self.rebase_continue_requested.emit(msg)
+            return
         if not msg:
             self.commit_failed.emit("Commit message is empty")
             return
@@ -300,6 +354,31 @@ class WorkingTreeWidget(QWidget):
 
         # No selection (or selected file disappeared) — show all files' hunks
         self._hunk_diff.load_all_files([f.path for f in files])
+
+    def update_conflict_banner(self, state_name: str, merge_msg: str | None = None) -> None:
+        """Show or hide the conflict banner based on repo state."""
+        self._current_state = state_name
+        if state_name == "MERGING":
+            self._banner_label.setText("\u26a0 Merge in progress")
+            self._conflict_banner.setVisible(True)
+            self._btn_commit.setText("Finish Merge")
+            if merge_msg and not self._msg_edit.toPlainText().strip():
+                self._msg_edit.setPlainText(merge_msg.strip())
+        elif state_name == "REBASING":
+            self._banner_label.setText("\u26a0 Rebase in progress")
+            self._conflict_banner.setVisible(True)
+            self._btn_commit.setText("Continue Rebase")
+        else:
+            self._conflict_banner.setVisible(False)
+            self._btn_commit.setText("Commit")
+
+    def _on_abort_clicked(self) -> None:
+        state = getattr(self, "_current_state", "CLEAN")
+        if state == "MERGING":
+            self.merge_abort_requested.emit()
+        elif state == "REBASING":
+            self.rebase_abort_requested.emit()
+
 
 
 def _deduplicate(files: list[FileStatus]) -> tuple[list[FileStatus], set[str]]:
