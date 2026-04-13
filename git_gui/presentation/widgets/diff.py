@@ -4,7 +4,8 @@ import logging
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QPainter
 from PySide6.QtWidgets import (
-    QListView, QPlainTextEdit, QScrollArea, QSplitter,
+    QHBoxLayout, QLabel, QListView, QPlainTextEdit, QPushButton,
+    QScrollArea, QSplitter,
     QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 from git_gui.presentation.bus import CommandBus, QueryBus
@@ -70,6 +71,9 @@ class _FileDeltaDelegate(QStyledItemDelegate):
 
 class DiffWidget(QWidget):
     submodule_open_requested = Signal(str)  # emits the submodule path (relative)
+    merge_abort_requested = Signal()
+    rebase_abort_requested = Signal()
+    rebase_continue_requested = Signal()
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -79,6 +83,24 @@ class DiffWidget(QWidget):
 
         # Lazy loading — initialized after scroll area is created (see below)
         self._loader: ViewportBlockLoader | None = None
+
+        # ── State banner (merge/rebase in progress) ─────────────────────────
+        self._state_banner = QWidget()
+        banner_layout = QHBoxLayout(self._state_banner)
+        banner_layout.setContentsMargins(8, 6, 8, 6)
+        self._banner_label = QLabel("")
+        self._banner_label.setStyleSheet("font-weight: bold;")
+        self._btn_abort = QPushButton("Abort")
+        self._btn_continue = QPushButton("Continue")
+        banner_layout.addWidget(self._banner_label, 1)
+        banner_layout.addWidget(self._btn_abort)
+        banner_layout.addWidget(self._btn_continue)
+        self._state_banner.setStyleSheet(
+            "background-color: #5c2d2d; border: none; padding: 2px;"
+        )
+        self._state_banner.setVisible(False)
+        self._btn_abort.clicked.connect(self._on_banner_abort)
+        self._btn_continue.clicked.connect(self._on_banner_continue)
 
         # ── Row 1: commit detail (3-line metadata) ──────────────────────────
         self._detail = CommitDetailWidget()
@@ -129,6 +151,7 @@ class DiffWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
+        layout.addWidget(self._state_banner, 0)
         layout.addWidget(self._detail, 0)
         layout.addWidget(self._msg_view, 0)
         layout.addWidget(self._splitter, 1)
@@ -147,6 +170,32 @@ class DiffWidget(QWidget):
         self._detail.setVisible(not empty)
         self._msg_view.setVisible(not empty)
         self._splitter.setVisible(not empty)
+
+    def update_state_banner(self, state_name: str) -> None:
+        """Show or hide the merge/rebase state banner."""
+        self._current_state = state_name
+        if state_name == "MERGING":
+            self._banner_label.setText("\u26a0 Merge in progress")
+            self._btn_continue.setVisible(False)
+            self._state_banner.setVisible(True)
+        elif state_name == "REBASING":
+            self._banner_label.setText("\u26a0 Rebase in progress")
+            self._btn_continue.setVisible(True)
+            self._state_banner.setVisible(True)
+        else:
+            self._state_banner.setVisible(False)
+
+    def _on_banner_abort(self) -> None:
+        state = getattr(self, "_current_state", "CLEAN")
+        if state == "MERGING":
+            self.merge_abort_requested.emit()
+        elif state == "REBASING":
+            self.rebase_abort_requested.emit()
+
+    def _on_banner_continue(self) -> None:
+        state = getattr(self, "_current_state", "CLEAN")
+        if state == "REBASING":
+            self.rebase_continue_requested.emit()
 
     def _on_theme_changed(self) -> None:
         self._formats = make_diff_formats()
