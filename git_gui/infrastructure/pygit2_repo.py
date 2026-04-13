@@ -355,9 +355,10 @@ class Pygit2Repository:
     def get_commit_range(self, head_oid: str, base_oid: str) -> list[Commit]:
         """Return commits from head_oid back to base_oid (exclusive), oldest-first.
 
-        Walks from head_oid using topological + time sort, collects commits
-        until base_oid is reached (base_oid itself is excluded), then reverses
-        to return oldest-first order — matching git rebase -i's todo convention.
+        Follows first-parent only (matching ``git rebase -i`` behavior) so
+        merge side-branches are excluded. Collects commits until base_oid is
+        reached (base_oid itself is excluded), then reverses to return
+        oldest-first order — matching git rebase -i's todo convention.
         """
         if head_oid == base_oid:
             return []
@@ -365,6 +366,7 @@ class Pygit2Repository:
             head_oid,
             pygit2.GIT_SORT_TOPOLOGICAL | pygit2.GIT_SORT_TIME,
         )
+        walker.simplify_first_parent()
         collected: list[Commit] = []
         for c in walker:
             if str(c.id) == base_oid:
