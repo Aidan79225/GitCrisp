@@ -1145,6 +1145,17 @@ class Pygit2Repository:
         import sys
         import tempfile
 
+        # Use the merge-base as the actual rebase target so git's internal
+        # commit list matches the one we showed in the dialog. Without this,
+        # git rebase -i <target_tip> might compute a different range than
+        # get_commit_range() did.
+        head_oid = str(self._repo.head.target)
+        try:
+            mb = self._repo.merge_base(head_oid, target_oid)
+            rebase_target = str(mb)
+        except Exception:
+            rebase_target = target_oid
+
         # Build the todo file content
         todo_lines = [f"{action} {oid}" for action, oid in entries]
         todo_content = "\n".join(todo_lines) + "\n"
@@ -1169,7 +1180,7 @@ class Pygit2Repository:
 
         try:
             result = subprocess.run(
-                ["git", "rebase", "-i", target_oid],
+                ["git", "rebase", "-i", rebase_target],
                 cwd=self._repo.workdir, capture_output=True, text=True,
                 env=env, **subprocess_kwargs(),
             )
