@@ -13,7 +13,7 @@
   <section class="hero">
     <h1>GitCrisp</h1>
     <p class="tagline">A clean, focused Git GUI</p>
-    <p class="subtitle">Visual commit graph, per-hunk staging, full management dialogs for branches, remotes, submodules, and tags &mdash; built with Python and Qt.</p>
+    <p class="subtitle">Visual commit graph, per-hunk staging, interactive rebase, conflict resolution, and full management dialogs for branches, remotes, submodules, and tags &mdash; built with Python and Qt.</p>
     <div class="hero-actions">
       <a href="https://github.com/Aidan79225/GitCrisp/releases/latest" class="btn btn-primary">Download</a>
       <a href="https://github.com/Aidan79225/GitCrisp" class="btn btn-secondary">View on GitHub</a>
@@ -32,42 +32,42 @@
       <div class="feature-card">
         <div class="feature-icon">&#x1F4CA;</div>
         <h3>Visual Commit Graph</h3>
-        <p>Lane-based graph showing branching and merging history with lazy pagination and branch navigation.</p>
+        <p>Lane-based graph with lazy pagination, inline search (Ctrl+F) across full history, and branch navigation.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F9E9;</div>
         <h3>Per-Hunk Staging</h3>
-        <p>Stage or unstage individual diff hunks within a file. Discard hunks or whole files inline.</p>
+        <p>Stage or unstage individual diff hunks. Lazy diff loading with skeleton placeholders for smooth handling of large commits.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F33F;</div>
-        <h3>Branch Management</h3>
-        <p>Sidebar tree, graph context menu, and a dedicated dialog for upstream tracking, rename, and the checkout-conflict reset prompt.</p>
+        <h3>Branch &amp; Rebase</h3>
+        <p>Merge options dialog (ff-only / no-ff / allow-ff), interactive rebase with pick / squash / fixup / drop, and a checkout-conflict reset prompt.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x26A0;&#xFE0F;</div>
+        <h3>Conflict Resolution</h3>
+        <p>Abort / Continue banner in both panels, conflict file indicators, per-block conflict hunks, and dual-parent graph during merges.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F3F7;&#xFE0F;</div>
-        <h3>Tag Management</h3>
-        <p>Create lightweight or annotated tags from any commit, delete tags, and push individual tags to a remote.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F4E6;</div>
-        <h3>Stash Management</h3>
-        <p>One-click stash with confirmation, view stash contents inline, pop, apply, or drop from context menu.</p>
+        <h3>Tags &amp; Stash</h3>
+        <p>Create, delete, and push tags. One-click stash, view contents inline, pop / apply / drop from context menu.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F310;</div>
         <h3>Remote Operations</h3>
-        <p>Push, pull, fetch, and a Remotes CRUD dialog. All network ops run in background threads with status logging.</p>
+        <p>Push, pull, fetch with status bar indicator. Force push dialog on rejection. Remotes CRUD dialog. Background threading.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F517;</div>
         <h3>Submodule Support</h3>
-        <p>Manage submodules from a dedicated dialog, recursive clone by default, and click submodule diffs to jump into the submodule repo.</p>
+        <p>Manage submodules from a dedicated dialog, click diffs to jump into submodule repos, and detect submodule HEAD divergence in the parent.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F4C2;</div>
         <h3>Multi-Repository</h3>
-        <p>Switch between repositories with persistent open and recent lists. Clone new repos from URL.</p>
+        <p>Two-line repo entries for disambiguation, drag-and-drop reordering, submodule grouping, and keyboard shortcuts (Ctrl+W, Ctrl+1-9).</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F3A8;</div>
