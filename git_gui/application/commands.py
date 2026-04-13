@@ -345,3 +345,11 @@ class RebaseContinue:
 
     def execute(self, message: str = "") -> None:
         self._writer.rebase_continue(message)
+
+
+class InteractiveRebase:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, target_oid: str, entries: list[tuple[str, str]]) -> None:
+        self._writer.interactive_rebase(target_oid, entries)

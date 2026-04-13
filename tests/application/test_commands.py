@@ -175,3 +175,20 @@ def test_rebase_continue_delegates():
     w = _FakeAbortWriter()
     RebaseContinue(w).execute()
     assert w.rebase_continue_called
+
+
+from git_gui.application.commands import InteractiveRebase
+
+
+class _FakeInteractiveRebaseWriter:
+    def __init__(self):
+        self.called_with = None
+    def interactive_rebase(self, target_oid, entries):
+        self.called_with = (target_oid, entries)
+
+
+def test_interactive_rebase_delegates():
+    w = _FakeInteractiveRebaseWriter()
+    entries = [("pick", "abc"), ("squash", "def")]
+    InteractiveRebase(w).execute("target123", entries)
+    assert w.called_with == ("target123", entries)
