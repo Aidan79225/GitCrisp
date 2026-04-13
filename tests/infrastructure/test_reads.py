@@ -563,3 +563,45 @@ def test_submodule_diff_hunk_format():
         ("-", "Subproject commit aaa111\n"),
         ("+", "Subproject commit bbb222\n"),
     ]
+
+
+# ---------- get_commit_range ----------
+
+
+def test_get_commit_range_returns_oldest_first(repo_impl, repo_path):
+    """Create A → B → C chain. Range from C (HEAD) to A should return [B, C] oldest-first."""
+    # The conftest fixture creates an initial commit (A).
+    head_a = repo_impl.get_head_oid()
+
+    (repo_path / "b.txt").write_text("b")
+    repo_impl.stage(["b.txt"])
+    commit_b = repo_impl.commit("commit B")
+
+    (repo_path / "c.txt").write_text("c")
+    repo_impl.stage(["c.txt"])
+    commit_c = repo_impl.commit("commit C")
+
+    result = repo_impl.get_commit_range(commit_c.oid, head_a)
+
+    assert len(result) == 2
+    assert result[0].oid == commit_b.oid  # oldest first
+    assert result[1].oid == commit_c.oid
+
+
+def test_get_commit_range_empty_when_same(repo_impl, repo_path):
+    """When head_oid == base_oid, the range is empty."""
+    head = repo_impl.get_head_oid()
+    result = repo_impl.get_commit_range(head, head)
+    assert result == []
+
+
+def test_get_commit_range_single_commit(repo_impl, repo_path):
+    """A → B: range from B to A returns [B]."""
+    head_a = repo_impl.get_head_oid()
+    (repo_path / "b.txt").write_text("b")
+    repo_impl.stage(["b.txt"])
+    commit_b = repo_impl.commit("commit B")
+
+    result = repo_impl.get_commit_range(commit_b.oid, head_a)
+    assert len(result) == 1
+    assert result[0].oid == commit_b.oid
