@@ -9,7 +9,7 @@ from git_gui.application.queries import (
     ListRemotes, ListSubmodules, ListLocalBranchesWithUpstream,
     GetRepoState, IsAncestor, GetMergeAnalysis,
     GetMergeHead, GetMergeMsg, HasUnresolvedConflicts,
-    GetCommitDiffMap, GetWorkingTreeDiffMap,
+    GetCommitDiffMap, GetWorkingTreeDiffMap, GetCommitRange,
 )
 from git_gui.application.commands import (
     StageFiles, UnstageFiles, CreateCommit,
@@ -24,6 +24,7 @@ from git_gui.application.commands import (
     SetBranchUpstream, UnsetBranchUpstream, RenameBranch, ResetBranchToRef,
     MergeCommit, RebaseOntoCommit,
     MergeAbort, RebaseAbort, RebaseContinue,
+    InteractiveRebase,
 )
 
 
@@ -53,6 +54,7 @@ class QueryBus:
     has_unresolved_conflicts: HasUnresolvedConflicts
     get_commit_diff_map: GetCommitDiffMap
     get_working_tree_diff_map: GetWorkingTreeDiffMap
+    get_commit_range: GetCommitRange
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
@@ -81,6 +83,7 @@ class QueryBus:
             has_unresolved_conflicts=HasUnresolvedConflicts(reader),
             get_commit_diff_map=GetCommitDiffMap(reader),
             get_working_tree_diff_map=GetWorkingTreeDiffMap(reader),
+            get_commit_range=GetCommitRange(reader),
         )
 
 
@@ -129,6 +132,7 @@ class CommandBus:
     merge_abort: MergeAbort
     rebase_abort: RebaseAbort
     rebase_continue: RebaseContinue
+    interactive_rebase: InteractiveRebase
 
     @classmethod
     def from_writer(cls, writer: IRepositoryWriter) -> "CommandBus":
@@ -176,4 +180,5 @@ class CommandBus:
             merge_abort=MergeAbort(writer),
             rebase_abort=RebaseAbort(writer),
             rebase_continue=RebaseContinue(writer),
+            interactive_rebase=InteractiveRebase(writer),
         )
