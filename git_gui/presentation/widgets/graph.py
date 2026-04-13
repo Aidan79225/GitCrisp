@@ -182,6 +182,8 @@ class GraphWidget(QWidget):
     merge_commit_requested = Signal(str)             # oid (merge commit into current)
     rebase_onto_branch_requested = Signal(str)       # branch name (rebase current onto)
     rebase_onto_commit_requested = Signal(str)       # oid (rebase current onto commit)
+    interactive_rebase_branch_requested = Signal(str)   # branch name
+    interactive_rebase_commit_requested = Signal(str)    # oid
     reload_requested = Signal()
     push_requested = Signal()
     pull_requested = Signal()
@@ -662,6 +664,21 @@ class GraphWidget(QWidget):
                 lambda _checked=False, o=oid: self.rebase_onto_commit_requested.emit(o),
             ))
 
+        # Collect interactive rebase actions
+        irebase_actions: list[tuple[str, str | None, object]] = []
+        for b in branch_targets:
+            irebase_actions.append((
+                f"Interactive rebase onto {b}",
+                None,
+                lambda _checked=False, n=b: self.interactive_rebase_branch_requested.emit(n),
+            ))
+        if show_commit_rebase:
+            irebase_actions.append((
+                f"Interactive rebase onto commit {short_oid}",
+                None,
+                lambda _checked=False, o=oid: self.interactive_rebase_commit_requested.emit(o),
+            ))
+
         # Add merge actions: submenu if ≥2, top-level if 1
         if len(merge_actions) == 1:
             label, tooltip, emit = merge_actions[0]
@@ -680,6 +697,16 @@ class GraphWidget(QWidget):
             sub = menu.addMenu("Rebase")
             sub.setToolTipsVisible(True)
             for label, tooltip, emit in rebase_actions:
+                _add(sub, label, tooltip, emit)
+
+        # Add interactive rebase actions: submenu if ≥2, top-level if 1
+        if len(irebase_actions) == 1:
+            label, tooltip, emit = irebase_actions[0]
+            _add(menu, label, tooltip, emit)
+        elif irebase_actions:
+            sub = menu.addMenu("Interactive Rebase")
+            sub.setToolTipsVisible(True)
+            for label, tooltip, emit in irebase_actions:
                 _add(sub, label, tooltip, emit)
 
     def reload_and_scroll_to(self, oid: str) -> None:
