@@ -98,7 +98,8 @@ class DiffWidget(QWidget):
         self._state_banner.setStyleSheet(
             "background-color: #5c2d2d; border: none; padding: 2px;"
         )
-        self._state_banner.setFixedHeight(36)
+        from PySide6.QtWidgets import QSizePolicy
+        self._state_banner.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._state_banner.setVisible(False)
         self._btn_abort.clicked.connect(self._on_banner_abort)
         self._btn_continue.clicked.connect(self._on_banner_continue)
