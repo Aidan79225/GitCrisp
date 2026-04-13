@@ -23,6 +23,7 @@ from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 from git_gui.presentation.widgets.insight_dialog import InsightDialog
 from git_gui.presentation.menus.appearance import install_appearance_menu
 from git_gui.presentation.menus.git_menu import install_git_menu
+from git_gui.presentation.dialogs.interactive_rebase_dialog import InteractiveRebaseDialog
 
 
 class _RemoteSignals(QObject):
@@ -158,6 +159,8 @@ class MainWindow(QMainWindow):
         self._graph.merge_commit_requested.connect(self._on_merge_commit)
         self._graph.rebase_onto_branch_requested.connect(self._on_rebase)
         self._graph.rebase_onto_commit_requested.connect(self._on_rebase_onto_commit)
+        self._graph.interactive_rebase_branch_requested.connect(self._on_interactive_rebase_branch)
+        self._graph.interactive_rebase_commit_requested.connect(self._on_interactive_rebase_commit)
 
         # Sidebar tag signals
         self._sidebar.tag_clicked.connect(self._graph.reload_with_extra_tip)
@@ -302,6 +305,47 @@ class MainWindow(QMainWindow):
             self._log_panel.expand()
             self._log_panel.log_error(f"Rebase onto commit {oid[:7]} — ERROR: {e}")
         self._reload()
+
+    def _on_interactive_rebase_branch(self, branch: str) -> None:
+        try:
+            all_branches = self._queries.get_branches.execute()
+            target = None
+            for b in all_branches:
+                if b.name == branch:
+                    target = b
+                    break
+            if not target:
+                self._log_panel.log_error(f"Branch not found: {branch}")
+                return
+            self._open_interactive_rebase(target.target_oid, branch)
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Interactive rebase — ERROR: {e}")
+
+    def _on_interactive_rebase_commit(self, oid: str) -> None:
+        self._open_interactive_rebase(oid, f"commit {oid[:7]}")
+
+    def _open_interactive_rebase(self, target_oid: str, target_label: str) -> None:
+        try:
+            head_oid = self._queries.get_head_oid.execute()
+            if not head_oid:
+                self._log_panel.log_error("No HEAD — cannot rebase")
+                return
+            commits = self._queries.get_commit_range.execute(head_oid, target_oid)
+            if not commits:
+                self._log_panel.log("No commits to rebase")
+                return
+            dlg = InteractiveRebaseDialog(commits, target_label, parent=self)
+            if dlg.exec() != InteractiveRebaseDialog.Accepted:
+                return
+            entries = dlg.result_entries()
+            self._run_remote_op(
+                f"Interactive rebase onto {target_label}",
+                lambda: self._commands.interactive_rebase.execute(target_oid, entries),
+            )
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Interactive rebase — ERROR: {e}")
 
     def _on_merge_abort(self) -> None:
         try:
