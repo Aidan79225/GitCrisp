@@ -98,6 +98,7 @@ class DiffWidget(QWidget):
         self._state_banner.setStyleSheet(
             "background-color: #5c2d2d; border: none; padding: 2px;"
         )
+        self._state_banner.setFixedHeight(36)
         self._state_banner.setVisible(False)
         self._btn_abort.clicked.connect(self._on_banner_abort)
         self._btn_continue.clicked.connect(self._on_banner_continue)
@@ -223,6 +224,7 @@ class DiffWidget(QWidget):
         self._diff_model.reload([])
         self._clear_blocks()
         self._set_empty_state(True)
+        self.update_state_banner("CLEAN")
 
     def eventFilter(self, obj, event):
         if obj is self._msg_view.viewport() and event.type() in (
