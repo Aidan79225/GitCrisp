@@ -233,15 +233,25 @@ class MainWindow(QMainWindow):
             return
         self._sidebar.reload()
         self._graph.reload()
-        if self._right_stack.currentIndex() == 1:
-            self._working_tree.reload()
         if self._queries is not None:
             try:
                 state_info = self._queries.get_repo_state.execute()
-                merge_msg = self._queries.get_merge_msg.execute() if state_info.state.name == "MERGING" else None
-                self._working_tree.update_conflict_banner(state_info.state.name, merge_msg)
+                state_name = state_info.state.name
+                merge_msg = self._queries.get_merge_msg.execute() if state_name == "MERGING" else None
+                self._working_tree.update_conflict_banner(state_name, merge_msg)
+
+                # If a merge/rebase is in progress, force-switch to the working
+                # tree panel so the Abort / Continue banner is visible — even if
+                # the user was viewing a commit diff.
+                if state_name in ("MERGING", "REBASING"):
+                    self._right_stack.setCurrentIndex(1)
+                    self._working_tree.reload()
+                elif self._right_stack.currentIndex() == 1:
+                    self._working_tree.reload()
             except Exception:
                 self._working_tree.update_conflict_banner("CLEAN")
+                if self._right_stack.currentIndex() == 1:
+                    self._working_tree.reload()
 
     def _on_branch_changed(self, branch: str) -> None:
         if self._queries is None:
