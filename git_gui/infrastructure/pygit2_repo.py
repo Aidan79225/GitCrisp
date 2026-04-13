@@ -1124,6 +1124,63 @@ class Pygit2Repository:
                 except OSError:
                     pass
 
+    def interactive_rebase(self, target_oid: str, entries: list[tuple[str, str]]) -> None:
+        """Run git rebase -i with a pre-built todo file.
+
+        *entries* is a list of (action, oid) tuples in replay order.
+        Actions: "pick", "squash", "fixup", "drop".
+        """
+        import sys
+        import tempfile
+
+        # Build the todo file content
+        todo_lines = [f"{action} {oid}" for action, oid in entries]
+        todo_content = "\n".join(todo_lines) + "\n"
+
+        # Write to a temp file
+        todo_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8",
+        )
+        todo_file.write(todo_content)
+        todo_file.close()
+
+        env = self._git_env
+        python = sys.executable.replace("\\", "/")
+        todo_path = todo_file.name.replace("\\", "/")
+        env["GIT_SEQUENCE_EDITOR"] = (
+            f'{python} -c "'
+            f"import shutil,sys; shutil.copy('{todo_path}', sys.argv[1])"
+            f'"'
+        )
+        # Prevent interactive editor from opening for squash/fixup messages
+        env["GIT_EDITOR"] = "true"
+
+        try:
+            result = subprocess.run(
+                ["git", "rebase", "-i", target_oid],
+                cwd=self._repo.workdir, capture_output=True, text=True,
+                env=env, **subprocess_kwargs(),
+            )
+            if result.returncode != 0:
+                # Check if we're in a conflict state — let the banner handle it
+                state = self._repo.state()
+                rebase_states = set()
+                for name in ("GIT_REPOSITORY_STATE_REBASE",
+                             "GIT_REPOSITORY_STATE_REBASE_INTERACTIVE",
+                             "GIT_REPOSITORY_STATE_REBASE_MERGE"):
+                    const = getattr(pygit2, name, None)
+                    if const is not None:
+                        rebase_states.add(const)
+                if state in rebase_states:
+                    return  # conflict — Spec C banner will handle
+                msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+                raise RuntimeError(msg)
+        finally:
+            try:
+                os.unlink(todo_file.name)
+            except OSError:
+                pass
+
     def _rebase_onto(self, target_oid) -> None:
         # Convert Oid to hex string if needed
         target_hex = str(target_oid)

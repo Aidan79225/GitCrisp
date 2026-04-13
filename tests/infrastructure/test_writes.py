@@ -297,3 +297,63 @@ def test_rebase_continue_errors_on_clean_repo(writable_repo):
     impl, path = writable_repo
     with pytest.raises(RuntimeError):
         impl.rebase_continue()
+
+
+# ---- interactive_rebase ----
+
+
+def test_interactive_rebase_squash(repo_impl, repo_path):
+    """Squash 3 commits into 2 by squashing the last into its predecessor."""
+    # Create A → B → C chain
+    (repo_path / "b.txt").write_text("b")
+    repo_impl.stage(["b.txt"])
+    commit_b = repo_impl.commit("commit B")
+
+    (repo_path / "c.txt").write_text("c")
+    repo_impl.stage(["c.txt"])
+    commit_c = repo_impl.commit("commit C")
+
+    # Get the initial commit oid (the base)
+    commits = repo_impl.get_commits(limit=10)
+    base_oid = commits[-1].oid  # the initial commit (oldest)
+
+    # Squash C into B
+    entries = [
+        ("pick", commit_b.oid),
+        ("squash", commit_c.oid),
+    ]
+    repo_impl.interactive_rebase(base_oid, entries)
+
+    # After rebase: should have initial commit + one squashed commit = 2 total
+    new_commits = repo_impl.get_commits(limit=10)
+    assert len(new_commits) == 2
+    # The squashed commit should contain both files
+    import os
+    assert os.path.exists(repo_path / "b.txt")
+    assert os.path.exists(repo_path / "c.txt")
+
+
+def test_interactive_rebase_drop(repo_impl, repo_path):
+    """Drop the last commit."""
+    (repo_path / "b.txt").write_text("b")
+    repo_impl.stage(["b.txt"])
+    commit_b = repo_impl.commit("commit B")
+
+    (repo_path / "c.txt").write_text("c")
+    repo_impl.stage(["c.txt"])
+    commit_c = repo_impl.commit("commit C")
+
+    commits = repo_impl.get_commits(limit=10)
+    base_oid = commits[-1].oid
+
+    entries = [
+        ("pick", commit_b.oid),
+        ("drop", commit_c.oid),
+    ]
+    repo_impl.interactive_rebase(base_oid, entries)
+
+    new_commits = repo_impl.get_commits(limit=10)
+    assert len(new_commits) == 2  # initial + B only
+    import os
+    assert os.path.exists(repo_path / "b.txt")
+    assert not os.path.exists(repo_path / "c.txt")
