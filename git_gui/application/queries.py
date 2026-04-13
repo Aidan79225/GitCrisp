@@ -190,3 +190,11 @@ class GetWorkingTreeDiffMap:
 
     def execute(self) -> dict[str, dict[str, list[Hunk]]]:
         return self._reader.get_working_tree_diff_map()
+
+
+class GetCommitRange:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, head_oid: str, base_oid: str) -> list[Commit]:
+        return self._reader.get_commit_range(head_oid, base_oid)

@@ -171,3 +171,16 @@ def test_get_commit_diff_map_passthrough():
 def test_get_working_tree_diff_map_passthrough():
     q = GetWorkingTreeDiffMap(_FakeDiffMapReader())
     assert q.execute() == {"b.txt": {"staged": ["h1"], "unstaged": []}}
+
+
+from git_gui.application.queries import GetCommitRange
+
+
+class _FakeCommitRangeReader:
+    def get_commit_range(self, head_oid, base_oid):
+        return [f"commit_{head_oid}_{base_oid}"]
+
+
+def test_get_commit_range_passthrough():
+    q = GetCommitRange(_FakeCommitRangeReader())
+    assert q.execute("head", "base") == ["commit_head_base"]
