@@ -352,6 +352,27 @@ class Pygit2Repository:
             raise KeyError(f"Commit not found: {oid}")
         return _commit_to_entity(obj)
 
+    def get_commit_range(self, head_oid: str, base_oid: str) -> list[Commit]:
+        """Return commits from head_oid back to base_oid (exclusive), oldest-first.
+
+        Walks from head_oid using topological + time sort, collects commits
+        until base_oid is reached (base_oid itself is excluded), then reverses
+        to return oldest-first order — matching git rebase -i's todo convention.
+        """
+        if head_oid == base_oid:
+            return []
+        walker = self._repo.walk(
+            head_oid,
+            pygit2.GIT_SORT_TOPOLOGICAL | pygit2.GIT_SORT_TIME,
+        )
+        collected: list[Commit] = []
+        for c in walker:
+            if str(c.id) == base_oid:
+                break
+            collected.append(_commit_to_entity(c))
+        collected.reverse()
+        return collected
+
     def get_branches(self) -> list[Branch]:
         branches: list[Branch] = []
         # Compare HEAD's ref name (e.g. "refs/heads/main"), not target oid,
