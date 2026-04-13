@@ -130,6 +130,11 @@ class MainWindow(QMainWindow):
         self._working_tree.working_tree_empty.connect(self._on_working_tree_empty)
         self._working_tree.submodule_open_requested.connect(self._on_submodule_path_clicked)
         self._diff.submodule_open_requested.connect(self._on_submodule_path_clicked)
+        self._diff.merge_abort_requested.connect(self._on_merge_abort)
+        self._diff.rebase_abort_requested.connect(self._on_rebase_abort)
+        self._diff.rebase_continue_requested.connect(
+            lambda: self._on_rebase_continue("")
+        )
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
         self._sidebar.branch_clicked.connect(self._graph.reload_with_extra_tip)
         self._sidebar.branch_merge_requested.connect(self._on_merge)
@@ -186,25 +191,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_working_tree_empty(self) -> None:
-        """Working tree has no changes — switch back to commit info and refresh graph.
-
-        Exception: if the repo is in MERGING or REBASING state (e.g. an
-        interactive rebase paused between commits with no conflicts), keep
-        the working-tree panel visible so the user can see the Abort /
-        Continue Rebase banner.
-        """
+        """Working tree has no changes — switch back to commit info and refresh graph."""
         self._graph.reload()
-
-        # Stay on working tree if a merge/rebase is in progress — the banner
-        # with Abort/Continue must remain visible even with a clean working tree.
-        if self._queries:
-            try:
-                state = self._queries.get_repo_state.execute().state.name
-                if state in ("MERGING", "REBASING"):
-                    return
-            except Exception:
-                pass
-
         oid = self._selected_oid
         if not oid or oid == WORKING_TREE_OID:
             if self._queries:
@@ -233,25 +221,18 @@ class MainWindow(QMainWindow):
             return
         self._sidebar.reload()
         self._graph.reload()
+        if self._right_stack.currentIndex() == 1:
+            self._working_tree.reload()
         if self._queries is not None:
             try:
                 state_info = self._queries.get_repo_state.execute()
                 state_name = state_info.state.name
                 merge_msg = self._queries.get_merge_msg.execute() if state_name == "MERGING" else None
                 self._working_tree.update_conflict_banner(state_name, merge_msg)
-
-                # If a merge/rebase is in progress, force-switch to the working
-                # tree panel so the Abort / Continue banner is visible — even if
-                # the user was viewing a commit diff.
-                if state_name in ("MERGING", "REBASING"):
-                    self._right_stack.setCurrentIndex(1)
-                    self._working_tree.reload()
-                elif self._right_stack.currentIndex() == 1:
-                    self._working_tree.reload()
+                self._diff.update_state_banner(state_name)
             except Exception:
                 self._working_tree.update_conflict_banner("CLEAN")
-                if self._right_stack.currentIndex() == 1:
-                    self._working_tree.reload()
+                self._diff.update_state_banner("CLEAN")
 
     def _on_branch_changed(self, branch: str) -> None:
         if self._queries is None:
