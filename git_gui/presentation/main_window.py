@@ -186,8 +186,25 @@ class MainWindow(QMainWindow):
         )
 
     def _on_working_tree_empty(self) -> None:
-        """Working tree has no changes — switch back to commit info and refresh graph."""
+        """Working tree has no changes — switch back to commit info and refresh graph.
+
+        Exception: if the repo is in MERGING or REBASING state (e.g. an
+        interactive rebase paused between commits with no conflicts), keep
+        the working-tree panel visible so the user can see the Abort /
+        Continue Rebase banner.
+        """
         self._graph.reload()
+
+        # Stay on working tree if a merge/rebase is in progress — the banner
+        # with Abort/Continue must remain visible even with a clean working tree.
+        if self._queries:
+            try:
+                state = self._queries.get_repo_state.execute().state.name
+                if state in ("MERGING", "REBASING"):
+                    return
+            except Exception:
+                pass
+
         oid = self._selected_oid
         if not oid or oid == WORKING_TREE_OID:
             if self._queries:
