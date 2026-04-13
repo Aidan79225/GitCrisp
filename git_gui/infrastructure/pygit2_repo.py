@@ -355,12 +355,22 @@ class Pygit2Repository:
     def get_commit_range(self, head_oid: str, base_oid: str) -> list[Commit]:
         """Return commits from head_oid back to base_oid (exclusive), oldest-first.
 
-        Follows first-parent only (matching ``git rebase -i`` behavior) so
-        merge side-branches are excluded. Collects commits until base_oid is
-        reached (base_oid itself is excluded), then reverses to return
-        oldest-first order — matching git rebase -i's todo convention.
+        Computes the merge-base between head_oid and base_oid first (matching
+        ``git rebase -i`` behavior — the actual stopping point is the merge-base,
+        not the target tip). Follows first-parent only so merge side-branches
+        are excluded. Returns the commits in oldest-first order.
         """
         if head_oid == base_oid:
+            return []
+        # Compute the merge-base — this is where git rebase -i actually stops.
+        # If target has advanced past the branch point, using the target tip
+        # directly would walk all the way to the root.
+        try:
+            mb = self._repo.merge_base(head_oid, base_oid)
+            stop_oid = str(mb)
+        except Exception:
+            stop_oid = base_oid
+        if head_oid == stop_oid:
             return []
         walker = self._repo.walk(
             head_oid,
@@ -369,7 +379,7 @@ class Pygit2Repository:
         walker.simplify_first_parent()
         collected: list[Commit] = []
         for c in walker:
-            if str(c.id) == base_oid:
+            if str(c.id) == stop_oid:
                 break
             collected.append(_commit_to_entity(c))
         collected.reverse()
