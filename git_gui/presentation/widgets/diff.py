@@ -157,6 +157,7 @@ class DiffWidget(QWidget):
         layout.addWidget(self._detail, 0)
         layout.addWidget(self._msg_view, 0)
         layout.addWidget(self._splitter, 1)
+        layout.addStretch()
 
         # Diff render formats
         self._formats = make_diff_formats()
