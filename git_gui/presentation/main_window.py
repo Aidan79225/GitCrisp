@@ -432,7 +432,7 @@ class MainWindow(QMainWindow):
             self._log_panel.log_error(f"Revert {short} — ERROR: {e}")
         self._reload()
 
-    def _on_reset_to_commit(self, oid: str, default_mode) -> None:
+    def _on_reset_to_commit(self, oid: str, default_mode: ResetMode) -> None:
         short = oid[:7]
         try:
             commit = self._queries.get_commit_detail.execute(oid)

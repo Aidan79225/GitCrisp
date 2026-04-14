@@ -32,6 +32,12 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - **`Git → Branches...`** dialog: list local branches with their upstream and last commit; checkout, create, rename, delete, and set/unset upstream
 - **Checkout-conflict prompt** — when checking out a remote branch whose same-named local branch already exists, offer to hard-reset the local to the remote HEAD
 
+### Commit Operations
+- **Cherry-pick** — right-click a commit in the graph → "Cherry-pick commit …"
+- **Revert** — right-click a commit → "Revert commit …" (creates an inverse commit on HEAD)
+- **Reset** — right-click an ancestor of HEAD → "Reset <branch> to <sha> ▸" with soft / mixed / hard modes; hard shows a dirty-file preview before confirming
+- Cherry-pick / revert conflicts are surfaced by the existing conflict banner with Abort and Continue buttons
+
 ### Conflict Resolution
 - **Merge / rebase conflict banner** — visible in both the working tree and commit detail panels with Abort and Continue buttons
 - Conflict files marked with red "C" badge and sorted to top of the file list
