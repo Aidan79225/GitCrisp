@@ -1,4 +1,5 @@
 from __future__ import annotations
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QLabel, QPlainTextEdit, QRadioButton,
     QVBoxLayout, QWidget,
@@ -29,7 +30,7 @@ class ResetDialog(QDialog):
             f"Reset <b>{branch_name}</b> to <code>{short_sha}</code> "
             f"&quot;{commit_subject}&quot;"
         )
-        header.setTextFormat(header.textFormat().RichText)
+        header.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(header)
 
         self._radio_soft = QRadioButton("Soft — keep index and working tree")
@@ -68,7 +69,7 @@ class ResetDialog(QDialog):
             return
         lines = []
         for f in self._dirty_files:
-            lines.append(f"{f.status}  {f.path}")
+            lines.append(f"{f.delta}  {f.path}")
         self._dirty_list.setPlainText("\n".join(lines))
 
     def _update_dirty_list_visibility(self) -> None:
