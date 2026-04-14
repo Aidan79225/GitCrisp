@@ -34,6 +34,16 @@ def _minimal_theme(name="Test", is_dark=False) -> Theme:
         diff_removed_overlay="#f8514950",
         on_badge="#ffffff",
         hover_overlay="#ffffff1e",
+        syntax_keyword="#ff7b72",
+        syntax_function="#d2a8ff",
+        syntax_class="#f0c674",
+        syntax_string="#a5d6ff",
+        syntax_number="#79c0ff",
+        syntax_comment="#8b949e",
+        syntax_operator="#ff7b72",
+        syntax_decorator="#d2a8ff",
+        diff_added_word_overlay="#80238636",
+        diff_removed_word_overlay="#80f85149",
     )
     body = TextStyle(family="SF Pro Text", size=13, weight=400, letter_spacing=0.0)
     typo = Typography(
