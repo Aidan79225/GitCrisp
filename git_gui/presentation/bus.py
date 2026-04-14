@@ -25,6 +25,9 @@ from git_gui.application.commands import (
     MergeCommit, RebaseOntoCommit,
     MergeAbort, RebaseAbort, RebaseContinue,
     InteractiveRebase,
+    CherryPickCommit, RevertCommit, ResetBranch,
+    CherryPickAbort, CherryPickContinue,
+    RevertAbort, RevertContinue,
 )
 
 
@@ -133,6 +136,13 @@ class CommandBus:
     rebase_abort: RebaseAbort
     rebase_continue: RebaseContinue
     interactive_rebase: InteractiveRebase
+    cherry_pick: CherryPickCommit
+    revert_commit: RevertCommit
+    reset_branch: ResetBranch
+    cherry_pick_abort: CherryPickAbort
+    cherry_pick_continue: CherryPickContinue
+    revert_abort: RevertAbort
+    revert_continue: RevertContinue
 
     @classmethod
     def from_writer(cls, writer: IRepositoryWriter) -> "CommandBus":
@@ -181,4 +191,11 @@ class CommandBus:
             rebase_abort=RebaseAbort(writer),
             rebase_continue=RebaseContinue(writer),
             interactive_rebase=InteractiveRebase(writer),
+            cherry_pick=CherryPickCommit(writer),
+            revert_commit=RevertCommit(writer),
+            reset_branch=ResetBranch(writer),
+            cherry_pick_abort=CherryPickAbort(writer),
+            cherry_pick_continue=CherryPickContinue(writer),
+            revert_abort=RevertAbort(writer),
+            revert_continue=RevertContinue(writer),
         )
