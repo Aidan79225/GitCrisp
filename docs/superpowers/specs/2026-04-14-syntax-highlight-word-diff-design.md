@@ -65,8 +65,8 @@ tests/
 ```
 git_gui/presentation/widgets/diff_block.py   # integrate both modules; add SyntaxFormats
 git_gui/presentation/theme/tokens.py         # +10 role names on Palette dataclass
-git_gui/presentation/theme/builtin/light.py  # values for new tokens
-git_gui/presentation/theme/builtin/dark.py   # values for new tokens
+git_gui/presentation/theme/builtin/light.json # values for new tokens
+git_gui/presentation/theme/builtin/dark.json  # values for new tokens
 pyproject.toml                               # add pygments >= 2.17
 tests/presentation/widgets/test_diff_block_rendering.py   # new or extended
 tests/presentation/theme/test_tokens_syntax.py            # new or extended
@@ -293,12 +293,12 @@ Ten new roles on the `Palette` dataclass in `presentation/theme/tokens.py`:
 | `syntax_comment` | Comments. |
 | `syntax_operator` | Operators and punctuation. |
 | `syntax_decorator` | `@decorator` markers. |
-| `diff_add_word_bg` | Darker/more saturated overlay inside `+` lines. |
-| `diff_delete_word_bg` | Darker/more saturated overlay inside `-` lines. |
+| `diff_added_word_overlay` | Darker/more saturated overlay inside `+` lines. |
+| `diff_removed_word_overlay` | Darker/more saturated overlay inside `-` lines. |
 
 Both builtin light and dark themes define all ten roles. Values are chosen so that:
 - Syntax foregrounds meet WCAG AA contrast against `surface`, `diff_add_bg`, and `diff_delete_bg`.
-- `diff_add_word_bg` is visibly darker/more saturated than `diff_add_bg`; same for delete.
+- `diff_added_word_overlay` is visibly darker / more saturated than `diff_added_overlay`; same for removed.
 
 No accessor changes — the existing `Palette.as_qcolor(role_name)` covers all new roles.
 
@@ -348,14 +348,14 @@ Pure-Python tests for the helpers; pytest-qt for the rendering integration.
 - Unicode identifiers unchanged across edits stay `"same"`.
 
 **`tests/presentation/widgets/test_diff_block_rendering.py`** (pytest-qt):
-- Render a `-a = 1` / `+a = 2` pair → `QTextDocument` has `diff_delete_word_bg` at position of `1` and `diff_add_word_bg` at position of `2`.
+- Render a `-a = 1` / `+a = 2` pair → `QTextDocument` has `diff_removed_word_overlay` at position of `1` and `diff_added_word_overlay` at position of `2`.
 - Render a hunk with only `+` lines → no word-bg format anywhere.
 - Render a 2001-char line → no syntax format applied (long-line guard).
 - Render a Python hunk with `def foo()` → `syntax_keyword` format applied at `def`'s position (read back via `QTextCursor.charFormat()`).
 
 **`tests/presentation/theme/test_tokens_syntax.py`** (extend if exists, else new):
 - Both builtin light and dark themes expose all ten new roles.
-- `diff_add_word_bg` differs from `diff_add_bg`; same for delete.
+- `diff_added_word_overlay` differs from `diff_added_overlay`, and `diff_removed_word_overlay` differs from `diff_removed_overlay`.
 
 No end-to-end GUI smoke test; manual verification after implementation.
 
