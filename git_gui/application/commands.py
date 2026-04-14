@@ -1,5 +1,5 @@
 from __future__ import annotations
-from git_gui.domain.entities import Branch, Commit, MergeStrategy
+from git_gui.domain.entities import Branch, Commit, MergeStrategy, ResetMode
 from git_gui.domain.ports import IRepositoryWriter
 
 
@@ -353,3 +353,59 @@ class InteractiveRebase:
 
     def execute(self, target_oid: str, entries: list[tuple[str, str]]) -> None:
         self._writer.interactive_rebase(target_oid, entries)
+
+
+class CherryPickCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str) -> None:
+        self._writer.cherry_pick(oid)
+
+
+class RevertCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str) -> None:
+        self._writer.revert_commit(oid)
+
+
+class ResetBranch:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str, mode: ResetMode) -> None:
+        self._writer.reset_to(oid, mode)
+
+
+class CherryPickAbort:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.cherry_pick_abort()
+
+
+class CherryPickContinue:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.cherry_pick_continue()
+
+
+class RevertAbort:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.revert_abort()
+
+
+class RevertContinue:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.revert_continue()
