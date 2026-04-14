@@ -452,13 +452,13 @@ def add_hunk_widget(
     extra_left_widgets: list[QWidget] | None = None,
     extra_right_widgets: list[QWidget] | None = None,
     on_header_clicked: Callable[[], None] | None = None,
+    syntax_formats: "SyntaxFormats | None" = None,
+    filename: str | None = None,
 ) -> None:
     """Append a header row + sized-to-fit diff editor for one hunk into parent_layout.
 
-    The header row layout is: extra_left_widgets..., colored @@ label, stretch,
-    extra_right_widgets... Both lists default to empty.
-    Header row is set to HEADER_ROW_HEIGHT.
-    The diff editor is sized to exactly fit hunk.lines (no scroll).
+    When *syntax_formats* and *filename* are both given, the diff editor renders
+    with Pygments syntax highlighting and word-level intra-line diff.
     """
     if extra_left_widgets is None:
         extra_left_widgets = []
@@ -490,7 +490,10 @@ def add_hunk_widget(
     def _render(current_formats: DiffFormats) -> int:
         editor.clear()
         cursor = editor.textCursor()
-        count = render_hunk_content_lines(cursor, hunk, current_formats)
+        count = render_hunk_content_lines(
+            cursor, hunk, current_formats,
+            syntax_formats=syntax_formats, filename=filename,
+        )
         editor.setTextCursor(cursor)
         return count
 
@@ -505,7 +508,15 @@ def add_hunk_widget(
 
     def _rebuild() -> None:
         header_label.setStyleSheet(f"color: {_hunk_header_color()};")
-        _render(make_diff_formats())
+        # Rebuild syntax_formats from the new theme too — but only if syntax was active.
+        new_syntax = make_syntax_formats() if syntax_formats is not None else None
+        editor.clear()
+        cursor = editor.textCursor()
+        render_hunk_content_lines(
+            cursor, hunk, make_diff_formats(),
+            syntax_formats=new_syntax, filename=filename,
+        )
+        editor.setTextCursor(cursor)
 
     connect_widget(editor, rebuild=_rebuild)
 
