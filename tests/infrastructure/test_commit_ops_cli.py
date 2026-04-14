@@ -1,10 +1,9 @@
 from __future__ import annotations
-import os
 import subprocess
 from pathlib import Path
 import pytest
 
-from git_gui.infrastructure.commit_ops_cli import CommitOpsCli
+from git_gui.infrastructure.commit_ops_cli import CommitOpsCli, CommitOpsCommandError
 
 
 def _run(cwd: str, *args: str) -> None:
@@ -105,7 +104,7 @@ def test_cherry_pick_merge_commit_with_is_merge_true(tmp_path: Path):
     cli = CommitOpsCli(str(tmp_path))
     cli.cherry_pick(merge_sha, is_merge=True)  # Must succeed with -m 1.
 
-    assert (tmp_path / "feat.txt").exists()  # first-parent side was master, so -m 1 picks "feature" additions
+    assert (tmp_path / "feat.txt").exists()  # With mainline=1, the cherry-pick replays changes introduced by the feature side, so feat.txt should appear.
 
 
 def test_revert_commit_non_merge(linear_repo):
@@ -193,3 +192,33 @@ def test_revert_continue_after_resolution(tmp_path: Path):
     _run(str(tmp_path), "add", "f.txt")
     cli.revert_continue()
     assert not (tmp_path / ".git" / "REVERT_HEAD").exists()
+
+
+def test_missing_git_executable_raises_command_error(tmp_path: Path):
+    cli = CommitOpsCli(str(tmp_path), git_executable="nonexistent-git-xyz-123")
+    with pytest.raises(CommitOpsCommandError):
+        cli.cherry_pick("0" * 40, is_merge=False)
+
+
+def test_cherry_pick_merge_commit_with_is_merge_false_raises(tmp_path: Path):
+    """Passing is_merge=False for a real merge commit must raise (no state file written)."""
+    _run(str(tmp_path), "init", "-q", "-b", "master")
+    _run(str(tmp_path), "config", "user.email", "t@t")
+    _run(str(tmp_path), "config", "user.name", "t")
+    _commit(tmp_path, "base.txt", "base\n", "base")
+    _run(str(tmp_path), "checkout", "-q", "-b", "feature")
+    _commit(tmp_path, "feat.txt", "feat\n", "feat")
+    _run(str(tmp_path), "checkout", "-q", "master")
+    _commit(tmp_path, "other.txt", "other\n", "other")
+    _run(str(tmp_path), "merge", "--no-ff", "-m", "merge feature", "feature")
+    merge_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(tmp_path),
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    _run(str(tmp_path), "reset", "--hard", "HEAD~1")
+    _run(str(tmp_path), "checkout", "-q", "-b", "target")
+
+    cli = CommitOpsCli(str(tmp_path))
+    with pytest.raises(RuntimeError):
+        cli.cherry_pick(merge_sha, is_merge=False)
+    assert not (tmp_path / ".git" / "CHERRY_PICK_HEAD").exists()

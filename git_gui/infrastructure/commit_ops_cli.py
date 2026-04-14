@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 from git_gui.resources import subprocess_kwargs
 
@@ -28,14 +29,14 @@ class CommitOpsCli:
         if is_merge:
             argv += ["-m", "1"]
         argv.append(oid)
-        self._run(argv)
+        self._run(argv, conflict_state_file="CHERRY_PICK_HEAD")
 
     def revert_commit(self, oid: str, is_merge: bool) -> None:
         argv = ["revert", "--no-edit"]
         if is_merge:
             argv += ["-m", "1"]
         argv.append(oid)
-        self._run(argv)
+        self._run(argv, conflict_state_file="REVERT_HEAD")
 
     def cherry_pick_abort(self) -> None:
         self._run(["cherry-pick", "--abort"])
@@ -49,7 +50,12 @@ class CommitOpsCli:
     def revert_continue(self) -> None:
         self._run(["revert", "--continue"], env_overrides={"GIT_EDITOR": "true"})
 
-    def _run(self, argv: list[str], env_overrides: dict[str, str] | None = None) -> None:
+    def _run(
+        self,
+        argv: list[str],
+        env_overrides: dict[str, str] | None = None,
+        conflict_state_file: str | None = None,
+    ) -> None:
         if shutil.which(self._git) is None:
             raise CommitOpsCommandError(f"`{self._git}` executable not found on PATH")
         env = os.environ.copy()
@@ -70,12 +76,9 @@ class CommitOpsCli:
             ) from e
         if result.returncode == 0:
             return
-        if self._is_conflict_exit(result):
+        if conflict_state_file is not None and (
+            Path(self._cwd) / ".git" / conflict_state_file
+        ).exists():
             return
         stderr = (result.stderr or "").strip() or (result.stdout or "").strip() or f"exit code {result.returncode}"
         raise RuntimeError(stderr)
-
-    @staticmethod
-    def _is_conflict_exit(result: subprocess.CompletedProcess) -> bool:
-        output = ((result.stderr or "") + (result.stdout or "")).lower()
-        return "conflict" in output or "after resolving the conflicts" in output
