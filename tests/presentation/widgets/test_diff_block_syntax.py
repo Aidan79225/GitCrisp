@@ -118,12 +118,11 @@ def test_pure_addition_hunk_has_no_word_overlay(qtbot):
         ],
     )
     editor = _editor_for_hunk(qtbot, hunk, "x.py")
-    # No paired - line, so no character should carry the added_word_overlay bg.
-    overlay_color = make_syntax_formats().added_word_overlay.background().color().name()
-    bg_at_value = _bg_color_at(editor, 0, 15)  # the '1'
-    # The bg should NOT be the bare overlay color (it can be the line bg or unset).
-    # We just confirm it doesn't match the overlay's solid color.
-    assert bg_at_value != overlay_color
+    # Without a paired - line, the '1' at col 15 should share the same background
+    # as the unchanged region (e.g., the 'x' at col 11) on the same line.
+    bg_at_change = _bg_color_at(editor, 0, 15)  # the '1'
+    bg_at_unchanged = _bg_color_at(editor, 0, 11)  # the 'x'
+    assert bg_at_change == bg_at_unchanged
 
 
 def test_non_adjacent_minus_plus_not_paired(qtbot):
@@ -142,3 +141,36 @@ def test_non_adjacent_minus_plus_not_paired(qtbot):
     minus_bg_at_unchanged = _bg_color_at(editor, 0, 11)  # 'x'
     # Without pairing, all chars on the - line share the same line background.
     assert minus_bg_at_change == minus_bg_at_unchanged
+
+
+def test_word_overlay_preserves_syntax_foreground(qtbot):
+    """A changed token that is also a Pygments Name.Function keeps its syntax fg
+    while gaining the word-overlay background — verifies mergeCharFormat layering."""
+    hunk = Hunk(
+        header="@@ -1,2 +1,2 @@",
+        lines=[
+            ("-", "def foo():\n"),
+            ("+", "def bar():\n"),
+        ],
+    )
+    editor = _editor_for_hunk(qtbot, hunk, "x.py")
+    syntax = make_syntax_formats()
+    keyword_fg = syntax.keyword.foreground().color().name()
+    function_fg = syntax.function.foreground().color().name()
+
+    # 'def' at col 11 on the - line — keyword fg, no overlay (unchanged).
+    fmt_def = _format_at(editor, 0, 11)
+    assert fmt_def.foreground().color().name() == keyword_fg
+    # 'foo' at col 15 on the - line — function fg AND removed_word_overlay bg.
+    fmt_foo = _format_at(editor, 0, 15)
+    assert fmt_foo.foreground().color().name() == function_fg
+    # The overlay sets a non-default background — different from the 'def' position.
+    assert _bg_color_at(editor, 0, 15) != _bg_color_at(editor, 0, 11)
+
+    # 'def' on the + line — keyword fg, no overlay.
+    fmt_def_plus = _format_at(editor, 1, 11)
+    assert fmt_def_plus.foreground().color().name() == keyword_fg
+    # 'bar' at col 15 on the + line — function fg AND added_word_overlay bg.
+    fmt_bar = _format_at(editor, 1, 15)
+    assert fmt_bar.foreground().color().name() == function_fg
+    assert _bg_color_at(editor, 1, 15) != _bg_color_at(editor, 1, 11)
