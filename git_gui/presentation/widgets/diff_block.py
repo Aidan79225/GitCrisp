@@ -69,6 +69,34 @@ class DiffFormats:
     blk_default: QTextBlockFormat
 
 
+@dataclass
+class SyntaxFormats:
+    keyword: QTextCharFormat
+    function: QTextCharFormat
+    class_: QTextCharFormat
+    string: QTextCharFormat
+    number: QTextCharFormat
+    comment: QTextCharFormat
+    operator: QTextCharFormat
+    decorator: QTextCharFormat
+    # Word-level overlays (set BackgroundColor only — merge over line bg + syntax fg)
+    added_word_overlay: QTextCharFormat
+    removed_word_overlay: QTextCharFormat
+
+
+# Maps the syntax_highlighter SyntaxToken.kind string → a SyntaxFormats attribute name.
+_KIND_TO_ATTR = {
+    "syntax_keyword":   "keyword",
+    "syntax_function":  "function",
+    "syntax_class":     "class_",
+    "syntax_string":    "string",
+    "syntax_number":    "number",
+    "syntax_comment":   "comment",
+    "syntax_operator":  "operator",
+    "syntax_decorator": "decorator",
+}
+
+
 # ---------------------------------------------------------------------------
 # Factories
 # ---------------------------------------------------------------------------
@@ -151,6 +179,34 @@ def make_diff_formats() -> DiffFormats:
         blk_added=blk_added,
         blk_removed=blk_removed,
         blk_default=blk_default,
+    )
+
+
+def make_syntax_formats() -> SyntaxFormats:
+    """Build a SyntaxFormats dataclass from the active theme's palette."""
+    c = get_theme_manager().current.colors
+
+    def _fg(role: str) -> QTextCharFormat:
+        f = QTextCharFormat()
+        f.setForeground(c.as_qcolor(role))
+        return f
+
+    def _bg(role: str) -> QTextCharFormat:
+        f = QTextCharFormat()
+        f.setBackground(c.as_qcolor(role))
+        return f
+
+    return SyntaxFormats(
+        keyword=_fg("syntax_keyword"),
+        function=_fg("syntax_function"),
+        class_=_fg("syntax_class"),
+        string=_fg("syntax_string"),
+        number=_fg("syntax_number"),
+        comment=_fg("syntax_comment"),
+        operator=_fg("syntax_operator"),
+        decorator=_fg("syntax_decorator"),
+        added_word_overlay=_bg("diff_added_word_overlay"),
+        removed_word_overlay=_bg("diff_removed_word_overlay"),
     )
 
 
