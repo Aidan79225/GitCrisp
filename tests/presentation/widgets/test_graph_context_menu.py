@@ -220,3 +220,95 @@ def test_single_action_stays_top_level(qtbot):
     top_labels = [a.text() for a in menu.actions() if a.text()]
     assert "Merge feature into main" in top_labels
     assert "Rebase main onto feature" in top_labels
+
+
+from git_gui.domain.entities import ResetMode
+
+
+def _menu_with_new_section(qtbot, *, state: RepoStateInfo,
+                            head_oid: str, target_oid: str,
+                            is_ancestor_of_head: bool) -> QMenu:
+    queries = _FakeQueryBus(
+        state=state,
+        head_oid=head_oid,
+        is_ancestor=lambda a, d: is_ancestor_of_head if a == target_oid and d == head_oid else False,
+    )
+    w = _make_widget_with_queries(qtbot, queries)
+    menu = QMenu()
+    w._add_merge_rebase_section(menu, target_oid, branches_on_commit=[])
+    return menu
+
+
+def test_cherry_pick_entry_present_and_enabled_when_clean(qtbot):
+    state = RepoStateInfo(state=RepoState.CLEAN, head_branch="master")
+    menu = _menu_with_new_section(
+        qtbot, state=state, head_oid="h" * 40, target_oid="t" * 40,
+        is_ancestor_of_head=False,
+    )
+    actions = _collect_actions(menu)
+    texts = [a.text for a in actions]
+    assert any("Cherry-pick commit" in t for t in texts)
+    cp = next(a for a in actions if a.text.startswith("Cherry-pick"))
+    assert cp.enabled is True
+
+
+def test_cherry_pick_entry_disabled_when_merging(qtbot):
+    state = RepoStateInfo(state=RepoState.MERGING, head_branch="master")
+    menu = _menu_with_new_section(
+        qtbot, state=state, head_oid="h" * 40, target_oid="t" * 40,
+        is_ancestor_of_head=False,
+    )
+    actions = _collect_actions(menu)
+    cp = next(a for a in actions if a.text.startswith("Cherry-pick"))
+    assert cp.enabled is False
+
+
+def test_revert_entry_present_and_enabled_when_clean(qtbot):
+    state = RepoStateInfo(state=RepoState.CLEAN, head_branch="master")
+    menu = _menu_with_new_section(
+        qtbot, state=state, head_oid="h" * 40, target_oid="t" * 40,
+        is_ancestor_of_head=False,
+    )
+    actions = _collect_actions(menu)
+    rv = next(a for a in actions if a.text.startswith("Revert commit"))
+    assert rv.enabled is True
+
+
+def test_reset_submenu_disabled_when_not_ancestor(qtbot):
+    state = RepoStateInfo(state=RepoState.CLEAN, head_branch="master")
+    menu = _menu_with_new_section(
+        qtbot, state=state, head_oid="h" * 40, target_oid="t" * 40,
+        is_ancestor_of_head=False,
+    )
+    actions = _collect_actions(menu)
+    # Any reset submenu entry should be disabled.
+    reset_items = [a for a in actions
+                   if "keep" in a.text.lower() or "discard" in a.text.lower()]
+    assert reset_items  # submenu entries collected
+    assert all(not a.enabled for a in reset_items)
+
+
+def test_reset_submenu_enabled_when_ancestor(qtbot):
+    state = RepoStateInfo(state=RepoState.CLEAN, head_branch="master")
+    menu = _menu_with_new_section(
+        qtbot, state=state, head_oid="h" * 40, target_oid="t" * 40,
+        is_ancestor_of_head=True,
+    )
+    actions = _collect_actions(menu)
+    reset_items = [a for a in actions
+                   if "keep" in a.text.lower() or "discard" in a.text.lower()]
+    assert reset_items
+    assert all(a.enabled for a in reset_items)
+
+
+def test_entries_not_shown_when_target_is_head(qtbot):
+    state = RepoStateInfo(state=RepoState.CLEAN, head_branch="master")
+    same = "s" * 40
+    menu = _menu_with_new_section(
+        qtbot, state=state, head_oid=same, target_oid=same,
+        is_ancestor_of_head=False,
+    )
+    actions = _collect_actions(menu)
+    texts = [a.text for a in actions]
+    assert not any("Cherry-pick" in t for t in texts)
+    assert not any("Revert commit" in t for t in texts)

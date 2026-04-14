@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QStyle,
     QStyleOptionViewItem, QTableView, QVBoxLayout, QWidget,
 )
-from git_gui.domain.entities import Branch, Commit, Tag, WORKING_TREE_OID
+from git_gui.domain.entities import Branch, Commit, ResetMode, Tag, WORKING_TREE_OID
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.presentation.models.graph_model import GraphModel
@@ -184,6 +184,9 @@ class GraphWidget(QWidget):
     rebase_onto_commit_requested = Signal(str)       # oid (rebase current onto commit)
     interactive_rebase_branch_requested = Signal(str)   # branch name
     interactive_rebase_commit_requested = Signal(str)    # oid
+    cherry_pick_requested = Signal(str)         # oid
+    revert_commit_requested = Signal(str)       # oid
+    reset_to_commit_requested = Signal(str, object)  # oid, ResetMode
     reload_requested = Signal()
     push_requested = Signal()
     pull_requested = Signal()
@@ -708,6 +711,56 @@ class GraphWidget(QWidget):
             sub.setToolTipsVisible(True)
             for label, tooltip, emit in irebase_actions:
                 _add(sub, label, tooltip, emit)
+
+        # ── Cherry-pick / Revert / Reset section ───────────────────────
+        # Only show when we have a HEAD and target != HEAD.
+        if head_oid and oid != head_oid:
+            menu.addSeparator()
+
+            # Cherry-pick
+            cp_action = menu.addAction(f"Cherry-pick commit {short_oid}")
+            if global_disable_reason:
+                cp_action.setEnabled(False)
+                cp_action.setToolTip(global_disable_reason)
+            else:
+                cp_action.triggered.connect(
+                    lambda _checked=False, o=oid: self.cherry_pick_requested.emit(o))
+
+            # Revert
+            rv_action = menu.addAction(f"Revert commit {short_oid}")
+            if global_disable_reason:
+                rv_action.setEnabled(False)
+                rv_action.setToolTip(global_disable_reason)
+            else:
+                rv_action.triggered.connect(
+                    lambda _checked=False, o=oid: self.revert_commit_requested.emit(o))
+
+            # Reset — only enabled when target is an ancestor of HEAD.
+            can_reset = False
+            try:
+                can_reset = self._queries.is_ancestor.execute(oid, head_oid)
+            except Exception:
+                can_reset = False
+
+            reset_sub = menu.addMenu(f"Reset {head_label} to {short_oid}")
+            reset_sub.setToolTipsVisible(True)
+            modes = [
+                (ResetMode.SOFT, "Soft (keep index + working tree)"),
+                (ResetMode.MIXED, "Mixed (keep working tree, reset index)"),
+                (ResetMode.HARD, "Hard (discard everything)"),
+            ]
+            for mode, label in modes:
+                a = reset_sub.addAction(label)
+                if global_disable_reason:
+                    a.setEnabled(False)
+                    a.setToolTip(global_disable_reason)
+                elif not can_reset:
+                    a.setEnabled(False)
+                    a.setToolTip("Target is not an ancestor of HEAD")
+                else:
+                    a.triggered.connect(
+                        lambda _checked=False, o=oid, m=mode:
+                            self.reset_to_commit_requested.emit(o, m))
 
     def reload_and_scroll_to(self, oid: str) -> None:
         """Reload and scroll to the given oid after load completes."""
