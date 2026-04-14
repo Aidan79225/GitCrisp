@@ -53,6 +53,8 @@ def _hunk_header_color() -> str:
 HEADER_ROW_HEIGHT = 22  # consistent height for file + hunk header rows
 HEADER_ROW_VPAD = 3      # top/bottom padding inside the header row
 
+_LONG_LINE_LIMIT = 2000
+
 
 # ---------------------------------------------------------------------------
 # Diff format dataclass
@@ -251,10 +253,19 @@ def render_hunk_header_line(cursor, hunk: Hunk, formats: DiffFormats) -> None:
 _CHUNK_SIZE = 100
 
 
-def _render_lines_range(cursor, hunk, formats, start, end) -> None:
-    """Render hunk.lines[start:end] into cursor, tracking line numbers."""
+def _render_lines_range(
+    cursor, hunk, formats, start, end,
+    syntax_formats=None, filename=None,
+) -> None:
+    """Render hunk.lines[start:end] into cursor, tracking line numbers.
+
+    When *syntax_formats* and *filename* are both given, layer Pygments-driven
+    syntax coloring onto the inserted content via mergeCharFormat.
+    """
+    from PySide6.QtGui import QTextCursor
+    from git_gui.presentation.widgets.syntax_highlighter import tokenize
+
     old_line, new_line = parse_hunk_header(hunk.header)
-    # Fast-forward past already-rendered lines to keep line numbers accurate
     for origin, _ in hunk.lines[:start]:
         if origin == "+":
             new_line += 1
@@ -263,6 +274,8 @@ def _render_lines_range(cursor, hunk, formats, start, end) -> None:
         else:
             old_line += 1
             new_line += 1
+
+    apply_syntax = syntax_formats is not None and filename is not None
 
     for origin, content in hunk.lines[start:end]:
         if origin == "+":
@@ -281,31 +294,72 @@ def _render_lines_range(cursor, hunk, formats, start, end) -> None:
             prefix = f"{old_line:>4} {new_line:>4}  "
             old_line += 1
             new_line += 1
-        line = content if content.endswith("\n") else content + "\n"
-        cursor.insertText(prefix + line)
+
+        line_with_eol = content if content.endswith("\n") else content + "\n"
+        full_text = prefix + line_with_eol
+
+        # Record where the content starts (after the prefix) — used by syntax pass
+        # to compute absolute positions in the document.
+        content_doc_start = cursor.position() + len(prefix)
+
+        cursor.insertText(full_text)
+
+        if not apply_syntax:
+            continue
+        if len(line_with_eol) > _LONG_LINE_LIMIT:
+            continue
+
+        # Strip the trailing newline from the content we feed the lexer.
+        content_text = line_with_eol.rstrip("\n")
+        if not content_text:
+            continue
+        tokens = tokenize(content_text, filename)
+        if not tokens:
+            continue
+
+        for tok in tokens:
+            tok_cursor = QTextCursor(cursor.document())
+            tok_cursor.setPosition(content_doc_start + tok.start)
+            tok_cursor.setPosition(
+                content_doc_start + tok.end,
+                QTextCursor.KeepAnchor,
+            )
+            attr = _KIND_TO_ATTR.get(tok.kind)
+            if attr is None:
+                continue
+            tok_cursor.mergeCharFormat(getattr(syntax_formats, attr))
 
 
-def render_hunk_content_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
+def render_hunk_content_lines(
+    cursor, hunk: Hunk, formats: DiffFormats,
+    syntax_formats: "SyntaxFormats | None" = None,
+    filename: str | None = None,
+) -> int:
     """Insert the +/-/context lines of *hunk* into *cursor*.
 
     For small hunks (<= _CHUNK_SIZE lines), renders synchronously.
     For large hunks, renders the first chunk immediately and schedules
     the rest via QTimer.singleShot to keep the UI responsive.
 
-    Returns the number of lines that will ultimately be inserted.
+    When *syntax_formats* and *filename* are both given, the syntax pass
+    layers Pygments-driven coloring on each rendered line.
     """
     if not hunk.lines:
         return 0
 
     total = len(hunk.lines)
     if total <= _CHUNK_SIZE:
-        _render_lines_range(cursor, hunk, formats, 0, total)
+        _render_lines_range(
+            cursor, hunk, formats, 0, total,
+            syntax_formats=syntax_formats, filename=filename,
+        )
         return total
 
-    # Render first chunk synchronously
-    _render_lines_range(cursor, hunk, formats, 0, _CHUNK_SIZE)
+    _render_lines_range(
+        cursor, hunk, formats, 0, _CHUNK_SIZE,
+        syntax_formats=syntax_formats, filename=filename,
+    )
 
-    # Schedule remaining chunks
     from PySide6.QtCore import QTimer
     state = {"start": _CHUNK_SIZE}
 
@@ -313,12 +367,14 @@ def render_hunk_content_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
         try:
             start = state["start"]
             end = min(start + _CHUNK_SIZE, total)
-            _render_lines_range(cursor, hunk, formats, start, end)
+            _render_lines_range(
+                cursor, hunk, formats, start, end,
+                syntax_formats=syntax_formats, filename=filename,
+            )
             state["start"] = end
             if end < total:
                 QTimer.singleShot(0, _next_chunk)
         except RuntimeError:
-            # Cursor's underlying document was destroyed — abort silently
             pass
 
     QTimer.singleShot(0, _next_chunk)
