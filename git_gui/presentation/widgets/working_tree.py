@@ -89,6 +89,10 @@ class WorkingTreeWidget(QWidget):
     rebase_abort_requested = Signal()
     merge_continue_requested = Signal(str)   # commit message
     rebase_continue_requested = Signal(str)  # commit message
+    cherry_pick_abort_requested = Signal()
+    revert_abort_requested = Signal()
+    cherry_pick_continue_requested = Signal()
+    revert_continue_requested = Signal()
 
     def __init__(self, queries: QueryBus, commands: CommandBus, repo_path: str | None = None, parent=None) -> None:
         super().__init__(parent)
@@ -299,6 +303,12 @@ class WorkingTreeWidget(QWidget):
         if state == "REBASING":
             self.rebase_continue_requested.emit(msg)
             return
+        if state == "CHERRY_PICKING":
+            self.cherry_pick_continue_requested.emit()
+            return
+        if state == "REVERTING":
+            self.revert_continue_requested.emit()
+            return
         if not msg:
             self.commit_failed.emit("Commit message is empty")
             return
@@ -368,6 +378,14 @@ class WorkingTreeWidget(QWidget):
             self._banner_label.setText("\u26a0 Rebase in progress")
             self._conflict_banner.setVisible(True)
             self._btn_commit.setText("Continue Rebase")
+        elif state_name == "CHERRY_PICKING":
+            self._banner_label.setText("\u26a0 Cherry-pick in progress")
+            self._conflict_banner.setVisible(True)
+            self._btn_commit.setText("Continue Cherry-pick")
+        elif state_name == "REVERTING":
+            self._banner_label.setText("\u26a0 Revert in progress")
+            self._conflict_banner.setVisible(True)
+            self._btn_commit.setText("Continue Revert")
         else:
             self._conflict_banner.setVisible(False)
             self._btn_commit.setText("Commit")
@@ -378,6 +396,10 @@ class WorkingTreeWidget(QWidget):
             self.merge_abort_requested.emit()
         elif state == "REBASING":
             self.rebase_abort_requested.emit()
+        elif state == "CHERRY_PICKING":
+            self.cherry_pick_abort_requested.emit()
+        elif state == "REVERTING":
+            self.revert_abort_requested.emit()
 
 
 

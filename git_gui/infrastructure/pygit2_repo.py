@@ -8,10 +8,11 @@ import subprocess
 import pygit2
 
 from git_gui.resources import subprocess_kwargs
+from git_gui.infrastructure.commit_ops_cli import CommitOpsCli
 
 logger = logging.getLogger(__name__)
 from git_gui.domain.entities import (
-    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, MergeAnalysisResult, MergeStrategy, Remote, RepoState, RepoStateInfo, Stash, Submodule, Tag, WORKING_TREE_OID,
+    Branch, Commit, CommitStat, FileStat, FileStatus, Hunk, LocalBranchInfo, MergeAnalysisResult, MergeStrategy, Remote, RepoState, RepoStateInfo, ResetMode, Stash, Submodule, Tag, WORKING_TREE_OID,
 )
 
 
@@ -259,6 +260,7 @@ def _submodule_diff_hunk(old_oid: str, new_oid: str) -> Hunk:
 class Pygit2Repository:
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(_resolve_gitdir(path))
+        self._commit_ops = CommitOpsCli(self._repo.workdir)
 
     def _detect_diverged_submodules(self) -> list[tuple[str, str, str, str]]:
         """Return ``(path, tree_oid, index_oid, actual_oid)`` for each submodule
@@ -1203,6 +1205,36 @@ class Pygit2Repository:
                 os.unlink(todo_file.name)
             except OSError:
                 pass
+
+    def cherry_pick(self, oid: str) -> None:
+        commit = self._repo[pygit2.Oid(hex=oid)]
+        is_merge = len(commit.parents) > 1
+        self._commit_ops.cherry_pick(oid, is_merge=is_merge)
+
+    def revert_commit(self, oid: str) -> None:
+        commit = self._repo[pygit2.Oid(hex=oid)]
+        is_merge = len(commit.parents) > 1
+        self._commit_ops.revert_commit(oid, is_merge=is_merge)
+
+    def reset_to(self, oid: str, mode: ResetMode) -> None:
+        pygit2_type = {
+            ResetMode.SOFT: pygit2.GIT_RESET_SOFT,
+            ResetMode.MIXED: pygit2.GIT_RESET_MIXED,
+            ResetMode.HARD: pygit2.GIT_RESET_HARD,
+        }[mode]
+        self._repo.reset(pygit2.Oid(hex=oid), pygit2_type)
+
+    def cherry_pick_abort(self) -> None:
+        self._commit_ops.cherry_pick_abort()
+
+    def cherry_pick_continue(self) -> None:
+        self._commit_ops.cherry_pick_continue()
+
+    def revert_abort(self) -> None:
+        self._commit_ops.revert_abort()
+
+    def revert_continue(self) -> None:
+        self._commit_ops.revert_continue()
 
     def _rebase_onto(self, target_oid) -> None:
         # Convert Oid to hex string if needed

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QDialog, QInputDialog, QMainWindow, QMessageBox, QSplitter, QStackedWidget,
     QVBoxLayout, QWidget,
 )
-from git_gui.domain.entities import WORKING_TREE_OID
+from git_gui.domain.entities import WORKING_TREE_OID, ResetMode
 from git_gui.domain.ports import IRepoStore
 from git_gui.infrastructure.pygit2_repo import Pygit2Repository
 from git_gui.presentation.bus import CommandBus, QueryBus
@@ -15,6 +15,7 @@ from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
 from git_gui.presentation.dialogs.merge_dialog import MergeDialog
+from git_gui.presentation.dialogs.reset_dialog import ResetDialog
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
 from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 from git_gui.presentation.widgets.repo_list import RepoListWidget
@@ -121,6 +122,10 @@ class MainWindow(QMainWindow):
         self._working_tree.rebase_abort_requested.connect(self._on_rebase_abort)
         self._working_tree.merge_continue_requested.connect(self._on_merge_continue)
         self._working_tree.rebase_continue_requested.connect(self._on_rebase_continue)
+        self._working_tree.cherry_pick_abort_requested.connect(self._on_cherry_pick_abort)
+        self._working_tree.revert_abort_requested.connect(self._on_revert_abort)
+        self._working_tree.cherry_pick_continue_requested.connect(self._on_cherry_pick_continue)
+        self._working_tree.revert_continue_requested.connect(self._on_revert_continue)
         self._working_tree.commit_completed.connect(
             lambda msg: self._log_panel.log(f'Commit: "{msg}"')
         )
@@ -135,6 +140,10 @@ class MainWindow(QMainWindow):
         self._diff.rebase_continue_requested.connect(
             lambda: self._on_rebase_continue("")
         )
+        self._diff.cherry_pick_abort_requested.connect(self._on_cherry_pick_abort)
+        self._diff.revert_abort_requested.connect(self._on_revert_abort)
+        self._diff.cherry_pick_continue_requested.connect(self._on_cherry_pick_continue)
+        self._diff.revert_continue_requested.connect(self._on_revert_continue)
         self._sidebar.branch_checkout_requested.connect(self._on_branch_changed)
         self._sidebar.branch_clicked.connect(self._graph.reload_with_extra_tip)
         self._sidebar.branch_merge_requested.connect(self._on_merge)
@@ -166,6 +175,9 @@ class MainWindow(QMainWindow):
         self._graph.rebase_onto_commit_requested.connect(self._on_rebase_onto_commit)
         self._graph.interactive_rebase_branch_requested.connect(self._on_interactive_rebase_branch)
         self._graph.interactive_rebase_commit_requested.connect(self._on_interactive_rebase_commit)
+        self._graph.cherry_pick_requested.connect(self._on_cherry_pick)
+        self._graph.revert_commit_requested.connect(self._on_revert)
+        self._graph.reset_to_commit_requested.connect(self._on_reset_to_commit)
 
         # Sidebar tag signals
         self._sidebar.tag_clicked.connect(self._graph.reload_with_extra_tip)
@@ -398,6 +410,95 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Rebase continue — ERROR: {e}")
+        self._reload()
+
+    def _on_cherry_pick(self, oid: str) -> None:
+        short = oid[:7]
+        try:
+            self._commands.cherry_pick.execute(oid)
+            self._log_panel.log(f"Cherry-pick: {short}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Cherry-pick {short} — ERROR: {e}")
+        self._reload()
+
+    def _on_revert(self, oid: str) -> None:
+        short = oid[:7]
+        try:
+            self._commands.revert_commit.execute(oid)
+            self._log_panel.log(f"Revert: {short}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Revert {short} — ERROR: {e}")
+        self._reload()
+
+    def _on_reset_to_commit(self, oid: str, default_mode: ResetMode) -> None:
+        short = oid[:7]
+        try:
+            commit = self._queries.get_commit_detail.execute(oid)
+            head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
+            dirty_files = self._queries.get_working_tree.execute()
+
+            dlg = ResetDialog(
+                branch_name=head_branch,
+                short_sha=short,
+                commit_subject=(commit.message.splitlines()[0] if commit.message else ""),
+                default_mode=default_mode,
+                dirty_files=dirty_files,
+                parent=self,
+            )
+            if dlg.exec() != ResetDialog.Accepted:
+                return
+            mode = dlg.result_mode()
+            self._commands.reset_branch.execute(oid, mode)
+            self._log_panel.log(f"Reset {head_branch} --{mode.value.lower()} to {short}")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Reset to {short} — ERROR: {e}")
+        self._reload()
+
+    def _on_cherry_pick_abort(self) -> None:
+        try:
+            self._commands.cherry_pick_abort.execute()
+            self._log_panel.log("Cherry-pick aborted")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Cherry-pick abort — ERROR: {e}")
+        self._reload()
+
+    def _on_cherry_pick_continue(self) -> None:
+        try:
+            if self._queries.has_unresolved_conflicts.execute():
+                self._log_panel.expand()
+                self._log_panel.log_error("Resolve all conflicts and stage files first")
+                return
+            self._commands.cherry_pick_continue.execute()
+            self._log_panel.log("Cherry-pick continued")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Cherry-pick continue — ERROR: {e}")
+        self._reload()
+
+    def _on_revert_abort(self) -> None:
+        try:
+            self._commands.revert_abort.execute()
+            self._log_panel.log("Revert aborted")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Revert abort — ERROR: {e}")
+        self._reload()
+
+    def _on_revert_continue(self) -> None:
+        try:
+            if self._queries.has_unresolved_conflicts.execute():
+                self._log_panel.expand()
+                self._log_panel.log_error("Resolve all conflicts and stage files first")
+                return
+            self._commands.revert_continue.execute()
+            self._log_panel.log("Revert continued")
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Revert continue — ERROR: {e}")
         self._reload()
 
     def _on_delete_branch(self, branch: str) -> None:

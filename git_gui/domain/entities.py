@@ -113,6 +113,12 @@ class MergeStrategy(str, Enum):
     ALLOW_FF = "ALLOW_FF"
 
 
+class ResetMode(str, Enum):
+    SOFT = "SOFT"
+    MIXED = "MIXED"
+    HARD = "HARD"
+
+
 @dataclass(frozen=True)
 class MergeAnalysisResult:
     can_ff: bool
