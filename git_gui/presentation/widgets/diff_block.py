@@ -253,17 +253,43 @@ def render_hunk_header_line(cursor, hunk: Hunk, formats: DiffFormats) -> None:
 _CHUNK_SIZE = 100
 
 
+def _build_pair_index(lines: list[tuple[str, str]]) -> dict[int, tuple[str, str]]:
+    """Map paired -/+ line indices to (old_content, new_content).
+
+    A pair is formed only when a '-' line is immediately followed by a '+' line.
+    Both indices map to the same (old, new) tuple so the renderer can look up
+    either side.
+    """
+    pairs: dict[int, tuple[str, str]] = {}
+    i = 0
+    n = len(lines)
+    while i < n - 1:
+        if lines[i][0] == "-" and lines[i + 1][0] == "+":
+            old = lines[i][1].rstrip("\n")
+            new = lines[i + 1][1].rstrip("\n")
+            pairs[i] = (old, new)
+            pairs[i + 1] = (old, new)
+            i += 2
+        else:
+            i += 1
+    return pairs
+
+
 def _render_lines_range(
     cursor, hunk, formats, start, end,
     syntax_formats=None, filename=None,
+    pair_index=None,
 ) -> None:
     """Render hunk.lines[start:end] into cursor, tracking line numbers.
 
     When *syntax_formats* and *filename* are both given, layer Pygments-driven
     syntax coloring onto the inserted content via mergeCharFormat.
+    When *pair_index* is given, also apply a word-level overlay to changed
+    spans of paired -/+ lines.
     """
     from PySide6.QtGui import QTextCursor
     from git_gui.presentation.widgets.syntax_highlighter import tokenize
+    from git_gui.presentation.widgets.word_diff import pair_diff
 
     old_line, new_line = parse_hunk_header(hunk.header)
     for origin, _ in hunk.lines[:start]:
@@ -276,8 +302,10 @@ def _render_lines_range(
             new_line += 1
 
     apply_syntax = syntax_formats is not None and filename is not None
+    pair_index = pair_index or {}
 
-    for origin, content in hunk.lines[start:end]:
+    for idx in range(start, end):
+        origin, content = hunk.lines[idx]
         if origin == "+":
             cursor.setBlockFormat(formats.blk_added)
             cursor.setCharFormat(formats.fmt_added)
@@ -297,11 +325,7 @@ def _render_lines_range(
 
         line_with_eol = content if content.endswith("\n") else content + "\n"
         full_text = prefix + line_with_eol
-
-        # Record where the content starts (after the prefix) — used by syntax pass
-        # to compute absolute positions in the document.
         content_doc_start = cursor.position() + len(prefix)
-
         cursor.insertText(full_text)
 
         if not apply_syntax:
@@ -309,14 +333,12 @@ def _render_lines_range(
         if len(line_with_eol) > _LONG_LINE_LIMIT:
             continue
 
-        # Strip the trailing newline from the content we feed the lexer.
         content_text = line_with_eol.rstrip("\n")
         if not content_text:
             continue
-        tokens = tokenize(content_text, filename)
-        if not tokens:
-            continue
 
+        # Pass 2 — syntax tokens
+        tokens = tokenize(content_text, filename)
         for tok in tokens:
             tok_cursor = QTextCursor(cursor.document())
             tok_cursor.setPosition(content_doc_start + tok.start)
@@ -328,6 +350,27 @@ def _render_lines_range(
             if attr is None:
                 continue
             tok_cursor.mergeCharFormat(getattr(syntax_formats, attr))
+
+        # Pass 3 — word-level overlay (only for paired -/+)
+        if idx not in pair_index or origin == " ":
+            continue
+        old_text, new_text = pair_index[idx]
+        old_spans, new_spans = pair_diff(old_text, new_text)
+        spans, overlay = (
+            (old_spans, syntax_formats.removed_word_overlay)
+            if origin == "-"
+            else (new_spans, syntax_formats.added_word_overlay)
+        )
+        for span in spans:
+            if span.kind != "changed":
+                continue
+            ws_cursor = QTextCursor(cursor.document())
+            ws_cursor.setPosition(content_doc_start + span.start)
+            ws_cursor.setPosition(
+                content_doc_start + span.end,
+                QTextCursor.KeepAnchor,
+            )
+            ws_cursor.mergeCharFormat(overlay)
 
 
 def render_hunk_content_lines(
@@ -342,22 +385,27 @@ def render_hunk_content_lines(
     the rest via QTimer.singleShot to keep the UI responsive.
 
     When *syntax_formats* and *filename* are both given, the syntax pass
-    layers Pygments-driven coloring on each rendered line.
+    layers Pygments-driven coloring on each rendered line, and adjacent -/+
+    line pairs receive a word-level overlay highlighting changed spans.
     """
     if not hunk.lines:
         return 0
+
+    pair_index = _build_pair_index(hunk.lines) if syntax_formats and filename else {}
 
     total = len(hunk.lines)
     if total <= _CHUNK_SIZE:
         _render_lines_range(
             cursor, hunk, formats, 0, total,
             syntax_formats=syntax_formats, filename=filename,
+            pair_index=pair_index,
         )
         return total
 
     _render_lines_range(
         cursor, hunk, formats, 0, _CHUNK_SIZE,
         syntax_formats=syntax_formats, filename=filename,
+        pair_index=pair_index,
     )
 
     from PySide6.QtCore import QTimer
@@ -370,6 +418,7 @@ def render_hunk_content_lines(
             _render_lines_range(
                 cursor, hunk, formats, start, end,
                 syntax_formats=syntax_formats, filename=filename,
+                pair_index=pair_index,
             )
             state["start"] = end
             if end < total:
