@@ -258,7 +258,7 @@ Register seven new commands: `cherry_pick`, `revert_commit`, `reset_branch`, `ch
 
 ### MainWindow orchestration
 
-Dispatch each command on a background `QThread` — matching `merge` / `rebase` paths. After completion, invoke the existing graph reload (`graph.reload_async`) so the banner and graph update together.
+Each command dispatches synchronously from its handler, matching `_on_merge` / `_on_rebase` / `_on_merge_commit`. After completion, call `self._reload()` (the existing helper) so the banner, working-tree, and graph refresh together.
 
 ## Data flow
 
@@ -295,9 +295,9 @@ On conflict the subprocess returns non-zero but `CommitOpsCli` swallows the exit
 - Reset with dirty working tree + SOFT/MIXED → safe; dialog does not warn.
 - Reset with dirty working tree + HARD → dialog shows the dirty-file list; user confirmation is the safeguard.
 
-**Threading:** background `QThread` per command, blocked against re-entry by the existing pending-op flag in `main_window`.
+**Threading:** synchronous execution in the main-window handler, matching the existing merge / rebase handlers (`_on_merge`, `_on_rebase`, `_on_merge_commit`, `_on_rebase_onto_commit`). Remote operations are the only writers currently backgrounded; local-only commands like these run inline.
 
-**Logging:** each command logs start and end (with target SHA and outcome) via `logging_setup`, matching existing writers.
+**Logging:** each command logs start and end via the existing `_log_panel` channel, matching merge / rebase handlers (`self._log_panel.log("Merge: ...")` on success; `self._log_panel.log_error(...)` on failure with `expand()` to surface the panel).
 
 ## Testing
 
