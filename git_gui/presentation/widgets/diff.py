@@ -74,6 +74,10 @@ class DiffWidget(QWidget):
     merge_abort_requested = Signal()
     rebase_abort_requested = Signal()
     rebase_continue_requested = Signal()
+    cherry_pick_abort_requested = Signal()
+    revert_abort_requested = Signal()
+    cherry_pick_continue_requested = Signal()
+    revert_continue_requested = Signal()
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -185,6 +189,14 @@ class DiffWidget(QWidget):
             self._banner_label.setText("\u26a0 Rebase in progress")
             self._btn_continue.setVisible(True)
             self._state_banner.setVisible(True)
+        elif state_name == "CHERRY_PICKING":
+            self._banner_label.setText("\u26a0 Cherry-pick in progress")
+            self._btn_continue.setVisible(True)
+            self._state_banner.setVisible(True)
+        elif state_name == "REVERTING":
+            self._banner_label.setText("\u26a0 Revert in progress")
+            self._btn_continue.setVisible(True)
+            self._state_banner.setVisible(True)
         else:
             self._state_banner.setVisible(False)
 
@@ -194,11 +206,19 @@ class DiffWidget(QWidget):
             self.merge_abort_requested.emit()
         elif state == "REBASING":
             self.rebase_abort_requested.emit()
+        elif state == "CHERRY_PICKING":
+            self.cherry_pick_abort_requested.emit()
+        elif state == "REVERTING":
+            self.revert_abort_requested.emit()
 
     def _on_banner_continue(self) -> None:
         state = getattr(self, "_current_state", "CLEAN")
         if state == "REBASING":
             self.rebase_continue_requested.emit()
+        elif state == "CHERRY_PICKING":
+            self.cherry_pick_continue_requested.emit()
+        elif state == "REVERTING":
+            self.revert_continue_requested.emit()
 
     def _on_theme_changed(self) -> None:
         self._formats = make_diff_formats()
