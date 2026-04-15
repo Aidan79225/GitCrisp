@@ -49,7 +49,17 @@
     "diff_added_overlay": "#50238636",
     "diff_removed_overlay": "#50f85149",
     "on_badge": "#ffffff",
-    "hover_overlay": "#1effffff"
+    "hover_overlay": "#1effffff",
+    "syntax_keyword":     "#ff7b72",
+    "syntax_function":    "#d2a8ff",
+    "syntax_class":       "#f0c674",
+    "syntax_string":      "#a5d6ff",
+    "syntax_number":      "#79c0ff",
+    "syntax_comment":     "#8b949e",
+    "syntax_operator":    "#ff7b72",
+    "syntax_decorator":   "#d2a8ff",
+    "diff_added_word_overlay":   "#80238636",
+    "diff_removed_word_overlay": "#80f85149"
   },
   "typography": {
     "title_large":  {"family": "", "size": 16, "weight": 500, "letter_spacing": 0.0},

@@ -49,6 +49,18 @@ class Colors:
     # Misc
     on_badge: str
     hover_overlay: str
+    # Syntax highlighting (Pygments token roles)
+    syntax_keyword: str
+    syntax_function: str
+    syntax_class: str
+    syntax_string: str
+    syntax_number: str
+    syntax_comment: str
+    syntax_operator: str
+    syntax_decorator: str
+    # Word-level diff overlays (layered over line overlays)
+    diff_added_word_overlay: str
+    diff_removed_word_overlay: str
 
     def as_qcolor(self, name: str) -> QColor:
         if not hasattr(self, name):

@@ -19,6 +19,8 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - File-level stage / unstage with checkbox toggles
 - **Per-hunk staging** — stage or unstage individual diff hunks within a file
 - Inline diff viewer with line numbers, monospace font, and added/removed highlighting
+- **Syntax highlighting** in diff hunks via Pygments — supports hundreds of languages
+- **Word-level intra-line diff** highlights the changed words within `-`/`+` line pairs
 - **Lazy diff loading** — skeleton placeholders that realize on scroll for smooth handling of large commits
 - Discard a single hunk or an entire file from the diff view
 - Add files to `.gitignore` from the context menu

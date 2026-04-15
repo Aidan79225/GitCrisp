@@ -14,7 +14,7 @@ from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 from git_gui.presentation.widgets.diff_block import (
-    make_file_block, make_diff_formats, add_hunk_widget,
+    make_file_block, make_diff_formats, make_syntax_formats, add_hunk_widget,
 )
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
@@ -165,6 +165,7 @@ class DiffWidget(QWidget):
 
         # Diff render formats
         self._formats = make_diff_formats()
+        self._syntax_formats = make_syntax_formats()
 
         self._restyle_themed_panels()
         connect_widget(self, rebuild=self._on_theme_changed)
@@ -222,6 +223,7 @@ class DiffWidget(QWidget):
 
     def _on_theme_changed(self) -> None:
         self._formats = make_diff_formats()
+        self._syntax_formats = make_syntax_formats()
         self._restyle_themed_panels()
 
     def _restyle_themed_panels(self) -> None:
@@ -328,7 +330,12 @@ class DiffWidget(QWidget):
         frame, inner = make_file_block(path, on_header_clicked=on_click)
 
         for hunk in hunks:
-            add_hunk_widget(inner, hunk, self._formats, on_header_clicked=on_click)
+            add_hunk_widget(
+                inner, hunk, self._formats,
+                on_header_clicked=on_click,
+                syntax_formats=self._syntax_formats,
+                filename=path,
+            )
 
         return frame
 
@@ -356,7 +363,12 @@ class DiffWidget(QWidget):
             if is_submodule else None
         )
         for hunk in hunks:
-            add_hunk_widget(inner, hunk, self._formats, on_header_clicked=on_click)
+            add_hunk_widget(
+                inner, hunk, self._formats,
+                on_header_clicked=on_click,
+                syntax_formats=self._syntax_formats,
+                filename=path,
+            )
 
     def _on_file_selected(self, index) -> None:
         if self._current_oid is None:
