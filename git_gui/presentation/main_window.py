@@ -1,6 +1,8 @@
 # git_gui/presentation/main_window.py
 from __future__ import annotations
+import logging
 import threading
+from typing import Callable
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -9,7 +11,6 @@ from PySide6.QtWidgets import (
 )
 from git_gui.domain.entities import WORKING_TREE_OID, ResetMode
 from git_gui.domain.ports import IRepoStore
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
@@ -27,6 +28,9 @@ from git_gui.presentation.menus.git_menu import install_git_menu
 from git_gui.presentation.dialogs.interactive_rebase_dialog import InteractiveRebaseDialog
 
 
+logger = logging.getLogger(__name__)
+
+
 class _RemoteSignals(QObject):
     """Signal bridge — lives on main thread, emitted from background thread."""
     finished = Signal(str)
@@ -40,7 +44,8 @@ class _RepoReadySignals(QObject):
 
 class MainWindow(QMainWindow):
     def __init__(self, queries: QueryBus | None, commands: CommandBus | None,
-                 repo_store: IRepoStore, remote_tag_cache=None, repo_path: str | None = None, parent=None) -> None:
+                 repo_store: IRepoStore, remote_tag_cache=None, repo_path: str | None = None, parent=None,
+                 *, session_factory: Callable[[str], tuple[QueryBus, CommandBus]]) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"GitCrisp — {repo_path}" if repo_path else "GitCrisp")
         self.resize(1400, 800)
@@ -55,6 +60,10 @@ class MainWindow(QMainWindow):
         self._repo_store = repo_store
         self._remote_tag_cache = remote_tag_cache
         self._repo_path = repo_path
+        self._session_factory = session_factory
+        self._repo_ready_signals = _RepoReadySignals()
+        self._repo_ready_signals.ready.connect(self._on_repo_ready)
+        self._repo_ready_signals.failed.connect(self._on_repo_failed)
         self._sidebar = SidebarWidget(queries, commands, remote_tag_cache, repo_path)
         self._graph = GraphWidget(queries, commands)
         self._diff = DiffWidget(queries, commands)
@@ -599,8 +608,11 @@ class MainWindow(QMainWindow):
                 for remote, names in cache_data.items():
                     if name in names:
                         remotes_with_tag.append(remote)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "Remote tag cache load failed for %s: %s",
+                    self._repo_path, e,
+                )
 
         if remotes_with_tag:
             remote_list = ", ".join(remotes_with_tag)
@@ -662,8 +674,11 @@ class MainWindow(QMainWindow):
                         if r in data and name in data[r]:
                             data[r] = [t for t in data[r] if t != name]
                             self._remote_tag_cache.save(self._repo_path, data)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Remote tag cache update failed for %s (remote=%s, tag=%s): %s",
+                            self._repo_path, r, name, e,
+                        )
             self._run_remote_op(f"Delete tag {name} from {remote}", _fn)
         self._reload()
 
@@ -711,16 +726,11 @@ class MainWindow(QMainWindow):
         self._reload()
 
     def _switch_repo(self, path: str) -> None:
-        signals = _RepoReadySignals()
-        signals.ready.connect(self._on_repo_ready)
-        signals.failed.connect(self._on_repo_failed)
-        self._repo_ready_signals = signals  # prevent GC
+        signals = self._repo_ready_signals
 
         def _worker():
             try:
-                repo = Pygit2Repository(path)
-                queries = QueryBus.from_reader(repo)
-                commands = CommandBus.from_writer(repo)
+                queries, commands = self._session_factory(path)
                 signals.ready.emit(path, queries, commands)
             except Exception as e:
                 signals.failed.emit(path, str(e))

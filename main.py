@@ -53,6 +53,11 @@ def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
     return None
 
 
+def _open_session(path: str) -> tuple[QueryBus, CommandBus]:
+    repo = Pygit2Repository(path)
+    return QueryBus.from_reader(repo), CommandBus.from_writer(repo)
+
+
 def main() -> None:
     setup_logging()
     app = QApplication(sys.argv)
@@ -78,11 +83,12 @@ def main() -> None:
         repo_store.add_open(repo_path)
         repo_store.save()
 
-    repo = Pygit2Repository(repo_path)
-    queries = QueryBus.from_reader(repo)
-    commands = CommandBus.from_writer(repo)
+    queries, commands = _open_session(repo_path)
 
-    window = MainWindow(queries, commands, repo_store, remote_tag_cache, repo_path)
+    window = MainWindow(
+        queries, commands, repo_store, remote_tag_cache, repo_path,
+        session_factory=_open_session,
+    )
     window.show()
     sys.exit(app.exec())
 

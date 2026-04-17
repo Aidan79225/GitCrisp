@@ -11,7 +11,10 @@ def _make_window(qtbot):
     repo_store.get_open_repos.return_value = []
     repo_store.get_recent_repos.return_value = []
     repo_store.get_active.return_value = None
-    win = MainWindow(queries=None, commands=None, repo_store=repo_store)
+    win = MainWindow(
+        queries=None, commands=None, repo_store=repo_store,
+        session_factory=lambda _p: (MagicMock(), MagicMock()),
+    )
     qtbot.addWidget(win)
     return win
 
