@@ -6,9 +6,6 @@ from __future__ import annotations
 import pathlib
 from unittest.mock import MagicMock
 
-import pytest
-from PySide6.QtWidgets import QApplication
-
 from git_gui.presentation.main_window import MainWindow
 
 
@@ -69,8 +66,8 @@ def test_switch_repo_factory_failure_emits_failed_signal(qtbot):
 def test_main_window_source_does_not_import_infrastructure():
     """Regression guard: main_window.py must not reference
     git_gui.infrastructure in any import form."""
-    source_path = pathlib.Path("git_gui/presentation/main_window.py")
-    source = source_path.read_text(encoding="utf-8")
+    import git_gui.presentation.main_window as mw_mod
+    source = pathlib.Path(mw_mod.__file__).read_text(encoding="utf-8")
     assert "git_gui.infrastructure" not in source, (
         "main_window.py must not import from git_gui.infrastructure — "
         "use the injected session_factory instead."
