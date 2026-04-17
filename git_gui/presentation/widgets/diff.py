@@ -12,6 +12,7 @@ from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
+from git_gui.presentation.widgets.collapsing_header import CollapsingHeader
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 from git_gui.presentation.widgets.diff_block import (
     make_file_block, make_diff_formats, make_syntax_formats, add_hunk_widget,
@@ -124,6 +125,8 @@ class DiffWidget(QWidget):
         font.setFamily("Courier New")
         self._msg_view.setFont(font)
 
+        self._header = CollapsingHeader(self._detail, self._msg_view)
+
         # ── Row 3: file list ────────────────────────────────────────────────
         self._file_view = _FileListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
@@ -158,8 +161,7 @@ class DiffWidget(QWidget):
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
         layout.addWidget(self._state_banner, 0)
-        layout.addWidget(self._detail, 0)
-        layout.addWidget(self._msg_view, 0)
+        layout.addWidget(self._header, 0)
         layout.addWidget(self._splitter, 1)
         layout.addStretch()
 
@@ -175,8 +177,7 @@ class DiffWidget(QWidget):
 
     def _set_empty_state(self, empty: bool) -> None:
         """Hide or show all sub-panels based on whether a commit is loaded."""
-        self._detail.setVisible(not empty)
-        self._msg_view.setVisible(not empty)
+        self._header.setVisible(not empty)
         self._splitter.setVisible(not empty)
 
     def update_state_banner(self, state_name: str) -> None:
@@ -290,6 +291,15 @@ class DiffWidget(QWidget):
         doc_margin = self._msg_view.document().documentMargin() * 2
         msg_h = int(line_count * line_h + doc_margin)
         self._msg_view.setFixedHeight(msg_h)
+
+        # Inform the header of its natural (fully-expanded) height so the parallax
+        # shrink maps scroll position correctly. Both children have had
+        # setFixedHeight called, so .maximumHeight() is the authoritative value
+        # and is available synchronously.
+        detail_h = self._detail.maximumHeight()
+        spacing = self._header.layout().spacing()
+        self._header.set_expanded_height(detail_h + msg_h + spacing)
+        self._header.set_collapse_progress(0.0)
 
         # Files — no auto-selection; show all files' hunks as bordered blocks
         files = self._queries.get_commit_files.execute(oid)
