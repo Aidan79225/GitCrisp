@@ -12,6 +12,7 @@ from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import get_theme_manager, connect_widget
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
+from git_gui.presentation.widgets.collapsing_header import CollapsingHeader
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 from git_gui.presentation.widgets.diff_block import (
     make_file_block, make_diff_formats, make_syntax_formats, add_hunk_widget,
@@ -124,6 +125,8 @@ class DiffWidget(QWidget):
         font.setFamily("Courier New")
         self._msg_view.setFont(font)
 
+        self._header = CollapsingHeader(self._detail, self._msg_view)
+
         # ── Row 3: file list ────────────────────────────────────────────────
         self._file_view = _FileListView()
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
@@ -138,6 +141,9 @@ class DiffWidget(QWidget):
         self._diff_layout.setSpacing(8)
         self._diff_scroll.setWidget(self._diff_container)
         self._loader = ViewportBlockLoader(self._diff_scroll, self._realize_block)
+        self._diff_scroll.verticalScrollBar().valueChanged.connect(
+            self._on_diff_scrolled
+        )
 
         self._diff_model = DiffModel([])
         self._file_view.setModel(self._diff_model)
@@ -158,8 +164,7 @@ class DiffWidget(QWidget):
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
         layout.addWidget(self._state_banner, 0)
-        layout.addWidget(self._detail, 0)
-        layout.addWidget(self._msg_view, 0)
+        layout.addWidget(self._header, 0)
         layout.addWidget(self._splitter, 1)
         layout.addStretch()
 
@@ -175,8 +180,7 @@ class DiffWidget(QWidget):
 
     def _set_empty_state(self, empty: bool) -> None:
         """Hide or show all sub-panels based on whether a commit is loaded."""
-        self._detail.setVisible(not empty)
-        self._msg_view.setVisible(not empty)
+        self._header.setVisible(not empty)
         self._splitter.setVisible(not empty)
 
     def update_state_banner(self, state_name: str) -> None:
@@ -226,6 +230,14 @@ class DiffWidget(QWidget):
         self._syntax_formats = make_syntax_formats()
         self._restyle_themed_panels()
 
+    def _on_diff_scrolled(self, value: int) -> None:
+        """Map diff scroll position to CollapsingHeader progress."""
+        expanded = self._header.expanded_height()
+        if expanded <= 0:
+            self._header.set_collapse_progress(0.0)
+            return
+        self._header.set_collapse_progress(value / expanded)
+
     def _restyle_themed_panels(self) -> None:
         c = get_theme_manager().current.colors
         outline = c.outline
@@ -274,6 +286,7 @@ class DiffWidget(QWidget):
             self._diff_model.reload([])
             self._clear_blocks()
             self._set_empty_state(True)
+            self._header.set_collapse_progress(0.0)
             return
         self._set_empty_state(False)
         branches = self._queries.get_branches.execute()
@@ -290,6 +303,19 @@ class DiffWidget(QWidget):
         doc_margin = self._msg_view.document().documentMargin() * 2
         msg_h = int(line_count * line_h + doc_margin)
         self._msg_view.setFixedHeight(msg_h)
+
+        # Both children have had setFixedHeight called upstream, so
+        # .maximumHeight() is the authoritative natural height synchronously —
+        # no sizeHint / event-loop round-trip needed.
+        detail_h = self._detail.maximumHeight()
+        spacing = self._header.layout().spacing()
+        self._header.set_expanded_height(detail_h + msg_h + spacing)
+        self._header.set_collapse_progress(0.0)
+
+        # Force scroll to the top — triggers valueChanged if value was non-zero,
+        # which also zeros collapse progress as a side-effect. The explicit
+        # set_collapse_progress(0.0) above handles the already-at-zero case.
+        self._diff_scroll.verticalScrollBar().setValue(0)
 
         # Files — no auto-selection; show all files' hunks as bordered blocks
         files = self._queries.get_commit_files.execute(oid)
