@@ -141,6 +141,9 @@ class DiffWidget(QWidget):
         self._diff_layout.setSpacing(8)
         self._diff_scroll.setWidget(self._diff_container)
         self._loader = ViewportBlockLoader(self._diff_scroll, self._realize_block)
+        self._diff_scroll.verticalScrollBar().valueChanged.connect(
+            self._on_diff_scrolled
+        )
 
         self._diff_model = DiffModel([])
         self._file_view.setModel(self._diff_model)
@@ -227,6 +230,14 @@ class DiffWidget(QWidget):
         self._syntax_formats = make_syntax_formats()
         self._restyle_themed_panels()
 
+    def _on_diff_scrolled(self, value: int) -> None:
+        """Map diff scroll position to CollapsingHeader progress."""
+        expanded = self._header.expanded_height()
+        if expanded <= 0:
+            self._header.set_collapse_progress(0.0)
+            return
+        self._header.set_collapse_progress(value / expanded)
+
     def _restyle_themed_panels(self) -> None:
         c = get_theme_manager().current.colors
         outline = c.outline
@@ -275,6 +286,7 @@ class DiffWidget(QWidget):
             self._diff_model.reload([])
             self._clear_blocks()
             self._set_empty_state(True)
+            self._header.set_collapse_progress(0.0)
             return
         self._set_empty_state(False)
         branches = self._queries.get_branches.execute()
@@ -299,6 +311,11 @@ class DiffWidget(QWidget):
         spacing = self._header.layout().spacing()
         self._header.set_expanded_height(detail_h + msg_h + spacing)
         self._header.set_collapse_progress(0.0)
+
+        # Force scroll to the top — triggers valueChanged if value was non-zero,
+        # which also zeros collapse progress as a side-effect. The explicit
+        # set_collapse_progress(0.0) above handles the already-at-zero case.
+        self._diff_scroll.verticalScrollBar().setValue(0)
 
         # Files — no auto-selection; show all files' hunks as bordered blocks
         files = self._queries.get_commit_files.execute(oid)

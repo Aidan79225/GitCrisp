@@ -123,3 +123,79 @@ def test_clear_blocks_clears_loader(diff_widget, qtbot):
     assert widget._loader._block_refs == []
     assert widget._loader._loaded_paths == set()
     assert widget._loader._diff_map == {}
+
+
+# ── 5. Collapsing header wiring ──────────────────────────────────────
+
+
+def test_on_diff_scrolled_sets_progress_from_scroll_value(diff_widget, qtbot):
+    """Scrolling the diff area updates the header collapse progress."""
+    widget, _ = diff_widget
+
+    with patch("threading.Thread"):
+        widget.load_commit("abc123")
+
+    expanded = widget._header.expanded_height()
+    assert expanded > 0  # sanity: mock commit has a message, so expanded > 0
+
+    widget._on_diff_scrolled(expanded // 2)
+
+    p = widget._header.collapse_progress()
+    assert 0.45 <= p <= 0.55
+
+
+def test_on_diff_scrolled_clamps_past_expanded_height(diff_widget, qtbot):
+    """Scrolling past the expanded header height pins progress at 1.0."""
+    widget, _ = diff_widget
+
+    with patch("threading.Thread"):
+        widget.load_commit("abc123")
+
+    expanded = widget._header.expanded_height()
+    widget._on_diff_scrolled(expanded * 3)
+
+    assert widget._header.collapse_progress() == 1.0
+
+
+def test_load_commit_resets_collapse_progress(diff_widget, qtbot):
+    """A commit reload puts the header back to fully-expanded state."""
+    widget, _ = diff_widget
+
+    with patch("threading.Thread"):
+        widget.load_commit("abc123")
+
+    widget._header.set_collapse_progress(0.8)
+    assert widget._header.collapse_progress() == 0.8
+
+    with patch("threading.Thread"):
+        widget.load_commit("abc123")
+
+    assert widget._header.collapse_progress() == 0.0
+
+
+def test_load_commit_error_resets_collapse_progress(diff_widget, qtbot):
+    """A failed commit load also puts the header back to progress 0."""
+    widget, queries = diff_widget
+
+    with patch("threading.Thread"):
+        widget.load_commit("abc123")
+    widget._header.set_collapse_progress(0.7)
+
+    queries.get_commit_detail.execute.side_effect = RuntimeError("gone")
+    widget.load_commit("bad_oid")
+
+    assert widget._header.collapse_progress() == 0.0
+
+
+def test_scrollbar_valueChanged_drives_handler(diff_widget, qtbot):
+    """The signal from the diff scroll bar is connected to the handler —
+    emitting it updates collapse progress without a direct call."""
+    widget, _ = diff_widget
+
+    with patch("threading.Thread"):
+        widget.load_commit("abc123")
+
+    expanded = widget._header.expanded_height()
+    widget._diff_scroll.verticalScrollBar().valueChanged.emit(expanded)
+
+    assert widget._header.collapse_progress() == 1.0
