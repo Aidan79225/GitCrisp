@@ -199,3 +199,16 @@ def test_scrollbar_valueChanged_drives_handler(diff_widget, qtbot):
     widget._diff_scroll.verticalScrollBar().valueChanged.emit(expanded)
 
     assert widget._header.collapse_progress() == 1.0
+
+
+def test_on_diff_scrolled_zero_keeps_progress_expanded(diff_widget, qtbot):
+    """Scrolling back to the top re-expands the header (progress 0.0)."""
+    widget, _ = diff_widget
+
+    with patch("threading.Thread"):
+        widget.load_commit("abc123")
+
+    widget._header.set_collapse_progress(0.6)
+    widget._on_diff_scrolled(0)
+
+    assert widget._header.collapse_progress() == 0.0
