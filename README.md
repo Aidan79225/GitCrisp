@@ -13,6 +13,7 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - Lazy pagination — automatically expands the loaded range to reach distant branches
 - **Inline search** (Ctrl+F) — search commit messages, authors, hashes, and dates across the full history
 - Click any commit to view its file list and unified diff
+- **Collapsing commit header** — commit info + message smoothly shrink as you scroll the diff, maximizing space for hunks (re-expands on scroll-up)
 - Click a branch in the sidebar to scroll the graph to its HEAD
 
 ### Working Tree & Staging
