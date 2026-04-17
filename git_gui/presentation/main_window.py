@@ -1,5 +1,6 @@
 # git_gui/presentation/main_window.py
 from __future__ import annotations
+import logging
 import threading
 from typing import Callable
 from PySide6.QtCore import Qt, Signal, QObject
@@ -25,6 +26,9 @@ from git_gui.presentation.widgets.insight_dialog import InsightDialog
 from git_gui.presentation.menus.appearance import install_appearance_menu
 from git_gui.presentation.menus.git_menu import install_git_menu
 from git_gui.presentation.dialogs.interactive_rebase_dialog import InteractiveRebaseDialog
+
+
+logger = logging.getLogger(__name__)
 
 
 class _RemoteSignals(QObject):
@@ -604,8 +608,11 @@ class MainWindow(QMainWindow):
                 for remote, names in cache_data.items():
                     if name in names:
                         remotes_with_tag.append(remote)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "Remote tag cache load failed for %s: %s",
+                    self._repo_path, e,
+                )
 
         if remotes_with_tag:
             remote_list = ", ".join(remotes_with_tag)
@@ -667,8 +674,11 @@ class MainWindow(QMainWindow):
                         if r in data and name in data[r]:
                             data[r] = [t for t in data[r] if t != name]
                             self._remote_tag_cache.save(self._repo_path, data)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Remote tag cache update failed for %s (remote=%s, tag=%s): %s",
+                            self._repo_path, r, name, e,
+                        )
             self._run_remote_op(f"Delete tag {name} from {remote}", _fn)
         self._reload()
 
