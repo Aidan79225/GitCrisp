@@ -292,10 +292,9 @@ class DiffWidget(QWidget):
         msg_h = int(line_count * line_h + doc_margin)
         self._msg_view.setFixedHeight(msg_h)
 
-        # Inform the header of its natural (fully-expanded) height so the parallax
-        # shrink maps scroll position correctly. Both children have had
-        # setFixedHeight called, so .maximumHeight() is the authoritative value
-        # and is available synchronously.
+        # Both children have had setFixedHeight called upstream, so
+        # .maximumHeight() is the authoritative natural height synchronously —
+        # no sizeHint / event-loop round-trip needed.
         detail_h = self._detail.maximumHeight()
         spacing = self._header.layout().spacing()
         self._header.set_expanded_height(detail_h + msg_h + spacing)
