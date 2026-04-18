@@ -119,10 +119,23 @@ git_gui/
 │                     #        list_local_branches_with_upstream, ...
 │
 ├── infrastructure/   # Adapters
-│   ├── pygit2_repo.py    # Implements Reader & Writer via pygit2
-│   ├── submodule_cli.py  # `git submodule` subprocess wrapper
-│   ├── repo_store.py     # JSON-based repository persistence
-│   └── git_clone.py      # Clone helper (recursive)
+│   ├── pygit2/           # Pygit2Repository — composite of ten mixin modules
+│   │   ├── repository.py     # Composite class (Pygit2Repository)
+│   │   ├── branch_ops.py     # Branch read/write
+│   │   ├── commit_ops.py     # Commit read/write + cherry-pick/revert/reset
+│   │   ├── diff_ops.py       # Diff / hunk / file status
+│   │   ├── stage_ops.py      # Stage / unstage / hunk stage / discard
+│   │   ├── tag_ops.py        # Tag read/write
+│   │   ├── stash_ops.py      # Stash list/create/pop/apply/drop
+│   │   ├── merge_rebase_ops.py  # Merge / rebase / interactive / abort / continue
+│   │   ├── remote_ops.py     # Remote list/add/remove/rename + push/pull/fetch
+│   │   ├── submodule_ops.py  # Submodule operations + gitdir helpers
+│   │   ├── repo_state_ops.py # HEAD / state / conflicts / _git_env
+│   │   └── _helpers.py       # Pure functions (status map, entity conversion, synthesis)
+│   ├── commit_ops_cli.py  # `git cherry-pick` / `git revert` subprocess wrapper
+│   ├── submodule_cli.py   # `git submodule` subprocess wrapper
+│   ├── repo_store.py      # JSON-based repository persistence
+│   └── git_clone.py       # Clone helper (recursive)
 │
 └── presentation/     # Qt UI layer
     ├── main_window.py        # Signal orchestration between widgets

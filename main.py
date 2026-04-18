@@ -2,7 +2,7 @@ import sys
 import pygit2
 from pathlib import Path
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 from git_gui.infrastructure.repo_store import JsonRepoStore
 from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 from git_gui.presentation.bus import CommandBus, QueryBus

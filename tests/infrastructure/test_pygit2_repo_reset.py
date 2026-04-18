@@ -5,7 +5,7 @@ import pytest
 import pygit2
 
 from git_gui.domain.entities import ResetMode
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 @pytest.fixture

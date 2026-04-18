@@ -2,7 +2,7 @@ import subprocess
 from pathlib import Path
 import pytest
 
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 def _run(cwd, *args):
