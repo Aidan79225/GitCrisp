@@ -8,6 +8,7 @@ import pygit2
 
 from git_gui.resources import subprocess_kwargs
 from git_gui.infrastructure.commit_ops_cli import CommitOpsCli
+from git_gui.infrastructure.pygit2.stash_ops import StashOps
 from git_gui.infrastructure.pygit2._helpers import (
     _map_statuses,
     _commit_to_entity,
@@ -26,7 +27,7 @@ from git_gui.domain.entities import (
 )
 
 
-class Pygit2Repository:
+class Pygit2Repository(StashOps):
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(_resolve_gitdir(path))
         self._commit_ops = CommitOpsCli(self._repo.workdir)
@@ -183,24 +184,6 @@ class Pygit2Repository:
                 target_oid=str(ref.target),
             ))
         return branches
-
-    def get_stashes(self) -> list[Stash]:
-        result = []
-        for i, stash in enumerate(self._repo.listall_stashes()):
-            ts: datetime | None = None
-            try:
-                commit = self._repo.get(stash.commit_id)
-                if commit is not None:
-                    ts = datetime.fromtimestamp(commit.commit_time, tz=timezone.utc)
-            except Exception as e:
-                logger.warning("Failed to read stash %d timestamp: %s", i, e)
-            result.append(Stash(
-                index=i,
-                message=stash.message,
-                oid=str(stash.commit_id),
-                timestamp=ts,
-            ))
-        return result
 
     def get_commit_files(self, oid: str) -> list[FileStatus]:
         commit = self._repo.get(oid)
@@ -1051,19 +1034,6 @@ class Pygit2Repository:
 
     def delete_remote_tag(self, remote: str, name: str) -> None:
         self._run_git("push", remote, f":refs/tags/{name}")
-
-    def stash(self, message: str) -> None:
-        sig = self._get_signature()
-        self._repo.stash(sig, message=message, include_untracked=True)
-
-    def pop_stash(self, index: int) -> None:
-        self._repo.stash_pop(index=index)
-
-    def apply_stash(self, index: int) -> None:
-        self._repo.stash_apply(index=index)
-
-    def drop_stash(self, index: int) -> None:
-        self._repo.stash_drop(index=index)
 
     # ----- Remotes -----
 
