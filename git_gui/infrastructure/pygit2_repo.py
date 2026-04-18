@@ -11,6 +11,7 @@ from git_gui.infrastructure.commit_ops_cli import CommitOpsCli
 from git_gui.infrastructure.pygit2.stash_ops import StashOps
 from git_gui.infrastructure.pygit2.tag_ops import TagOps
 from git_gui.infrastructure.pygit2.branch_ops import BranchOps
+from git_gui.infrastructure.pygit2.remote_ops import RemoteOps
 from git_gui.infrastructure.pygit2._helpers import (
     _map_statuses,
     _commit_to_entity,
@@ -29,7 +30,7 @@ from git_gui.domain.entities import (
 )
 
 
-class Pygit2Repository(StashOps, TagOps, BranchOps):
+class Pygit2Repository(StashOps, TagOps, BranchOps, RemoteOps):
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(_resolve_gitdir(path))
         self._commit_ops = CommitOpsCli(self._repo.workdir)
@@ -877,52 +878,6 @@ class Pygit2Repository(StashOps, TagOps, BranchOps):
         # Convert Oid to hex string if needed
         target_hex = str(target_oid)
         self._run_git("rebase", target_hex)
-
-    def push(self, remote: str, branch: str) -> None:
-        self._run_git("push", remote, branch)
-
-    def force_push(self, remote: str, branch: str) -> None:
-        self._run_git("push", "--force-with-lease", remote, branch)
-
-    def pull(self, remote: str, branch: str) -> None:
-        self._run_git("pull", "--rebase", remote, branch)
-
-    def fetch(self, remote: str) -> None:
-        self._run_git("fetch", remote)
-
-    def fetch_all_prune(self) -> None:
-        self._run_git("fetch", "--all", "--prune")
-
-    def _run_git(self, *args: str) -> None:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=self._repo.workdir, capture_output=True, text=True,
-            env=self._git_env, **subprocess_kwargs(),
-        )
-        if result.returncode != 0:
-            msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
-            raise RuntimeError(msg)
-
-    # ----- Remotes -----
-
-    def list_remotes(self) -> list[Remote]:
-        result: list[Remote] = []
-        for r in self._repo.remotes:
-            push_url = r.push_url if r.push_url else r.url
-            result.append(Remote(name=r.name, fetch_url=r.url, push_url=push_url))
-        return result
-
-    def add_remote(self, name: str, url: str) -> None:
-        self._repo.remotes.create(name, url)
-
-    def remove_remote(self, name: str) -> None:
-        self._repo.remotes.delete(name)
-
-    def rename_remote(self, old_name: str, new_name: str) -> None:
-        self._repo.remotes.rename(old_name, new_name)
-
-    def set_remote_url(self, name: str, url: str) -> None:
-        self._repo.remotes.set_url(name, url)
 
     # ----- Submodules -----
 
