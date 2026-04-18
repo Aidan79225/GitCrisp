@@ -9,6 +9,7 @@ import pygit2
 from git_gui.resources import subprocess_kwargs
 from git_gui.infrastructure.commit_ops_cli import CommitOpsCli
 from git_gui.infrastructure.pygit2.stash_ops import StashOps
+from git_gui.infrastructure.pygit2.tag_ops import TagOps
 from git_gui.infrastructure.pygit2._helpers import (
     _map_statuses,
     _commit_to_entity,
@@ -27,7 +28,7 @@ from git_gui.domain.entities import (
 )
 
 
-class Pygit2Repository(StashOps):
+class Pygit2Repository(StashOps, TagOps):
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(_resolve_gitdir(path))
         self._commit_ops = CommitOpsCli(self._repo.workdir)
@@ -362,68 +363,6 @@ class Pygit2Repository(StashOps):
         except Exception as e:
             logger.warning("Failed to compute staged diff for %r: %s", path, e)
         return []
-
-    def get_tags(self) -> list[Tag]:
-        tags: list[Tag] = []
-        for ref_name in self._repo.references:
-            if not ref_name.startswith("refs/tags/"):
-                continue
-            ref = self._repo.references[ref_name]
-            name = ref_name[len("refs/tags/"):]
-            target = self._repo.get(ref.target)
-            if isinstance(target, pygit2.Tag):
-                # Annotated tag — peel to get the commit OID
-                peeled = ref.peel(pygit2.Commit)
-                commit_oid = str(peeled.id)
-                ts = datetime.fromtimestamp(target.tagger.time, tz=timezone.utc) if target.tagger else None
-                tagger_str = f"{target.tagger.name} <{target.tagger.email}>" if target.tagger else None
-                tags.append(Tag(
-                    name=name,
-                    target_oid=commit_oid,
-                    is_annotated=True,
-                    message=target.message.strip() if target.message else None,
-                    tagger=tagger_str,
-                    timestamp=ts,
-                ))
-            else:
-                # Lightweight tag — target is a commit directly
-                tags.append(Tag(
-                    name=name,
-                    target_oid=str(ref.target),
-                    is_annotated=False,
-                    message=None,
-                    tagger=None,
-                    timestamp=None,
-                ))
-        return tags
-
-    def get_remote_tags(self, remote: str) -> list[str]:
-        try:
-            result = subprocess.run(
-                ["git", "ls-remote", "--tags", remote],
-                capture_output=True, text=True,
-                cwd=self._repo.workdir, env=self._git_env, **subprocess_kwargs(),
-            )
-            if result.returncode != 0:
-                return []
-            tags: list[str] = []
-            for line in result.stdout.strip().splitlines():
-                # Format: "<hash>\trefs/tags/<name>"
-                parts = line.split("\t")
-                if len(parts) != 2:
-                    continue
-                ref = parts[1]
-                if not ref.startswith("refs/tags/"):
-                    continue
-                name = ref[len("refs/tags/"):]
-                # Skip dereferenced entries like "v1.0^{}"
-                if name.endswith("^{}"):
-                    continue
-                tags.append(name)
-            return tags
-        except Exception as e:
-            logger.warning("Failed to list remote tags for %r: %s", remote, e)
-            return []
 
     def get_commit_stats(self, since: datetime | None = None, until: datetime | None = None) -> list[CommitStat]:
         cmd = ["git", "log", "--numstat", "--format=__COMMIT__%n%H%n%aN <%aE>%n%aI"]
@@ -1017,23 +956,6 @@ class Pygit2Repository(StashOps):
         if result.returncode != 0:
             msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
             raise RuntimeError(msg)
-
-    def create_tag(self, name: str, oid: str, message: str | None = None) -> None:
-        target = pygit2.Oid(hex=oid)
-        if message:
-            sig = self._get_signature()
-            self._repo.create_tag(name, target, pygit2.GIT_OBJECT_COMMIT, sig, message)
-        else:
-            self._repo.references.create(f"refs/tags/{name}", target)
-
-    def delete_tag(self, name: str) -> None:
-        self._repo.references.delete(f"refs/tags/{name}")
-
-    def push_tag(self, remote: str, name: str) -> None:
-        self._run_git("push", remote, f"refs/tags/{name}")
-
-    def delete_remote_tag(self, remote: str, name: str) -> None:
-        self._run_git("push", remote, f":refs/tags/{name}")
 
     # ----- Remotes -----
 
