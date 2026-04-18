@@ -9,7 +9,7 @@ When the user writes a message, rewrite it into correct English (with proper gra
 Follow **Clean Architecture** principles:
 - **Domain** (`domain/entities.py`, `domain/ports.py`): pure data classes and protocol interfaces — no framework dependencies
 - **Application** (`application/commands.py`, `application/queries.py`): thin use-case wrappers that delegate to ports
-- **Infrastructure** (`infrastructure/pygit2_repo.py`): concrete implementations of ports (pygit2, subprocess)
+- **Infrastructure** (`infrastructure/pygit2/`): concrete implementations of ports (pygit2, subprocess) — `Pygit2Repository` is a composite of ten focused mixin modules (`branch_ops`, `commit_ops`, `diff_ops`, etc.)
 - **Presentation** (`presentation/`): PySide6 widgets, bus wiring, main window
 
 Dependencies point inward: presentation → application → domain ← infrastructure. Never import presentation or infrastructure from domain/application.
