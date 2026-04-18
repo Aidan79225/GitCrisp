@@ -2,7 +2,7 @@ import pygit2
 import pytest
 from pathlib import Path
 from git_gui.domain.entities import WORKING_TREE_OID
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 def test_get_commits_returns_initial_commit(repo_impl):
@@ -110,7 +110,7 @@ def test_get_staged_diff_returns_hunks_after_staging(repo_path, repo_impl):
 def test_get_staged_diff_new_file_unborn_head(tmp_path):
     """get_staged_diff on a brand-new repo (no commits yet) shows staged new file."""
     import pygit2
-    from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+    from git_gui.infrastructure.pygit2 import Pygit2Repository
     repo = pygit2.init_repository(str(tmp_path))
     (tmp_path / "new.txt").write_text("hello\n")
     repo.index.add("new.txt")
@@ -443,7 +443,7 @@ def test_get_working_tree_diff_map_empty_when_clean(repo_impl, repo_path):
 
 def test_resolve_gitdir_normal_repo_passthrough(tmp_path):
     """A normal repo where .git is a directory is returned unchanged."""
-    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+    from git_gui.infrastructure.pygit2._helpers import _resolve_gitdir
     (tmp_path / ".git").mkdir()
 
     result = _resolve_gitdir(str(tmp_path))
@@ -453,7 +453,7 @@ def test_resolve_gitdir_normal_repo_passthrough(tmp_path):
 
 def test_resolve_gitdir_submodule_follows_gitlink(tmp_path):
     """A submodule where .git is a gitlink file is resolved to the real gitdir."""
-    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+    from git_gui.infrastructure.pygit2._helpers import _resolve_gitdir
     # Simulate a submodule layout:
     #   parent/
     #     .git/modules/sub/      <-- the real gitdir
@@ -474,7 +474,7 @@ def test_resolve_gitdir_submodule_follows_gitlink(tmp_path):
 
 def test_resolve_gitdir_missing_dot_git_passthrough(tmp_path):
     """A path with no .git at all and no parent submodule context is returned unchanged."""
-    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+    from git_gui.infrastructure.pygit2._helpers import _resolve_gitdir
 
     result = _resolve_gitdir(str(tmp_path))
 
@@ -483,7 +483,7 @@ def test_resolve_gitdir_missing_dot_git_passthrough(tmp_path):
 
 def test_resolve_gitdir_uninitialized_submodule(tmp_path):
     """Submodule workdir with no .git file at all — resolved via parent .gitmodules."""
-    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+    from git_gui.infrastructure.pygit2._helpers import _resolve_gitdir
     # Simulate:
     #   parent/
     #     .git/                                        <-- parent repo
@@ -511,7 +511,7 @@ def test_resolve_gitdir_uninitialized_submodule(tmp_path):
 
 def test_resolve_gitdir_uninitialized_submodule_nested(tmp_path):
     """Walk up multiple levels to find the parent repo when the path is nested."""
-    from git_gui.infrastructure.pygit2_repo import _resolve_gitdir
+    from git_gui.infrastructure.pygit2._helpers import _resolve_gitdir
     parent = tmp_path / "parent"
     (parent / ".git").mkdir(parents=True)
     submodule_gitdir = parent / ".git" / "modules" / "libs" / "foo" / "bar"
@@ -534,12 +534,12 @@ def test_resolve_gitdir_uninitialized_submodule_nested(tmp_path):
 # ---------- _parse_gitmodules_paths ----------
 
 def test_parse_gitmodules_paths_empty(tmp_path):
-    from git_gui.infrastructure.pygit2_repo import _parse_gitmodules_paths
+    from git_gui.infrastructure.pygit2._helpers import _parse_gitmodules_paths
     assert _parse_gitmodules_paths(str(tmp_path)) == []
 
 
 def test_parse_gitmodules_paths_multiple(tmp_path):
-    from git_gui.infrastructure.pygit2_repo import _parse_gitmodules_paths
+    from git_gui.infrastructure.pygit2._helpers import _parse_gitmodules_paths
     (tmp_path / ".gitmodules").write_text(
         '[submodule "apps/a"]\n'
         '\tpath = apps/a\n'
@@ -556,7 +556,7 @@ def test_parse_gitmodules_paths_multiple(tmp_path):
 # ---------- _submodule_diff_hunk ----------
 
 def test_submodule_diff_hunk_format():
-    from git_gui.infrastructure.pygit2_repo import _submodule_diff_hunk
+    from git_gui.infrastructure.pygit2._helpers import _submodule_diff_hunk
     hunk = _submodule_diff_hunk("aaa111", "bbb222")
     assert hunk.header == "@@ -1,1 +1,1 @@"
     assert hunk.lines == [

@@ -30,5 +30,5 @@ def repo_path(tmp_path) -> Path:
 
 @pytest.fixture
 def repo_impl(repo_path):
-    from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+    from git_gui.infrastructure.pygit2 import Pygit2Repository
     return Pygit2Repository(str(repo_path))

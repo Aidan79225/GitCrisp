@@ -1,6 +1,6 @@
 from pathlib import Path
 import pygit2
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 def _seed(repo_path: Path) -> Pygit2Repository:
