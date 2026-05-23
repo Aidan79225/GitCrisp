@@ -10,7 +10,6 @@ from PySide6.QtWidgets import QMainWindow, QMenu
 from git_gui.presentation.dialogs.branches_dialog import BranchesDialog
 from git_gui.presentation.dialogs.remote_dialog import RemoteDialog
 from git_gui.presentation.dialogs.submodule_dialog import SubmoduleDialog
-from git_gui.presentation.dialogs.worktrees_dialog import WorktreesDialog
 
 
 def install_git_menu(
