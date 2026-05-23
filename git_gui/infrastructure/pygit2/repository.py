@@ -15,6 +15,7 @@ from git_gui.infrastructure.pygit2.stage_ops import StageOps
 from git_gui.infrastructure.pygit2.stash_ops import StashOps
 from git_gui.infrastructure.pygit2.submodule_ops import SubmoduleOps
 from git_gui.infrastructure.pygit2.tag_ops import TagOps
+from git_gui.infrastructure.pygit2.worktree_ops import WorktreeOps
 
 
 class Pygit2Repository(
@@ -28,6 +29,7 @@ class Pygit2Repository(
     RemoteOps,
     SubmoduleOps,
     RepoStateOps,
+    WorktreeOps,
 ):
     """Composite pygit2 adapter. Every public method lives on one of the
     mixin base classes; this class provides only construction."""
