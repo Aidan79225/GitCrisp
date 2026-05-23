@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from git_gui.application.commands import (
     AddRemote,
     AddSubmodule,
+    AddWorktree,
     ApplyStash,
     Checkout,
     CheckoutCommit,
@@ -27,6 +28,7 @@ from git_gui.application.commands import (
     FetchAllPrune,
     ForcePush,
     InteractiveRebase,
+    LockWorktree,
     Merge,
     MergeAbort,
     MergeCommit,
@@ -40,6 +42,7 @@ from git_gui.application.commands import (
     RebaseOntoCommit,
     RemoveRemote,
     RemoveSubmodule,
+    RemoveWorktree,
     RenameBranch,
     RenameRemote,
     ResetBranch,
@@ -54,11 +57,13 @@ from git_gui.application.commands import (
     StageFiles,
     StageHunk,
     Stash,
+    UnlockWorktree,
     UnsetBranchUpstream,
     UnstageFiles,
     UnstageHunk,
 )
 from git_gui.application.queries import (
+    FindWorktreeForBranch,
     GetBranches,
     GetCommitDetail,
     GetCommitDiffMap,
@@ -86,6 +91,7 @@ from git_gui.application.queries import (
     ListLocalBranchesWithUpstream,
     ListRemotes,
     ListSubmodules,
+    ListWorktrees,
 )
 from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
 
@@ -119,6 +125,8 @@ class QueryBus:
     get_commit_range: GetCommitRange
     get_merge_base: GetMergeBase
     get_identity: GetIdentity
+    list_worktrees: ListWorktrees
+    find_worktree_for_branch: FindWorktreeForBranch
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> QueryBus:
@@ -150,6 +158,8 @@ class QueryBus:
             get_commit_range=GetCommitRange(reader),
             get_merge_base=GetMergeBase(reader),
             get_identity=GetIdentity(reader),
+            list_worktrees=ListWorktrees(reader),
+            find_worktree_for_branch=FindWorktreeForBranch(reader),
         )
 
 
@@ -208,6 +218,10 @@ class CommandBus:
     revert_abort: RevertAbort
     revert_continue: RevertContinue
     set_identity: SetIdentity
+    add_worktree: AddWorktree
+    remove_worktree: RemoveWorktree
+    lock_worktree: LockWorktree
+    unlock_worktree: UnlockWorktree
 
     @classmethod
     def from_writer(cls, writer: IRepositoryWriter) -> CommandBus:
@@ -265,4 +279,8 @@ class CommandBus:
             revert_abort=RevertAbort(writer),
             revert_continue=RevertContinue(writer),
             set_identity=SetIdentity(writer),
+            add_worktree=AddWorktree(writer),
+            remove_worktree=RemoveWorktree(writer),
+            lock_worktree=LockWorktree(writer),
+            unlock_worktree=UnlockWorktree(writer),
         )
