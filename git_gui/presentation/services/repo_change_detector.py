@@ -113,6 +113,7 @@ class RepoChangeDetector(QObject):
             git_dir / "refs" / "remotes",
             git_dir / "refs" / "tags",
             git_dir / "logs",
+            git_dir / "worktrees",
         ]
 
         for f in files:
