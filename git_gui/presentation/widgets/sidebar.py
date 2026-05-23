@@ -132,6 +132,7 @@ class SidebarWidget(QWidget):
     tag_delete_requested = Signal(str)  # tag name
     tag_push_requested = Signal(str)  # tag name
     remote_branch_delete_requested = Signal(str, str)  # (remote, branch)
+    checkout_in_new_worktree_requested = Signal(str)  # branch name
 
     def __init__(
         self,
@@ -146,6 +147,7 @@ class SidebarWidget(QWidget):
         self._commands = commands
         self._remote_tag_cache = remote_tag_cache
         self._repo_path = repo_path
+        self._worktree_branches: set[str] = set()
 
         self._tree = _SidebarTree()
         self._tree.setHeaderHidden(True)
@@ -272,6 +274,7 @@ class SidebarWidget(QWidget):
         self._model.appendRow(tag_header)
 
         self._tree.expandAll()
+        self._refresh_branch_badges()
 
     def _add_section(self, title: str, items: list[tuple]) -> None:
         header = QStandardItem(title)
@@ -315,21 +318,14 @@ class SidebarWidget(QWidget):
             return
         menu = QMenu(self)
         if kind == "branch":
-            menu.addAction("Checkout").triggered.connect(
-                lambda: self.checkout_branch_requested.emit(value)
-            )
-            menu.addAction("Merge into current").triggered.connect(
-                lambda: self.branch_merge_requested.emit(value)
-            )
-            menu.addAction("Rebase onto").triggered.connect(
-                lambda: self.branch_rebase_requested.emit(value)
-            )
-            menu.addSeparator()
-            menu.addAction("Push").triggered.connect(lambda: self.branch_push_requested.emit(value))
-            menu.addSeparator()
-            menu.addAction("Delete").triggered.connect(
-                lambda: self.branch_delete_requested.emit(value)
-            )
+            for entry in self.build_branch_context_actions(value):
+                a = menu.addAction(entry["label"])
+                a.triggered.connect(
+                    lambda _checked=False, e=entry: self.trigger_branch_action(e["action"], e["branch"])
+                )
+                # Add separators between groups (matches the pre-existing menu shape).
+                if entry["action"] in ("rebase", "push"):
+                    menu.addSeparator()
         elif kind == "remote_branch":
             remote, branch = value.split("/", 1)
             menu.addAction("Checkout").triggered.connect(
@@ -353,3 +349,73 @@ class SidebarWidget(QWidget):
                 lambda: self.tag_delete_requested.emit(value)
             )
         menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    # ── Worktree-awareness helpers ──────────────────────────────────────
+
+    def set_worktree_branches(self, branches: set[str]) -> None:
+        """Set the names of local branches currently checked out in a worktree.
+        Rows for these branches render with a '+' badge in the label."""
+        self._worktree_branches = set(branches)
+        self._refresh_branch_badges()
+
+    def has_worktree_badge(self, branch: str) -> bool:
+        return branch in self._worktree_branches
+
+    def build_branch_context_actions(self, branch: str) -> list[dict]:
+        """Return the action list for the branch context menu. The existing
+        Checkout/Merge/Rebase/Push/Delete entries plus the new worktree entry."""
+        return [
+            {"label": "Checkout", "action": "checkout", "branch": branch},
+            {"label": "Checkout in New Worktree…", "action": "checkout_in_new_worktree", "branch": branch},
+            {"label": "Merge into current", "action": "merge", "branch": branch},
+            {"label": "Rebase onto", "action": "rebase", "branch": branch},
+            {"label": "Push", "action": "push", "branch": branch},
+            {"label": "Delete", "action": "delete", "branch": branch},
+        ]
+
+    def trigger_branch_action(self, action: str, branch: str) -> None:
+        """Emit the appropriate signal for the chosen branch action."""
+        if action == "checkout":
+            # Route through SmartCheckout if MainWindow has set one;
+            # otherwise emit the standard checkout signal for MainWindow
+            # to handle through the unified `_on_checkout_branch` flow.
+            sc = getattr(self, "_smart_checkout", None)
+            if sc is not None:
+                try:
+                    sc.execute(branch)
+                except Exception:
+                    pass
+            else:
+                self.checkout_branch_requested.emit(branch)
+        elif action == "checkout_in_new_worktree":
+            self.checkout_in_new_worktree_requested.emit(branch)
+        elif action == "merge":
+            self.branch_merge_requested.emit(branch)
+        elif action == "rebase":
+            self.branch_rebase_requested.emit(branch)
+        elif action == "push":
+            self.branch_push_requested.emit(branch)
+        elif action == "delete":
+            self.branch_delete_requested.emit(branch)
+
+    def _refresh_branch_badges(self) -> None:
+        """Walk the LOCAL BRANCHES header and append/strip the '+' badge."""
+        model = self._model
+        for row in range(model.rowCount()):
+            header = model.item(row)
+            if header is None or header.text() != "LOCAL BRANCHES":
+                continue
+            for child_row in range(header.rowCount()):
+                child = header.child(child_row)
+                if child is None:
+                    continue
+                name = child.data(Qt.UserRole)
+                if name is None:
+                    continue
+                if name in self._worktree_branches:
+                    child.setText(f"{name}  +")
+                    child.setToolTip("Checked out in a worktree")
+                else:
+                    child.setText(name)
+                    child.setToolTip("")
+            break
