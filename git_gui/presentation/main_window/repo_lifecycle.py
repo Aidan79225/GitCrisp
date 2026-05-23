@@ -103,6 +103,9 @@ class RepoLifecycleMixin:
 
         # (Re)build SmartCheckout bound to the freshly created buses.
         from git_gui.presentation.services.smart_checkout import SmartCheckout
+        if getattr(self, "_smart_checkout", None) is not None:
+            self._smart_checkout.deleteLater()
+            self._smart_checkout = None
         self._smart_checkout = SmartCheckout(
             checkout=self._commands.checkout,
             finder=self._queries.find_worktree_for_branch,
@@ -114,6 +117,15 @@ class RepoLifecycleMixin:
 
         # Bridge branch -> "Checkout in New Worktree…" requests from
         # sidebar / graph context menus to the Add Worktree dialog.
+        # Disconnect prior connections (idempotent via try/except).
+        for sig_owner_attr in ("_sidebar", "_graph"):
+            owner = getattr(self, sig_owner_attr, None)
+            if owner is not None and hasattr(owner, "checkout_in_new_worktree_requested"):
+                try:
+                    owner.checkout_in_new_worktree_requested.disconnect()
+                except (RuntimeError, TypeError):
+                    pass  # No prior connection
+        # Now connect fresh.
         if hasattr(self._sidebar, "checkout_in_new_worktree_requested"):
             self._sidebar.checkout_in_new_worktree_requested.connect(
                 lambda branch: self._open_add_worktree_dialog(
@@ -313,12 +325,15 @@ class RepoLifecycleMixin:
             self._switch_repo(path)
 
     def _run_lock_worktree_with_reason(self, path: str, reason: str) -> None:
+        signals = _WorktreeOpSignals(self)
         def _worker():
             try:
                 self._commands.lock_worktree.execute(path, reason=reason or None)
+                signals.succeeded.emit()
             except Exception as e:
-                self._log_panel.log_error(f"Lock worktree failed: {e}")
-            self._load_worktrees_for_active_repo()
+                signals.failed.emit(str(e))
+        signals.succeeded.connect(self._load_worktrees_for_active_repo)
+        signals.failed.connect(lambda msg: self._log_panel.log_error(f"Lock worktree failed: {msg}"))
         threading.Thread(target=_worker, daemon=True).start()
 
     def _run_lock_worktree(self, path: str) -> None:
@@ -329,12 +344,15 @@ class RepoLifecycleMixin:
         self._run_lock_worktree_with_reason(path, text.strip())
 
     def _run_unlock_worktree(self, path: str) -> None:
+        signals = _WorktreeOpSignals(self)
         def _worker():
             try:
                 self._commands.unlock_worktree.execute(path)
+                signals.succeeded.emit()
             except Exception as e:
-                self._log_panel.log_error(f"Unlock worktree failed: {e}")
-            self._load_worktrees_for_active_repo()
+                signals.failed.emit(str(e))
+        signals.succeeded.connect(self._load_worktrees_for_active_repo)
+        signals.failed.connect(lambda msg: self._log_panel.log_error(f"Unlock worktree failed: {msg}"))
         threading.Thread(target=_worker, daemon=True).start()
 
     def _begin_remove_worktree(self, path: str) -> None:
