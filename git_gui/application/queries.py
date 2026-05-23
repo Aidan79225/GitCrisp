@@ -16,6 +16,7 @@ from git_gui.domain.entities import (
     Stash,
     Submodule,
     Tag,
+    Worktree,
 )
 from git_gui.domain.ports import IRepositoryReader
 
@@ -252,3 +253,19 @@ class GetMergeBase:
 
     def execute(self, oid_a: str, oid_b: str) -> str | None:
         return self._reader.merge_base(oid_a, oid_b)
+
+
+class ListWorktrees:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[Worktree]:
+        return self._reader.list_worktrees()
+
+
+class FindWorktreeForBranch:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, branch: str) -> Worktree | None:
+        return self._reader.find_worktree_for_branch(branch)
