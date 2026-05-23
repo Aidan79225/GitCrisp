@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Literal
 
 WORKING_TREE_OID = "WORKING_TREE"
@@ -124,3 +125,14 @@ class ResetMode(str, Enum):
 class MergeAnalysisResult:
     can_ff: bool
     is_up_to_date: bool
+
+
+@dataclass(frozen=True)
+class Worktree:
+    path: Path
+    branch: str | None        # None when HEAD is detached
+    head_sha: str
+    is_locked: bool
+    lock_reason: str | None   # None when not locked or no reason given
+    is_bare: bool
+    is_main: bool             # True for the primary worktree
