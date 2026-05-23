@@ -112,6 +112,7 @@ def test_lock_and_unlock_round_trip(fresh_repo, tmp_path):
     wts = impl.list_worktrees()
     feat = next(wt for wt in wts if wt.branch == "feat")
     assert feat.is_locked is True
+    assert feat.lock_reason == "testing"
 
     impl.unlock_worktree(str(wt_path))
     wts = impl.list_worktrees()

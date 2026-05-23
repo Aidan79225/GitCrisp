@@ -69,6 +69,9 @@ class WorktreeOps:
             except Exception as e:
                 logger.warning("Failed to read HEAD for worktree %r: %s", name, e)
                 wt_branch, wt_sha = None, ""
+            # pygit2 ≥ a future version is expected to expose is_locked.
+            # Today (1.19.2) the attribute is missing, so we fall back to
+            # checking the .git/worktrees/<name>/locked sentinel file.
             try:
                 is_locked = wt.is_locked
             except AttributeError:
@@ -147,14 +150,20 @@ class WorktreeOps:
         target = Path(path).resolve()
         name = self._worktree_name_for(target)
         wt = self._repo.lookup_worktree(name)
-        # pygit2 >= 1.13 exposes lock()/unlock(); older versions need a
-        # manual file write. Try the API first.
+        # pygit2 ≥ a future version is expected to expose lock(reason). Today
+        # (1.19.2) it raises AttributeError; we fall back to writing the
+        # `locked` file directly. The reason write below is idempotent in
+        # either case — when the API exists it overwrites with the same
+        # content; otherwise it provides the persistence.
         try:
-            wt.lock()
+            wt.lock(reason or "")
         except (AttributeError, TypeError):
             (Path(self._repo.path) / "worktrees" / name / "locked").touch()
         if reason is not None:
-            (Path(self._repo.path) / "worktrees" / name / "locked").write_text(reason)
+            try:
+                (Path(self._repo.path) / "worktrees" / name / "locked").write_text(reason)
+            except OSError as e:
+                logger.warning("Failed to write lock reason for worktree %r: %s", name, e)
 
     def unlock_worktree(self, path: str) -> None:
         target = Path(path).resolve()
