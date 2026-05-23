@@ -76,6 +76,7 @@ def test_remove_locked_worktree_without_force_raises_locked(repo_with_worktree):
     cli = WorktreeCli(str(main))
     with pytest.raises(WorktreeLockedError):
         cli.remove(str(wt), force=False)
+    assert wt.exists()
 
 
 def test_remove_unknown_path_raises_generic(repo_with_worktree, tmp_path):
