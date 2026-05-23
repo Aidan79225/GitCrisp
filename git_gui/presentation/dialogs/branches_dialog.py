@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -82,21 +83,25 @@ class _UpstreamDialog(QDialog):
 
 
 class BranchesDialog(QDialog):
+    checkout_in_new_worktree_requested = Signal(str)  # branch name
+
     def __init__(self, queries, commands, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Branches")
         self.resize(720, 420)
         self._queries = queries
         self._commands = commands
+        self._worktree_paths: dict[str, str] = {}
 
-        self._table = QTableWidget(0, 3)
-        self._table.setHorizontalHeaderLabels(["Name", "Upstream", "Last commit"])
+        self._table = QTableWidget(0, 4)
+        self._table.setHorizontalHeaderLabels(["Name", "Upstream", "Last commit", "Worktree"])
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.setSelectionMode(QTableWidget.SingleSelection)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._table.horizontalHeader().setStretchLastSection(True)
 
         self._checkout_btn = QPushButton("Checkout")
+        self._checkout_wt_btn = QPushButton("Checkout in New Worktree…")
         self._create_btn = QPushButton("Create...")
         self._rename_btn = QPushButton("Rename...")
         self._upstream_btn = QPushButton("Set Upstream...")
@@ -104,6 +109,7 @@ class BranchesDialog(QDialog):
         self._close_btn = QPushButton("Close")
 
         self._checkout_btn.clicked.connect(self._on_checkout)
+        self._checkout_wt_btn.clicked.connect(self._on_checkout_in_new_worktree)
         self._create_btn.clicked.connect(self._on_create)
         self._rename_btn.clicked.connect(self._on_rename)
         self._upstream_btn.clicked.connect(self._on_set_upstream)
@@ -112,6 +118,7 @@ class BranchesDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addWidget(self._checkout_btn)
+        btn_row.addWidget(self._checkout_wt_btn)
         btn_row.addWidget(self._create_btn)
         btn_row.addWidget(self._rename_btn)
         btn_row.addWidget(self._upstream_btn)
@@ -143,12 +150,21 @@ class BranchesDialog(QDialog):
             )
             commit_text = f"{info.last_commit_sha}  {info.last_commit_message}"
             self._table.setItem(row, 2, QTableWidgetItem(commit_text))
+            name_item = self._table.item(row, 0)
+            name_item.setData(Qt.UserRole, info.name)
+            wt_path = self._worktree_paths.get(info.name, "")
+            self._table.setItem(row, 3, QTableWidgetItem(wt_path))
+            if wt_path:
+                name_item.setText(f"{info.name}  +")
+                name_item.setToolTip(f"Checked out at {wt_path}")
 
     def _selected_name(self) -> str | None:
         rows = self._table.selectionModel().selectedRows()
         if not rows:
             return None
-        return self._table.item(rows[0].row(), 0).text()
+        item = self._table.item(rows[0].row(), 0)
+        canonical = item.data(Qt.UserRole)
+        return canonical if canonical else item.text()
 
     def _selected_upstream(self) -> str | None:
         rows = self._table.selectionModel().selectedRows()
@@ -241,3 +257,17 @@ class BranchesDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "Delete branch failed", str(e))
         self._refresh()
+
+    def set_worktree_paths(self, mapping: dict[str, str]) -> None:
+        """Map of branch_name -> absolute worktree path. Triggers a refresh."""
+        self._worktree_paths = dict(mapping)
+        self._refresh()
+
+    def _on_checkout_in_new_worktree(self) -> None:
+        name = self._selected_name()
+        if name:
+            self.checkout_in_new_worktree_requested.emit(name)
+
+    def click_checkout_in_new_worktree(self) -> None:
+        # Test seam.
+        self._on_checkout_in_new_worktree()
