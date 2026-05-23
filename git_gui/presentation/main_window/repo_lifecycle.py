@@ -80,6 +80,7 @@ class RepoLifecycleMixin:
             commands=self._commands,
             repo_workdir=self._repo_path,
             on_open_submodule=self._on_submodule_open_requested,
+            on_open_worktrees_dialog=getattr(self, "_open_worktrees_dialog", None),
         )
         self._right_stack.setCurrentIndex(0)
 
@@ -119,6 +120,7 @@ class RepoLifecycleMixin:
             commands=None,
             repo_workdir=None,
             on_open_submodule=self._on_submodule_open_requested,
+            on_open_worktrees_dialog=None,
         )
 
     def _on_repo_open(self, path: str) -> None:
