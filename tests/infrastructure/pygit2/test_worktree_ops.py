@@ -1,10 +1,11 @@
 """WorktreeOps mixin — exercised via Pygit2Repository against real repos."""
 from __future__ import annotations
-from pathlib import Path
-import subprocess
 
-import pytest
+import subprocess
+from pathlib import Path
+
 import pygit2
+import pytest
 
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 from git_gui.infrastructure.worktree_cli import WorktreeDirtyError

@@ -18,15 +18,18 @@ class _FakeStore:
     def get_recent_repos(self): return list(self._recent)
     def get_active(self): return self._active
     def add_open(self, p, after=None):
-        if p in self._open: return
+        if p in self._open:
+            return
         if after and after in self._open:
             self._open.insert(self._open.index(after) + 1, p)
         else:
             self._open.append(p)
     def close_repo(self, p):
-        if p in self._open: self._open.remove(p)
+        if p in self._open:
+            self._open.remove(p)
     def remove_recent(self, p):
-        if p in self._recent: self._recent.remove(p)
+        if p in self._recent:
+            self._recent.remove(p)
     def set_active(self, p): self._active = p
     def set_open_order(self, paths): self._open = list(paths)
 

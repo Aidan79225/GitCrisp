@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from git_gui.domain.entities import Worktree
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.theme import connect_widget, get_theme_manager

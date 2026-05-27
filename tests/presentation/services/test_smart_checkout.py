@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import pytest
 import pygit2
+import pytest
 
 from git_gui.domain.entities import Worktree
 from git_gui.presentation.services.smart_checkout import SmartCheckout

@@ -4,17 +4,17 @@ Uses real pygit2 fixtures (no subprocess mocking). Builds a small repo with
 a real worktree, then exercises the wrapper's remove paths.
 """
 from __future__ import annotations
-from pathlib import Path
+
 import subprocess
 
-import pytest
 import pygit2
+import pytest
 
 from git_gui.infrastructure.worktree_cli import (
     WorktreeCli,
+    WorktreeCommandError,
     WorktreeDirtyError,
     WorktreeLockedError,
-    WorktreeCommandError,
 )
 
 

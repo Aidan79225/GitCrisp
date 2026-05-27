@@ -1,6 +1,7 @@
 """RepoChangeDetector should watch .git/worktrees/ for external worktree
 add/remove/prune operations."""
 from __future__ import annotations
+
 import subprocess
 
 import pygit2

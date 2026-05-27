@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QInputDialog, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout,
+    QDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
 
 from git_gui.domain.entities import Worktree

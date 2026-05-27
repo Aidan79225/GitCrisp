@@ -1,10 +1,13 @@
 """Application use cases for worktrees — thin delegation to ports."""
 from __future__ import annotations
 
-from git_gui.application.queries import ListWorktrees, FindWorktreeForBranch
 from git_gui.application.commands import (
-    AddWorktree, RemoveWorktree, LockWorktree, UnlockWorktree,
+    AddWorktree,
+    LockWorktree,
+    RemoveWorktree,
+    UnlockWorktree,
 )
+from git_gui.application.queries import FindWorktreeForBranch, ListWorktrees
 from git_gui.domain.entities import Worktree
 
 
