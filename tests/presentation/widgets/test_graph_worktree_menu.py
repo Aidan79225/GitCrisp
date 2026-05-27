@@ -39,12 +39,12 @@ def test_branch_context_menu_offers_checkout_in_new_worktree(qtbot, monkeypatch)
     # path with a fabricated commit oid+branches list. If the widget's
     # internal method takes the list, call it. Otherwise, exercise via the
     # public `_show_context_menu` after seeding a fake _queries.
-    try:
-        GraphWidget = graph_module.GraphWidget
-        gw = GraphWidget(queries=None, commands=None)
-    except TypeError:
-        # Different constructor signature — use no-arg if supported.
-        gw = GraphWidget()
+    class _NullStore:
+        def get_repo_setting(self, *_a, **_kw): return None
+        def set_repo_setting(self, *_a, **_kw): pass
+
+    GraphWidget = graph_module.GraphWidget
+    gw = GraphWidget(queries=None, commands=None, repo_store=_NullStore())
     qtbot.addWidget(gw)
 
     # Build the menu in isolation by invoking the addAction/addMenu path
