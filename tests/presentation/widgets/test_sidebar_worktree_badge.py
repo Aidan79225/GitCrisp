@@ -1,5 +1,6 @@
 """Sidebar branch rows show a + badge when the branch owns a worktree,
 and the branch context menu offers 'Checkout in New Worktree…'."""
+
 from __future__ import annotations
 
 from git_gui.presentation.widgets.sidebar import SidebarWidget

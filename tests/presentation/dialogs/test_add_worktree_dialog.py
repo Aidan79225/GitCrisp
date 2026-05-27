@@ -1,4 +1,5 @@
 """Signal-contract tests for AddWorktreeDialog."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,8 +7,15 @@ from pathlib import Path
 from git_gui.presentation.dialogs.add_worktree_dialog import AddWorktreeDialog
 
 
-def _open_dialog(qtbot, *, repo_path="/tmp/repo", branches=None,
-                 in_use=None, preselect=None, default_create=False):
+def _open_dialog(
+    qtbot,
+    *,
+    repo_path="/tmp/repo",
+    branches=None,
+    in_use=None,
+    preselect=None,
+    default_create=False,
+):
     dlg = AddWorktreeDialog(
         repo_path=repo_path,
         branches=branches or ["master", "feat/a", "feat/b"],
@@ -20,8 +28,9 @@ def _open_dialog(qtbot, *, repo_path="/tmp/repo", branches=None,
 
 
 def test_default_path_template_updates_with_branch_selection(qtbot):
-    dlg = _open_dialog(qtbot, repo_path="/tmp/myrepo",
-                      branches=["master", "feat/a"], preselect="feat/a")
+    dlg = _open_dialog(
+        qtbot, repo_path="/tmp/myrepo", branches=["master", "feat/a"], preselect="feat/a"
+    )
     # The template uses pathlib, which emits native separators (back-slash
     # on Windows). Compare as Path objects so the test is platform-agnostic.
     assert Path(dlg.location()) == Path("/tmp/myrepo-feat-a")

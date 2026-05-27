@@ -129,9 +129,9 @@ class MergeAnalysisResult:
 @dataclass(frozen=True)
 class Worktree:
     path: str
-    branch: str | None        # None when HEAD is detached
+    branch: str | None  # None when HEAD is detached
     head_sha: str
     is_locked: bool
-    lock_reason: str | None   # None when not locked or no reason given
+    lock_reason: str | None  # None when not locked or no reason given
     is_bare: bool
-    is_main: bool             # True for the primary worktree
+    is_main: bool  # True for the primary worktree

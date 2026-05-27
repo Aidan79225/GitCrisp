@@ -67,6 +67,7 @@ class IRepositoryReader(Protocol):
     def get_identity(self) -> tuple[str | None, str | None]: ...
 
     """Return (user.name, user.email) from repo config; either may be None if unset."""
+
     def list_worktrees(self) -> list[Worktree]: ...
     def find_worktree_for_branch(self, branch: str) -> Worktree | None: ...
 
@@ -135,6 +136,7 @@ class IRepositoryWriter(Protocol):
     def set_identity(self, name: str, email: str, global_: bool) -> None: ...
 
     """Persist user.name and user.email via `git config [--global|--local]`."""
+
     def add_worktree(
         self,
         path: str,

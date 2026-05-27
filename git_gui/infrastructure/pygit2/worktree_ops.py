@@ -32,6 +32,7 @@ class WorktreeOps:
     Mixin — not instantiable on its own. Relies on `self._repo` set up
     by the composite class.
     """
+
     _repo: pygit2.Repository  # provided by the composite
 
     # ── Reads ────────────────────────────────────────────────────────────
@@ -43,15 +44,17 @@ class WorktreeOps:
         main_workdir = self._repo.workdir or ""
         if main_workdir:
             main_branch, main_sha = _read_head_branch(main_workdir)
-            result.append(Worktree(
-                path=str(Path(main_workdir).resolve()),
-                branch=main_branch,
-                head_sha=main_sha,
-                is_locked=False,
-                lock_reason=None,
-                is_bare=self._repo.is_bare,
-                is_main=True,
-            ))
+            result.append(
+                Worktree(
+                    path=str(Path(main_workdir).resolve()),
+                    branch=main_branch,
+                    head_sha=main_sha,
+                    is_locked=False,
+                    lock_reason=None,
+                    is_bare=self._repo.is_bare,
+                    is_main=True,
+                )
+            )
 
         # Linked worktrees.
         try:
@@ -84,15 +87,17 @@ class WorktreeOps:
                     lock_reason = locked_file.read_text().strip() or None
                 except OSError:
                     lock_reason = None
-            result.append(Worktree(
-                path=str(Path(wt.path).resolve()),
-                branch=wt_branch,
-                head_sha=wt_sha,
-                is_locked=bool(is_locked),
-                lock_reason=lock_reason,
-                is_bare=False,
-                is_main=False,
-            ))
+            result.append(
+                Worktree(
+                    path=str(Path(wt.path).resolve()),
+                    branch=wt_branch,
+                    head_sha=wt_sha,
+                    is_locked=bool(is_locked),
+                    lock_reason=lock_reason,
+                    is_bare=False,
+                    is_main=False,
+                )
+            )
         return result
 
     def find_worktree_for_branch(self, branch: str) -> Worktree | None:
@@ -144,6 +149,7 @@ class WorktreeOps:
 
     def remove_worktree(self, path: str, *, force: bool) -> None:
         from git_gui.infrastructure.worktree_cli import WorktreeCli
+
         cli = WorktreeCli(self._repo.workdir)
         cli.remove(path, force=force)
 

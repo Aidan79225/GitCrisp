@@ -1,4 +1,5 @@
 """Graph branch context menu: 'Checkout in New Worktree' wiring."""
+
 from __future__ import annotations
 
 from PySide6.QtWidgets import QMenu
@@ -6,6 +7,7 @@ from PySide6.QtWidgets import QMenu
 
 def test_checkout_in_new_worktree_signal_exists():
     from git_gui.presentation.widgets.graph import GraphWidget
+
     assert hasattr(GraphWidget, "checkout_in_new_worktree_requested")
 
 
@@ -40,8 +42,11 @@ def test_branch_context_menu_offers_checkout_in_new_worktree(qtbot, monkeypatch)
     # internal method takes the list, call it. Otherwise, exercise via the
     # public `_show_context_menu` after seeding a fake _queries.
     class _NullStore:
-        def get_repo_setting(self, *_a, **_kw): return None
-        def set_repo_setting(self, *_a, **_kw): pass
+        def get_repo_setting(self, *_a, **_kw):
+            return None
+
+        def set_repo_setting(self, *_a, **_kw):
+            pass
 
     GraphWidget = graph_module.GraphWidget
     gw = GraphWidget(queries=None, commands=None, repo_store=_NullStore())

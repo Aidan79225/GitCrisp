@@ -1,5 +1,6 @@
 """RepoChangeDetector should watch .git/worktrees/ for external worktree
 add/remove/prune operations."""
+
 from __future__ import annotations
 
 import subprocess
@@ -49,7 +50,8 @@ def test_external_worktree_add_triggers_reload(qtbot, repo, tmp_path):
         with qtbot.waitSignal(d._watcher.directoryChanged, timeout=3000):
             subprocess.run(
                 ["git", "-C", str(repo), "worktree", "add", str(wt_path), "feat"],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
         qtbot.wait(300)  # let the 200 ms debounce fire
         assert calls, "expected on_reload to fire after external worktree add"

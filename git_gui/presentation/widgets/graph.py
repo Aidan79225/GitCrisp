@@ -709,12 +709,16 @@ class GraphWidget(QWidget):
             if len(real_branches) == 1:
                 name = real_branches[0]
                 menu.addAction(f"Checkout in New Worktree: {name}").triggered.connect(
-                    lambda: self.checkout_in_new_worktree_requested.emit(name))
+                    lambda: self.checkout_in_new_worktree_requested.emit(name)
+                )
             else:
                 sub = menu.addMenu("Checkout in New Worktree")
                 for name in real_branches:
                     sub.addAction(name).triggered.connect(
-                        lambda _checked=False, n=name: self.checkout_in_new_worktree_requested.emit(n))
+                        lambda _checked=False, n=name: self.checkout_in_new_worktree_requested.emit(
+                            n
+                        )
+                    )
 
         if local_branches:
             if len(local_branches) == 1:

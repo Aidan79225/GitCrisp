@@ -448,7 +448,10 @@ class AddWorktree:
         base_ref: str | None,
     ) -> Worktree:
         return self._writer.add_worktree(
-            path, branch, create_branch=create_branch, base_ref=base_ref,
+            path,
+            branch,
+            create_branch=create_branch,
+            base_ref=base_ref,
         )
 
 

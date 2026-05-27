@@ -1,4 +1,5 @@
 """Signal-contract tests for WorktreesDialog."""
+
 from __future__ import annotations
 
 from git_gui.domain.entities import Worktree
@@ -7,8 +8,13 @@ from git_gui.presentation.dialogs.worktrees_dialog import WorktreesDialog
 
 def _wt(branch="feat", path="/tmp/wt", locked=False, reason=None, main=False):
     return Worktree(
-        path=path, branch=branch, head_sha="abc",
-        is_locked=locked, lock_reason=reason, is_bare=False, is_main=main,
+        path=path,
+        branch=branch,
+        head_sha="abc",
+        is_locked=locked,
+        lock_reason=reason,
+        is_bare=False,
+        is_main=main,
     )
 
 
@@ -19,8 +25,7 @@ def _open(qtbot, worktrees):
 
 
 def test_rows_render_branch_and_path(qtbot):
-    dlg = _open(qtbot, [_wt("main", "/tmp/main", main=True),
-                        _wt("feat", "/tmp/wt-feat")])
+    dlg = _open(qtbot, [_wt("main", "/tmp/main", main=True), _wt("feat", "/tmp/wt-feat")])
     assert dlg.row_count() == 2
     assert dlg.row_branch(0) == "main"
     assert dlg.row_path(1) == "/tmp/wt-feat"

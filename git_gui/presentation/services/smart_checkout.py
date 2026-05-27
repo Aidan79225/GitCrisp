@@ -1,5 +1,6 @@
 """Smart-checkout: intercept the 'branch is in another worktree' error
 and switch to the owning worktree instead of surfacing the error."""
+
 from __future__ import annotations
 
 import re

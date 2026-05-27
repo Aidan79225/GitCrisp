@@ -273,7 +273,9 @@ class RepoListWidget(QWidget):
     repo_close_requested = Signal(str)
     repo_remove_recent_requested = Signal(str)
     clone_requested = Signal()
-    worktree_action_requested = Signal(str, str)  # (action, path) — action ∈ {"add", "manage", "open", "lock", "unlock", "remove"}
+    worktree_action_requested = Signal(
+        str, str
+    )  # (action, path) — action ∈ {"add", "manage", "open", "lock", "unlock", "remove"}
 
     def __init__(self, repo_store: IRepoStore, parent=None) -> None:
         super().__init__(parent)
@@ -471,14 +473,18 @@ class RepoListWidget(QWidget):
                 for entry in self._build_context_actions_for_active_repo(path):
                     a = menu.addAction(entry["label"])
                     a.triggered.connect(
-                        lambda _checked=False, e=entry: self._emit_worktree_action(e["action"], e["path"])
+                        lambda _checked=False, e=entry: self._emit_worktree_action(
+                            e["action"], e["path"]
+                        )
                     )
         elif kind == "worktree" and path:
             locked = self._is_worktree_locked(path)
             for entry in self._build_context_actions_for_worktree(path, locked=locked):
                 a = menu.addAction(entry["label"])
                 a.triggered.connect(
-                    lambda _checked=False, e=entry: self._emit_worktree_action(e["action"], e["path"])
+                    lambda _checked=False, e=entry: self._emit_worktree_action(
+                        e["action"], e["path"]
+                    )
                 )
         elif kind == "recent" and path:
             menu.addAction("Remove from recent").triggered.connect(

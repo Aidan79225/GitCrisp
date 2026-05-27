@@ -1,4 +1,5 @@
 """Application use cases for worktrees — thin delegation to ports."""
+
 from __future__ import annotations
 
 from git_gui.application.commands import (
@@ -37,8 +38,13 @@ class _FakeWriter:
     def add_worktree(self, path, branch, *, create_branch, base_ref):
         self.add_calls.append((path, branch, create_branch, base_ref))
         return Worktree(
-            path=path, branch=branch, head_sha="x",
-            is_locked=False, lock_reason=None, is_bare=False, is_main=False,
+            path=path,
+            branch=branch,
+            head_sha="x",
+            is_locked=False,
+            lock_reason=None,
+            is_bare=False,
+            is_main=False,
         )
 
     def remove_worktree(self, path, *, force):

@@ -15,9 +15,9 @@ from git_gui.domain.entities import Worktree
 
 
 class WorktreesDialog(QDialog):
-    open_requested = Signal(str)          # absolute path
+    open_requested = Signal(str)  # absolute path
     remove_requested = Signal(str)
-    lock_requested = Signal(str, str)     # path, reason (may be empty)
+    lock_requested = Signal(str, str)  # path, reason (may be empty)
     unlock_requested = Signal(str)
     add_requested = Signal()
 

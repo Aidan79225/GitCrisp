@@ -11,6 +11,7 @@ class _FakeCheckout:
     def __init__(self, raise_on=None):
         self._raise = raise_on
         self.calls: list[str] = []
+
     def execute(self, branch):
         self.calls.append(branch)
         if self._raise is not None:
@@ -21,6 +22,7 @@ class _FakeFinder:
     def __init__(self, result=None):
         self._result = result
         self.calls: list[str] = []
+
     def execute(self, branch):
         self.calls.append(branch)
         return self._result
@@ -28,8 +30,13 @@ class _FakeFinder:
 
 def _wt(path="/tmp/wt", branch="feat"):
     return Worktree(
-        path=path, branch=branch, head_sha="x",
-        is_locked=False, lock_reason=None, is_bare=False, is_main=False,
+        path=path,
+        branch=branch,
+        head_sha="x",
+        is_locked=False,
+        lock_reason=None,
+        is_bare=False,
+        is_main=False,
     )
 
 
@@ -45,9 +52,7 @@ def test_normal_checkout_does_not_emit_switch(qtbot):
 
 
 def test_worktree_collision_switches_and_does_not_raise(qtbot):
-    err = pygit2.GitError(
-        "branch 'feat' already used by worktree at /tmp/wt"
-    )
+    err = pygit2.GitError("branch 'feat' already used by worktree at /tmp/wt")
     checkout = _FakeCheckout(raise_on=err)
     finder = _FakeFinder(result=_wt("/tmp/wt", "feat"))
     sc = SmartCheckout(checkout, finder)  # type: ignore[arg-type]
@@ -58,9 +63,7 @@ def test_worktree_collision_switches_and_does_not_raise(qtbot):
 
 
 def test_worktree_collision_no_owning_worktree_reraises(qtbot):
-    err = pygit2.GitError(
-        "branch 'feat' already used by worktree at /missing"
-    )
+    err = pygit2.GitError("branch 'feat' already used by worktree at /missing")
     checkout = _FakeCheckout(raise_on=err)
     finder = _FakeFinder(result=None)
     sc = SmartCheckout(checkout, finder)  # type: ignore[arg-type]

@@ -3,6 +3,7 @@
 Uses real pygit2 fixtures (no subprocess mocking). Builds a small repo with
 a real worktree, then exercises the wrapper's remove paths.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -38,7 +39,8 @@ def repo_with_worktree(tmp_path):
     wt_path = tmp_path / "wt-feat"
     subprocess.run(
         ["git", "-C", str(main), "worktree", "add", str(wt_path), "feat"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     return main, wt_path
 
@@ -71,7 +73,8 @@ def test_remove_locked_worktree_without_force_raises_locked(repo_with_worktree):
     main, wt = repo_with_worktree
     subprocess.run(
         ["git", "-C", str(main), "worktree", "lock", str(wt)],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     cli = WorktreeCli(str(main))
     with pytest.raises(WorktreeLockedError):

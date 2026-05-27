@@ -39,9 +39,7 @@ class WorktreeCli:
         """Remove a worktree. Raises `WorktreeDirtyError` /
         `WorktreeLockedError` / `WorktreeCommandError`."""
         if shutil.which(self._git) is None:
-            raise WorktreeCommandError(
-                f"`{self._git}` executable not found on PATH"
-            )
+            raise WorktreeCommandError(f"`{self._git}` executable not found on PATH")
         args = [self._git, "worktree", "remove"]
         if force:
             args.append("--force")
@@ -63,6 +61,4 @@ class WorktreeCli:
                 raise WorktreeLockedError(stderr) from e
             raise WorktreeCommandError(stderr) from e
         except FileNotFoundError as e:
-            raise WorktreeCommandError(
-                f"`{self._git}` executable not found on PATH"
-            ) from e
+            raise WorktreeCommandError(f"`{self._git}` executable not found on PATH") from e

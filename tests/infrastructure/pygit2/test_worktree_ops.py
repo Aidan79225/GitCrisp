@@ -1,4 +1,5 @@
 """WorktreeOps mixin — exercised via Pygit2Repository against real repos."""
+
 from __future__ import annotations
 
 import subprocess
@@ -45,7 +46,8 @@ def test_list_worktrees_includes_added_worktree(fresh_repo, tmp_path):
     wt_path = tmp_path / "wt-feat"
     subprocess.run(
         ["git", "-C", str(fresh_repo), "worktree", "add", str(wt_path), "feat"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     impl = Pygit2Repository(str(fresh_repo))
     wts = impl.list_worktrees()
@@ -61,7 +63,10 @@ def test_add_worktree_creates_new_branch_and_directory(fresh_repo, tmp_path):
     impl = Pygit2Repository(str(fresh_repo))
     target = tmp_path / "wt-new"
     wt = impl.add_worktree(
-        str(target), "feat/new", create_branch=True, base_ref="master",
+        str(target),
+        "feat/new",
+        create_branch=True,
+        base_ref="master",
     )
     assert target.exists()
     assert wt.branch == "feat/new"
@@ -76,7 +81,10 @@ def test_add_worktree_attaches_existing_branch(fresh_repo, tmp_path):
     impl = Pygit2Repository(str(fresh_repo))
     target = tmp_path / "wt-existing"
     wt = impl.add_worktree(
-        str(target), "existing", create_branch=False, base_ref=None,
+        str(target),
+        "existing",
+        create_branch=False,
+        base_ref=None,
     )
     assert wt.branch == "existing"
 
@@ -85,9 +93,9 @@ def test_find_worktree_for_branch_returns_match(fresh_repo, tmp_path):
     repo = pygit2.Repository(str(fresh_repo))
     repo.references.create("refs/heads/feat", repo.head.target)
     subprocess.run(
-        ["git", "-C", str(fresh_repo), "worktree", "add",
-         str(tmp_path / "wt-feat"), "feat"],
-        check=True, capture_output=True,
+        ["git", "-C", str(fresh_repo), "worktree", "add", str(tmp_path / "wt-feat"), "feat"],
+        check=True,
+        capture_output=True,
     )
     impl = Pygit2Repository(str(fresh_repo))
     wt = impl.find_worktree_for_branch("feat")
@@ -106,7 +114,8 @@ def test_lock_and_unlock_round_trip(fresh_repo, tmp_path):
     wt_path = tmp_path / "wt-feat"
     subprocess.run(
         ["git", "-C", str(fresh_repo), "worktree", "add", str(wt_path), "feat"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     impl = Pygit2Repository(str(fresh_repo))
     impl.lock_worktree(str(wt_path), reason="testing")
@@ -127,7 +136,8 @@ def test_remove_worktree_clean(fresh_repo, tmp_path):
     wt_path = tmp_path / "wt-feat"
     subprocess.run(
         ["git", "-C", str(fresh_repo), "worktree", "add", str(wt_path), "feat"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     impl = Pygit2Repository(str(fresh_repo))
     impl.remove_worktree(str(wt_path), force=False)
@@ -140,7 +150,8 @@ def test_remove_worktree_dirty_without_force_raises(fresh_repo, tmp_path):
     wt_path = tmp_path / "wt-feat"
     subprocess.run(
         ["git", "-C", str(fresh_repo), "worktree", "add", str(wt_path), "feat"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     (wt_path / "a.txt").write_text("changed\n")
     impl = Pygit2Repository(str(fresh_repo))

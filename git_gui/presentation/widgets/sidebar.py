@@ -322,7 +322,9 @@ class SidebarWidget(QWidget):
             for entry in self.build_branch_context_actions(value):
                 a = menu.addAction(entry["label"])
                 a.triggered.connect(
-                    lambda _checked=False, e=entry: self.trigger_branch_action(e["action"], e["branch"])
+                    lambda _checked=False, e=entry: self.trigger_branch_action(
+                        e["action"], e["branch"]
+                    )
                 )
                 # Add separators between groups (matches the pre-existing menu shape).
                 if entry["action"] in ("rebase", "push"):
@@ -367,7 +369,11 @@ class SidebarWidget(QWidget):
         Checkout/Merge/Rebase/Push/Delete entries plus the new worktree entry."""
         return [
             {"label": "Checkout", "action": "checkout", "branch": branch},
-            {"label": "Checkout in New Worktree…", "action": "checkout_in_new_worktree", "branch": branch},
+            {
+                "label": "Checkout in New Worktree…",
+                "action": "checkout_in_new_worktree",
+                "branch": branch,
+            },
             {"label": "Merge into current", "action": "merge", "branch": branch},
             {"label": "Rebase onto", "action": "rebase", "branch": branch},
             {"label": "Push", "action": "push", "branch": branch},

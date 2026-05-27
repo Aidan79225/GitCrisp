@@ -103,6 +103,7 @@ class RepoLifecycleMixin:
 
         # (Re)build SmartCheckout bound to the freshly created buses.
         from git_gui.presentation.services.smart_checkout import SmartCheckout
+
         if getattr(self, "_smart_checkout", None) is not None:
             self._smart_checkout.deleteLater()
             self._smart_checkout = None
@@ -257,6 +258,7 @@ class RepoLifecycleMixin:
         if self._queries is None or self._commands is None or self._repo_path is None:
             return
         from git_gui.presentation.dialogs.add_worktree_dialog import AddWorktreeDialog
+
         try:
             branches = [b.name for b in self._queries.get_branches.execute() if not b.is_remote]
         except Exception:
@@ -284,6 +286,7 @@ class RepoLifecycleMixin:
         if self._queries is None or self._commands is None:
             return
         from git_gui.presentation.dialogs.worktrees_dialog import WorktreesDialog
+
         try:
             wts = self._queries.list_worktrees.execute()
         except Exception as e:
@@ -294,8 +297,9 @@ class RepoLifecycleMixin:
         dlg.remove_requested.connect(self._begin_remove_worktree)
         dlg.lock_requested.connect(self._run_lock_worktree_with_reason)
         dlg.unlock_requested.connect(self._run_unlock_worktree)
-        dlg.add_requested.connect(lambda: self._open_add_worktree_dialog(
-            preselect_branch=None, default_create=False))
+        dlg.add_requested.connect(
+            lambda: self._open_add_worktree_dialog(preselect_branch=None, default_create=False)
+        )
         dlg.exec()
 
     def _on_add_worktree_requested(self, payload: dict) -> None:
@@ -326,18 +330,23 @@ class RepoLifecycleMixin:
 
     def _run_lock_worktree_with_reason(self, path: str, reason: str) -> None:
         signals = _WorktreeOpSignals(self)
+
         def _worker():
             try:
                 self._commands.lock_worktree.execute(path, reason=reason or None)
                 signals.succeeded.emit()
             except Exception as e:
                 signals.failed.emit(str(e))
+
         signals.succeeded.connect(self._load_worktrees_for_active_repo)
-        signals.failed.connect(lambda msg: self._log_panel.log_error(f"Lock worktree failed: {msg}"))
+        signals.failed.connect(
+            lambda msg: self._log_panel.log_error(f"Lock worktree failed: {msg}")
+        )
         threading.Thread(target=_worker, daemon=True).start()
 
     def _run_lock_worktree(self, path: str) -> None:
         from PySide6.QtWidgets import QInputDialog
+
         text, ok = QInputDialog.getText(self, "Lock Worktree", "Reason (optional):")
         if not ok:
             return
@@ -345,21 +354,27 @@ class RepoLifecycleMixin:
 
     def _run_unlock_worktree(self, path: str) -> None:
         signals = _WorktreeOpSignals(self)
+
         def _worker():
             try:
                 self._commands.unlock_worktree.execute(path)
                 signals.succeeded.emit()
             except Exception as e:
                 signals.failed.emit(str(e))
+
         signals.succeeded.connect(self._load_worktrees_for_active_repo)
-        signals.failed.connect(lambda msg: self._log_panel.log_error(f"Unlock worktree failed: {msg}"))
+        signals.failed.connect(
+            lambda msg: self._log_panel.log_error(f"Unlock worktree failed: {msg}")
+        )
         threading.Thread(target=_worker, daemon=True).start()
 
     def _begin_remove_worktree(self, path: str) -> None:
         from PySide6.QtWidgets import QMessageBox
-        if QMessageBox.question(
-            self, "Remove worktree", f"Remove worktree at {path}?"
-        ) != QMessageBox.Yes:
+
+        if (
+            QMessageBox.question(self, "Remove worktree", f"Remove worktree at {path}?")
+            != QMessageBox.Yes
+        ):
             return
         self._run_remove_worktree(path, force=False)
 
@@ -385,7 +400,9 @@ class RepoLifecycleMixin:
         signals.succeeded.connect(self._on_worktree_removed)
         signals.dirty_error.connect(self._on_remove_dirty)
         signals.locked_error.connect(self._on_remove_locked)
-        signals.failed.connect(lambda msg: self._log_panel.log_error(f"Remove worktree failed: {msg}"))
+        signals.failed.connect(
+            lambda msg: self._log_panel.log_error(f"Remove worktree failed: {msg}")
+        )
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_worktree_removed(self) -> None:
@@ -393,6 +410,7 @@ class RepoLifecycleMixin:
 
     def _on_remove_dirty(self, path: str) -> None:
         from PySide6.QtWidgets import QMessageBox
+
         msg = QMessageBox(self)
         msg.setWindowTitle("Worktree is dirty")
         msg.setText(f"The worktree at {path} has uncommitted changes.\nForce remove anyway?")
@@ -404,6 +422,7 @@ class RepoLifecycleMixin:
 
     def _on_remove_locked(self, path: str, reason: str) -> None:
         from PySide6.QtWidgets import QMessageBox
+
         msg = QMessageBox(self)
         msg.setWindowTitle("Worktree is locked")
         msg.setText(f"The worktree at {path} is locked.\n{reason}\n\nForce remove anyway?")

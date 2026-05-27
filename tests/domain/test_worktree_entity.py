@@ -55,8 +55,13 @@ def test_worktree_supports_locked_with_reason():
 
 def test_worktree_is_frozen():
     wt = Worktree(
-        path="/tmp/r", branch="main", head_sha="abc",
-        is_locked=False, lock_reason=None, is_bare=False, is_main=True,
+        path="/tmp/r",
+        branch="main",
+        head_sha="abc",
+        is_locked=False,
+        lock_reason=None,
+        is_bare=False,
+        is_main=True,
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         wt.branch = "other"  # type: ignore[misc]
