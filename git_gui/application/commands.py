@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from git_gui.domain.entities import Branch, Commit, MergeStrategy, ResetMode
+from git_gui.domain.entities import Branch, Commit, MergeStrategy, ResetMode, Worktree
 from git_gui.domain.ports import IRepositoryWriter
 
 
@@ -433,3 +433,47 @@ class RevertContinue:
 
     def execute(self) -> None:
         self._writer.revert_continue()
+
+
+class AddWorktree:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(
+        self,
+        path: str,
+        branch: str,
+        *,
+        create_branch: bool,
+        base_ref: str | None,
+    ) -> Worktree:
+        return self._writer.add_worktree(
+            path,
+            branch,
+            create_branch=create_branch,
+            base_ref=base_ref,
+        )
+
+
+class RemoveWorktree:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, *, force: bool) -> None:
+        self._writer.remove_worktree(path, force=force)
+
+
+class LockWorktree:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, *, reason: str | None = None) -> None:
+        self._writer.lock_worktree(path, reason=reason)
+
+
+class UnlockWorktree:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str) -> None:
+        self._writer.unlock_worktree(path)

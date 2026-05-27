@@ -193,6 +193,7 @@ class GraphWidget(QWidget):
     create_tag_requested = Signal(str)  # oid
     checkout_commit_requested = Signal(str)  # oid
     checkout_branch_requested = Signal(str)  # branch name (local or remote)
+    checkout_in_new_worktree_requested = Signal(str)  # branch name
     delete_branch_requested = Signal(str)  # local branch name
     remote_branch_delete_requested = Signal(str, str)  # (remote, branch)
     merge_branch_requested = Signal(str)  # branch name (merge into current)
@@ -702,6 +703,21 @@ class GraphWidget(QWidget):
                 for name in real_branches:
                     sub.addAction(name).triggered.connect(
                         lambda _checked=False, n=name: self.checkout_branch_requested.emit(n)
+                    )
+
+        if real_branches:
+            if len(real_branches) == 1:
+                name = real_branches[0]
+                menu.addAction(f"Checkout in New Worktree: {name}").triggered.connect(
+                    lambda: self.checkout_in_new_worktree_requested.emit(name)
+                )
+            else:
+                sub = menu.addMenu("Checkout in New Worktree")
+                for name in real_branches:
+                    sub.addAction(name).triggered.connect(
+                        lambda _checked=False, n=name: self.checkout_in_new_worktree_requested.emit(
+                            n
+                        )
                     )
 
         if local_branches:

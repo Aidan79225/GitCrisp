@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from git_gui.domain.entities import Worktree
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 
@@ -272,10 +273,14 @@ class RepoListWidget(QWidget):
     repo_close_requested = Signal(str)
     repo_remove_recent_requested = Signal(str)
     clone_requested = Signal()
+    worktree_action_requested = Signal(
+        str, str
+    )  # (action, path) — action ∈ {"add", "manage", "open", "lock", "unlock", "remove"}
 
     def __init__(self, repo_store: IRepoStore, parent=None) -> None:
         super().__init__(parent)
         self._store = repo_store
+        self._active_worktrees: list[Worktree] = []
 
         # Header with "+" button
         header_layout = QHBoxLayout()
@@ -317,7 +322,7 @@ class RepoListWidget(QWidget):
         # Tree view
         self._tree = _RepoTree()
         self._tree.setHeaderHidden(True)
-        self._tree.setRootIsDecorated(False)
+        self._tree.setRootIsDecorated(True)
         self._tree.setMouseTracking(True)
         self._tree.setDragEnabled(True)
         self._tree.setAcceptDrops(True)
@@ -340,6 +345,10 @@ class RepoListWidget(QWidget):
 
         connect_widget(self)
 
+    def set_active_worktrees(self, worktrees: list[Worktree]) -> None:
+        """Set the worktrees to render under the active repo row."""
+        self._active_worktrees = list(worktrees)
+
     def reload(self) -> None:
         self._model.clear()
         active = self._store.get_active()
@@ -354,6 +363,11 @@ class RepoListWidget(QWidget):
             open_header.setSizeHint(QSize(0, _ROW_HEIGHT))
             for path in open_repos:
                 item = self._make_repo_item(path, "open", is_active=(path == active))
+                if path == active and self._active_worktrees:
+                    for wt in self._active_worktrees:
+                        if wt.is_main:
+                            continue  # main worktree IS the active repo row
+                        item.appendRow(self._make_worktree_item(wt))
                 open_header.appendRow(item)
             self._model.appendRow(open_header)
 
@@ -371,6 +385,15 @@ class RepoListWidget(QWidget):
             self._model.appendRow(recent_header)
 
         self._tree.expandAll()
+
+    def _make_worktree_item(self, wt: Worktree) -> QStandardItem:
+        label = wt.branch or "(detached)"
+        item = QStandardItem(label)
+        item.setEditable(False)
+        item.setToolTip(str(wt.path))
+        item.setData(str(wt.path), Qt.UserRole)
+        item.setData("worktree", Qt.UserRole + 1)
+        return item
 
     def _make_repo_item(self, path: str, kind: str, is_active: bool) -> QStandardItem:
         display_name = Path(path).name
@@ -409,15 +432,60 @@ class RepoListWidget(QWidget):
             self.repo_switch_requested.emit(path)
         elif kind == "recent" and path:
             self.repo_open_requested.emit(path)
+        elif kind == "worktree" and path:
+            self.repo_switch_requested.emit(path)
+
+    def _build_context_actions_for_active_repo(self, path: str) -> list[dict]:
+        return [
+            {"label": "Add Worktree…", "action": "add", "path": path},
+            {"label": "Manage Worktrees…", "action": "manage", "path": path},
+        ]
+
+    def _build_context_actions_for_worktree(self, path: str, *, locked: bool) -> list[dict]:
+        actions = [{"label": "Open", "action": "open", "path": path}]
+        if locked:
+            actions.append({"label": "Unlock", "action": "unlock", "path": path})
+        else:
+            actions.append({"label": "Lock…", "action": "lock", "path": path})
+        actions.append({"label": "Remove…", "action": "remove", "path": path})
+        return actions
+
+    def _emit_worktree_action(self, action: str, path: str) -> None:
+        self.worktree_action_requested.emit(action, path)
+
+    def _is_worktree_locked(self, path: str) -> bool:
+        for wt in self._active_worktrees:
+            if str(wt.path) == path:
+                return wt.is_locked
+        return False
 
     def _show_context_menu(self, pos) -> None:
         index = self._tree.indexAt(pos)
         kind = index.data(Qt.UserRole + 1)
         path = index.data(Qt.UserRole)
+        active = self._store.get_active()
 
         menu = QMenu(self)
         if kind == "open" and path:
             menu.addAction("Close").triggered.connect(lambda: self.repo_close_requested.emit(path))
+            if path == active:
+                menu.addSeparator()
+                for entry in self._build_context_actions_for_active_repo(path):
+                    a = menu.addAction(entry["label"])
+                    a.triggered.connect(
+                        lambda _checked=False, e=entry: self._emit_worktree_action(
+                            e["action"], e["path"]
+                        )
+                    )
+        elif kind == "worktree" and path:
+            locked = self._is_worktree_locked(path)
+            for entry in self._build_context_actions_for_worktree(path, locked=locked):
+                a = menu.addAction(entry["label"])
+                a.triggered.connect(
+                    lambda _checked=False, e=entry: self._emit_worktree_action(
+                        e["action"], e["path"]
+                    )
+                )
         elif kind == "recent" and path:
             menu.addAction("Remove from recent").triggered.connect(
                 lambda: self.repo_remove_recent_requested.emit(path)

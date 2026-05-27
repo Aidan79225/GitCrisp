@@ -83,6 +83,15 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - Open repositories from disk or clone from URL
 - Persistent state in `~/.gitcrisp/repos.json`
 
+### Worktrees
+- List, add, lock/unlock, and remove `git worktree` instances from inside GitCrisp
+- Worktrees appear nested under their parent repo in the sidebar; click to switch
+- **Smart checkout** — picking a branch already checked out in another worktree transparently switches to that worktree instead of erroring
+- **Add Worktree dialog** — branch combo with disabled state for already-used branches, "Create new branch" toggle with base-ref picker, templated default path (`{repo_parent}/{repo_name}-{branch}`)
+- **Two-stage remove** — confirm, then a force prompt if the worktree is dirty or locked
+- `Git → Worktrees…` opens the manage dialog with all worktrees and their lock state
+- Branches that own a worktree show a `+` badge in the sidebar branch tree and Branches dialog; "Checkout in New Worktree…" is offered in the branch context menus (sidebar, graph, dialog)
+
 ### Theming
 - Light and dark themes selectable from **`View → Appearance...`** — Light uses a softer primary-tinted surface palette; Dark stays on the deeper Material 3 baseline.
 - **Inspection mode** — open the Theme dialog and click the Custom radio in any mode to expand each section (Brand, Surface, Diff, etc.) and read every token's hex code. Individual swatch clicks are no-ops outside Custom; toggling the radio between Light / Dark / System refreshes the swatches live.
@@ -125,7 +134,7 @@ git_gui/
 │                     #        list_local_branches_with_upstream, ...
 │
 ├── infrastructure/   # Adapters
-│   ├── pygit2/           # Pygit2Repository — composite of ten mixin modules
+│   ├── pygit2/           # Pygit2Repository — composite of eleven mixin modules
 │   │   ├── repository.py     # Composite class (Pygit2Repository)
 │   │   ├── branch_ops.py     # Branch read/write
 │   │   ├── commit_ops.py     # Commit read/write + cherry-pick/revert/reset
@@ -136,10 +145,12 @@ git_gui/
 │   │   ├── merge_rebase_ops.py  # Merge / rebase / interactive / abort / continue
 │   │   ├── remote_ops.py     # Remote list/add/remove/rename + push/pull/fetch
 │   │   ├── submodule_ops.py  # Submodule operations + gitdir helpers
+│   │   ├── worktree_ops.py   # Worktree list/add/lock/unlock
 │   │   ├── repo_state_ops.py # HEAD / state / conflicts / _git_env
 │   │   └── _helpers.py       # Pure functions (status map, entity conversion, synthesis)
 │   ├── commit_ops_cli.py  # `git cherry-pick` / `git revert` subprocess wrapper
 │   ├── submodule_cli.py   # `git submodule` subprocess wrapper
+│   ├── worktree_cli.py    # `git worktree remove` subprocess wrapper
 │   ├── repo_store.py      # JSON-based repository persistence
 │   ├── remote_tag_cache.py  # Remote tag SHA→name cache
 │   └── git_clone.py       # Clone helper (recursive)

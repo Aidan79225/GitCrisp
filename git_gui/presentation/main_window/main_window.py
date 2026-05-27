@@ -71,6 +71,8 @@ class MainWindow(
         self._remote_tag_cache = remote_tag_cache
         self._repo_path = repo_path
         self._session_factory = session_factory
+        self._worktree_paths_by_branch: dict[str, str] = {}
+        self._smart_checkout = None  # SmartCheckout | None — set in _on_repo_ready
 
         self._build_chrome()
         self._build_widgets()

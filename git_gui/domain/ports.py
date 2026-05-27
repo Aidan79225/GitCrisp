@@ -19,6 +19,7 @@ from git_gui.domain.entities import (
     Stash,
     Submodule,
     Tag,
+    Worktree,
 )
 
 
@@ -66,6 +67,9 @@ class IRepositoryReader(Protocol):
     def get_identity(self) -> tuple[str | None, str | None]: ...
 
     """Return (user.name, user.email) from repo config; either may be None if unset."""
+
+    def list_worktrees(self) -> list[Worktree]: ...
+    def find_worktree_for_branch(self, branch: str) -> Worktree | None: ...
 
 
 @runtime_checkable
@@ -132,6 +136,18 @@ class IRepositoryWriter(Protocol):
     def set_identity(self, name: str, email: str, global_: bool) -> None: ...
 
     """Persist user.name and user.email via `git config [--global|--local]`."""
+
+    def add_worktree(
+        self,
+        path: str,
+        branch: str,
+        *,
+        create_branch: bool,
+        base_ref: str | None,
+    ) -> Worktree: ...
+    def remove_worktree(self, path: str, *, force: bool) -> None: ...
+    def lock_worktree(self, path: str, *, reason: str | None = None) -> None: ...
+    def unlock_worktree(self, path: str) -> None: ...
 
 
 @runtime_checkable

@@ -18,6 +18,7 @@ def install_git_menu(
     commands,
     repo_workdir: str | None,
     on_open_submodule: Callable[[str], None],
+    on_open_worktrees_dialog: Callable[[], None] | None = None,
 ) -> None:
     """Add a `Git` menu with `Remotes...` and `Submodules...` actions.
 
@@ -42,7 +43,18 @@ def install_git_menu(
     def _open_branches() -> None:
         if queries is None or commands is None:
             return
-        BranchesDialog(queries, commands, window).exec()
+        dlg = BranchesDialog(queries, commands, window)
+        if hasattr(window, "_worktree_paths_by_branch") and hasattr(dlg, "set_worktree_paths"):
+            dlg.set_worktree_paths(window._worktree_paths_by_branch)
+        if hasattr(dlg, "checkout_in_new_worktree_requested") and hasattr(
+            window, "_open_add_worktree_dialog"
+        ):
+            dlg.checkout_in_new_worktree_requested.connect(
+                lambda branch: window._open_add_worktree_dialog(
+                    preselect_branch=branch, default_create=False
+                )
+            )
+        dlg.exec()
 
     branches_action.triggered.connect(_open_branches)
 
@@ -61,7 +73,18 @@ def install_git_menu(
     git_menu.addAction(branches_action)
     git_menu.addAction(submodule_action)
 
+    worktrees_action = QAction("&Worktrees...", window)
+
+    def _open_worktrees() -> None:
+        if queries is None or commands is None or on_open_worktrees_dialog is None:
+            return
+        on_open_worktrees_dialog()
+
+    worktrees_action.triggered.connect(_open_worktrees)
+    git_menu.addAction(worktrees_action)
+
     window._git_menu = git_menu  # type: ignore[attr-defined]
     window._git_remote_action = remote_action  # type: ignore[attr-defined]
     window._git_branches_action = branches_action  # type: ignore[attr-defined]
     window._git_submodule_action = submodule_action  # type: ignore[attr-defined]
+    window._git_worktrees_action = worktrees_action  # type: ignore[attr-defined]
