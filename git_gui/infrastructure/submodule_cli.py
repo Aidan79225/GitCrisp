@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from git_gui.resources import subprocess_kwargs
+from git_gui.resources import git_ssh_env, subprocess_kwargs
 
 
 class SubmoduleCommandError(Exception):
@@ -32,6 +32,7 @@ class SubmoduleCli:
                 check=True,
                 capture_output=True,
                 text=True,
+                env=git_ssh_env(),
                 **subprocess_kwargs(),
             )
         except subprocess.CalledProcessError as e:

@@ -5,6 +5,7 @@ import os
 import pygit2
 
 from git_gui.domain.entities import RepoState, RepoStateInfo
+from git_gui.resources import git_ssh_env
 
 
 class RepoStateOps:
@@ -25,8 +26,11 @@ class RepoStateOps:
         walk up looking for ``.git`` — which for a submodule workdir that
         has no ``.git`` file lands on the *parent* repo and runs the command
         against the wrong remote.
+
+        Also carries ``GIT_SSH_COMMAND`` so remote ops (push/pull/fetch) don't
+        fail on first-time SSH host-key verification.
         """
-        env = os.environ.copy()
+        env = git_ssh_env()
         env["GIT_DIR"] = self._repo.path
         if self._repo.workdir:
             env["GIT_WORK_TREE"] = self._repo.workdir

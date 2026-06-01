@@ -6,7 +6,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from git_gui.resources import subprocess_kwargs
+from git_gui.resources import git_ssh_env, subprocess_kwargs
 
 
 @dataclass
@@ -32,6 +32,7 @@ def clone_repo(
         ["git", "clone", "--progress", "--recurse-submodules", url, dest],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=git_ssh_env(),
         **subprocess_kwargs(),
     )
 
