@@ -78,16 +78,34 @@ class BranchOps:
         self._repo.create_branch(name, commit, False)
         return Branch(name=name, is_remote=False, is_head=False, target_oid=from_oid)
 
+    def _refresh_index(self) -> None:
+        """Reload the in-memory index from disk before a checkout.
+
+        pygit2 caches the index on ``self._repo``. Subprocess git operations
+        (merge/rebase/cherry-pick abort & continue, and any command the user
+        runs in a terminal) mutate ``.git/index`` on disk without touching the
+        cached object. A checkout consults the cached index, so a stale one
+        still holding conflict entries makes pygit2 raise "unresolved conflicts
+        exist in the index" even though the repository on disk is clean.
+
+        Re-reading from disk is safe: staging always writes the index
+        immediately, so there are never in-memory-only changes to lose.
+        """
+        self._repo.index.read()
+
     def checkout(self, branch: str) -> None:
+        self._refresh_index()
         ref = self._repo.branches.local[branch]
         self._repo.checkout(ref)
 
     def checkout_commit(self, oid: str) -> None:
+        self._refresh_index()
         commit = self._repo.get(oid)
         self._repo.checkout_tree(commit)
         self._repo.set_head(commit.id)
 
     def checkout_remote_branch(self, remote_branch: str) -> None:
+        self._refresh_index()
         # "origin/feature" → local branch "feature" tracking "origin/feature"
         parts = remote_branch.split("/", 1)
         local_name = parts[1] if len(parts) > 1 else remote_branch
