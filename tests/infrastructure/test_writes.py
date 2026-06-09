@@ -260,6 +260,48 @@ def test_merge_abort_restores_clean_state(writable_repo):
     assert impl.get_merge_head() is None
 
 
+def test_checkout_after_aborted_merge_does_not_see_stale_conflicts(writable_repo):
+    """Regression: merging via the long-lived impl populates its in-memory
+    index with conflict entries. Aborting via subprocess clears the on-disk
+    index but NOT the cached in-memory one. A subsequent checkout through the
+    same impl must not fail with 'unresolved conflicts exist in the index'."""
+    impl, path = writable_repo
+    raw = pygit2.Repository(str(path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    # Advance master with a change to README.md
+    (path / "README.md").write_text("master change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master change", tree_a, [base])
+
+    # Conflicting branch from base
+    raw.branches.local.create("conflict-branch", raw.get(base))
+    raw.checkout("refs/heads/conflict-branch")
+    (path / "README.md").write_text("branch change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    raw.create_commit("refs/heads/conflict-branch", sig, sig, "branch change", tree_b, [base])
+
+    # Back to master, then merge THROUGH THE IMPL so its in-memory index is
+    # polluted with conflict entries (this is the real app's code path).
+    raw.checkout("refs/heads/master")
+    raw.set_head("refs/heads/master")
+    impl.merge("conflict-branch")
+    assert impl.repo_state().state == RepoState.MERGING
+
+    # Abort via subprocess — clears the on-disk index, not impl's cached one.
+    impl.merge_abort()
+    assert impl.repo_state().state == RepoState.CLEAN
+
+    # Checkout through the same impl must succeed.
+    impl.checkout("conflict-branch")
+    assert pygit2.Repository(str(path)).head.shorthand == "conflict-branch"
+
+
 def test_rebase_abort_restores_clean_state(writable_repo):
     impl, path = writable_repo
     raw = pygit2.Repository(str(path))
