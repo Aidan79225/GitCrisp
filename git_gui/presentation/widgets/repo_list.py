@@ -281,6 +281,11 @@ class RepoListWidget(QWidget):
         super().__init__(parent)
         self._store = repo_store
         self._active_worktrees: list[Worktree] = []
+        # The open repo whose worktree group is currently loaded. Tracked
+        # separately from the active path so that switching into a worktree
+        # (active path = a linked worktree, not an open repo) keeps the group
+        # rendered under its owning main repo.
+        self._worktree_owner: str | None = None
 
         # Header with "+" button
         header_layout = QHBoxLayout()
@@ -345,13 +350,28 @@ class RepoListWidget(QWidget):
 
         connect_widget(self)
 
-    def set_active_worktrees(self, worktrees: list[Worktree]) -> None:
-        """Set the worktrees to render under the active repo row."""
+    def set_active_worktrees(
+        self, worktrees: list[Worktree], owner_path: str | None = None
+    ) -> None:
+        """Set the worktrees to render under their owning open repo row.
+
+        *owner_path* is the open repo these worktrees belong to. When omitted,
+        the group is rendered under whichever open repo is the active path
+        (legacy behaviour). Tracking the owner explicitly lets the group stay
+        attached to its main repo even while a child worktree is the active
+        path.
+        """
         self._active_worktrees = list(worktrees)
+        self._worktree_owner = owner_path
 
     def reload(self) -> None:
         self._model.clear()
         active = self._store.get_active()
+
+        # The worktree group is rendered under its owning open repo. While a
+        # child worktree is the active path (active not in open_repos), the
+        # owner keeps the group attached to its main repo so it stays visible.
+        group_owner = self._worktree_owner if self._worktree_owner is not None else active
 
         # Open repos section (drag-and-drop reorderable via custom DnD)
         open_repos = self._store.get_open_repos()
@@ -363,11 +383,13 @@ class RepoListWidget(QWidget):
             open_header.setSizeHint(QSize(0, _ROW_HEIGHT))
             for path in open_repos:
                 item = self._make_repo_item(path, "open", is_active=(path == active))
-                if path == active and self._active_worktrees:
+                if path == group_owner and self._active_worktrees:
                     for wt in self._active_worktrees:
                         if wt.is_main:
-                            continue  # main worktree IS the active repo row
-                        item.appendRow(self._make_worktree_item(wt))
+                            continue  # main worktree IS the owning repo row
+                        item.appendRow(
+                            self._make_worktree_item(wt, is_active=(str(wt.path) == active))
+                        )
                 open_header.appendRow(item)
             self._model.appendRow(open_header)
 
@@ -386,13 +408,18 @@ class RepoListWidget(QWidget):
 
         self._tree.expandAll()
 
-    def _make_worktree_item(self, wt: Worktree) -> QStandardItem:
+    def _make_worktree_item(self, wt: Worktree, is_active: bool = False) -> QStandardItem:
         label = wt.branch or "(detached)"
         item = QStandardItem(label)
         item.setEditable(False)
         item.setToolTip(str(wt.path))
         item.setData(str(wt.path), Qt.UserRole)
         item.setData("worktree", Qt.UserRole + 1)
+        if is_active:
+            font = item.font()
+            font.setBold(True)
+            item.setFont(font)
+            item.setData(True, _IS_ACTIVE_ROLE)
         return item
 
     def _make_repo_item(self, path: str, kind: str, is_active: bool) -> QStandardItem:

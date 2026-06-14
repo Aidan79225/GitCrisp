@@ -222,12 +222,21 @@ class RepoLifecycleMixin:
     def _load_worktrees_for_active_repo(self) -> None:
         if self._queries is None or self._repo_path is None:
             return
+        # When the active path is a linked worktree (not a top-level open repo),
+        # its session reports worktree metadata relative to itself — its own
+        # directory as the main worktree, with the real main repo absent. Re-
+        # listing here would corrupt the group shown in the repo list. Keep the
+        # group loaded for the owning main repo and just refresh the active
+        # highlight onto the worktree row.
+        if self._repo_path not in self._repo_store.get_open_repos():
+            self._repo_list.reload()
+            return
         try:
             wts = self._queries.list_worktrees.execute()
         except Exception as e:
             self._log_panel.log_error(f"Failed to list worktrees: {e}")
             wts = []
-        self._repo_list.set_active_worktrees(wts)
+        self._repo_list.set_active_worktrees(wts, owner_path=self._repo_path)
         self._repo_list.reload()
         wt_branches = {wt.branch for wt in wts if wt.branch and not wt.is_main}
         wt_paths = {wt.branch: str(wt.path) for wt in wts if wt.branch and not wt.is_main}

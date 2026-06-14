@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 
 from git_gui.domain.entities import Worktree
-from git_gui.presentation.widgets.repo_list import RepoListWidget
+from git_gui.presentation.widgets.repo_list import _IS_ACTIVE_ROLE, RepoListWidget
 
 
 class _FakeStore:
@@ -133,6 +133,68 @@ def test_clicking_worktree_child_emits_repo_switch_requested(qtbot):
     wt_child = repo_item.child(0)
     w._on_item_clicked(model.indexFromItem(wt_child))
     assert received == ["/tmp/myrepo-feat"]
+
+
+# ── Active worktree stays visible + highlighted ────────────────────────────
+
+
+def _main_wt(path, branch="master"):
+    return Worktree(
+        path=path,
+        branch=branch,
+        head_sha="x",
+        is_locked=False,
+        lock_reason=None,
+        is_bare=False,
+        is_main=True,
+    )
+
+
+def _open_header(model):
+    for row in range(model.rowCount()):
+        item = model.item(row)
+        if item.data(Qt.UserRole + 1) == "header" and item.text() == "OPEN":
+            return item
+    return None
+
+
+def test_active_worktree_stays_visible_under_parent(qtbot):
+    """Clicking a worktree makes it active; it must remain shown as a child of
+    its owning open repo rather than vanishing from the list."""
+    # Group loaded while the main repo was active, then the worktree was
+    # clicked so the active path is now the worktree (not in open_repos).
+    store = _FakeStore(open_=["/tmp/myrepo"], active="/tmp/myrepo-feat")
+    w = RepoListWidget(store)
+    qtbot.addWidget(w)
+    w.set_active_worktrees(
+        [_main_wt("/tmp/myrepo"), _wt("/tmp/myrepo-feat", branch="feat")],
+        owner_path="/tmp/myrepo",
+    )
+    w.reload()
+
+    open_header = _open_header(w._model)
+    assert open_header is not None
+    repo_item = open_header.child(0)
+    assert repo_item.rowCount() == 1
+    wt_child = repo_item.child(0)
+    assert wt_child.data(Qt.UserRole) == "/tmp/myrepo-feat"
+
+
+def test_active_worktree_child_is_highlighted_not_parent(qtbot):
+    store = _FakeStore(open_=["/tmp/myrepo"], active="/tmp/myrepo-feat")
+    w = RepoListWidget(store)
+    qtbot.addWidget(w)
+    w.set_active_worktrees(
+        [_main_wt("/tmp/myrepo"), _wt("/tmp/myrepo-feat", branch="feat")],
+        owner_path="/tmp/myrepo",
+    )
+    w.reload()
+
+    repo_item = _open_header(w._model).child(0)
+    wt_child = repo_item.child(0)
+    # The clicked worktree is the active row; the parent repo is not.
+    assert wt_child.data(_IS_ACTIVE_ROLE) is True
+    assert repo_item.data(_IS_ACTIVE_ROLE) is not True
 
 
 # ── Task 11: context menus ─────────────────────────────────────────────────
