@@ -14,10 +14,10 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
+    "pytest>=9.1.0",
     "pytest-qt>=4.5.0",
-    "pyinstaller>=6.0",
-    "ruff>=0.7",
+    "pyinstaller>=6.21.0",
+    "ruff>=0.15.17",
     "mypy>=1.10",
 ]
 
