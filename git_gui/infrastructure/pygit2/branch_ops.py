@@ -29,24 +29,40 @@ class BranchOps:
             logger.warning("Failed to read HEAD ref name: %s", e)
             head_ref_name = None
 
+        # A ref can be enumerable yet fail to resolve — e.g. a directory/file
+        # (D/F) conflict in packed-refs, where both `origin/beta` and
+        # `origin/beta/2.68.0` are listed but `branches.<scope>[name]` raises
+        # KeyError. Skip such refs instead of letting one bad ref abort the
+        # whole enumeration (which previously killed the graph/sidebar worker
+        # and left the repo rendering empty).
         for name in self._repo.branches.local:
-            ref = self._repo.branches.local[name]
+            try:
+                ref = self._repo.branches.local[name]
+                target_oid = str(ref.resolve().target)
+            except Exception as e:
+                logger.warning("Skipping unresolvable local branch %r: %s", name, e)
+                continue
             branches.append(
                 Branch(
                     name=name,
                     is_remote=False,
                     is_head=(ref.name == head_ref_name),
-                    target_oid=str(ref.resolve().target),
+                    target_oid=target_oid,
                 )
             )
         for name in self._repo.branches.remote:
-            ref = self._repo.branches.remote[name]
+            try:
+                ref = self._repo.branches.remote[name]
+                target_oid = str(ref.target)
+            except Exception as e:
+                logger.warning("Skipping unresolvable remote branch %r: %s", name, e)
+                continue
             branches.append(
                 Branch(
                     name=name,
                     is_remote=True,
                     is_head=False,
-                    target_oid=str(ref.target),
+                    target_oid=target_oid,
                 )
             )
         return branches
