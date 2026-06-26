@@ -30,6 +30,7 @@ def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
     switched to. Returns the active repo if still valid, otherwise the first
     surviving open repo, otherwise None.
     """
+
     def _valid(p: str | None) -> bool:
         return bool(p) and Path(p).is_dir() and _is_git_repo(p)
 

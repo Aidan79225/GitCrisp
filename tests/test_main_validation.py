@@ -86,7 +86,7 @@ class TestFindValidRepoPruning:
         store_path = tmp_path / "repos.json"
         store = JsonRepoStore(store_path)
         store.load()
-        store.add_open(str(dead))        # dead entry, deeper in the list
+        store.add_open(str(dead))  # dead entry, deeper in the list
         store.add_open(str(valid_repo))  # add_open sets this as active
         store.save()
         assert store.get_active() == str(valid_repo)
