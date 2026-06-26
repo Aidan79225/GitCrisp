@@ -77,6 +77,20 @@ class JsonRepoStore:
         if path in self._recent:
             self._recent.remove(path)
 
+    def forget(self, path: str) -> None:
+        """Drop a path entirely — from open, recent, and active.
+
+        Unlike close_repo (which demotes an open repo to recent), this fully
+        removes a path. Used to prune stored paths that no longer resolve to a
+        git repository (e.g. a deleted worktree) so they stop reappearing.
+        """
+        if path in self._open:
+            self._open.remove(path)
+        if path in self._recent:
+            self._recent.remove(path)
+        if self._active == path:
+            self._active = None
+
     def set_active(self, path: str) -> None:
         self._active = path
 

@@ -69,3 +69,79 @@ class TestFindValidRepoPruning:
         result = _find_valid_repo(store)
         assert result is None
         assert store.get_active() is None
+
+    def test_prunes_dead_open_repo_when_active_is_valid(self, tmp_path):
+        """A dead path deeper in the open list is pruned even when the active
+        repo is valid.
+
+        Regression: a deleted worktree lingered in the open list across sessions
+        because pruning short-circuited as soon as the (valid) active repo was
+        found, leaving later stale entries in place to fail on switch.
+        """
+        valid_repo = tmp_path / "valid_repo"
+        valid_repo.mkdir()
+        pygit2.init_repository(str(valid_repo))
+        dead = tmp_path / "deleted_worktree"  # never created on disk
+
+        store_path = tmp_path / "repos.json"
+        store = JsonRepoStore(store_path)
+        store.load()
+        store.add_open(str(dead))        # dead entry, deeper in the list
+        store.add_open(str(valid_repo))  # add_open sets this as active
+        store.save()
+        assert store.get_active() == str(valid_repo)
+        assert str(dead) in store.get_open_repos()
+
+        from main import _find_valid_repo
+
+        result = _find_valid_repo(store)
+
+        assert result == str(valid_repo)
+        assert str(dead) not in store.get_open_repos()
+        assert str(dead) not in store.get_recent_repos()
+
+    def test_keeps_valid_active_not_in_open_list(self, tmp_path):
+        """A valid active repo is returned even when it isn't in the open list
+        (e.g. an active worktree recorded via set_active without add_open)."""
+        in_open = tmp_path / "open_repo"
+        in_open.mkdir()
+        pygit2.init_repository(str(in_open))
+        worktree = tmp_path / "active_worktree"
+        worktree.mkdir()
+        pygit2.init_repository(str(worktree))
+
+        store_path = tmp_path / "repos.json"
+        store = JsonRepoStore(store_path)
+        store.load()
+        store.add_open(str(in_open))
+        store.set_active(str(worktree))  # active, but not added to open
+        store.save()
+        assert str(worktree) not in store.get_open_repos()
+
+        from main import _find_valid_repo
+
+        result = _find_valid_repo(store)
+
+        assert result == str(worktree)
+
+    def test_prunes_dead_recent_repo(self, tmp_path):
+        """A dead path in the recent list is forgotten, not just left to fail."""
+        valid_repo = tmp_path / "valid_repo"
+        valid_repo.mkdir()
+        pygit2.init_repository(str(valid_repo))
+        dead = tmp_path / "deleted_worktree"
+
+        store_path = tmp_path / "repos.json"
+        store = JsonRepoStore(store_path)
+        store.load()
+        store.add_open(str(dead))
+        store.close_repo(str(dead))  # moves dead into recent
+        store.add_open(str(valid_repo))
+        store.save()
+        assert str(dead) in store.get_recent_repos()
+
+        from main import _find_valid_repo
+
+        _find_valid_repo(store)
+
+        assert str(dead) not in store.get_recent_repos()
