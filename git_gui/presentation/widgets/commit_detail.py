@@ -15,6 +15,7 @@ from git_gui.presentation.widgets.ref_badge_delegate import (
     BADGE_RADIUS,
     BADGE_V_PAD,
     _badge_color,
+    _badge_copy_text,
     _badge_display_name,
 )
 
@@ -30,6 +31,7 @@ AVATAR_GAP = 10
 
 class CommitDetailWidget(QWidget):
     commit_oid_copy_requested = Signal(str)  # full 40-char OID
+    ref_copy_requested = Signal(str)  # branch/tag name
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -37,6 +39,8 @@ class CommitDetailWidget(QWidget):
         self._refs: list[str] = []
         self._avatar_hash: str | None = None
         self._oid_rect: QRect | None = None
+        # Clickable ref badges painted on line 2: (rect, copy text).
+        self._badge_rects: list[tuple[QRect, str]] = []
         self.setMouseTracking(True)
         connect_widget(self)
         self._avatar_loader = get_avatar_loader()
@@ -58,6 +62,7 @@ class CommitDetailWidget(QWidget):
         self._refs = []
         self._avatar_hash = None
         self._oid_rect = None
+        self._badge_rects = []
         self.update()
 
     def _on_avatar_ready(self, email_hash: str) -> None:
@@ -115,6 +120,7 @@ class CommitDetailWidget(QWidget):
 
         badge_h = line_h + BADGE_V_PAD * 2
         cy = y + line_h // 2
+        self._badge_rects = []
         for name in self._refs:
             display = _badge_display_name(name)
             badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
@@ -124,6 +130,7 @@ class CommitDetailWidget(QWidget):
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
             painter.setPen(on_badge)
             painter.drawText(badge_rect, Qt.AlignCenter, display)
+            self._badge_rects.append((badge_rect, _badge_copy_text(name)))
             x += badge_w + BADGE_GAP
 
         # ── Line 3: Parent(s) ────────────────────────────────────────────────
@@ -137,9 +144,18 @@ class CommitDetailWidget(QWidget):
 
         painter.end()
 
+    def _copyable_at(self, pos) -> str | None:
+        """Return the text to copy if a clickable element is under `pos`."""
+        if self._commit is not None and self._oid_rect is not None and self._oid_rect.contains(pos):
+            return self._commit.oid
+        for rect, text in self._badge_rects:
+            if rect.contains(pos):
+                return text
+        return None
+
     def mouseMoveEvent(self, event) -> None:
         pos = event.position().toPoint()
-        if self._oid_rect is not None and self._oid_rect.contains(pos):
+        if self._copyable_at(pos) is not None:
             self.setCursor(Qt.PointingHandCursor)
         else:
             self.setCursor(Qt.ArrowCursor)
@@ -151,13 +167,14 @@ class CommitDetailWidget(QWidget):
 
     def mousePressEvent(self, event) -> None:
         pos = event.position().toPoint()
-        if (
-            event.button() == Qt.LeftButton
-            and self._oid_rect is not None
-            and self._oid_rect.contains(pos)
-            and self._commit is not None
-        ):
-            self.commit_oid_copy_requested.emit(self._commit.oid)
-            event.accept()
-            return
+        if event.button() == Qt.LeftButton and self._commit is not None:
+            if self._oid_rect is not None and self._oid_rect.contains(pos):
+                self.commit_oid_copy_requested.emit(self._commit.oid)
+                event.accept()
+                return
+            for rect, text in self._badge_rects:
+                if rect.contains(pos):
+                    self.ref_copy_requested.emit(text)
+                    event.accept()
+                    return
         super().mousePressEvent(event)

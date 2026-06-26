@@ -140,3 +140,61 @@ def test_clear_resets_oid_rect(app, qtbot):
 
     widget.clear()
     assert widget._oid_rect is None
+
+
+def test_clicking_ref_badge_emits_copy_signal_with_bare_name(app, qtbot):
+    """Left-clicking a ref badge emits ref_copy_requested with its name.
+
+    Badge rects are seeded directly (as paintEvent would after rendering)
+    to avoid the PySide6/Windows paint-device crash described above.
+    """
+    widget = CommitDetailWidget()
+    qtbot.addWidget(widget)
+    widget.resize(800, 120)
+    widget.set_commit(_make_commit(), ["main", "tag:v1.2.0", "origin/feature"])
+
+    # 'tag:' and 'HEAD -> ' decorations are stripped from the copied text.
+    widget._badge_rects = [
+        (QRect(60, 30, 60, 18), "main"),
+        (QRect(130, 30, 70, 18), "v1.2.0"),
+        (QRect(210, 30, 110, 18), "origin/feature"),
+    ]
+
+    received: list[str] = []
+    widget.ref_copy_requested.connect(received.append)
+
+    _send_click(widget, QRect(130, 30, 70, 18).center())
+
+    assert received == ["v1.2.0"]
+
+
+def test_clicking_ref_badge_does_not_emit_oid_signal(app, qtbot):
+    """A badge click must not also fire the OID copy signal."""
+    widget = CommitDetailWidget()
+    qtbot.addWidget(widget)
+    widget.resize(800, 120)
+    widget.set_commit(_make_commit(), ["main"])
+
+    widget._oid_rect = QRect(60, 30, 320, 18)
+    badge_rect = QRect(400, 30, 60, 18)
+    widget._badge_rects = [(badge_rect, "main")]
+
+    oid_received: list[str] = []
+    ref_received: list[str] = []
+    widget.commit_oid_copy_requested.connect(oid_received.append)
+    widget.ref_copy_requested.connect(ref_received.append)
+
+    _send_click(widget, badge_rect.center())
+
+    assert ref_received == ["main"]
+    assert oid_received == []
+
+
+def test_clear_resets_badge_rects(app, qtbot):
+    """clear() must drop the clickable badge rects."""
+    widget = CommitDetailWidget()
+    qtbot.addWidget(widget)
+
+    widget._badge_rects = [(QRect(0, 0, 50, 20), "main")]
+    widget.clear()
+    assert widget._badge_rects == []
