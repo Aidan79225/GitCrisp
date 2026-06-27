@@ -22,6 +22,13 @@ class BranchFlowsMixin:
         self._graph.checkout_branch_requested.connect(self._on_checkout_branch)
 
     def _on_delete_branch(self, branch: str) -> None:
+        # git refuses to delete a branch that is checked out in a linked
+        # worktree. When that's the case, offer to remove the worktree first
+        # (instead of surfacing libgit2's opaque "current HEAD of a linked
+        # repository" error).
+        wt = self._linked_worktree_for_branch(branch)
+        if wt is not None and not self._remove_worktree_for_branch_delete(branch, wt):
+            return
         try:
             self._commands.delete_branch.execute(branch)
             self._log_panel.log(f"Deleted branch: {branch}")
@@ -29,6 +36,65 @@ class BranchFlowsMixin:
             self._log_panel.expand()
             self._log_panel.log_error(f"Delete branch {branch} — ERROR: {e}")
         self._reload()
+
+    def _linked_worktree_for_branch(self, branch: str):
+        """Return the linked (non-main) worktree that has `branch` checked out,
+        or None. The main worktree is excluded — it can't be removed."""
+        if self._queries is None:
+            return None
+        try:
+            wt = self._queries.find_worktree_for_branch.execute(branch)
+        except Exception:
+            return None
+        if wt is None or wt.is_main:
+            return None
+        return wt
+
+    def _remove_worktree_for_branch_delete(self, branch: str, wt) -> bool:
+        """Confirm and remove the worktree holding `branch`. Returns True if it
+        was removed (so deletion can proceed), False to abort."""
+        reply = QMessageBox.question(
+            self,
+            "Branch in use by a worktree",
+            f"Branch '{branch}' is checked out in the worktree:\n{wt.path}\n\n"
+            "Remove the worktree and delete the branch?",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if reply != QMessageBox.Yes:
+            return False
+
+        force = False
+        while True:
+            try:
+                self._commands.remove_worktree.execute(wt.path, force=force)
+                self._log_panel.log(f"Removed worktree: {wt.path}")
+                self._load_worktrees_for_active_repo()
+                return True
+            except Exception as e:
+                # Dispatch by class name to keep this layer infra-free (the
+                # architecture guard forbids importing the concrete errors).
+                name = type(e).__name__
+                if not force and name in ("WorktreeDirtyError", "WorktreeLockedError"):
+                    detail = (
+                        "has uncommitted changes" if name == "WorktreeDirtyError" else "is locked"
+                    )
+                    if self._ask_force_remove_worktree(wt.path, detail):
+                        force = True
+                        continue
+                    return False
+                self._log_panel.expand()
+                self._log_panel.log_error(f"Remove worktree {wt.path} — ERROR: {e}")
+                return False
+
+    def _ask_force_remove_worktree(self, path: str, detail: str) -> bool:
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Force remove worktree?")
+        msg.setText(f"The worktree {path} {detail}.\nForce remove anyway?")
+        force_btn = msg.addButton("Force remove", QMessageBox.DestructiveRole)
+        msg.addButton("Cancel", QMessageBox.RejectRole)
+        msg.exec()
+        return msg.clickedButton() is force_btn
 
     def _on_delete_remote_branch(self, remote: str, branch: str) -> None:
         reply = QMessageBox.question(
