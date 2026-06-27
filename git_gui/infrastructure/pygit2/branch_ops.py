@@ -67,6 +67,28 @@ class BranchOps:
             )
         return branches
 
+    def remote_default_branches(self) -> dict[str, str]:
+        """Map each remote to its default branch shorthand (e.g. "origin/main").
+
+        Resolved from the `refs/remotes/<remote>/HEAD` symbolic ref. Remotes
+        without a resolvable HEAD symref are omitted.
+        """
+        result: dict[str, str] = {}
+        prefix = "refs/remotes/"
+        for remote in self._repo.remotes:
+            ref_name = f"{prefix}{remote.name}/HEAD"
+            try:
+                ref = self._repo.references.get(ref_name)
+            except Exception as e:
+                logger.warning("Failed to read %s: %s", ref_name, e)
+                continue
+            if ref is None:
+                continue
+            target = ref.target
+            if isinstance(target, str) and target.startswith(prefix):
+                result[remote.name] = target[len(prefix) :]
+        return result
+
     def list_local_branches_with_upstream(self) -> list[LocalBranchInfo]:
         result: list[LocalBranchInfo] = []
         for name in self._repo.branches.local:
