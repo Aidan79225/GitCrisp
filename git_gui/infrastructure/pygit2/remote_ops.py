@@ -13,9 +13,12 @@ def _parse_porcelain_delete(
 ) -> list[RemoteBranchDeleteResult]:
     """Parse `git push --porcelain ... --delete` output into per-branch results.
 
-    Porcelain ref lines are tab-separated: `<flag>\\t<from>:<to>\\t<summary>`.
-    For a delete the `<to>` ref identifies the branch; flag "-" means deleted,
-    "!" means rejected (summary carries the reason).
+    For a delete refspec the source (`<from>`) is always empty because there is
+    no source object; the branch being deleted is always in `<to>`.  The line
+    format is therefore `<flag>\\t:<to>\\t<summary>` for both successes and
+    rejections.  Flag "-" means successfully deleted; "!" means rejected
+    (summary carries the reason).  A real rejection looks like:
+        ``!\\t:refs/heads/protected\\t[remote rejected] (protected branch)``
     """
     status: dict[str, tuple[bool, str]] = {}
     for line in stdout.splitlines():
@@ -31,8 +34,8 @@ def _parse_porcelain_delete(
         _from = _from.strip()
         to_ref = to_ref.strip()
 
-        # For successful deletes, the branch ref is in the "to" part (empty means deleted from remote)
-        # For rejected deletes, the branch ref is in the "from" part
+        # For delete refspecs <from> is always empty; the branch is always in <to>.
+        # Falling back to _from is harmless robustness for non-standard git output.
         ref = to_ref or _from
         if not ref:
             continue
@@ -89,7 +92,6 @@ class RemoteOps:
             env=self._git_env,
             **subprocess_kwargs(),
         )
-        parsed = _parse_porcelain_delete(remote, result.stdout, branches)
         # No per-ref status at all (e.g. couldn't reach the remote): surface stderr.
         if result.returncode != 0 and not result.stdout.strip():
             err = result.stderr.strip() or f"git exited {result.returncode}"
@@ -97,7 +99,7 @@ class RemoteOps:
                 RemoteBranchDeleteResult(branch=f"{remote}/{b}", ok=False, message=err)
                 for b in branches
             ]
-        return parsed
+        return _parse_porcelain_delete(remote, result.stdout, branches)
 
     def _run_git(self, *args: str) -> None:
         result = subprocess.run(

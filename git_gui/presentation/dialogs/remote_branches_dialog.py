@@ -35,6 +35,7 @@ class RemoteBranchesDialog(QDialog):
         self._commands = commands
         self._defaults: set[str] = set()
         self._signals: _DeleteSignals | None = None
+        self._busy: bool = False
 
         self._filter = QLineEdit()
         self._filter.setPlaceholderText("Filter…")
@@ -199,8 +200,14 @@ class RemoteBranchesDialog(QDialog):
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def reject(self) -> None:
+        if self._busy:
+            return
+        super().reject()
+
     def _set_busy(self, busy: bool) -> None:
-        for btn in (self._delete_btn, self._select_all_btn, self._clear_btn):
+        self._busy = busy
+        for btn in (self._delete_btn, self._select_all_btn, self._clear_btn, self._close_btn):
             btn.setEnabled(not busy)
 
     def _on_delete_finished(self, results: list) -> None:
@@ -211,9 +218,10 @@ class RemoteBranchesDialog(QDialog):
         if failed:
             detail = "\n".join(f"  {r.branch} — {r.message}" for r in failed)
             msg += f", {len(failed)} failed:\n{detail}"
-        QMessageBox.information(self, "Delete remote branches", msg)
         self._refresh()
+        QMessageBox.information(self, "Delete remote branches", msg)
 
     def _on_delete_failed(self, message: str) -> None:
         self._set_busy(False)
+        self._refresh()
         QMessageBox.warning(self, "Delete remote branches failed", message)

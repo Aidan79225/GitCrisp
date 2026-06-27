@@ -111,3 +111,48 @@ def test_on_delete_confirm_runs_and_refreshes(qtbot):
     assert commands.delete_remote_branches.execute.call_count == 1
     # refresh re-queried branches (called twice: initial + after delete)
     assert queries.get_branches.execute.call_count >= 2
+
+
+class _SyncThread:
+    def __init__(self, target=None, daemon=None):
+        self._t = target
+
+    def start(self):
+        self._t()
+
+
+def test_buttons_re_enabled_after_successful_delete(qtbot):
+    dlg, _, commands = _make(qtbot)
+    commands.delete_remote_branches.execute.side_effect = lambda remote, br: [
+        RemoteBranchDeleteResult(f"{remote}/{b}", True, "deleted") for b in br
+    ]
+    dlg._select_all_visible()
+
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+        patch.object(QMessageBox, "information"),
+        patch("git_gui.presentation.dialogs.remote_branches_dialog.threading.Thread", _SyncThread),
+    ):
+        dlg._on_delete()
+
+    assert dlg._select_all_btn.isEnabled()
+    assert dlg._close_btn.isEnabled()
+
+
+def test_failure_shows_warning_refreshes_and_re_enables_buttons(qtbot):
+    dlg, queries, commands = _make(qtbot)
+    commands.delete_remote_branches.execute.side_effect = RuntimeError("boom")
+    dlg._select_all_visible()
+
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+        patch.object(QMessageBox, "warning") as mock_warning,
+        patch("git_gui.presentation.dialogs.remote_branches_dialog.threading.Thread", _SyncThread),
+    ):
+        dlg._on_delete()
+
+    mock_warning.assert_called_once()
+    assert dlg._select_all_btn.isEnabled()
+    assert dlg._close_btn.isEnabled()
+    # refresh called at least twice: initial load + after failure
+    assert queries.get_branches.execute.call_count >= 2

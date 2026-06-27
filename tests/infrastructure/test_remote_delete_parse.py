@@ -19,7 +19,7 @@ def test_mixed_ok_and_rejected():
     stdout = (
         "To github.com:u/r.git\n"
         "-\t:refs/heads/feat-a\t[deleted]\n"
-        "!\trefs/heads/protected:\t[remote rejected] (protected branch)\n"
+        "!\t:refs/heads/protected\t[remote rejected] (protected branch)\n"
         "Done\n"
     )
     results = _parse_porcelain_delete("origin", stdout, ["feat-a", "protected"])
