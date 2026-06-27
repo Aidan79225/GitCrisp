@@ -108,6 +108,14 @@ class DeleteRemoteBranch:
         self._writer.delete_remote_branch(remote, branch)
 
 
+class DeleteRemoteBranches:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, branches: list[str]):
+        return self._writer.delete_remote_branches(remote, branches)
+
+
 class DeleteRemoteTag:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer

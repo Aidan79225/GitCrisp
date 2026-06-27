@@ -216,3 +216,15 @@ def test_get_merge_base_returns_none_when_reader_returns_none():
     reader.merge_base.return_value = None
     result = GetMergeBase(reader).execute("aaa", "bbb")
     assert result is None
+
+
+def test_remote_default_branches_delegates():
+    from unittest.mock import MagicMock
+
+    from git_gui.application.queries import RemoteDefaultBranches
+
+    r = MagicMock()
+    r.remote_default_branches.return_value = {"origin": "origin/main"}
+    q = RemoteDefaultBranches(r)
+    assert q.execute() == {"origin": "origin/main"}
+    r.remote_default_branches.assert_called_once_with()
