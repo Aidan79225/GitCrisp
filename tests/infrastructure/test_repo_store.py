@@ -132,6 +132,29 @@ class TestJsonRepoStoreRemoveRecent:
         assert "/repo/a" not in store.get_recent_repos()
 
 
+class TestJsonRepoStoreForget:
+    def test_forget_removes_from_open_recent_and_active(self, store):
+        store.load()
+        store.add_open("/repo/a")
+        store.add_open("/repo/b")
+        store.close_repo("/repo/b")  # /repo/b -> recent
+        store.set_active("/repo/a")
+
+        store.forget("/repo/a")
+        store.forget("/repo/b")
+
+        assert store.get_open_repos() == []
+        assert store.get_recent_repos() == []
+        assert store.get_active() is None
+
+    def test_forget_unknown_path_is_noop(self, store):
+        store.load()
+        store.add_open("/repo/a")
+        store.forget("/repo/unknown")
+        assert store.get_open_repos() == ["/repo/a"]
+        assert store.get_active() == "/repo/a"
+
+
 class TestJsonRepoStoreSetActive:
     def test_set_active(self, store):
         store.load()

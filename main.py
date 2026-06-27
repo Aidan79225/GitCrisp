@@ -21,19 +21,40 @@ def _is_git_repo(path: str) -> bool:
 
 
 def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
-    """Return the first valid repo path from active or open list, pruning invalid ones."""
-    active = repo_store.get_active()
-    if active and Path(active).is_dir() and _is_git_repo(active):
-        return active
+    """Return a valid repo to open, pruning every stored path that no longer
+    resolves to a git repository.
 
-    for path in list(repo_store.get_open_repos()):
-        if Path(path).is_dir() and _is_git_repo(path):
-            repo_store.set_active(path)
-            return path
-        repo_store.close_repo(path)
+    Pruning scans the *entire* open and recent lists — not just up to the first
+    valid entry — so stale paths (e.g. a deleted worktree) never linger across
+    sessions, rendering as repo rows that fail with "Repository not found" when
+    switched to. Returns the active repo if still valid, otherwise the first
+    surviving open repo, otherwise None.
+    """
+
+    def _valid(p: str | None) -> bool:
+        return bool(p) and Path(p).is_dir() and _is_git_repo(p)
+
+    for path in list(repo_store.get_open_repos()) + list(repo_store.get_recent_repos()):
+        if not _valid(path):
+            repo_store.forget(path)
+
+    # Keep a still-valid active repo even if it isn't in the open list (e.g. an
+    # active worktree, recorded via set_active without add_open). Otherwise fall
+    # back to the first surviving open repo.
+    active = repo_store.get_active()
+    if _valid(active):
+        selected = active
+    else:
+        if active is not None:
+            repo_store.forget(active)  # clear a dead active not in open/recent
+        open_repos = repo_store.get_open_repos()
+        selected = open_repos[0] if open_repos else None
+
+    if selected is not None:
+        repo_store.set_active(selected)
 
     repo_store.save()
-    return None
+    return selected
 
 
 def _open_session(path: str) -> tuple[QueryBus, CommandBus]:
