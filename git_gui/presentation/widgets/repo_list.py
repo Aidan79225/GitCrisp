@@ -7,6 +7,7 @@ import pygit2
 from PySide6.QtCore import QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -328,6 +329,13 @@ class RepoListWidget(QWidget):
         self._tree = _RepoTree()
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(True)
+        # This list has no "selected" state — the active repo is its own
+        # indicator (full-row fill), and hover is painted by the view. Qt's
+        # selection highlight is redundant and, because the custom delegate
+        # suppresses it in the item body, only leaks into the branch (indent)
+        # column as a stray block on click. Disable it; click-to-switch, drag
+        # (uses currentIndex), and the context menu all work without it.
+        self._tree.setSelectionMode(QAbstractItemView.NoSelection)
         self._tree.setMouseTracking(True)
         self._tree.setDragEnabled(True)
         self._tree.setAcceptDrops(True)
