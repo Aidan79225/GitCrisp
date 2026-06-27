@@ -4,8 +4,50 @@ import subprocess
 
 import pygit2
 
-from git_gui.domain.entities import Remote
+from git_gui.domain.entities import Remote, RemoteBranchDeleteResult
 from git_gui.resources import subprocess_kwargs
+
+
+def _parse_porcelain_delete(
+    remote: str, stdout: str, branches: list[str]
+) -> list[RemoteBranchDeleteResult]:
+    """Parse `git push --porcelain ... --delete` output into per-branch results.
+
+    Porcelain ref lines are tab-separated: `<flag>\\t<from>:<to>\\t<summary>`.
+    For a delete the `<to>` ref identifies the branch; flag "-" means deleted,
+    "!" means rejected (summary carries the reason).
+    """
+    status: dict[str, tuple[bool, str]] = {}
+    for line in stdout.splitlines():
+        if "\t" not in line:
+            continue
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        flag, refpair, summary = parts[0], parts[1], parts[2]
+        if ":" not in refpair:
+            continue
+        _from, to_ref = refpair.split(":", 1)
+        _from = _from.strip()
+        to_ref = to_ref.strip()
+
+        # For successful deletes, the branch ref is in the "to" part (empty means deleted from remote)
+        # For rejected deletes, the branch ref is in the "from" part
+        ref = to_ref or _from
+        if not ref:
+            continue
+
+        short = ref
+        if short.startswith("refs/heads/"):
+            short = short[len("refs/heads/") :]
+        ok = flag.strip() == "-"
+        status[short] = (ok, "deleted" if ok else summary.strip())
+
+    results: list[RemoteBranchDeleteResult] = []
+    for b in branches:
+        ok, msg = status.get(b, (False, "no result reported by git"))
+        results.append(RemoteBranchDeleteResult(branch=f"{remote}/{b}", ok=ok, message=msg))
+    return results
 
 
 class RemoteOps:
