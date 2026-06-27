@@ -94,13 +94,6 @@ def test_on_delete_confirm_runs_and_refreshes(qtbot):
     ]
     dlg._select_all_visible()
 
-    class _SyncThread:
-        def __init__(self, target=None, daemon=None):
-            self._t = target
-
-        def start(self):
-            self._t()
-
     with (
         patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
         patch.object(QMessageBox, "information"),
