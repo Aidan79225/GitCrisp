@@ -75,6 +75,30 @@ class RemoteOps:
     def fetch_all_prune(self) -> None:
         self._run_git("fetch", "--all", "--prune")
 
+    def delete_remote_branches(
+        self, remote: str, branches: list[str]
+    ) -> list[RemoteBranchDeleteResult]:
+        if not branches:
+            return []
+        refspecs = [f"refs/heads/{b}" for b in branches]
+        result = subprocess.run(
+            ["git", "push", "--porcelain", remote, "--delete", *refspecs],
+            cwd=self._repo.workdir,
+            capture_output=True,
+            text=True,
+            env=self._git_env,
+            **subprocess_kwargs(),
+        )
+        parsed = _parse_porcelain_delete(remote, result.stdout, branches)
+        # No per-ref status at all (e.g. couldn't reach the remote): surface stderr.
+        if result.returncode != 0 and not result.stdout.strip():
+            err = result.stderr.strip() or f"git exited {result.returncode}"
+            return [
+                RemoteBranchDeleteResult(branch=f"{remote}/{b}", ok=False, message=err)
+                for b in branches
+            ]
+        return parsed
+
     def _run_git(self, *args: str) -> None:
         result = subprocess.run(
             ["git", *args],
