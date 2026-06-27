@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from PySide6.QtCore import QDate, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QDateEdit,
     QDialog,
@@ -50,6 +51,35 @@ def _red() -> str:
     return get_theme_manager().current.colors.status_deleted
 
 
+def _scale_factor() -> float:
+    """Effective typography scale for explicitly-sized text.
+
+    The point sizes below are calibrated against the theme's design body
+    size. The typography-scale slider (and any platform font adjustment)
+    only flows into widgets through the app's default font — painted text
+    and fonts built with an absolute ``setPointSize`` would otherwise stay
+    fixed. Rescaling by the ratio of the live app font to the design base
+    keeps Insight's text tracking the same scale as inherited widget text,
+    matching how ``repo_list`` derives its painted fonts.
+    """
+    app = QApplication.instance()
+    design_base = get_theme_manager().current.typography.body_medium.size
+    if app is None or design_base <= 0:
+        return 1.0
+    actual = app.font().pointSizeF()
+    if actual <= 0:
+        return 1.0
+    return actual / design_base
+
+
+def _scaled_font(point_size: float, *, bold: bool = False) -> QFont:
+    """A font at ``point_size`` (design units) scaled to the active typography scale."""
+    f = QFont()
+    f.setPointSizeF(max(1.0, point_size * _scale_factor()))
+    f.setBold(bold)
+    return f
+
+
 class _LoadSignals(QObject):
     progress = Signal(int, float)  # commits_processed, elapsed_seconds
     done = Signal(int, dict, dict, dict, dict, set, int)
@@ -70,10 +100,7 @@ class _SummaryCard(QFrame):
         layout.setSpacing(4)
 
         value_label = QLabel(value)
-        value_font = QFont()
-        value_font.setPointSize(28)
-        value_font.setBold(True)
-        value_label.setFont(value_font)
+        value_label.setFont(_scaled_font(28, bold=True))
         value_label.setStyleSheet(f"color: {_accent()}; border: none;")
         value_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(value_label)
@@ -110,18 +137,12 @@ class _AuthorRow(QWidget):
         rect = self.rect()
 
         # Rank number (large, accent)
-        rank_font = QFont()
-        rank_font.setPointSize(20)
-        rank_font.setBold(True)
-        painter.setFont(rank_font)
+        painter.setFont(_scaled_font(20, bold=True))
         painter.setPen(QColor(_accent()))
         painter.drawText(8, 0, 50, rect.height(), Qt.AlignVCenter | Qt.AlignLeft, f"#{self._rank}")
 
         # Name
-        name_font = QFont()
-        name_font.setPointSize(11)
-        name_font.setBold(True)
-        painter.setFont(name_font)
+        painter.setFont(_scaled_font(11, bold=True))
         name_fm = painter.fontMetrics()
         painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
         # Strip email from "Name <email>"
@@ -136,9 +157,7 @@ class _AuthorRow(QWidget):
         )
 
         # Commit count (right side)
-        count_font = QFont()
-        count_font.setPointSize(10)
-        painter.setFont(count_font)
+        painter.setFont(_scaled_font(10))
         count_fm = painter.fontMetrics()
         painter.setPen(QColor(_muted()))
         painter.drawText(
@@ -157,9 +176,7 @@ class _AuthorRow(QWidget):
         bar_y = rect.height() - bar_h - 6  # 6px bottom margin
 
         # Counts above bar
-        count_font2 = QFont()
-        count_font2.setPointSize(9)
-        painter.setFont(count_font2)
+        painter.setFont(_scaled_font(9))
         count_fm = painter.fontMetrics()
         count_h = count_fm.height()
         count_y = bar_y - count_h - 2  # 2px gap above bar
@@ -199,16 +216,11 @@ class _FileRow(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         rect = self.rect()
 
-        rank_font = QFont()
-        rank_font.setPointSize(16)
-        rank_font.setBold(True)
-        painter.setFont(rank_font)
+        painter.setFont(_scaled_font(16, bold=True))
         painter.setPen(QColor(_accent()))
         painter.drawText(8, 0, 50, rect.height(), Qt.AlignVCenter | Qt.AlignLeft, f"#{self._rank}")
 
-        path_font = QFont()
-        path_font.setPointSize(10)
-        painter.setFont(path_font)
+        painter.setFont(_scaled_font(10))
         path_fm = painter.fontMetrics()
         painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
         # Elide long paths
@@ -217,9 +229,7 @@ class _FileRow(QWidget):
             56, 0, rect.width() - 200, rect.height(), Qt.AlignVCenter | Qt.AlignLeft, elided
         )
 
-        count_font = QFont()
-        count_font.setPointSize(10)
-        painter.setFont(count_font)
+        painter.setFont(_scaled_font(10))
         painter.setPen(QColor(_muted()))
         painter.drawText(
             rect.width() - 140,
@@ -243,10 +253,7 @@ def _make_card_container(title: str) -> tuple[QFrame, QVBoxLayout]:
     layout.setSpacing(8)
 
     title_label = QLabel(title)
-    title_font = QFont()
-    title_font.setPointSize(13)
-    title_font.setBold(True)
-    title_label.setFont(title_font)
+    title_label.setFont(_scaled_font(13, bold=True))
     title_label.setStyleSheet(
         f"color: {get_theme_manager().current.colors.on_surface}; border: none;"
     )

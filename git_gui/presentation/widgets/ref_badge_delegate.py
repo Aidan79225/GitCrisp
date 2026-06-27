@@ -48,6 +48,18 @@ def _badge_display_name(name: str) -> str:
     return name
 
 
+def _badge_copy_text(name: str) -> str:
+    """The ref name to place on the clipboard when a badge is clicked.
+
+    Strips the 'tag:' marker and the 'HEAD -> ' decoration so the user
+    gets the bare branch/tag name, not the internal badge label.
+    """
+    name = _badge_display_name(name)
+    if name.startswith("HEAD -> "):
+        return name[len("HEAD -> ") :]
+    return name
+
+
 class RefBadgeDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         branch_names: list[str] = index.data(Qt.UserRole + 1) or []
