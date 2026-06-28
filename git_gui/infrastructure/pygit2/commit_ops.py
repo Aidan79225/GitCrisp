@@ -71,7 +71,32 @@ class CommitOps:
                 next(walker)
             except StopIteration:
                 return []
-        return [_commit_to_entity(c) for c, _ in zip(walker, range(limit), strict=False)]
+        result = [_commit_to_entity(c) for c, _ in zip(walker, range(limit), strict=False)]
+
+        # Guarantee the requested tips are present even when they sort beyond
+        # `limit` in the topological/time-ordered walk (e.g. an old branch tip
+        # that predates many newer mainline commits). Without this, callers
+        # can't locate/scroll to such a tip. Appended in time-descending order
+        # so the model still renders them oldest-last.
+        loaded = {c.oid for c in result}
+        missing: list[Commit] = []
+        for tip in extra_tips or []:
+            if tip in loaded:
+                continue
+            try:
+                obj = self._repo.get(pygit2.Oid(hex=tip))
+            except (ValueError, Exception):
+                continue
+            if obj is None:
+                continue
+            entity = _commit_to_entity(obj)
+            if entity.oid in loaded:
+                continue
+            loaded.add(entity.oid)
+            missing.append(entity)
+        missing.sort(key=lambda c: c.timestamp, reverse=True)
+        result.extend(missing)
+        return result
 
     def get_commit(self, oid: str) -> Commit:
         obj = self._repo.get(oid)
