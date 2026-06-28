@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from git_gui.domain.entities import Branch, Commit, MergeStrategy, ResetMode, Worktree
+from git_gui.domain.entities import (
+    Branch,
+    Commit,
+    MergeStrategy,
+    RemoteBranchDeleteResult,
+    ResetMode,
+    Worktree,
+)
 from git_gui.domain.ports import IRepositoryWriter
 
 
@@ -106,6 +113,14 @@ class DeleteRemoteBranch:
 
     def execute(self, remote: str, branch: str) -> None:
         self._writer.delete_remote_branch(remote, branch)
+
+
+class DeleteRemoteBranches:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, branches: list[str]) -> list[RemoteBranchDeleteResult]:
+        return self._writer.delete_remote_branches(remote, branches)
 
 
 class DeleteRemoteTag:

@@ -269,3 +269,11 @@ class FindWorktreeForBranch:
 
     def execute(self, branch: str) -> Worktree | None:
         return self._reader.find_worktree_for_branch(branch)
+
+
+class RemoteDefaultBranches:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> dict[str, str]:
+        return self._reader.remote_default_branches()

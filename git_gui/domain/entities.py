@@ -26,6 +26,13 @@ class Branch:
 
 
 @dataclass
+class RemoteBranchDeleteResult:
+    branch: str  # full shorthand, e.g. "origin/feature-a"
+    ok: bool
+    message: str
+
+
+@dataclass
 class Stash:
     index: int
     message: str

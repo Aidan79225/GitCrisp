@@ -19,6 +19,7 @@ from git_gui.application.commands import (
     CreateTag,
     DeleteBranch,
     DeleteRemoteBranch,
+    DeleteRemoteBranches,
     DeleteRemoteTag,
     DeleteTag,
     DiscardFile,
@@ -92,6 +93,7 @@ from git_gui.application.queries import (
     ListRemotes,
     ListSubmodules,
     ListWorktrees,
+    RemoteDefaultBranches,
 )
 from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
 
@@ -127,6 +129,7 @@ class QueryBus:
     get_identity: GetIdentity
     list_worktrees: ListWorktrees
     find_worktree_for_branch: FindWorktreeForBranch
+    remote_default_branches: RemoteDefaultBranches
 
     @classmethod
     def from_reader(cls, reader: IRepositoryReader) -> QueryBus:
@@ -160,6 +163,7 @@ class QueryBus:
             get_identity=GetIdentity(reader),
             list_worktrees=ListWorktrees(reader),
             find_worktree_for_branch=FindWorktreeForBranch(reader),
+            remote_default_branches=RemoteDefaultBranches(reader),
         )
 
 
@@ -174,6 +178,7 @@ class CommandBus:
     create_branch: CreateBranch
     delete_branch: DeleteBranch
     delete_remote_branch: DeleteRemoteBranch
+    delete_remote_branches: DeleteRemoteBranches
     create_tag: CreateTag
     delete_tag: DeleteTag
     push_tag: PushTag
@@ -235,6 +240,7 @@ class CommandBus:
             create_branch=CreateBranch(writer),
             delete_branch=DeleteBranch(writer),
             delete_remote_branch=DeleteRemoteBranch(writer),
+            delete_remote_branches=DeleteRemoteBranches(writer),
             create_tag=CreateTag(writer),
             delete_tag=DeleteTag(writer),
             push_tag=PushTag(writer),

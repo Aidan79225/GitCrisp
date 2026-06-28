@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMainWindow, QMenu
 
 from git_gui.presentation.dialogs.branches_dialog import BranchesDialog
+from git_gui.presentation.dialogs.remote_branches_dialog import RemoteBranchesDialog
 from git_gui.presentation.dialogs.remote_dialog import RemoteDialog
 from git_gui.presentation.dialogs.submodule_dialog import SubmoduleDialog
 
@@ -58,6 +59,15 @@ def install_git_menu(
 
     branches_action.triggered.connect(_open_branches)
 
+    remote_branches_action = QAction("Remote &Branches...", window)
+
+    def _open_remote_branches() -> None:
+        if queries is None or commands is None:
+            return
+        RemoteBranchesDialog(queries, commands, window).exec()
+
+    remote_branches_action.triggered.connect(_open_remote_branches)
+
     submodule_action = QAction("&Submodules...", window)
 
     def _open_submodule() -> None:
@@ -71,6 +81,7 @@ def install_git_menu(
 
     git_menu.addAction(remote_action)
     git_menu.addAction(branches_action)
+    git_menu.addAction(remote_branches_action)
     git_menu.addAction(submodule_action)
 
     worktrees_action = QAction("&Worktrees...", window)
@@ -86,5 +97,6 @@ def install_git_menu(
     window._git_menu = git_menu  # type: ignore[attr-defined]
     window._git_remote_action = remote_action  # type: ignore[attr-defined]
     window._git_branches_action = branches_action  # type: ignore[attr-defined]
+    window._git_remote_branches_action = remote_branches_action  # type: ignore[attr-defined]
     window._git_submodule_action = submodule_action  # type: ignore[attr-defined]
     window._git_worktrees_action = worktrees_action  # type: ignore[attr-defined]

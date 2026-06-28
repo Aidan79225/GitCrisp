@@ -7,6 +7,7 @@ from git_gui.domain.entities import (
     FileStat,
     FileStatus,
     Hunk,
+    RemoteBranchDeleteResult,
     Stash,
     Tag,
 )
@@ -103,3 +104,10 @@ def test_commit_stat():
     assert cs.author == "Alice <alice@example.com>"
     assert len(cs.files) == 1
     assert cs.files[0].added == 5
+
+
+def test_remote_branch_delete_result_fields():
+    r = RemoteBranchDeleteResult(branch="origin/feature", ok=False, message="rejected")
+    assert r.branch == "origin/feature"
+    assert r.ok is False
+    assert r.message == "rejected"

@@ -219,3 +219,16 @@ def test_interactive_rebase_delegates():
     entries = [("pick", "abc"), ("squash", "def")]
     InteractiveRebase(w).execute("target123", entries)
     assert w.called_with == ("target123", entries)
+
+
+def test_delete_remote_branches_delegates():
+    from unittest.mock import MagicMock
+
+    from git_gui.application.commands import DeleteRemoteBranches
+
+    w = MagicMock()
+    w.delete_remote_branches.return_value = ["result"]
+    cmd = DeleteRemoteBranches(w)
+    out = cmd.execute("origin", ["a", "b"])
+    w.delete_remote_branches.assert_called_once_with("origin", ["a", "b"])
+    assert out == ["result"]
