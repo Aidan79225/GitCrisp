@@ -188,12 +188,19 @@ class DiffOps:
         return files
 
     def is_dirty(self) -> bool:
+        # GIT_OPTIONAL_LOCKS=0 stops `git status` from refreshing/rewriting
+        # .git/index as a side effect. Without it, this dirty check (run on
+        # every auto-reload) rewrites the index, which trips the
+        # RepoChangeDetector's file watcher and schedules another reload —
+        # a self-perpetuating refresh loop that makes the commit-detail pane
+        # jump every few seconds.
+        env = {**self._git_env, "GIT_OPTIONAL_LOCKS": "0"}
         result = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True,
             text=True,
             cwd=self._repo.workdir,
-            env=self._git_env,
+            env=env,
             **subprocess_kwargs(),
         )
         return bool(result.stdout.strip())
