@@ -1058,6 +1058,13 @@ class GraphWidget(QWidget):
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)
-        if oid:
+        # Skip re-emitting for the already-selected commit. A model reset (from
+        # an auto-reload) invalidates the current index, so restoring the
+        # selection fires currentRowChanged with the same oid. Re-emitting there
+        # would reload the diff/commit-detail pane and reset its scroll,
+        # yanking the user away from what they were reading. Commits are
+        # immutable, so the pane never needs a reload for an unchanged oid; the
+        # working tree refreshes via the reload coordinator, not this signal.
+        if oid and oid != self._selected_oid:
             self._selected_oid = oid
             self.commit_selected.emit(oid)

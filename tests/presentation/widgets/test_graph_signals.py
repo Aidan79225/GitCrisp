@@ -79,6 +79,21 @@ def test_on_row_changed_emits_commit_selected_with_oid(qtbot):
     assert blocker.args == ["second"]
 
 
+def test_on_row_changed_skips_reemit_for_already_selected_oid(qtbot):
+    """Restoring the selection after an auto-reload's model reset fires
+    currentRowChanged with the same oid. Re-emitting there would reload the
+    diff/commit-detail pane and reset its scroll, yanking the user away from
+    what they were reading — so an unchanged oid must NOT re-emit."""
+    w = _make_widget(qtbot, commits=[_make_commit("first"), _make_commit("second")])
+    w._selected_oid = "second"  # already viewing this commit
+
+    current = w._model.index(1, 0)  # the "second" commit's row
+    previous = QModelIndex()
+
+    with qtbot.assertNotEmitted(w.commit_selected):
+        w._on_row_changed(current, previous)
+
+
 # ── 2. scroll_to_oid updates current row when select=True ────────────────
 
 
