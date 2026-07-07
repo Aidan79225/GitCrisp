@@ -176,7 +176,7 @@ class _FakeDiffMapReader:
     def get_commit_diff_map(self, oid):
         return {"a.txt": ["hunk1"]}
 
-    def get_working_tree_diff_map(self):
+    def get_working_tree_diff_map(self, paths=None):
         return {"b.txt": {"staged": ["h1"], "unstaged": []}}
 
 

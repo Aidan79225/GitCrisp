@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, QSize, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
+    QLabel,
     QMessageBox,
     QScrollArea,
     QSizePolicy,
@@ -24,6 +25,15 @@ from git_gui.presentation.widgets.diff_block import (
     make_file_block,
 )
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
+
+# Cap on how many file blocks the aggregate ("all files") diff view builds at
+# once. Each block is a full QFrame subtree registered with the theme manager,
+# so building one per changed file freezes the UI when the working tree holds
+# thousands of changes. Above this cap only the first N files get a diff block;
+# the rest stay reachable by selecting them in the file list (single-file mode
+# is cheap). Chosen well above a typical review size but low enough that block
+# construction stays imperceptible.
+MAX_AGGREGATE_FILE_BLOCKS = 200
 
 
 class _LoadSignals(QObject):
@@ -79,7 +89,13 @@ class HunkDiffWidget(QWidget):
         self._fetch_and_render()
 
     def load_all_files(self, paths: list[str]) -> None:
-        """Load and display hunks for all given paths with a bordered file block per file."""
+        """Load and display hunks for the given paths with a bordered file block per file.
+
+        To keep the UI responsive when the working tree holds a very large
+        number of changes, at most ``MAX_AGGREGATE_FILE_BLOCKS`` diff blocks are
+        built; any remainder is summarised by a trailing notice. Every file
+        stays inspectable via the file list (single-file mode).
+        """
         self._current_path = None
         self._all_paths = list(paths)
         if not paths:
@@ -91,8 +107,11 @@ class HunkDiffWidget(QWidget):
 
         from git_gui.presentation.widgets.diff_block import make_skeleton_container
 
+        shown = paths[:MAX_AGGREGATE_FILE_BLOCKS]
+        hidden = len(paths) - len(shown)
+
         block_refs = []
-        for path in paths:
+        for path in shown:
             frame, inner = self._make_file_block(path)
             skeleton = make_skeleton_container()
             inner.addWidget(skeleton)
@@ -100,6 +119,9 @@ class HunkDiffWidget(QWidget):
             spacer = QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
             self._layout.addItem(spacer)
             block_refs.append((path, frame, inner, skeleton))
+
+        if hidden > 0:
+            self._layout.addWidget(self._make_overflow_notice(hidden))
 
         self._layout.addStretch()
         self._loader.set_blocks(block_refs)
@@ -111,12 +133,25 @@ class HunkDiffWidget(QWidget):
 
         def _worker():
             try:
-                result = queries.get_working_tree_diff_map.execute()
+                # Only compute diffs for the paths we actually render — computing
+                # hunks for every changed file is what makes large working trees
+                # hang, even off the UI thread.
+                result = queries.get_working_tree_diff_map.execute(shown)
             except Exception:
                 result = {}
             signals.done.emit(result)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _make_overflow_notice(self, hidden: int) -> QWidget:
+        """A muted one-line notice standing in for files beyond the block cap."""
+        label = QLabel(
+            f"+ {hidden} more changed file{'s' if hidden != 1 else ''} not shown — "
+            "select a file above to view its diff."
+        )
+        label.setWordWrap(True)
+        label.setContentsMargins(8, 8, 8, 8)
+        return label
 
     def clear(self) -> None:
         self._current_path = None

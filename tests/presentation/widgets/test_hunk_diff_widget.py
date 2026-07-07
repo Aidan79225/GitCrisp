@@ -69,3 +69,38 @@ def test_load_file_switches_to_single_mode(widget):
 
     assert widget._current_path == "a.txt"
     assert widget._all_paths is None
+
+
+def test_load_all_files_caps_number_of_blocks(widget):
+    """A huge working tree only builds up to MAX_AGGREGATE_FILE_BLOCKS blocks."""
+    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+
+    paths = [f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 50)]
+    widget.load_all_files(paths)
+
+    # Only the capped subset gets lazy diff blocks…
+    assert len(widget._loader._block_refs) == MAX_AGGREGATE_FILE_BLOCKS
+    shown = [ref[0] for ref in widget._loader._block_refs]
+    assert shown == paths[:MAX_AGGREGATE_FILE_BLOCKS]
+    # …but every path is still remembered for single-file selection.
+    assert widget._all_paths == paths
+
+
+def test_load_all_files_only_fetches_shown_paths(widget):
+    """The diff-map query is asked only for the paths actually rendered."""
+    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+
+    paths = [f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 10)]
+    widget.load_all_files(paths)
+
+    # Give the daemon worker thread a moment to invoke the query.
+    import time
+
+    for _ in range(50):
+        if widget._queries.get_working_tree_diff_map.execute.called:
+            break
+        time.sleep(0.01)
+
+    widget._queries.get_working_tree_diff_map.execute.assert_called_once()
+    (called_paths,) = widget._queries.get_working_tree_diff_map.execute.call_args.args
+    assert called_paths == paths[:MAX_AGGREGATE_FILE_BLOCKS]
