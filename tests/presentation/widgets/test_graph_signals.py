@@ -300,9 +300,10 @@ def test_on_reload_done_scrolls_when_target_and_base_both_loaded(qtbot):
     assert selected_index.row() == 1  # DIV's row
 
 
-def test_on_reload_done_gives_up_at_max_reload_limit(qtbot):
-    """When _reload_limit is already at MAX_RELOAD_LIMIT and the merge base
-    is still not loaded, clear pending state and stop retrying."""
+def test_on_reload_done_scrolls_to_loaded_target_at_max_reload_limit(qtbot):
+    """At MAX_RELOAD_LIMIT with the merge base still unreachable, stop retrying
+    but STILL scroll+select the target if it's loaded — don't silently abandon
+    the click (the converging lane is best-effort; locating the tip is not)."""
     from git_gui.presentation.models.graph_model import GraphModel
     from git_gui.presentation.widgets.graph import MAX_RELOAD_LIMIT
 
@@ -312,7 +313,7 @@ def test_on_reload_done_gives_up_at_max_reload_limit(qtbot):
         {},
     )
     w._pending_scroll_oid = "DIV"
-    w._pending_merge_base = "BASE"  # not in the loaded set
+    w._pending_merge_base = "BASE"  # merge base never reachable within the cap
     w._has_more = True
     w._reload_limit = MAX_RELOAD_LIMIT  # already at the cap
     w._extra_tips = ["DIV"]
@@ -332,6 +333,42 @@ def test_on_reload_done_gives_up_at_max_reload_limit(qtbot):
     assert w._pending_scroll_oid is None
     assert w._pending_merge_base is None
     w.reload.assert_not_called()
+    # Target DIV is loaded → scroll AND select it even though BASE never loaded.
+    assert w._view.scrollTo.call_count == 1
+    assert w._view.setCurrentIndex.call_count == 1
+    assert w._view.setCurrentIndex.call_args.args[0].row() == 1  # DIV's row
+
+
+def test_on_reload_done_gives_up_without_scroll_when_target_not_loaded(qtbot):
+    """At the cap with the target itself not loaded, clear pending state and
+    do not scroll (nothing to scroll to)."""
+    from git_gui.presentation.models.graph_model import GraphModel
+    from git_gui.presentation.widgets.graph import MAX_RELOAD_LIMIT
+
+    w = _make_widget(qtbot, commits=[_make_commit("HEAD")])
+    w._model = GraphModel([_make_commit("HEAD")], {})
+    w._pending_scroll_oid = "DIV"  # not in the loaded set
+    w._pending_merge_base = "BASE"
+    w._has_more = True
+    w._reload_limit = MAX_RELOAD_LIMIT
+    w._extra_tips = ["DIV"]
+    w.reload = MagicMock()
+
+    w._on_reload_done(
+        commits=[_make_commit("HEAD")],
+        branches=[],
+        tags=[],
+        is_dirty=False,
+        head_oid="HEAD",
+        repo_state_info=None,
+        merge_head=None,
+        first_parent=False,
+    )
+
+    assert w._pending_scroll_oid is None
+    assert w._pending_merge_base is None
+    w.reload.assert_not_called()
+    assert w._view.scrollTo.call_count == 0
 
 
 # ── 7. extra_tips stickiness across bare reload() ──────────────────────

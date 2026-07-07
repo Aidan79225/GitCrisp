@@ -532,7 +532,12 @@ class GraphWidget(QWidget):
                 self.reload(extra_tips=tips, limit=new_limit)
                 retrying = True
             else:
-                # No more commits OR cap reached — accept partial result.
+                # No more commits OR cap reached — the converging lane couldn't
+                # be fully loaded. Still scroll+select the target if we managed
+                # to load it (e.g. an old branch tip pinned via extra_tips);
+                # only give up silently when the target itself is absent.
+                if self._pending_scroll_oid in loaded_oids:
+                    self.scroll_to_oid(self._pending_scroll_oid, select=True)
                 self._pending_scroll_oid = None
                 self._pending_merge_base = None
 
