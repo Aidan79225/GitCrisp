@@ -65,11 +65,19 @@ class DiffOps:
                 return _diff_to_hunks(patch)
         return []
 
-    def get_working_tree_diff_map(self) -> dict[str, dict[str, list[Hunk]]]:
-        """Return {path: {"staged": [...], "unstaged": [...]}} for every changed file.
+    def get_working_tree_diff_map(
+        self, paths: list[str] | None = None
+    ) -> dict[str, dict[str, list[Hunk]]]:
+        """Return {path: {"staged": [...], "unstaged": [...]}} for changed files.
 
         Computes the full staged diff and unstaged diff exactly once each.
+
+        When *paths* is given, only those paths have their (relatively
+        expensive) hunks computed — the rest are skipped entirely. This keeps
+        the working-tree view responsive when thousands of files have changed
+        but only a bounded subset is actually displayed.
         """
+        wanted = set(paths) if paths is not None else None
         result: dict[str, dict[str, list[Hunk]]] = {}
 
         # Staged: index vs HEAD
@@ -85,6 +93,8 @@ class DiffOps:
                 path = patch.delta.new_file.path or patch.delta.old_file.path
                 if not path:
                     continue
+                if wanted is not None and path not in wanted:
+                    continue
                 result.setdefault(path, {"staged": [], "unstaged": []})
                 result[path]["staged"] = _diff_to_hunks(patch)
         except Exception as e:
@@ -96,6 +106,8 @@ class DiffOps:
             for patch in unstaged_diff:
                 path = patch.delta.new_file.path or patch.delta.old_file.path
                 if not path:
+                    continue
+                if wanted is not None and path not in wanted:
                     continue
                 result.setdefault(path, {"staged": [], "unstaged": []})
                 hunks = _diff_to_hunks(patch)
@@ -118,6 +130,8 @@ class DiffOps:
         try:
             for path, status in self._repo.status().items():
                 if status & pygit2.GIT_STATUS_WT_NEW:
+                    if wanted is not None and path not in wanted:
+                        continue
                     result.setdefault(path, {"staged": [], "unstaged": []})
                     result[path]["unstaged"] = _synthesise_untracked_hunk(self._repo.workdir, path)
         except Exception as e:
@@ -127,6 +141,8 @@ class DiffOps:
         # Override any existing empty entry — pygit2 sometimes returns an empty
         # patch for a submodule, which would leave the UI with no hunks to show.
         for sub_path, tree_oid, index_oid, actual_oid in self._detect_diverged_submodules():
+            if wanted is not None and sub_path not in wanted:
+                continue
             entry = result.setdefault(sub_path, {"staged": [], "unstaged": []})
             if index_oid != tree_oid:
                 entry["staged"] = [_submodule_diff_hunk(tree_oid, index_oid)]

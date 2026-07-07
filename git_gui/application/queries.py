@@ -235,8 +235,10 @@ class GetWorkingTreeDiffMap:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
 
-    def execute(self) -> dict[str, dict[str, list[Hunk]]]:
-        return self._reader.get_working_tree_diff_map()
+    def execute(
+        self, paths: list[str] | None = None
+    ) -> dict[str, dict[str, list[Hunk]]]:
+        return self._reader.get_working_tree_diff_map(paths)
 
 
 class GetCommitRange:
