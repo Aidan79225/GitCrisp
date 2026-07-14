@@ -1,7 +1,10 @@
 # git_gui/presentation/main_window/branch_flows.py
 from __future__ import annotations
 
-from PySide6.QtWidgets import QInputDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
+
+from git_gui.domain.entities import Branch
+from git_gui.presentation.dialogs.branch_select_dialog import BranchSelectDialog
 
 
 class BranchFlowsMixin:
@@ -20,6 +23,7 @@ class BranchFlowsMixin:
         self._graph.create_branch_requested.connect(self._on_create_branch)
         self._graph.checkout_commit_requested.connect(self._on_checkout_commit)
         self._graph.checkout_branch_requested.connect(self._on_checkout_branch)
+        self._graph.commit_double_clicked.connect(self._on_commit_double_clicked)
 
     def _on_delete_branch(self, branch: str) -> None:
         # git refuses to delete a branch that is checked out in a linked
@@ -170,3 +174,110 @@ class BranchFlowsMixin:
             head_oid = self._queries.get_head_oid.execute()
             if head_oid:
                 self._graph.scroll_to_oid(head_oid, select=True)
+
+    # ── Double-click to switch branch ───────────────────────────────────
+
+    def _on_commit_double_clicked(self, oid: str) -> None:
+        """Switch to a branch pointing at the double-clicked commit.
+
+        - No branch on the commit → do nothing.
+        - Exactly one branch → check it out directly.
+        - Several branches → let the user pick one via a dialog.
+
+        Local branches take precedence: when a commit carries both a local
+        branch and its remote-tracking counterpart, we offer the local one
+        (switching to a remote-only branch is handled by the remote path in
+        `_on_checkout_branch`). After checking out a local branch we offer to
+        reset it to its remote when the two have diverged.
+        """
+        if self._queries is None or not oid:
+            return
+        try:
+            all_branches = self._queries.get_branches.execute()
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"List branches — ERROR: {e}")
+            return
+
+        on_commit = [b for b in all_branches if b.target_oid == oid]
+        local = [b for b in on_commit if not b.is_remote]
+        remote = [b for b in on_commit if b.is_remote]
+        # Prefer local branches; fall back to remote-only branches on the commit.
+        candidates = local or remote
+        if not candidates:
+            return
+
+        if len(candidates) == 1:
+            chosen = candidates[0]
+        else:
+            names = [b.name for b in candidates]
+            dlg = BranchSelectDialog(names, parent=self)
+            if dlg.exec() != QDialog.Accepted:
+                return
+            picked = dlg.selected()
+            chosen = next((b for b in candidates if b.name == picked), None)
+            if chosen is None:
+                return
+
+        self._switch_to_branch(chosen, all_branches)
+
+    def _switch_to_branch(self, branch: Branch, all_branches: list[Branch]) -> None:
+        if branch.is_remote:
+            # Remote-only branch on this commit — reuse the existing dispatch,
+            # which creates/updates the tracking local branch as needed.
+            self._on_checkout_branch(branch.name)
+            return
+        try:
+            self._commands.checkout.execute(branch.name)
+            self._log_panel.log(f"Checkout branch: {branch.name}")
+            self._offer_reset_to_remote_if_diverged(branch, all_branches)
+        except Exception as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Checkout {branch.name} — ERROR: {e}")
+        self._reload()
+        if self._queries is not None:
+            head_oid = self._queries.get_head_oid.execute()
+            if head_oid:
+                self._graph.scroll_to_oid(head_oid, select=True)
+
+    def _offer_reset_to_remote_if_diverged(
+        self, branch: Branch, all_branches: list[Branch]
+    ) -> None:
+        """When a just-checked-out local branch differs from its upstream,
+        offer to hard-reset it to the remote."""
+        upstream = self._upstream_for(branch.name)
+        if not upstream:
+            return
+        remote_oid = next(
+            (b.target_oid for b in all_branches if b.is_remote and b.name == upstream),
+            None,
+        )
+        if remote_oid is None or remote_oid == branch.target_oid:
+            return  # No upstream ref loaded, or already in sync.
+
+        reply = QMessageBox.question(
+            self,
+            "Local branch differs from remote",
+            f"Local '{branch.name}' differs from '{upstream}'.\n\n"
+            f"Reset '{branch.name}' to '{upstream}'? This discards any local "
+            f"commits and uncommitted changes on '{branch.name}'.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        self._commands.reset_branch_to_ref.execute(branch.name, upstream)
+        self._log_panel.log(f"Reset {branch.name} to {upstream}")
+
+    def _upstream_for(self, name: str) -> str | None:
+        """Return the upstream (remote-tracking) shorthand for a local branch,
+        e.g. 'origin/main', or None when it has no upstream."""
+        if self._queries is None:
+            return None
+        try:
+            for info in self._queries.list_local_branches_with_upstream.execute():
+                if info.name == name:
+                    return info.upstream
+        except Exception:
+            return None
+        return None

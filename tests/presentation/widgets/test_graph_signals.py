@@ -94,6 +94,28 @@ def test_on_row_changed_skips_reemit_for_already_selected_oid(qtbot):
         w._on_row_changed(current, previous)
 
 
+def test_on_double_clicked_emits_commit_double_clicked(qtbot):
+    """Double-clicking a real commit row forwards its oid so the main window
+    can resolve a branch to check out."""
+    w = _make_widget(qtbot, commits=[_make_commit("first"), _make_commit("second")])
+
+    index = w._model.index(1, 0)  # the "second" commit's row
+    with qtbot.waitSignal(w.commit_double_clicked, timeout=1000) as blocker:
+        w._on_double_clicked(index)
+    assert blocker.args == ["second"]
+
+
+def test_on_double_clicked_ignores_working_tree_row(qtbot):
+    """The synthetic working-tree row has no branch to switch to."""
+    from git_gui.domain.entities import WORKING_TREE_OID
+
+    w = _make_widget(qtbot, commits=[_make_commit(WORKING_TREE_OID), _make_commit("real")])
+
+    index = w._model.index(0, 0)  # the working-tree row
+    with qtbot.assertNotEmitted(w.commit_double_clicked):
+        w._on_double_clicked(index)
+
+
 # ── 2. scroll_to_oid updates current row when select=True ────────────────
 
 
