@@ -189,6 +189,7 @@ class _SearchBar(QWidget):
 
 class GraphWidget(QWidget):
     commit_selected = Signal(str)  # emits oid (or WORKING_TREE_OID)
+    commit_double_clicked = Signal(str)  # oid — double-click to switch branch
     create_branch_requested = Signal(str)  # oid
     create_tag_requested = Signal(str)  # oid
     checkout_commit_requested = Signal(str)  # oid
@@ -262,6 +263,7 @@ class GraphWidget(QWidget):
         self._view.setColumnWidth(0, _DEFAULT_GRAPH_COL_W)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
+        self._view.doubleClicked.connect(self._on_double_clicked)
 
         self._view.verticalScrollBar().valueChanged.connect(self._on_scroll)
         self._view.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -1073,3 +1075,16 @@ class GraphWidget(QWidget):
         if oid and oid != self._selected_oid:
             self._selected_oid = oid
             self.commit_selected.emit(oid)
+
+    def _on_double_clicked(self, index: QModelIndex) -> None:
+        """Double-click a commit to switch to a branch pointing at it.
+
+        The branch-resolution and checkout flow lives in the main window
+        (it owns the query/command buses and the confirmation dialogs); here
+        we only forward the commit's oid. The synthetic working-tree row has
+        no branch to switch to, so it is ignored."""
+        if not index.isValid():
+            return
+        oid = self._model.data(self._model.index(index.row(), 0), Qt.UserRole)
+        if oid and oid != WORKING_TREE_OID:
+            self.commit_double_clicked.emit(oid)
