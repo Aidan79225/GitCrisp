@@ -19,10 +19,12 @@ from PySide6.QtWidgets import (
 
 from git_gui.domain.entities import WORKING_TREE_OID, Hunk
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.theme import connect_widget
 from git_gui.presentation.widgets.diff_block import (
     add_hunk_widget,
     make_diff_formats,
     make_file_block,
+    make_syntax_formats,
 )
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
@@ -72,10 +74,18 @@ class HunkDiffWidget(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self._scroll)
 
-        # Diff formats
+        # Diff render formats — line backgrounds plus Pygments syntax colours and
+        # word-level overlays, matching the commit-detail diff view. Rebuilt on
+        # theme change so blocks realised after a theme switch use fresh colours.
         self._formats = make_diff_formats()
+        self._syntax_formats = make_syntax_formats()
+        connect_widget(self, rebuild=self._on_theme_changed)
 
         self._loader = ViewportBlockLoader(self._scroll, self._realize_block_from_loader)
+
+    def _on_theme_changed(self) -> None:
+        self._formats = make_diff_formats()
+        self._syntax_formats = make_syntax_formats()
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
@@ -337,6 +347,8 @@ class HunkDiffWidget(QWidget):
             extra_left_widgets=[checkbox],
             extra_right_widgets=extra_right,
             on_header_clicked=on_click,
+            syntax_formats=self._syntax_formats,
+            filename=path,
         )
 
     def _on_hunk_toggled(
