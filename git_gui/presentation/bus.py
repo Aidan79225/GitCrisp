@@ -8,6 +8,7 @@ from git_gui.application.commands import (
     AddSubmodule,
     AddWorktree,
     ApplyStash,
+    CancelRemoteOp,
     Checkout,
     CheckoutCommit,
     CheckoutRemoteBranch,
@@ -200,6 +201,7 @@ class CommandBus:
     discard_file: DiscardFile
     discard_hunk: DiscardHunk
     fetch_all_prune: FetchAllPrune
+    cancel_remote_op: CancelRemoteOp
     add_remote: AddRemote
     remove_remote: RemoveRemote
     rename_remote: RenameRemote
@@ -262,6 +264,7 @@ class CommandBus:
             discard_file=DiscardFile(writer),
             discard_hunk=DiscardHunk(writer),
             fetch_all_prune=FetchAllPrune(writer),
+            cancel_remote_op=CancelRemoteOp(writer),
             add_remote=AddRemote(writer),
             remove_remote=RemoveRemote(writer),
             rename_remote=RenameRemote(writer),

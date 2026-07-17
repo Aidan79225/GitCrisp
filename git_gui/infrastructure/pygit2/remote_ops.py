@@ -1,11 +1,60 @@
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 
 import pygit2
 
 from git_gui.domain.entities import Remote, RemoteBranchDeleteResult
 from git_gui.resources import subprocess_kwargs
+
+
+class RemoteOperationCancelled(RuntimeError):
+    """Raised by `_run_git` when the user cancels an in-flight remote operation
+    (push / pull / fetch) via `cancel_remote_op`."""
+
+
+def _popen_group_kwargs() -> dict:
+    """Popen kwargs that put the git process in its own group/session so the
+    whole tree (git plus its transport helpers) can be killed on cancel.
+
+    Without this, terminating only the top git process orphans its helper
+    children, which keep the stdout/stderr pipes open and leave the reader
+    thread blocked in ``communicate()``.
+    """
+    extra = dict(subprocess_kwargs())
+    if os.name == "posix":
+        extra["start_new_session"] = True
+    else:  # Windows — needed for CTRL_BREAK / tree kill via taskkill.
+        extra["creationflags"] = extra.get("creationflags", 0) | subprocess.CREATE_NEW_PROCESS_GROUP
+    return extra
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Terminate *proc* and every child it spawned. Best-effort and idempotent."""
+    if os.name == "posix":
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            return
+        except (ProcessLookupError, OSError):
+            pass  # Group already gone, or never got its own group — fall back.
+        try:
+            proc.terminate()
+        except (ProcessLookupError, OSError):
+            pass
+    else:  # Windows: /T kills the whole tree, /F forces it.
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                **subprocess_kwargs(),
+            )
+        except Exception:
+            try:
+                proc.terminate()
+            except (ProcessLookupError, OSError):
+                pass
 
 
 def _parse_porcelain_delete(
@@ -102,17 +151,49 @@ class RemoteOps:
         return _parse_porcelain_delete(remote, result.stdout, branches)
 
     def _run_git(self, *args: str) -> None:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=self._repo.workdir,
-            capture_output=True,
-            text=True,
-            env=self._git_env,
-            **subprocess_kwargs(),
-        )
-        if result.returncode != 0:
-            msg = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+        # Popen (not subprocess.run) so cancel_remote_op can terminate the
+        # process mid-transfer. The active handle is published under a lock so
+        # the UI thread can reach it while this worker thread blocks on
+        # communicate().
+        with self._remote_proc_lock:
+            self._remote_cancel_requested = False
+            proc = subprocess.Popen(
+                ["git", *args],
+                cwd=self._repo.workdir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=self._git_env,
+                **_popen_group_kwargs(),
+            )
+            self._active_remote_proc = proc
+        try:
+            stdout, stderr = proc.communicate()
+        finally:
+            with self._remote_proc_lock:
+                cancelled = self._remote_cancel_requested
+                self._active_remote_proc = None
+                self._remote_cancel_requested = False
+        if cancelled:
+            raise RemoteOperationCancelled("Operation cancelled")
+        if proc.returncode != 0:
+            msg = stderr.strip() or stdout.strip() or f"exit code {proc.returncode}"
             raise RuntimeError(msg)
+
+    def cancel_remote_op(self) -> None:
+        """Terminate the in-flight git push/pull/fetch subprocess, if any.
+
+        Safe to call from any thread (the UI thread calls this while the worker
+        thread is blocked in `_run_git`). A no-op when nothing is running.
+        """
+        with self._remote_proc_lock:
+            proc = self._active_remote_proc
+            if proc is None:
+                return
+            self._remote_cancel_requested = True
+        # Kill outside the lock — a syscall shouldn't block the worker thread's
+        # teardown path, which also needs the lock.
+        _kill_process_tree(proc)
 
     # ----- Remotes -----
 

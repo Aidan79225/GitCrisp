@@ -210,6 +210,14 @@ class FetchAllPrune:
         self._writer.fetch_all_prune()
 
 
+class CancelRemoteOp:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.cancel_remote_op()
+
+
 class Stash:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer

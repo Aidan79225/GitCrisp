@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMessageBox, QPushButton
 
 
 class _RemoteSignals(QObject):
@@ -12,6 +12,7 @@ class _RemoteSignals(QObject):
 
     finished = Signal(str)
     failed = Signal(str, str)
+    cancelled = Signal(str)
 
 
 class RemoteOpQueueMixin:
@@ -36,6 +37,13 @@ class RemoteOpQueueMixin:
                 f"Push origin/{b}", lambda: self._commands.push.execute("origin", b)
             )
         )
+        # Cancel button lives in the status bar, shown only while a remote op runs.
+        self._cancel_remote_btn = QPushButton("✕ Cancel")
+        self._cancel_remote_btn.setToolTip("Cancel the running push/pull/fetch")
+        self._cancel_remote_btn.clicked.connect(self._cancel_remote_op)
+        self._cancel_remote_btn.setVisible(False)
+        self.statusBar().addPermanentWidget(self._cancel_remote_btn)
+        self._remote_op_name: str | None = None
 
     def _run_remote_op(self, name: str, fn) -> None:
         if self._remote_running:
@@ -44,11 +52,15 @@ class RemoteOpQueueMixin:
         self._log_panel.expand()
         self._log_panel.log(f"{name} — started...")
         self._remote_running = True
-        self.statusBar().showMessage(f"\u23f3 {name}...")
+        self._remote_op_name = name
+        self.statusBar().showMessage(f"⏳ {name}...")
+        self._cancel_remote_btn.setEnabled(True)
+        self._cancel_remote_btn.setVisible(True)
 
         signals = _RemoteSignals()
         signals.finished.connect(self._on_remote_done)
         signals.failed.connect(self._on_remote_error)
+        signals.cancelled.connect(self._on_remote_cancelled)
         self._remote_signals = signals  # prevent GC
 
         def _worker():
@@ -56,21 +68,49 @@ class RemoteOpQueueMixin:
                 fn()
                 signals.finished.emit(name)
             except Exception as e:
-                signals.failed.emit(name, str(e))
+                # Dispatch by class name to keep this layer infra-free (the
+                # architecture guard forbids importing the concrete errors).
+                if type(e).__name__ == "RemoteOperationCancelled":
+                    signals.cancelled.emit(name)
+                else:
+                    signals.failed.emit(name, str(e))
 
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
 
+    def _cancel_remote_op(self) -> None:
+        """Ask the running push/pull/fetch to abort by terminating its git
+        subprocess. Completion is reported via the `cancelled` signal."""
+        if not self._remote_running or self._commands is None:
+            return
+        self._log_panel.log(f"{self._remote_op_name or 'Remote operation'} — cancelling...")
+        self._cancel_remote_btn.setEnabled(False)
+        try:
+            self._commands.cancel_remote_op.execute()
+        except Exception as e:
+            self._log_panel.log_error(f"Cancel — ERROR: {e}")
+
+    def _end_remote_op(self) -> None:
+        """Shared teardown for the done / error / cancelled outcomes."""
+        self._remote_running = False
+        self._remote_op_name = None
+        self.statusBar().clearMessage()
+        self._cancel_remote_btn.setVisible(False)
+        self._cancel_remote_btn.setEnabled(True)
+
     def _on_remote_done(self, name: str) -> None:
         self._log_panel.log(f"{name} — done")
-        self._remote_running = False
-        self.statusBar().clearMessage()
+        self._end_remote_op()
+        self._reload()
+
+    def _on_remote_cancelled(self, name: str) -> None:
+        self._log_panel.log(f"{name} — cancelled")
+        self._end_remote_op()
         self._reload()
 
     def _on_remote_error(self, name: str, error: str) -> None:
         self._log_panel.log_error(f"{name} — ERROR: {error}")
-        self._remote_running = False
-        self.statusBar().clearMessage()
+        self._end_remote_op()
         self._reload()
 
         # Detect push rejection and offer force push
