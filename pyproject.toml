@@ -8,7 +8,7 @@ dependencies = [
     "pygit2>=1.19.3,<2",
     "pyside6>=6.11.1,<7",
     "pygments>=2.17",
-    "sentry-sdk>=2.65.0",
+    "sentry-sdk>=2.66.0",
     "packaging>=26.2",
 ]
 
