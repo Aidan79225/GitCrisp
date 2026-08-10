@@ -9,7 +9,7 @@ dependencies = [
     "pyside6>=6.11.1,<7",
     "pygments>=2.17",
     "sentry-sdk>=2.65.0",
-    "packaging>=26.2",
+    "packaging>=26.3",
 ]
 
 [dependency-groups]
