@@ -213,3 +213,31 @@ def test_graph_model_reload_first_parent_kwarg_recomputes_lanes(qtbot):
     # Append uses the stored flag — the appended row must also be single-lane.
     model.append([_make_commit("A", "A", parents=[])], {})
     assert all(ld.lane == 0 for ld in model._lane_data)
+
+
+def test_max_lanes_empty_model_is_one(qtbot):
+    """An empty model still reports one lane so the column never collapses."""
+    assert GraphModel([], {}).max_lanes() == 1
+
+
+def test_max_lanes_linear_history_is_one(qtbot):
+    commits = [
+        _make_commit("c", "C", parents=["b"]),
+        _make_commit("b", "B", parents=["a"]),
+        _make_commit("a", "A", parents=[]),
+    ]
+    assert GraphModel(commits, {}).max_lanes() == 1
+
+
+def test_max_lanes_reports_widest_row(qtbot):
+    """A merge that opens a side lane widens the reported lane count."""
+    commits = [
+        _make_commit("M", "Merge", parents=["B", "D"]),
+        _make_commit("B", "B", parents=["A"]),
+        _make_commit("A", "A", parents=[]),
+    ]
+    model = GraphModel(commits, {})
+    assert model.max_lanes() == 2
+    # first-parent mode collapses the side lane back to a single column
+    model.reload(commits, {}, first_parent=True)
+    assert model.max_lanes() == 1

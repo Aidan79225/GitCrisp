@@ -1,14 +1,17 @@
 # git_gui/presentation/widgets/graph_lane_delegate.py
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from git_gui.presentation.theme import get_theme_manager
 
 LANE_W = 16  # pixels per lane column
-NODE_R = 4  # commit node circle radius
+NODE_R = 5  # commit node circle radius (outline centre)
+NODE_STROKE_W = 2  # commit node outline thickness
+GRAPH_COL_PAD = 4  # breathing room to the right of the last lane
+MAX_GRAPH_LANES = 16  # cap so a very wide graph can't crowd out the info column
 
 
 def _lane_colors() -> list[str]:
@@ -23,9 +26,19 @@ def _divider_color() -> QColor:
     return get_theme_manager().current.colors.as_qcolor("outline")
 
 
+def _node_fill_color() -> QColor:
+    return get_theme_manager().current.colors.as_qcolor("surface")
+
+
 def _lx(rect_left: int, lane: int) -> int:
     """X coordinate for the center of a lane."""
     return rect_left + lane * LANE_W + LANE_W // 2
+
+
+def graph_column_width(n_lanes: int) -> int:
+    """Pixel width the graph column needs to draw ``n_lanes`` parallel lanes."""
+    lanes = min(max(n_lanes, 1), MAX_GRAPH_LANES)
+    return lanes * LANE_W + GRAPH_COL_PAD
 
 
 class GraphLaneDelegate(QStyledItemDelegate):
@@ -73,12 +86,17 @@ class GraphLaneDelegate(QStyledItemDelegate):
             painter.setPen(QPen(QColor(lane_colors[ci % n_colors]), 2))
             painter.drawLine(_lx(left, from_lane), mid, _lx(left, to_lane), bot)
 
-        # 4. Commit node (filled circle drawn last so it sits on top of lines)
+        # 4. Commit node — hollow circle drawn last so it sits on top of the
+        #    lines. The fill matches the row background so lines passing under
+        #    the node are masked out rather than showing through the middle.
         lx = _lx(left, lane_data.lane)
         node_color = QColor(lane_colors[lane_data.color_idx % n_colors])
-        painter.setBrush(node_color)
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(lx - NODE_R, mid - NODE_R, NODE_R * 2, NODE_R * 2)
+        if option.state & QStyle.State_Selected:
+            painter.setBrush(_selection_color())
+        else:
+            painter.setBrush(_node_fill_color())
+        painter.setPen(QPen(node_color, NODE_STROKE_W))
+        painter.drawEllipse(QPointF(lx, mid), NODE_R, NODE_R)
 
         # ── Bottom divider ────────────────────────────────────────────────────
         painter.setPen(_divider_color())

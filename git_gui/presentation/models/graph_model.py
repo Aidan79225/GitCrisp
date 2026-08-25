@@ -177,6 +177,10 @@ class GraphModel(QAbstractTableModel):
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self._commits)
 
+    def max_lanes(self) -> int:
+        """Widest lane count across all loaded rows — sizes the graph column."""
+        return max((ld.n_lanes for ld in self._lane_data), default=1)
+
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(COLUMNS)  # 2: graph, info
 
