@@ -18,6 +18,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QListView,
+    QMenu,
     QScrollArea,
     QStackedLayout,
     QToolButton,
@@ -68,6 +69,8 @@ def _delta_dot_icon(delta: str, diameter: int = 8) -> QIcon:
 
 
 class FileNavigatorWidget(QWidget):
+    file_history_requested = Signal(str)  # repo-relative path
+
     """Two-shape file navigator backed by a shared QItemSelectionModel."""
 
     # Re-exposes signals from the shared selection model + list view so callers
@@ -88,6 +91,8 @@ class FileNavigatorWidget(QWidget):
         self._list_view.setEditTriggers(QListView.NoEditTriggers)
         self._list_view.setModel(model)
         self._list_view.setItemDelegate(FileDeltaDelegate(self._list_view))
+        self._list_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._list_view.customContextMenuRequested.connect(self._on_list_context_menu)
         self._stack.addWidget(self._list_view)
 
         # ── Pill mode ────────────────────────────────────────────────────────
@@ -193,6 +198,10 @@ class FileNavigatorWidget(QWidget):
             btn.setFixedHeight(20)
             btn.setChecked(False)
             btn.clicked.connect(lambda _checked=False, r=row: self._on_pill_clicked(r))
+            btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            btn.customContextMenuRequested.connect(
+                lambda pos, b=btn, fp=fs.path: self._show_file_menu(b.mapToGlobal(pos), fp)
+            )
             # Insert before the stretch (which is at the end).
             insert_at = self._pill_layout.count() - 1
             self._pill_layout.insertWidget(insert_at, btn)
@@ -204,6 +213,21 @@ class FileNavigatorWidget(QWidget):
         # New pill widgets need their QSS applied; the construction-time
         # _restyle_pills call only saw _all_pill.
         self._restyle_pills()
+
+    def _show_file_menu(self, global_pos, path: str) -> None:
+        menu = QMenu(self)
+        history_action = menu.addAction("Show file history")
+        if menu.exec(global_pos) is history_action:
+            self.file_history_requested.emit(path)
+
+    def _on_list_context_menu(self, pos) -> None:
+        index = self._list_view.indexAt(pos)
+        if not index.isValid():
+            return
+        fs = self._model.data(index, Qt.UserRole)
+        if fs is None:
+            return
+        self._show_file_menu(self._list_view.viewport().mapToGlobal(pos), fs.path)
 
     def _on_pill_clicked(self, row: int) -> None:
         """Drive the shared selection model. Visual pill state will follow via

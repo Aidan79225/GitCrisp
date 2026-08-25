@@ -49,6 +49,10 @@ def _make_widget(qtbot, commits: list[Commit] | None = None) -> GraphWidget:
     w._selected_oid = None
     w._scroll_anchor_oid = None
     w._first_parent = False
+    # Path filter state — the commit list defaults to the full graph.
+    w._path_filter = None
+    w._path_filter_bar = MagicMock()
+    w._path_filter_bar.follow.return_value = True
     w._stash_btn = MagicMock()
 
     # _view is used by scroll_to_oid, clear_selection, and _on_row_changed.

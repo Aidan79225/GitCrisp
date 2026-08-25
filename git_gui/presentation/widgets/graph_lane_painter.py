@@ -62,9 +62,14 @@ def graph_width(n_lanes: int) -> int:
 
 
 def row_graph_width(lane_data: LaneData | None) -> int:
-    """Width the graph needs on this row — the per-row indent for commit info."""
+    """Width the graph needs on this row — the per-row indent for commit info.
+
+    No lane data means no graph on this row (a path-filtered listing, where the
+    commits are a sparse subset and lanes would be meaningless), so the commit
+    info starts at the very left edge.
+    """
     if lane_data is None:
-        return graph_width(1)
+        return 0
     return graph_width(row_lane_span(lane_data))
 
 

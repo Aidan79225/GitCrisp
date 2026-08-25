@@ -7,6 +7,7 @@ from datetime import datetime
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -69,10 +70,12 @@ class _GraphTableView(QTableView):
 
 
 class _LoadSignals(QObject):
-    # commits, branches, tags, is_dirty, head_oid, repo_state, merge_head, first_parent
-    reload_done = Signal(list, list, list, bool, str, object, object, bool)
+    # commits, branches, tags, is_dirty, head_oid, repo_state, merge_head,
+    # first_parent, path_filter
+    reload_done = Signal(list, list, list, bool, str, object, object, bool, object)
     # more_commits, branches, tags, first_parent
-    append_done = Signal(list, list, list, bool)
+    # more, branches, tags, first_parent, path_filter
+    append_done = Signal(list, list, list, bool, object)
 
 
 _ARTS = get_resource_path("arts")
@@ -185,8 +188,57 @@ class _SearchBar(QWidget):
         return self._input
 
 
+class _PathFilterBar(QWidget):
+    """Chip showing the path the commit list is currently filtered to."""
+
+    closed = Signal()
+    follow_toggled = Signal(bool)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setVisible(False)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        self._label = QLabel()
+        self._label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self._label, 1)
+
+        self._follow = QCheckBox("Follow renames")
+        self._follow.setChecked(True)
+        self._follow.setToolTip(
+            "Keep following the file's history past a rename, back to its earlier name."
+        )
+        self._follow.toggled.connect(self.follow_toggled)
+        layout.addWidget(self._follow)
+
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(28, 28)
+        btn_close.setToolTip("Show the full history again")
+        btn_close.clicked.connect(self.closed.emit)
+        layout.addWidget(btn_close)
+
+        self._path: str | None = None
+
+    def open(self, path: str) -> None:
+        self._path = path
+        self._label.setText(f"History of  {path}")
+        self._label.setToolTip(path)
+        self.setVisible(True)
+
+    def close_bar(self) -> None:
+        self._path = None
+        self.setVisible(False)
+
+    def follow(self) -> bool:
+        return self._follow.isChecked()
+
+
 class GraphWidget(QWidget):
     commit_selected = Signal(str)  # emits oid (or WORKING_TREE_OID)
+    path_filter_changed = Signal(object)  # str path, or None when cleared
     commit_double_clicked = Signal(str)  # oid — double-click to switch branch
     create_branch_requested = Signal(str)  # oid
     create_tag_requested = Signal(str)  # oid
@@ -233,6 +285,10 @@ class GraphWidget(QWidget):
         self._repo_store = repo_store
         self._repo_path: str | None = None
         self._first_parent = False
+        # Path the commit list is filtered to (file history), or None for the
+        # full graph. Filtered listings are a sparse subset of history, so the
+        # lane graph is suppressed while one is active.
+        self._path_filter: str | None = None
 
         self._view = _GraphTableView()
         self._view.setSelectionBehavior(QTableView.SelectRows)
@@ -308,6 +364,11 @@ class GraphWidget(QWidget):
         header_bar.addWidget(self._stash_btn)
         self._styled_buttons.append(self._stash_btn)
 
+        # Path filter chip (hidden by default, shown by set_path_filter)
+        self._path_filter_bar = _PathFilterBar()
+        self._path_filter_bar.closed.connect(self.clear_path_filter)
+        self._path_filter_bar.follow_toggled.connect(self._on_follow_toggled)
+
         # Search bar (hidden by default, toggled by Ctrl+F)
         self._search_bar = _SearchBar()
         self._search_matches: list[int] = []  # row indices of matching commits
@@ -321,6 +382,7 @@ class GraphWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addLayout(header_bar)
+        layout.addWidget(self._path_filter_bar)
         layout.addWidget(self._search_bar)
         layout.addWidget(self._view)
 
@@ -348,6 +410,11 @@ class GraphWidget(QWidget):
         self._selected_oid = None
         self._scroll_anchor_oid = None
         self._reload_limit = PAGE_SIZE
+        # A file history from the previous repo means nothing in the new one.
+        if self._path_filter is not None:
+            self._path_filter = None
+            self._path_filter_bar.close_bar()
+            self.path_filter_changed.emit(None)
         if queries is None:
             self._model.reload([], {})
         else:
@@ -379,6 +446,42 @@ class GraphWidget(QWidget):
         if self._queries is not None:
             self.reload()
 
+    def set_path_filter(self, path: str) -> None:
+        """Show only the commits that touched `path` (file history)."""
+        if self._path_filter == path and self._path_filter_bar.isVisible():
+            return
+        self._path_filter = path
+        self._path_filter_bar.open(path)
+        self._reset_paging()
+        self.path_filter_changed.emit(path)
+        if self._queries is not None:
+            self.reload()
+
+    def clear_path_filter(self) -> None:
+        """Go back to the full commit graph."""
+        if self._path_filter is None:
+            return
+        self._path_filter = None
+        self._path_filter_bar.close_bar()
+        self._reset_paging()
+        self.path_filter_changed.emit(None)
+        if self._queries is not None:
+            self.reload()
+
+    def _reset_paging(self) -> None:
+        """Drop paging and scroll state that belongs to the previous listing."""
+        self._reload_limit = PAGE_SIZE
+        self._extra_tips = None
+        self._pending_scroll_oid = None
+        self._pending_merge_base = None
+        self._scroll_anchor_oid = None
+        self._has_more = True
+
+    def _on_follow_toggled(self, _checked: bool) -> None:
+        if self._path_filter is not None and self._queries is not None:
+            self._reset_paging()
+            self.reload()
+
     def reload(self, extra_tips: list[str] | None = None, limit: int | None = None) -> None:
         if self._loading:
             return
@@ -397,15 +500,22 @@ class GraphWidget(QWidget):
         self._reload_limit = effective_limit
         queries = self._queries
         fp = self._first_parent
+        path = self._path_filter
+        follow = self._path_filter_bar.follow()
 
         signals = _LoadSignals()
         signals.reload_done.connect(self._on_reload_done)
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            commits = queries.get_commit_graph.execute(
-                limit=effective_limit, extra_tips=effective_tips, first_parent=fp
-            )
+            if path is None:
+                commits = queries.get_commit_graph.execute(
+                    limit=effective_limit, extra_tips=effective_tips, first_parent=fp
+                )
+            else:
+                commits = queries.get_file_history.execute(
+                    path, limit=effective_limit, follow=follow
+                )
             branches = queries.get_branches.execute()
             tags = queries.get_tags.execute()
             dirty = queries.is_dirty.execute()
@@ -413,7 +523,7 @@ class GraphWidget(QWidget):
             repo_state = queries.get_repo_state.execute()
             merge_head = queries.get_merge_head.execute()
             signals.reload_done.emit(
-                commits, branches, tags, dirty, head_oid, repo_state, merge_head, fp
+                commits, branches, tags, dirty, head_oid, repo_state, merge_head, fp, path
             )
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -455,16 +565,18 @@ class GraphWidget(QWidget):
         repo_state_info,
         merge_head: str | None,
         first_parent: bool,
+        path_filter: str | None = None,
     ) -> None:
         self._loading = False
         self._stash_btn.setVisible(is_dirty)
         if self._queries is None:
             return
 
-        # If the user toggled the view mode while this load was in-flight,
-        # the in-flight reload() call was dropped by the `if self._loading`
-        # guard. Pick up the change now by triggering another reload.
-        if first_parent != self._first_parent:
+        # If the user toggled the view mode or changed the path filter while
+        # this load was in-flight, the in-flight reload() call was dropped by
+        # the `if self._loading` guard. Pick up the change now by triggering
+        # another reload.
+        if first_parent != self._first_parent or path_filter != self._path_filter:
             self.reload()
             return
 
@@ -485,7 +597,9 @@ class GraphWidget(QWidget):
             refs.setdefault(head_oid, []).insert(0, "HEAD")
 
         all_commits = list(commits)
-        if is_dirty:
+        # The synthetic "Uncommitted Changes" row is anchored to HEAD's parents,
+        # which say nothing about a path-filtered listing — skip it there.
+        if is_dirty and path_filter is None:
             state_name = repo_state_info.state.name if repo_state_info else "CLEAN"
             if state_name == "MERGING":
                 message = "Merge in progress (conflicts)"
@@ -506,7 +620,13 @@ class GraphWidget(QWidget):
             )
             all_commits.insert(0, synthetic)
 
-        self._model.reload(all_commits, refs, head_branch, first_parent=first_parent)
+        self._model.reload(
+            all_commits,
+            refs,
+            head_branch,
+            first_parent=first_parent,
+            show_graph=path_filter is None,
+        )
 
         retrying = False
         if self._pending_scroll_oid:
@@ -612,23 +732,35 @@ class GraphWidget(QWidget):
         queries = self._queries
         fp = self._first_parent
         skip = self._loaded_count
+        path = self._path_filter
+        follow = self._path_filter_bar.follow()
 
         signals = _LoadSignals()
         signals.append_done.connect(self._on_append_done)
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            more = queries.get_commit_graph.execute(
-                limit=PAGE_SIZE, skip=skip, extra_tips=self._extra_tips, first_parent=fp
-            )
+            if path is None:
+                more = queries.get_commit_graph.execute(
+                    limit=PAGE_SIZE, skip=skip, extra_tips=self._extra_tips, first_parent=fp
+                )
+            else:
+                more = queries.get_file_history.execute(
+                    path, limit=PAGE_SIZE, skip=skip, follow=follow
+                )
             branches = queries.get_branches.execute()
             tags = queries.get_tags.execute()
-            signals.append_done.emit(more, branches, tags, fp)
+            signals.append_done.emit(more, branches, tags, fp, path)
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_append_done(
-        self, more: list[Commit], branches: list[Branch], tags: list[Tag], first_parent: bool
+        self,
+        more: list[Commit],
+        branches: list[Branch],
+        tags: list[Tag],
+        first_parent: bool,
+        path_filter: str | None = None,
     ) -> None:
         self._loading = False
         if self._queries is None:
@@ -636,7 +768,7 @@ class GraphWidget(QWidget):
 
         # User toggled mid-flight: discard the appended page (it was fetched
         # in the wrong mode) and re-run a full reload in the new mode.
-        if first_parent != self._first_parent:
+        if first_parent != self._first_parent or path_filter != self._path_filter:
             self.reload()
             return
 

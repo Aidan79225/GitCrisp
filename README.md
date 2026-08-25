@@ -12,6 +12,7 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - Lane-based visual graph with topological + time sort
 - Lazy pagination — automatically expands the loaded range to reach distant branches
 - **Inline search** (Ctrl+F) — search commit messages, authors, hashes, and dates across the full history
+- **File history** — right-click any file (working-tree list, commit file pills, or a diff block's header) → *Show file history* to filter the commit list to just that file. A chip above the list shows the path with a *Follow renames* toggle (on by default, so history continues past a rename) and an ✕ to go back to the full graph. The lane graph is hidden while filtered — the commits are a sparse subset, so lanes between them would be misleading — and the diff panel narrows to that one file.
 - Click any commit to view its file list and unified diff
 - **Click the commit hash** on the detail panel to copy the full 40-char OID to the clipboard; a status-bar toast confirms
 - **Auto-refresh** — the UI reloads automatically when the repo changes outside GitCrisp (e.g., a `git commit` in a terminal) or when you tab back after editing a file in your editor; your scroll position in the commit list is preserved across the refresh
