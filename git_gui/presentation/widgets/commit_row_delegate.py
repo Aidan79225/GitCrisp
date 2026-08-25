@@ -1,11 +1,20 @@
-# git_gui/presentation/widgets/commit_info_delegate.py
+# git_gui/presentation/widgets/commit_row_delegate.py
+"""Delegate for a whole commit row: lane graph on the left, commit info right.
+
+Both halves share one cell so the info can start at a per-row indent — just
+clear of the lanes that row actually draws — instead of every row waiting on
+the widest row in the history.
+"""
+
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
+from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, CommitInfo
 from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.widgets.graph_lane_painter import paint_lanes, row_graph_width
 from git_gui.presentation.widgets.ref_badge_delegate import _badge_color, _badge_display_name
 
 
@@ -49,19 +58,19 @@ def _badge_line_count(
     return lines
 
 
-class CommitInfoDelegate(QStyledItemDelegate):
+class CommitRowDelegate(QStyledItemDelegate):
     def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
-        from git_gui.presentation.models.graph_model import CommitInfo
-
         fm = option.fontMetrics
         line_h = fm.height()
         header_h = line_h + 8
 
-        info: CommitInfo | None = index.data(Qt.UserRole + 1)
+        info: CommitInfo | None = index.data(INFO_ROLE)
         if info is None:
             return QSize(option.rect.width(), header_h * 2 + line_h * 3 + 8)
 
-        cell_w = option.rect.width() - CELL_PAD * 2 if option.rect.width() > 0 else 400
+        indent = row_graph_width(index.data(LANE_ROLE))
+        row_w = option.rect.width() if option.rect.width() > 0 else indent + 400
+        cell_w = max(row_w - indent - CELL_PAD * 2, 1)
         hash_w = fm.horizontalAdvance(info.short_oid) + BADGE_GAP * 2
         first_line_w = cell_w - hash_w
         badge_lines = _badge_line_count(fm, info.branch_names, first_line_w, cell_w)
@@ -70,21 +79,38 @@ class CommitInfoDelegate(QStyledItemDelegate):
         return QSize(option.rect.width(), header_h * (1 + badge_lines) + line_h * 3 + 8)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        from git_gui.presentation.models.graph_model import CommitInfo
-
-        info: CommitInfo | None = index.data(Qt.UserRole + 1)
-        if info is None:
+        info: CommitInfo | None = index.data(INFO_ROLE)
+        lane_data = index.data(LANE_ROLE)
+        if info is None and lane_data is None:
             super().paint(painter, option, index)
             return
 
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
 
-        rect = option.rect
+        row_rect = option.rect
+        selected = bool(option.state & QStyle.State_Selected)
 
-        # ── Selection highlight ───────────────────────────────────────────────
-        if option.state & QStyle.State_Selected:
-            painter.fillRect(rect, _selection_color())
+        # ── Selection highlight (whole row, drawn under both halves) ──────────
+        if selected:
+            painter.fillRect(row_rect, _selection_color())
+
+        # ── Lane graph, then the commit info clear of it ──────────────────────
+        indent = row_graph_width(lane_data)
+        if lane_data is not None:
+            graph_rect = QRect(row_rect.left(), row_rect.top(), indent, row_rect.height())
+            paint_lanes(painter, graph_rect, lane_data, selected=selected)
+
+        rect = QRect(
+            row_rect.left() + indent,
+            row_rect.top(),
+            max(row_rect.width() - indent, 1),
+            row_rect.height(),
+        )
+        if info is None:
+            self._paint_divider(painter, row_rect)
+            painter.restore()
+            return
 
         fm = painter.fontMetrics()
         line_h = fm.height()
@@ -170,8 +196,10 @@ class CommitInfoDelegate(QStyledItemDelegate):
             line_rect = QRect(rect.left() + CELL_PAD, ly, msg_w, line_h)
             painter.drawText(line_rect, Qt.AlignVCenter | Qt.AlignLeft, line)
 
-        # ── Bottom divider ────────────────────────────────────────────────────
-        painter.setPen(_divider_color())
-        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
-
+        self._paint_divider(painter, row_rect)
         painter.restore()
+
+    @staticmethod
+    def _paint_divider(painter: QPainter, row_rect: QRect) -> None:
+        painter.setPen(_divider_color())
+        painter.drawLine(row_rect.left(), row_rect.bottom(), row_rect.right(), row_rect.bottom())
