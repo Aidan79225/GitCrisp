@@ -35,6 +35,14 @@ class CreateCommit:
         return self._writer.commit(message)
 
 
+class AmendCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, message: str) -> Commit:
+        return self._writer.amend_commit(message)
+
+
 class SetIdentity:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer

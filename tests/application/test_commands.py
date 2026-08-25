@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 from git_gui.application.commands import (
+    AmendCommit,
     Checkout,
     CreateBranch,
     CreateCommit,
@@ -45,6 +46,14 @@ def test_create_commit():
     w.commit.return_value = _make_commit()
     result = CreateCommit(w).execute("feat: add thing")
     w.commit.assert_called_once_with("feat: add thing")
+    assert result.oid == "abc"
+
+
+def test_amend_commit():
+    w = _writer()
+    w.amend_commit.return_value = _make_commit()
+    result = AmendCommit(w).execute("fix: reworded subject")
+    w.amend_commit.assert_called_once_with("fix: reworded subject")
     assert result.oid == "abc"
 
 

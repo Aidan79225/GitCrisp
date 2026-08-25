@@ -405,3 +405,65 @@ def test_interactive_rebase_drop(repo_impl, repo_path):
 
     assert os.path.exists(repo_path / "b.txt")
     assert not os.path.exists(repo_path / "c.txt")
+
+
+# ── amend ────────────────────────────────────────────────────────────────────
+
+
+def test_amend_replaces_head_and_keeps_parent(writable_repo):
+    impl, path = writable_repo
+    (path / "a.txt").write_text("v1\n")
+    impl.stage(["a.txt"])
+    original = impl.commit("typo in subjcet")
+    raw = pygit2.Repository(str(path))
+    original_parents = [str(p) for p in raw[raw.head.target].parent_ids]
+
+    amended = impl.amend_commit("fix: typo in subject")
+
+    assert amended.message == "fix: typo in subject"
+    assert amended.oid != original.oid
+    raw = pygit2.Repository(str(path))
+    assert str(raw.head.target) == amended.oid
+    # History is rewritten in place, not extended.
+    assert [str(p) for p in raw[raw.head.target].parent_ids] == original_parents
+
+
+def test_amend_folds_in_staged_changes(writable_repo):
+    impl, path = writable_repo
+    (path / "b.txt").write_text("first\n")
+    impl.stage(["b.txt"])
+    impl.commit("add b.txt")
+
+    (path / "forgotten.txt").write_text("oops\n")
+    impl.stage(["forgotten.txt"])
+    amended = impl.amend_commit("add b.txt and forgotten.txt")
+
+    raw = pygit2.Repository(str(path))
+    tree = raw[raw.head.target].tree
+    assert "b.txt" in tree and "forgotten.txt" in tree
+    assert amended.message == "add b.txt and forgotten.txt"
+
+
+def test_amend_preserves_original_author(writable_repo):
+    """`git commit --amend` keeps the author and only moves the committer."""
+    impl, path = writable_repo
+    (path / "c.txt").write_text("x\n")
+    impl.stage(["c.txt"])
+    impl.commit("original")
+    raw = pygit2.Repository(str(path))
+    before = raw[raw.head.target].author
+
+    impl.amend_commit("reworded")
+
+    raw = pygit2.Repository(str(path))
+    after = raw[raw.head.target].author
+    assert (after.name, after.email, after.time) == (before.name, before.email, before.time)
+
+
+def test_amend_on_unborn_branch_raises(tmp_path):
+    from git_gui.infrastructure.pygit2 import Pygit2Repository
+
+    pygit2.init_repository(str(tmp_path))
+    impl = Pygit2Repository(str(tmp_path))
+    with pytest.raises(ValueError, match="no commits yet"):
+        impl.amend_commit("nothing to amend")
