@@ -24,12 +24,11 @@ from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 from git_gui.presentation.widgets.commit_info_delegate import CommitInfoDelegate
-from git_gui.presentation.widgets.graph_lane_delegate import LANE_W, GraphLaneDelegate
+from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate, graph_column_width
 from git_gui.resources import get_resource_path
 
 PAGE_SIZE = 50
 MAX_RELOAD_LIMIT = 2000  # cap doubling retry to avoid unbounded loads
-_DEFAULT_GRAPH_COL_W = 8 * LANE_W  # 128 px — fits ~8 parallel lanes
 
 
 class _GraphTableView(QTableView):
@@ -260,7 +259,7 @@ class GraphWidget(QWidget):
         header = self._view.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
-        self._view.setColumnWidth(0, _DEFAULT_GRAPH_COL_W)
+        self._sync_graph_column_width()
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
         self._view.doubleClicked.connect(self._on_double_clicked)
@@ -331,6 +330,10 @@ class GraphWidget(QWidget):
 
         self._rebuild_styles()
         connect_widget(self, rebuild=self._rebuild_styles)
+
+    def _sync_graph_column_width(self) -> None:
+        """Shrink/grow the graph column to fit the widest lane count loaded."""
+        self._view.setColumnWidth(0, graph_column_width(self._model.max_lanes()))
 
     def _rebuild_styles(self) -> None:
         style = _btn_style()
@@ -512,6 +515,7 @@ class GraphWidget(QWidget):
             all_commits.insert(0, synthetic)
 
         self._model.reload(all_commits, refs, head_branch, first_parent=first_parent)
+        self._sync_graph_column_width()
 
         retrying = False
         if self._pending_scroll_oid:
@@ -661,6 +665,7 @@ class GraphWidget(QWidget):
             refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
 
         self._model.append(more, refs)
+        self._sync_graph_column_width()
 
     def _show_context_menu(self, pos) -> None:
         index = self._view.indexAt(pos)
