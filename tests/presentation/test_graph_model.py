@@ -220,3 +220,42 @@ def test_graph_model_reload_first_parent_kwarg_recomputes_lanes(qtbot):
     # Append uses the stored flag — the appended row must also be single-lane.
     model.append([_make_commit("A", "A", parents=[])], {})
     assert all(ld.lane == 0 for ld in model._lane_data)
+
+
+def test_merge_diagonal_takes_the_parent_lane_colour(qtbot):
+    """The edge to a side parent must match the lane it feeds, not the merge's own.
+
+    Colouring it by the source lane split the line in two: the diagonal in the
+    merge row was one colour and the parent's line continuing below was another.
+    """
+    from git_gui.presentation.models.graph_model import _compute_lanes
+
+    #  M   merge — opens a side lane for D
+    #  |\
+    #  B |
+    #  D /
+    commits = [
+        _make_commit("M", "Merge", parents=["B", "D"]),
+        _make_commit("B", "B", parents=[]),
+        _make_commit("D", "D", parents=[]),
+    ]
+    lanes = _compute_lanes(commits)
+    merge_row, d_row = lanes[0], lanes[2]
+
+    diagonals = [e for e in merge_row.edges_out if e[0] != e[1]]
+    assert len(diagonals) == 1
+    _, target_lane, edge_color = diagonals[0]
+    # D sits in the lane the diagonal points at, wearing the same colour.
+    assert d_row.lane == target_lane
+    assert edge_color == d_row.color_idx
+    # ...and that is a different colour from the merge commit's own lane.
+    assert edge_color != merge_row.color_idx
+
+
+def test_first_parent_edge_keeps_the_commits_own_colour(qtbot):
+    """The straight-down edge feeds the commit's own lane, so the colour is unchanged."""
+    from git_gui.presentation.models.graph_model import _compute_lanes
+
+    lanes = _compute_lanes([_make_commit("b", "B", parents=["a"]), _make_commit("a", "A")])
+    assert lanes[0].edges_out == [(0, 0, lanes[0].color_idx)]
+    assert lanes[1].color_idx == lanes[0].color_idx
