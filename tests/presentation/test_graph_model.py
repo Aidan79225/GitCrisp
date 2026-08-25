@@ -3,7 +3,14 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 
 from git_gui.domain.entities import Commit
-from git_gui.presentation.models.graph_model import CommitInfo, GraphModel, LaneData
+from git_gui.presentation.models.graph_model import (
+    INFO_ROLE,
+    LANE_ROLE,
+    OID_ROLE,
+    CommitInfo,
+    GraphModel,
+    LaneData,
+)
 
 
 def _make_commit(oid="abc", msg="Initial commit", parents=None):
@@ -24,48 +31,48 @@ def test_row_count_matches_commits(qtbot):
 
 def test_column_count(qtbot):
     model = GraphModel([], {})
-    assert model.columnCount() == 2  # graph, info
+    assert model.columnCount() == 1  # graph + info share one cell per row
 
 
 def test_user_role_returns_oid(qtbot):
     model = GraphModel([_make_commit("deadbeef")], {})
     idx = model.index(0, 0)
-    assert model.data(idx, Qt.UserRole) == "deadbeef"
+    assert model.data(idx, OID_ROLE) == "deadbeef"
 
 
 def test_commit_info_is_instance(qtbot):
     model = GraphModel([_make_commit("abc")], {})
-    idx = model.index(0, 1)
-    info = model.data(idx, Qt.UserRole + 1)
+    idx = model.index(0, 0)
+    info = model.data(idx, INFO_ROLE)
     assert isinstance(info, CommitInfo)
 
 
 def test_commit_info_message(qtbot):
     model = GraphModel([_make_commit("a", "feat: thing\n\nBody text")], {})
-    idx = model.index(0, 1)
-    info = model.data(idx, Qt.UserRole + 1)
+    idx = model.index(0, 0)
+    info = model.data(idx, INFO_ROLE)
     assert info.message == "feat: thing"
 
 
 def test_commit_info_author(qtbot):
     model = GraphModel([_make_commit()], {})
-    idx = model.index(0, 1)
-    info = model.data(idx, Qt.UserRole + 1)
+    idx = model.index(0, 0)
+    info = model.data(idx, INFO_ROLE)
     assert info.author == "Alice <a@a.com>"
 
 
 def test_commit_info_timestamp(qtbot):
     model = GraphModel([_make_commit()], {})
-    idx = model.index(0, 1)
-    info = model.data(idx, Qt.UserRole + 1)
+    idx = model.index(0, 0)
+    info = model.data(idx, INFO_ROLE)
     assert "2026-01-01" in info.timestamp
 
 
 def test_commit_info_short_oid(qtbot):
     commits = [_make_commit("abcdef1234")]
     model = GraphModel(commits, {})
-    idx = model.index(0, 1)
-    info = model.data(idx, Qt.UserRole + 1)
+    idx = model.index(0, 0)
+    info = model.data(idx, INFO_ROLE)
     assert info.short_oid == "abcdef12"
 
 
@@ -73,15 +80,15 @@ def test_commit_info_branch_names(qtbot):
     commits = [_make_commit("abc")]
     refs = {"abc": ["main", "origin/main"]}
     model = GraphModel(commits, refs)
-    idx = model.index(0, 1)
-    info = model.data(idx, Qt.UserRole + 1)
+    idx = model.index(0, 0)
+    info = model.data(idx, INFO_ROLE)
     assert info.branch_names == ["main", "origin/main"]
 
 
 def test_lane_data_is_instance(qtbot):
     model = GraphModel([_make_commit("a")], {})
     idx = model.index(0, 0)
-    ld = model.data(idx, Qt.UserRole + 1)
+    ld = model.data(idx, LANE_ROLE)
     assert isinstance(ld, LaneData)
 
 
@@ -93,7 +100,7 @@ def test_linear_history_all_lane_zero(qtbot):
     ]
     model = GraphModel(commits, {})
     for row in range(3):
-        ld = model.data(model.index(row, 0), Qt.UserRole + 1)
+        ld = model.data(model.index(row, 0), LANE_ROLE)
         assert ld.lane == 0, f"row {row} expected lane 0, got {ld.lane}"
 
 
@@ -104,8 +111,8 @@ def test_branch_tip_opens_second_lane(qtbot):
         _make_commit("base", parents=[]),
     ]
     model = GraphModel(commits, {})
-    ld0 = model.data(model.index(0, 0), Qt.UserRole + 1)
-    ld1 = model.data(model.index(1, 0), Qt.UserRole + 1)
+    ld0 = model.data(model.index(0, 0), LANE_ROLE)
+    ld1 = model.data(model.index(1, 0), LANE_ROLE)
     assert ld0.lane == 0
     assert ld1.lane == 1
 
@@ -117,7 +124,7 @@ def test_merge_commit_has_diagonal_edge(qtbot):
         _make_commit("p2", parents=[]),
     ]
     model = GraphModel(commits, {})
-    ld = model.data(model.index(0, 0), Qt.UserRole + 1)
+    ld = model.data(model.index(0, 0), LANE_ROLE)
     from_to = [(e[0], e[1]) for e in ld.edges_out]
     assert (0, 1) in from_to
 
@@ -213,31 +220,3 @@ def test_graph_model_reload_first_parent_kwarg_recomputes_lanes(qtbot):
     # Append uses the stored flag — the appended row must also be single-lane.
     model.append([_make_commit("A", "A", parents=[])], {})
     assert all(ld.lane == 0 for ld in model._lane_data)
-
-
-def test_max_lanes_empty_model_is_one(qtbot):
-    """An empty model still reports one lane so the column never collapses."""
-    assert GraphModel([], {}).max_lanes() == 1
-
-
-def test_max_lanes_linear_history_is_one(qtbot):
-    commits = [
-        _make_commit("c", "C", parents=["b"]),
-        _make_commit("b", "B", parents=["a"]),
-        _make_commit("a", "A", parents=[]),
-    ]
-    assert GraphModel(commits, {}).max_lanes() == 1
-
-
-def test_max_lanes_reports_widest_row(qtbot):
-    """A merge that opens a side lane widens the reported lane count."""
-    commits = [
-        _make_commit("M", "Merge", parents=["B", "D"]),
-        _make_commit("B", "B", parents=["A"]),
-        _make_commit("A", "A", parents=[]),
-    ]
-    model = GraphModel(commits, {})
-    assert model.max_lanes() == 2
-    # first-parent mode collapses the side lane back to a single column
-    model.reload(commits, {}, first_parent=True)
-    assert model.max_lanes() == 1

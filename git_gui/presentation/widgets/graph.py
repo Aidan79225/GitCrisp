@@ -21,10 +21,9 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import WORKING_TREE_OID, Branch, Commit, ResetMode, Tag
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.presentation.models.graph_model import GraphModel
+from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE, GraphModel
 from git_gui.presentation.theme import connect_widget, get_theme_manager
-from git_gui.presentation.widgets.commit_info_delegate import CommitInfoDelegate
-from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate, graph_column_width
+from git_gui.presentation.widgets.commit_row_delegate import CommitRowDelegate
 from git_gui.resources import get_resource_path
 
 PAGE_SIZE = 50
@@ -248,18 +247,15 @@ class GraphWidget(QWidget):
         # Let delegates control row height via sizeHint
         self._view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
 
-        # Delegates
-        self._view.setItemDelegateForColumn(0, GraphLaneDelegate(self._view))
-        self._view.setItemDelegateForColumn(1, CommitInfoDelegate(self._view))
+        # One delegate paints the whole row: lane graph first, then the commit
+        # info indented just past that row's own lanes.
+        self._view.setItemDelegate(CommitRowDelegate(self._view))
 
         self._model = GraphModel([], {})
         self._view.setModel(self._model)
 
-        # Column widths — col 0 fixed by lane count, col 1 stretches to fill
-        header = self._view.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        self._sync_graph_column_width()
+        # Single column, stretched to fill the panel
+        self._view.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
         self._view.doubleClicked.connect(self._on_double_clicked)
@@ -330,10 +326,6 @@ class GraphWidget(QWidget):
 
         self._rebuild_styles()
         connect_widget(self, rebuild=self._rebuild_styles)
-
-    def _sync_graph_column_width(self) -> None:
-        """Shrink/grow the graph column to fit the widest lane count loaded."""
-        self._view.setColumnWidth(0, graph_column_width(self._model.max_lanes()))
 
     def _rebuild_styles(self) -> None:
         style = _btn_style()
@@ -434,7 +426,7 @@ class GraphWidget(QWidget):
         mainline visually."""
         # If oid is already in the current commit list, just scroll and select
         for row in range(self._model.rowCount()):
-            row_oid = self._model.data(self._model.index(row, 0), Qt.UserRole)
+            row_oid = self._model.data(self._model.index(row, 0), OID_ROLE)
             if row_oid == oid:
                 self.scroll_to_oid(oid, select=True)
                 return
@@ -515,12 +507,11 @@ class GraphWidget(QWidget):
             all_commits.insert(0, synthetic)
 
         self._model.reload(all_commits, refs, head_branch, first_parent=first_parent)
-        self._sync_graph_column_width()
 
         retrying = False
         if self._pending_scroll_oid:
             loaded_oids = {
-                self._model.data(self._model.index(r, 0), Qt.UserRole)
+                self._model.data(self._model.index(r, 0), OID_ROLE)
                 for r in range(self._model.rowCount())
             }
             target_loaded = self._pending_scroll_oid in loaded_oids
@@ -578,9 +569,7 @@ class GraphWidget(QWidget):
         top_left = self._view.viewport().rect().topLeft()
         index = self._view.indexAt(top_left)
         if index.isValid():
-            self._scroll_anchor_oid = self._model.data(
-                self._model.index(index.row(), 0), Qt.UserRole
-            )
+            self._scroll_anchor_oid = self._model.data(self._model.index(index.row(), 0), OID_ROLE)
         else:
             self._scroll_anchor_oid = None
 
@@ -591,7 +580,7 @@ class GraphWidget(QWidget):
         if self._scroll_anchor_oid is None:
             return
         for row in range(self._model.rowCount()):
-            if self._model.data(self._model.index(row, 0), Qt.UserRole) == self._scroll_anchor_oid:
+            if self._model.data(self._model.index(row, 0), OID_ROLE) == self._scroll_anchor_oid:
                 index = self._model.index(row, 0)
                 self._view.scrollTo(index, QTableView.PositionAtTop)
                 return
@@ -605,7 +594,7 @@ class GraphWidget(QWidget):
         graph's highlight survives auto-reloads (RepoChangeDetector,
         post-operation flows) without losing the user's selection."""
         for row in range(self._model.rowCount()):
-            if self._model.data(self._model.index(row, 0), Qt.UserRole) == oid:
+            if self._model.data(self._model.index(row, 0), OID_ROLE) == oid:
                 index = self._model.index(row, 0)
                 self._view.selectionModel().setCurrentIndex(
                     index,
@@ -665,17 +654,16 @@ class GraphWidget(QWidget):
             refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
 
         self._model.append(more, refs)
-        self._sync_graph_column_width()
 
     def _show_context_menu(self, pos) -> None:
         index = self._view.indexAt(pos)
         if not index.isValid():
             return
-        oid = self._model.data(self._model.index(index.row(), 0), Qt.UserRole)
+        oid = self._model.data(self._model.index(index.row(), 0), OID_ROLE)
         if not oid or oid == WORKING_TREE_OID:
             return
 
-        info = self._model.data(self._model.index(index.row(), 1), Qt.UserRole + 1)
+        info = self._model.data(self._model.index(index.row(), 0), INFO_ROLE)
         branch_names = info.branch_names if info else []
 
         menu = QMenu(self)
@@ -989,7 +977,7 @@ class GraphWidget(QWidget):
     def scroll_to_oid(self, oid: str, select: bool = False) -> None:
         """Scroll so the row with the given oid is the first visible item."""
         for row in range(self._model.rowCount()):
-            row_oid = self._model.data(self._model.index(row, 0), Qt.UserRole)
+            row_oid = self._model.data(self._model.index(row, 0), OID_ROLE)
             if row_oid == oid:
                 index = self._model.index(row, 0)
                 self._view.scrollTo(index, QTableView.PositionAtTop)
@@ -1038,7 +1026,7 @@ class GraphWidget(QWidget):
         self._search_matches.clear()
         self._search_idx = -1
         for row in range(self._model.rowCount()):
-            info = self._model.data(self._model.index(row, 1), Qt.UserRole + 1)
+            info = self._model.data(self._model.index(row, 0), INFO_ROLE)
             if info is None:
                 continue
             haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
@@ -1069,7 +1057,7 @@ class GraphWidget(QWidget):
         self._view.setCurrentIndex(index)
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
-        oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)
+        oid = self._model.data(self._model.index(current.row(), 0), OID_ROLE)
         # Skip re-emitting for the already-selected commit. A model reset (from
         # an auto-reload) invalidates the current index, so restoring the
         # selection fires currentRowChanged with the same oid. Re-emitting there
@@ -1090,6 +1078,6 @@ class GraphWidget(QWidget):
         no branch to switch to, so it is ignored."""
         if not index.isValid():
             return
-        oid = self._model.data(self._model.index(index.row(), 0), Qt.UserRole)
+        oid = self._model.data(self._model.index(index.row(), 0), OID_ROLE)
         if oid and oid != WORKING_TREE_OID:
             self.commit_double_clicked.emit(oid)

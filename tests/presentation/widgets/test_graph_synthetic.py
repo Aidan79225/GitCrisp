@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget
 
 from git_gui.domain.entities import WORKING_TREE_OID, Commit, RepoState, RepoStateInfo
-from git_gui.presentation.models.graph_model import GraphModel
+from git_gui.presentation.models.graph_model import INFO_ROLE, GraphModel
 from git_gui.presentation.widgets.graph import GraphWidget
 
 
@@ -47,8 +47,6 @@ def _make_widget(qtbot) -> GraphWidget:
 
     # _stash_btn is called with setVisible; use a simple mock
     w._stash_btn = MagicMock()
-    # _sync_graph_column_width resizes the table column; stub the view out
-    w._view = MagicMock()
 
     qtbot.addWidget(w)
     return w
@@ -79,7 +77,7 @@ def test_dirty_clean_creates_uncommitted_changes_row(qtbot):
     assert w._model.rowCount() == 2
     oid = w._model.data(w._model.index(0, 0), Qt.UserRole)
     assert oid == WORKING_TREE_OID
-    info = w._model.data(w._model.index(0, 1), Qt.UserRole + 1)
+    info = w._model.data(w._model.index(0, 0), INFO_ROLE)
     assert info.message == "Uncommitted Changes"
 
     # Check parents via the underlying commit object
@@ -104,7 +102,7 @@ def test_dirty_merging_creates_merge_in_progress_row(qtbot):
     )
 
     assert w._model.rowCount() == 2
-    info = w._model.data(w._model.index(0, 1), Qt.UserRole + 1)
+    info = w._model.data(w._model.index(0, 0), INFO_ROLE)
     assert info.message == "Merge in progress (conflicts)"
 
     synthetic = w._model._commits[0]
@@ -127,7 +125,7 @@ def test_dirty_rebasing_creates_rebase_in_progress_row(qtbot):
     )
 
     assert w._model.rowCount() == 2
-    info = w._model.data(w._model.index(0, 1), Qt.UserRole + 1)
+    info = w._model.data(w._model.index(0, 0), INFO_ROLE)
     assert info.message == "Rebase in progress"
 
     synthetic = w._model._commits[0]

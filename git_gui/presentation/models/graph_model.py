@@ -7,7 +7,13 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 
 from git_gui.domain.entities import Commit
 
-COLUMNS = ["graph", "info"]
+# One column per commit: the lane graph and the commit info share a cell so the
+# info can be indented per row rather than by the widest row in the history.
+COLUMNS = ["commit"]
+
+OID_ROLE = Qt.UserRole  # str — the commit OID
+LANE_ROLE = Qt.UserRole + 1  # LaneData — graph drawing instructions for the row
+INFO_ROLE = Qt.UserRole + 2  # CommitInfo — author/badges/message for the row
 
 LANE_COLORS = [
     "#4fc1ff",  # blue
@@ -177,12 +183,8 @@ class GraphModel(QAbstractTableModel):
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self._commits)
 
-    def max_lanes(self) -> int:
-        """Widest lane count across all loaded rows — sizes the graph column."""
-        return max((ld.n_lanes for ld in self._lane_data), default=1)
-
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return len(COLUMNS)  # 2: graph, info
+        return len(COLUMNS)
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         if (
@@ -192,23 +194,21 @@ class GraphModel(QAbstractTableModel):
         ):
             return None
         commit = self._commits[index.row()]
-        col = index.column()
         if role == Qt.DisplayRole:
-            return ""  # both columns fully painted by delegates
-        if role == Qt.UserRole:
+            return ""  # the row is fully painted by CommitRowDelegate
+        if role == OID_ROLE:
             return commit.oid
-        if role == Qt.UserRole + 1:
-            if col == 0:
-                return self._lane_data[index.row()]
-            if col == 1:
-                return CommitInfo(
-                    author=commit.author,
-                    timestamp=commit.timestamp.strftime("%Y-%m-%d"),
-                    short_oid=commit.oid[:8],
-                    branch_names=self._refs.get(commit.oid, []),
-                    head_branch=self._head_branch,
-                    message=commit.message.split("\n")[0],
-                )
+        if role == LANE_ROLE:
+            return self._lane_data[index.row()]
+        if role == INFO_ROLE:
+            return CommitInfo(
+                author=commit.author,
+                timestamp=commit.timestamp.strftime("%Y-%m-%d"),
+                short_oid=commit.oid[:8],
+                branch_names=self._refs.get(commit.oid, []),
+                head_branch=self._head_branch,
+                message=commit.message.split("\n")[0],
+            )
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):
