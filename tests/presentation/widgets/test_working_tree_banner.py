@@ -19,7 +19,13 @@ def _make_widget(qtbot) -> WorkingTreeWidget:
     """
     w = WorkingTreeWidget.__new__(WorkingTreeWidget)
     QWidget.__init__(w)
-    from PySide6.QtWidgets import QHBoxLayout, QLabel, QPlainTextEdit, QPushButton
+    from PySide6.QtWidgets import (
+        QCheckBox,
+        QHBoxLayout,
+        QLabel,
+        QPlainTextEdit,
+        QPushButton,
+    )
 
     w._conflict_banner = QWidget()
     banner_layout = QHBoxLayout(w._conflict_banner)
@@ -27,6 +33,8 @@ def _make_widget(qtbot) -> WorkingTreeWidget:
     w._btn_abort = QPushButton("Abort")
     w._btn_commit = QPushButton("Commit")
     w._msg_edit = QPlainTextEdit()
+    w._chk_amend = QCheckBox()
+    w._draft_msg = ""
     banner_layout.addWidget(w._banner_label, 1)
     banner_layout.addWidget(w._btn_abort)
     w._conflict_banner.setVisible(False)

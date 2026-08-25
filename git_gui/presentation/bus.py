@@ -7,6 +7,7 @@ from git_gui.application.commands import (
     AddRemote,
     AddSubmodule,
     AddWorktree,
+    AmendCommit,
     ApplyStash,
     CancelRemoteOp,
     Checkout,
@@ -173,6 +174,7 @@ class CommandBus:
     stage_files: StageFiles
     unstage_files: UnstageFiles
     create_commit: CreateCommit
+    amend_commit: AmendCommit
     checkout: Checkout
     checkout_commit: CheckoutCommit
     checkout_remote_branch: CheckoutRemoteBranch
@@ -236,6 +238,7 @@ class CommandBus:
             stage_files=StageFiles(writer),
             unstage_files=UnstageFiles(writer),
             create_commit=CreateCommit(writer),
+            amend_commit=AmendCommit(writer),
             checkout=Checkout(writer),
             checkout_commit=CheckoutCommit(writer),
             checkout_remote_branch=CheckoutRemoteBranch(writer),

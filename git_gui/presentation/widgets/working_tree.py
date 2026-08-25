@@ -6,6 +6,7 @@ import threading
 from PySide6.QtCore import QObject, QRect, Qt, Signal
 from PySide6.QtGui import QBrush, QPainter
 from PySide6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QListView,
@@ -132,12 +133,20 @@ class WorkingTreeWidget(QWidget):
         self._btn_stage_all = QPushButton("Stage All")
         self._btn_unstage_all = QPushButton("Unstage All")
         self._btn_commit = QPushButton("Commit")
+        self._chk_amend = QCheckBox("Amend last commit")
+        self._chk_amend.setToolTip(
+            "Replace the last commit instead of creating a new one.\n"
+            "Rewrites history — avoid on commits you have already pushed."
+        )
+        # Draft the user was typing before ticking Amend, restored on untick.
+        self._draft_msg = ""
 
         btn_layout = QVBoxLayout()
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.addWidget(self._btn_stage_all)
         btn_layout.addWidget(self._btn_unstage_all)
         btn_layout.addWidget(self._btn_commit)
+        btn_layout.addWidget(self._chk_amend)
 
         toolbar = QWidget()
         toolbar_layout = QHBoxLayout(toolbar)
@@ -179,6 +188,7 @@ class WorkingTreeWidget(QWidget):
         self._btn_stage_all.clicked.connect(self._on_stage_all)
         self._btn_unstage_all.clicked.connect(self._on_unstage_all)
         self._btn_commit.clicked.connect(self._on_commit)
+        self._chk_amend.toggled.connect(self._on_amend_toggled)
         self._file_model.files_changed.connect(self._on_files_changed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
         self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
@@ -190,6 +200,9 @@ class WorkingTreeWidget(QWidget):
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
         self._commands = commands
+        # Amend targets the old repo's HEAD; switching repos must not carry it over.
+        self._set_amend_checked(False)
+        self._draft_msg = ""
         self._file_model.set_commands(commands)
         self._hunk_diff.set_buses(queries, commands)
         if queries is None:
@@ -334,17 +347,83 @@ class WorkingTreeWidget(QWidget):
             self.revert_continue_requested.emit()
             return
 
+        amending = self._chk_amend.isChecked()
+        if amending and not self._confirm_amend_published():
+            return
+
         try:
-            self._commands.create_commit.execute(msg)
+            if amending:
+                self._commands.amend_commit.execute(msg)
+            else:
+                self._commands.create_commit.execute(msg)
         except Exception as e:
-            self.commit_failed.emit(f"Commit failed: {e}")
+            verb = "Amend" if amending else "Commit"
+            self.commit_failed.emit(f"{verb} failed: {e}")
             return
 
         first_line = msg.split("\n")[0]
+        self._draft_msg = ""
         self._msg_edit.clear()
+        self._set_amend_checked(False)
         self.commit_completed.emit(first_line)
         self.reload_requested.emit()
         self.reload()
+
+    def _on_amend_toggled(self, checked: bool) -> None:
+        """Swap the message editor between the user's draft and HEAD's message."""
+        if not checked:
+            self._msg_edit.setPlainText(self._draft_msg)
+            self._btn_commit.setText("Commit")
+            return
+
+        self._draft_msg = self._msg_edit.toPlainText()
+        head_message = self._head_commit_message()
+        if head_message is None:
+            # Unborn branch — nothing to amend. Bounce the checkbox back.
+            self._chk_amend.blockSignals(True)
+            self._chk_amend.setChecked(False)
+            self._chk_amend.blockSignals(False)
+            self.commit_failed.emit("Nothing to amend — this branch has no commits yet.")
+            return
+        self._msg_edit.setPlainText(head_message)
+        self._btn_commit.setText("Amend Commit")
+
+    def _head_commit_message(self) -> str | None:
+        """Message of the commit HEAD points at, or None on an unborn branch."""
+        if self._queries is None:
+            return None
+        try:
+            head_oid = self._queries.get_head_oid.execute()
+            if not head_oid:
+                return None
+            return self._queries.get_commit_detail.execute(head_oid).message
+        except Exception:
+            return None
+
+    def _confirm_amend_published(self) -> bool:
+        """Warn before amending a commit a remote branch still points at.
+
+        Returns True to go ahead. A remote ref on HEAD means the commit has been
+        pushed, so amending it rewrites published history.
+        """
+        try:
+            head_oid = self._queries.get_head_oid.execute()
+            branches = self._queries.get_branches.execute()
+        except Exception:
+            return True  # can't tell — don't block the user
+        published = [b.name for b in branches if b.is_remote and b.target_oid == head_oid]
+        if not published:
+            return True
+        answer = QMessageBox.warning(
+            self,
+            "Amend a pushed commit?",
+            f"{', '.join(published)} still points at this commit.\n\n"
+            "Amending rewrites it, so the branch will need a force push and "
+            "anyone who already pulled will have to reconcile.",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        return answer == QMessageBox.Yes
 
     def _ensure_identity(self) -> bool:
         """Prompt for git identity if missing.
@@ -442,7 +521,20 @@ class WorkingTreeWidget(QWidget):
             self._btn_commit.setText("Continue Revert")
         else:
             self._conflict_banner.setVisible(False)
-            self._btn_commit.setText("Commit")
+            self._btn_commit.setText("Amend Commit" if self._chk_amend.isChecked() else "Commit")
+        # An in-progress merge/rebase/cherry-pick/revert has its own commit path.
+        self._chk_amend.setEnabled(state_name == "CLEAN")
+        if state_name != "CLEAN":
+            self._set_amend_checked(False)
+
+    def _set_amend_checked(self, checked: bool) -> None:
+        """Set the Amend checkbox without running the message-swap handler."""
+        if self._chk_amend.isChecked() == checked:
+            return
+        self._chk_amend.blockSignals(True)
+        self._chk_amend.setChecked(checked)
+        self._chk_amend.blockSignals(False)
+        self._btn_commit.setText("Amend Commit" if checked else "Commit")
 
     def _on_abort_clicked(self) -> None:
         state = getattr(self, "_current_state", "CLEAN")

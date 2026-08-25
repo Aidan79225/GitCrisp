@@ -29,6 +29,7 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - Discard a single hunk or an entire file from the diff view
 - Add files to `.gitignore` from the context menu
 - Commit message editor with immediate feedback
+- **Amend last commit** — tick *Amend last commit* next to the Commit button to replace HEAD instead of adding a commit. The editor prefills with HEAD's message (your in-progress draft is kept and restored if you untick), staged changes fold into the amended commit, and the original author is preserved. Disabled during a merge / rebase / cherry-pick / revert, and warns first when a remote branch still points at the commit you're about to rewrite.
 
 ### Branch Management
 - Local + remote branches in a collapsible sidebar tree (HEAD highlighted)

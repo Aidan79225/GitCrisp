@@ -134,11 +134,15 @@ def _compute_lanes(commits: list[Commit], first_parent: bool = False) -> list[La
             lines.append((i, new_i, colors[i]))
 
         # ── 4. Outgoing edges from the commit node ──────────────────────────
+        # Each edge takes the colour of the lane it feeds, not the commit's own
+        # lane, so it matches the parent's line continuing below this row. For
+        # the first parent those are the same lane; for a merge diagonal they
+        # differ, and colouring by the source would break the line in two.
         edges_out: list[tuple[int, int, int]] = []
         if parents:
-            edges_out.append((my_lane, my_lane, color_idx))  # first parent straight down
+            edges_out.append((my_lane, my_lane, new_colors[my_lane]))  # first parent
         for target_lane in extra_parent_lanes:
-            edges_out.append((my_lane, target_lane, color_idx))  # merge diagonals
+            edges_out.append((my_lane, target_lane, new_colors[target_lane]))  # merge diagonal
 
         # ── 5. Trim trailing Nones ───────────────────────────────────────────
         while new_active and new_active[-1] is None:

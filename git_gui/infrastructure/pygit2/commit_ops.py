@@ -319,6 +319,29 @@ class CommitOps:
             self._repo.state_cleanup()
         return _commit_to_entity(self._repo.get(oid))
 
+    def amend_commit(self, message: str) -> Commit:
+        """Replace HEAD with a commit carrying the current index and `message`.
+
+        The original author (name, email and time) is preserved — only the
+        committer becomes the current identity, matching `git commit --amend`.
+        Parents are carried over by pygit2, so amending a merge commit keeps
+        both sides.
+        """
+        if self._repo.head_is_unborn:
+            raise ValueError("Nothing to amend — this branch has no commits yet.")
+        self._repo.index.write()
+        tree = self._repo.index.write_tree()
+        head = self._repo.head.peel(pygit2.Commit)
+        oid = self._repo.amend_commit(
+            head,
+            "HEAD",
+            author=head.author,
+            committer=self._get_signature(),
+            message=message,
+            tree=tree,
+        )
+        return _commit_to_entity(self._repo.get(oid))
+
     def cherry_pick(self, oid: str) -> None:
         commit = self._repo[pygit2.Oid(hex=oid)]
         is_merge = len(commit.parents) > 1
