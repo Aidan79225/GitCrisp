@@ -1,6 +1,9 @@
 # git_gui/infrastructure/pygit2/repository.py
 from __future__ import annotations
 
+import subprocess
+import threading
+
 import pygit2
 
 from git_gui.infrastructure.commit_ops_cli import CommitOpsCli
@@ -37,3 +40,9 @@ class Pygit2Repository(
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(_resolve_gitdir(path))
         self._commit_ops = CommitOpsCli(self._repo.workdir)
+        # Remote-op cancellation state, consumed by RemoteOps: the active
+        # push/pull/fetch subprocess and a lock guarding it (the UI thread
+        # terminates it while a worker thread runs the op).
+        self._remote_proc_lock = threading.Lock()
+        self._active_remote_proc: subprocess.Popen | None = None
+        self._remote_cancel_requested = False
