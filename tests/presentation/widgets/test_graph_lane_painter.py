@@ -52,8 +52,13 @@ def test_graph_width_caps_so_commit_info_survives():
     assert graph_width(999) == graph_width(MAX_GRAPH_LANES)
 
 
-def test_row_graph_width_without_lane_data_is_one_lane():
-    assert row_graph_width(None) == graph_width(1)
+def test_row_graph_width_without_lane_data_is_zero():
+    """No lane data means no graph on the row, so the commit info hugs the edge.
+
+    This is what a path-filtered listing renders: the commits are a sparse
+    subset of history, so the model withholds lane data entirely.
+    """
+    assert row_graph_width(None) == 0
 
 
 def test_node_fits_within_its_lane():

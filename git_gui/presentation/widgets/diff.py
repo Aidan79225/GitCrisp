@@ -153,6 +153,7 @@ class _StickyPinController:
 
 class DiffWidget(QWidget):
     submodule_open_requested = Signal(str)  # emits the submodule path (relative)
+    file_history_requested = Signal(str)  # repo-relative path
     commit_oid_copy_requested = Signal(str)  # full 40-char OID — forwarded from _detail
     ref_copy_requested = Signal(str)  # branch/tag name — forwarded from _detail
     merge_abort_requested = Signal()
@@ -167,6 +168,8 @@ class DiffWidget(QWidget):
         super().__init__(parent)
         self._queries = queries
         self._current_oid: str | None = None
+        # Path the panel is narrowed to while the graph shows a file history.
+        self._path_filter: str | None = None
         self._submodule_paths: set[str] = set()
 
         # Lazy loading — initialized after scroll area is created (see below)
@@ -239,6 +242,7 @@ class DiffWidget(QWidget):
         # ── Shared file model + navigator ────────────────────────────────────
         self._diff_model = DiffModel([])
         self._file_navigator = FileNavigatorWidget(self._diff_model)
+        self._file_navigator.file_history_requested.connect(self.file_history_requested)
         self._file_navigator.currentChanged.connect(self._on_file_selected)
         self._file_navigator.deselected.connect(self._on_file_deselected)
 
@@ -445,13 +449,37 @@ class DiffWidget(QWidget):
 
         # Files — no auto-selection; show all files' hunks as bordered blocks
         files = self._queries.get_commit_files.execute(oid)
-        self._diff_model.reload(files)
+        self._diff_model.reload(self._apply_path_filter(files))
         self._render_all_files(oid)
 
         # Threshold depends on _msg_view height + flow_slot natural height,
         # both of which have settled by now (synchronous).
         self._sticky_controller.recompute_threshold()
         self._sticky_controller.force_unpin()
+
+    def set_path_filter(self, path: str | None) -> None:
+        """Restrict the panel to one file, following the graph's file history.
+
+        Passing None restores the full commit view.
+        """
+        if self._path_filter == path:
+            return
+        self._path_filter = path
+        if self._current_oid is not None:
+            self.load_commit(self._current_oid)
+
+    def _apply_path_filter(self, files):
+        """Narrow a commit's file list to the filtered path, when it has one.
+
+        A history followed across a rename reaches commits where the file had a
+        different name and the filter matches nothing. Showing an empty panel
+        there would look broken, so those commits fall back to their full file
+        list.
+        """
+        if self._path_filter is None:
+            return files
+        matching = [f for f in files if f.path == self._path_filter]
+        return matching or files
 
     # ── Internal helpers ────────────────────────────────────────────────────
 
@@ -475,11 +503,23 @@ class DiffWidget(QWidget):
         except Exception:
             self._submodule_paths = set()
 
+    def _show_file_header_menu(self, global_pos, path: str) -> None:
+        from PySide6.QtWidgets import QMenu
+
+        menu = QMenu(self)
+        history_action = menu.addAction("Show file history")
+        if menu.exec(global_pos) is history_action:
+            self.file_history_requested.emit(path)
+
     def _build_file_block(self, path: str, hunks):
         """Build and return a bordered QFrame containing a file header and per-hunk widgets."""
         is_submodule = path in self._submodule_paths
         on_click = (lambda p=path: self.submodule_open_requested.emit(p)) if is_submodule else None
-        frame, inner = make_file_block(path, on_header_clicked=on_click)
+        frame, inner = make_file_block(
+            path,
+            on_header_clicked=on_click,
+            on_header_context_menu=lambda pos, p=path: self._show_file_header_menu(pos, p),
+        )
         frame.setProperty("file_path", path)
 
         for hunk in hunks:
@@ -503,6 +543,7 @@ class DiffWidget(QWidget):
         frame, inner = make_file_block(
             path,
             on_header_clicked=on_click,
+            on_header_context_menu=lambda pos, p=path: self._show_file_header_menu(pos, p),
             on_state_changed=lambda _expanded: self._loader.check_viewport(),
         )
         frame.setProperty("file_path", path)

@@ -151,6 +151,14 @@ class GetCommitDetail:
         return self._reader.get_commit(oid)
 
 
+class GetFileHistory:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, path: str, limit: int, skip: int = 0, *, follow: bool = True) -> list[Commit]:
+        return self._reader.get_file_history(path, limit, skip, follow=follow)
+
+
 class ListRemotes:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader

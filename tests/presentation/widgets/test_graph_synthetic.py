@@ -44,6 +44,10 @@ def _make_widget(qtbot) -> GraphWidget:
     w._scroll_anchor_oid = None
     w._pending_search = None
     w._first_parent = False
+    # Path filter state — the commit list defaults to the full graph.
+    w._path_filter = None
+    w._path_filter_bar = MagicMock()
+    w._path_filter_bar.follow.return_value = True
 
     # _stash_btn is called with setVisible; use a simple mock
     w._stash_btn = MagicMock()

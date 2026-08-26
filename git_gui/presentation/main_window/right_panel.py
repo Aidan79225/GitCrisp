@@ -20,6 +20,9 @@ class RightPanelMixin:
         self._repo_list.clone_requested.connect(self._on_clone_requested)
         self._diff.submodule_open_requested.connect(self._on_submodule_path_clicked)
         self._working_tree.submodule_open_requested.connect(self._on_submodule_path_clicked)
+        self._graph.path_filter_changed.connect(self._diff.set_path_filter)
+        self._working_tree.file_history_requested.connect(self._on_file_history_requested)
+        self._diff.file_history_requested.connect(self._on_file_history_requested)
 
     def _on_commit_selected(self, oid: str) -> None:
         self._sidebar.clear_stash_selection()
@@ -30,6 +33,10 @@ class RightPanelMixin:
         else:
             self._right_stack.setCurrentIndex(0)
             self._diff.load_commit(oid)
+
+    def _on_file_history_requested(self, path: str) -> None:
+        """Filter the commit list to one file's history."""
+        self._graph.set_path_filter(path)
 
     def _on_working_tree_empty(self) -> None:
         """Working tree has no changes — switch back to commit info and refresh graph."""

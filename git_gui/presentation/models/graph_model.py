@@ -176,12 +176,14 @@ class GraphModel(QAbstractTableModel):
         parent=None,
         *,
         first_parent: bool = False,
+        show_graph: bool = True,
     ) -> None:
         super().__init__(parent)
         self._commits = commits
         self._refs = refs
         self._head_branch = head_branch
         self._first_parent = first_parent
+        self._show_graph = show_graph
         self._lane_data: list[LaneData] = _compute_lanes(commits, first_parent)
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
@@ -203,6 +205,11 @@ class GraphModel(QAbstractTableModel):
         if role == OID_ROLE:
             return commit.oid
         if role == LANE_ROLE:
+            # A path-filtered listing is a sparse subset of history: consecutive
+            # rows are not parent and child, so lanes would draw a staircase of
+            # disconnected dots. Suppress the graph rather than lie about it.
+            if not self._show_graph:
+                return None
             return self._lane_data[index.row()]
         if role == INFO_ROLE:
             return CommitInfo(
@@ -227,12 +234,14 @@ class GraphModel(QAbstractTableModel):
         head_branch: str | None = None,
         *,
         first_parent: bool = False,
+        show_graph: bool = True,
     ) -> None:
         self.beginResetModel()
         self._commits = commits
         self._refs = refs
         self._head_branch = head_branch
         self._first_parent = first_parent
+        self._show_graph = show_graph
         self._lane_data = _compute_lanes(commits, first_parent)
         self.endResetModel()
 

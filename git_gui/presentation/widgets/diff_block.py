@@ -120,6 +120,7 @@ _KIND_TO_ATTR = {
 def make_file_block(
     path: str,
     on_header_clicked: Callable[[], None] | None = None,
+    on_header_context_menu: Callable[[object], None] | None = None,
     on_state_changed: Callable[[bool], None] | None = None,
 ) -> tuple[QFrame, QVBoxLayout]:
     """Return a bordered QFrame with an amber file-header label and its inner layout.
@@ -154,6 +155,11 @@ def make_file_block(
     header_row_layout.addWidget(header_label)
     header_row_layout.addStretch()
     header_row.setFixedHeight(HEADER_ROW_HEIGHT + HEADER_ROW_VPAD * 2)
+    if on_header_context_menu is not None:
+        header_row.setContextMenuPolicy(Qt.CustomContextMenu)
+        header_row.customContextMenuRequested.connect(
+            lambda pos: on_header_context_menu(header_row.mapToGlobal(pos))
+        )
     inner.addWidget(header_row)
 
     def _set_expanded(expanded: bool) -> None:
@@ -513,6 +519,7 @@ def add_hunk_widget(
     extra_left_widgets: list[QWidget] | None = None,
     extra_right_widgets: list[QWidget] | None = None,
     on_header_clicked: Callable[[], None] | None = None,
+    on_header_context_menu: Callable[[object], None] | None = None,
     syntax_formats: SyntaxFormats | None = None,
     filename: str | None = None,
 ) -> None:

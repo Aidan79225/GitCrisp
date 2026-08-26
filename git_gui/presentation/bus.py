@@ -75,6 +75,7 @@ from git_gui.application.queries import (
     GetCommitRange,
     GetCommitStats,
     GetFileDiff,
+    GetFileHistory,
     GetHeadOid,
     GetIdentity,
     GetMergeAnalysis,
@@ -114,6 +115,7 @@ class QueryBus:
     get_working_tree: GetWorkingTree
     get_commit_detail: GetCommitDetail
     is_dirty: IsDirty
+    get_file_history: GetFileHistory
     get_head_oid: GetHeadOid
     list_remotes: ListRemotes
     list_submodules: ListSubmodules
@@ -148,6 +150,7 @@ class QueryBus:
             get_working_tree=GetWorkingTree(reader),
             get_commit_detail=GetCommitDetail(reader),
             is_dirty=IsDirty(reader),
+            get_file_history=GetFileHistory(reader),
             get_head_oid=GetHeadOid(reader),
             list_remotes=ListRemotes(reader),
             list_submodules=ListSubmodules(reader),

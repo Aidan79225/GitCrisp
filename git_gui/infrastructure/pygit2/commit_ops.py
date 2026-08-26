@@ -8,6 +8,7 @@ from datetime import datetime
 import pygit2
 
 from git_gui.domain.entities import Commit, CommitStat, FileStat, FileStatus, Hunk, ResetMode
+from git_gui.infrastructure.file_history_cli import FileHistoryCli
 from git_gui.infrastructure.pygit2._helpers import _commit_to_entity, _diff_to_hunks
 from git_gui.resources import subprocess_kwargs
 
@@ -23,6 +24,7 @@ class CommitOps:
     """
 
     _repo: pygit2.Repository  # provided by the composite
+    _file_history: FileHistoryCli  # provided by the composite
 
     # ── METHODS COPIED VERBATIM from Pygit2Repository ─────────────────
 
@@ -103,6 +105,25 @@ class CommitOps:
         if obj is None:
             raise KeyError(f"Commit not found: {oid}")
         return _commit_to_entity(obj)
+
+    def get_file_history(
+        self, path: str, limit: int, skip: int = 0, *, follow: bool = True
+    ) -> list[Commit]:
+        """Commits touching `path`, newest first.
+
+        The walk itself is delegated to the git CLI (see `FileHistoryCli`) —
+        pygit2 offers neither a pathspec-limited revwalk nor rename following.
+        Each returned OID is hydrated through the normal commit path, so the
+        entities are indistinguishable from `get_commits()` output and the
+        graph model can consume them unchanged.
+        """
+        oids = self._file_history.commit_oids(path, limit, skip, follow=follow)
+        commits: list[Commit] = []
+        for oid in oids:
+            obj = self._repo.get(oid)
+            if obj is not None:  # a commit git listed but we cannot read is skipped
+                commits.append(_commit_to_entity(obj))
+        return commits
 
     def get_commit_range(self, head_oid: str, base_oid: str) -> list[Commit]:
         """Return commits from head_oid back to base_oid (exclusive), oldest-first.
