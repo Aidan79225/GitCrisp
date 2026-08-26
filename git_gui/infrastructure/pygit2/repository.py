@@ -9,6 +9,7 @@ import pygit2
 from git_gui.infrastructure.commit_ops_cli import CommitOpsCli
 from git_gui.infrastructure.file_history_cli import FileHistoryCli
 from git_gui.infrastructure.pygit2._helpers import _resolve_gitdir
+from git_gui.infrastructure.pygit2.blame_ops import BlameOps
 from git_gui.infrastructure.pygit2.branch_ops import BranchOps
 from git_gui.infrastructure.pygit2.commit_ops import CommitOps
 from git_gui.infrastructure.pygit2.diff_ops import DiffOps
@@ -23,6 +24,7 @@ from git_gui.infrastructure.pygit2.worktree_ops import WorktreeOps
 
 
 class Pygit2Repository(
+    BlameOps,
     BranchOps,
     CommitOps,
     DiffOps,

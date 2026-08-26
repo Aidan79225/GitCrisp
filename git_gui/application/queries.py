@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from datetime import datetime
 
 from git_gui.domain.entities import (
+    BlameLine,
     Branch,
     Commit,
     CommitStat,
@@ -149,6 +150,14 @@ class GetCommitDetail:
 
     def execute(self, oid: str) -> Commit:
         return self._reader.get_commit(oid)
+
+
+class GetBlame:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, path: str, *, at_oid: str | None = None) -> list[BlameLine]:
+        return self._reader.get_blame(path, at_oid=at_oid)
 
 
 class GetFileHistory:
