@@ -31,6 +31,46 @@ Examples:
 - Scripts: `uv run python main.py`
 - One-liners: `uv run python -c "..."`
 
+## Pull requests
+
+**Estimate the diff before writing code.** If a feature will exceed ~400 changed
+lines, say so while discussing the approach and propose a split — don't hand over
+a 700-line PR and leave the reader to find the seams.
+
+**Split a feature along the architecture layer boundary**, into sequential PRs
+merged in order:
+
+1. **Data** — `domain/ports.py`, `application/`, `infrastructure/`, and their tests.
+   No UI change. Lands a capability nothing calls yet; that is expected and fine.
+2. **Display** — `presentation/models/` and `presentation/widgets/`. This is where
+   the real review effort belongs, so it gets a PR to itself.
+3. **Wiring** — entry points, context menus, `main_window/` signal connections, README.
+
+**Every merge must leave `master` releasable.** The Release workflow could run on
+any commit and has to produce a working app, so a PR is not done when CI is green:
+CI runs tests, ruff, and mypy over `domain` + `application` only — none of which
+notice that the app fails to launch, that `presentation` has a type error, or that
+a new button opens nothing. Launch it and exercise the area you touched before
+opening the PR.
+
+A split feature may sit on `master` half-built, but only where the user cannot
+reach it. That is what fixes the layer order above: data lands invisible, display
+lands unreachable, wiring is what makes the feature reachable — so wiring lands
+last and in one piece. Never ship an entry point ahead of what it opens, and never
+split the wiring layer in a way that leaves a dead menu item or a button that
+raises.
+
+Each PR must stand on its own: green tests, lint clean, and a body that explains
+why, not just what. A layer that turns out to be trivial can fold into its
+neighbour — three PRs is the shape, not a quota.
+
+Within a PR, keep one logical change per commit and split commits along the same
+boundary. Two unrelated changes never share a PR, however small one of them is.
+
+Development happens on a single designated branch that is reset from the default
+branch after each merge, so a split is serialized: the next PR starts once the
+previous one lands.
+
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
 
