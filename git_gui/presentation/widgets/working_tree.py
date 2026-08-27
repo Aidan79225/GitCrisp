@@ -95,6 +95,7 @@ class WorkingTreeWidget(QWidget):
     working_tree_empty = Signal()  # emitted when reload finds no changes
     submodule_open_requested = Signal(str)  # forwarded from inner HunkDiffWidget
     file_history_requested = Signal(str)  # repo-relative path
+    blame_requested = Signal(str, object)  # path, revision (None = HEAD)
     merge_abort_requested = Signal()
     rebase_abort_requested = Signal()
     merge_continue_requested = Signal(str)  # commit message
@@ -270,12 +271,16 @@ class WorkingTreeWidget(QWidget):
             return
         menu = QMenu(self._file_view)
         history_action = menu.addAction("Show file history")
+        blame_action = menu.addAction("Blame this file")
         menu.addSeparator()
         discard_action = menu.addAction("Discard changes")
         ignore_action = menu.addAction("Add to .gitignore")
         chosen = menu.exec(self._file_view.viewport().mapToGlobal(pos))
         if chosen is history_action:
             self.file_history_requested.emit(fs.path)
+        elif chosen is blame_action:
+            # Working-tree files blame HEAD — the last committed state.
+            self.blame_requested.emit(fs.path, None)
         elif chosen is discard_action:
             self._discard_file(fs.path)
         elif chosen is ignore_action:

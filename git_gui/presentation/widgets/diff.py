@@ -7,6 +7,7 @@ from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -154,6 +155,7 @@ class _StickyPinController:
 class DiffWidget(QWidget):
     submodule_open_requested = Signal(str)  # emits the submodule path (relative)
     file_history_requested = Signal(str)  # repo-relative path
+    blame_requested = Signal(str, object)  # path, revision (None = HEAD)
     commit_oid_copy_requested = Signal(str)  # full 40-char OID — forwarded from _detail
     ref_copy_requested = Signal(str)  # branch/tag name — forwarded from _detail
     merge_abort_requested = Signal()
@@ -243,6 +245,7 @@ class DiffWidget(QWidget):
         self._diff_model = DiffModel([])
         self._file_navigator = FileNavigatorWidget(self._diff_model)
         self._file_navigator.file_history_requested.connect(self.file_history_requested)
+        self._file_navigator.blame_requested.connect(self._request_blame)
         self._file_navigator.currentChanged.connect(self._on_file_selected)
         self._file_navigator.deselected.connect(self._on_file_deselected)
 
@@ -503,13 +506,24 @@ class DiffWidget(QWidget):
         except Exception:
             self._submodule_paths = set()
 
-    def _show_file_header_menu(self, global_pos, path: str) -> None:
-        from PySide6.QtWidgets import QMenu
+    def _request_blame(self, path: str) -> None:
+        """Blame the file as of the commit on screen, not as of HEAD.
 
+        Asking for blame while reading an old commit means asking what the file
+        looked like then; answering with HEAD's blame would be a different
+        question.
+        """
+        self.blame_requested.emit(path, self._current_oid)
+
+    def _show_file_header_menu(self, global_pos, path: str) -> None:
         menu = QMenu(self)
         history_action = menu.addAction("Show file history")
-        if menu.exec(global_pos) is history_action:
+        blame_action = menu.addAction("Blame this file")
+        chosen = menu.exec(global_pos)
+        if chosen is history_action:
             self.file_history_requested.emit(path)
+        elif chosen is blame_action:
+            self._request_blame(path)
 
     def _build_file_block(self, path: str, hunks):
         """Build and return a bordered QFrame containing a file header and per-hunk widgets."""
