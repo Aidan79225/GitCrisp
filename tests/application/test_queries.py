@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 from git_gui.application.queries import (
+    GetBlame,
     GetBranches,
     GetCommitFiles,
     GetCommitGraph,
@@ -43,6 +44,20 @@ def test_get_branches_delegates_to_reader():
     result = GetBranches(reader).execute()
     reader.get_branches.assert_called_once()
     assert result[0].name == "main"
+
+
+def test_get_blame_delegates_to_reader():
+    reader = MagicMock(spec=IRepositoryReader)
+    reader.get_blame.return_value = []
+    assert GetBlame(reader).execute("a.py") == []
+    reader.get_blame.assert_called_once_with("a.py", at_oid=None)
+
+
+def test_get_blame_passes_the_revision_through():
+    reader = MagicMock(spec=IRepositoryReader)
+    reader.get_blame.return_value = []
+    GetBlame(reader).execute("a.py", at_oid="deadbeef")
+    reader.get_blame.assert_called_once_with("a.py", at_oid="deadbeef")
 
 
 def test_get_commit_files_delegates_to_reader():

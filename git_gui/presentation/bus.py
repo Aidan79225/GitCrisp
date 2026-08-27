@@ -67,6 +67,7 @@ from git_gui.application.commands import (
 )
 from git_gui.application.queries import (
     FindWorktreeForBranch,
+    GetBlame,
     GetBranches,
     GetCommitDetail,
     GetCommitDiffMap,
@@ -104,6 +105,7 @@ from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
 @dataclass
 class QueryBus:
     get_commit_graph: GetCommitGraph
+    get_blame: GetBlame
     get_branches: GetBranches
     get_stashes: GetStashes
     get_tags: GetTags
@@ -139,6 +141,7 @@ class QueryBus:
     def from_reader(cls, reader: IRepositoryReader) -> QueryBus:
         return cls(
             get_commit_graph=GetCommitGraph(reader),
+            get_blame=GetBlame(reader),
             get_branches=GetBranches(reader),
             get_stashes=GetStashes(reader),
             get_tags=GetTags(reader),

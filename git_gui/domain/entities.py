@@ -79,6 +79,24 @@ class Hunk:
 
 
 @dataclass
+class BlameLine:
+    """One line of a file with the commit that last touched it.
+
+    `is_run_start` marks the first line of each consecutive run from the same
+    commit, so a view can show the attribution once per run instead of
+    repeating it on every line.
+    """
+
+    line_no: int  # 1-based, within the blamed revision of the file
+    text: str  # the line itself, without its trailing newline
+    commit_oid: str
+    author: str
+    timestamp: datetime
+    summary: str  # first line of that commit's message
+    is_run_start: bool
+
+
+@dataclass
 class Remote:
     name: str
     fetch_url: str

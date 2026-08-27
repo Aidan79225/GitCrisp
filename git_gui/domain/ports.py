@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from git_gui.domain.entities import (
+    BlameLine,
     Branch,
     Commit,
     CommitStat,
@@ -35,6 +36,7 @@ class IRepositoryReader(Protocol):
         first_parent: bool = False,
     ) -> list[Commit]: ...
     def get_commit(self, oid: str) -> Commit: ...
+    def get_blame(self, path: str, *, at_oid: str | None = None) -> list[BlameLine]: ...
     def get_file_history(
         self, path: str, limit: int, skip: int = 0, *, follow: bool = True
     ) -> list[Commit]: ...
