@@ -1,16 +1,16 @@
-# git_gui/presentation/widgets/blame_window.py
+# git_gui/presentation/widgets/blame_pane.py
 """Blame view — a file's lines beside the commit that last touched each one.
 
-A window of its own rather than a pane inside the main one: the point of blame
-is to pick a line and see the commit behind it, and the main window needs its
-commit list and diff pane free to answer that.
+Blame is an index, not an answer: you read a line, and what you actually want
+is the change behind it. So this sits in the commit list's column, next to the
+diff pane it hands off to, and the commit list gives way while it is open.
 """
 
 from __future__ import annotations
 
 import threading
 
-from PySide6.QtCore import QObject, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -75,6 +75,11 @@ class _Gutter(QWidget):
     def mousePressEvent(self, event) -> None:
         self._editor.select_line_at(event.position().toPoint().y())
 
+    def event(self, event) -> bool:
+        if event.type() == QEvent.ToolTip:
+            self.setToolTip(self._editor.attribution_at(event.pos().y()))
+        return super().event(event)
+
     def contextMenuEvent(self, event) -> None:
         self._editor.select_line_at(event.pos().y())
         self._editor.gutter_context_menu.emit(event.globalPos())
@@ -96,6 +101,7 @@ class _BlameEditor(QPlainTextEdit):
 
         self._lines: list[BlameLine] = []
         self._path = ""  # kept so a theme change can re-tokenize in place
+        self._gutter_w = 0  # recomputed from actual content in set_lines
         self._gutter = _Gutter(self)
 
         self.blockCountChanged.connect(lambda _: self._sync_gutter_width())
@@ -107,6 +113,7 @@ class _BlameEditor(QPlainTextEdit):
     def set_lines(self, lines: list[BlameLine], path: str) -> None:
         self._lines = lines
         self._path = path
+        self._gutter_w = self._measure_gutter()
         self.setPlainText("\n".join(line.text for line in lines))
         self._apply_syntax(path)
         self._sync_gutter_width()
@@ -147,14 +154,27 @@ class _BlameEditor(QPlainTextEdit):
     # ── gutter geometry ──────────────────────────────────────────────────────
 
     def gutter_width(self) -> int:
+        return self._gutter_w or self._measure_gutter()
+
+    def author_column_width(self) -> int:
+        """Width of the widest author actually shown, not of the widest allowed.
+
+        Reserving AUTHOR_CHARS of "W" cost ~90px that almost no file uses, and
+        in a pane beside the diff that space comes straight out of the code.
+        """
         fm = QFontMetrics(self.font())
-        digits = max(len(str(len(self._lines))), 3)
+        names = {_elide(line.author, AUTHOR_CHARS) for line in self._lines if line.is_run_start}
+        return max((fm.horizontalAdvance(n) for n in names), default=0)
+
+    def _measure_gutter(self) -> int:
+        fm = QFontMetrics(self.font())
+        digits = max(len(str(len(self._lines))), 2)
         return (
             STRIPE_W
             + GUTTER_PAD
             + fm.horizontalAdvance("0" * SHA_CHARS)
             + COL_GAP
-            + fm.horizontalAdvance("W" * AUTHOR_CHARS)
+            + self.author_column_width()
             + COL_GAP
             + fm.horizontalAdvance("2026-01-01")
             + COL_GAP
@@ -178,6 +198,34 @@ class _BlameEditor(QPlainTextEdit):
         cr = self.contentsRect()
         self._gutter.setGeometry(QRect(cr.left(), cr.top(), self.gutter_width(), cr.height()))
 
+    def block_at_y(self, y: int) -> int | None:
+        """Which text block sits at this y in the gutter, if any."""
+        block = self.firstVisibleBlock()
+        top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
+        while block.isValid():
+            bottom = top + self.blockBoundingRect(block).height()
+            if top <= y < bottom:
+                return block.blockNumber()
+            block = block.next()
+            top = bottom
+        return None
+
+    def attribution_at(self, y: int) -> str:
+        """Full attribution for the line at `y`, including the commit subject.
+
+        The gutter has no room for a subject column, but the subject is what a
+        reader is usually after — often enough to answer the question without
+        opening the commit at all. A tooltip costs no width.
+        """
+        block_number = self.block_at_y(y)
+        line = self.line_at_block(block_number) if block_number is not None else None
+        if line is None:
+            return ""
+        return (
+            f"{line.commit_oid[:SHA_CHARS]}  {line.author}  {line.timestamp:%Y-%m-%d}\n"
+            f"{line.summary}"
+        )
+
     def select_line_at_block(self, block_number: int) -> None:
         """Put the cursor on a line by index, as a gutter click or a test would."""
         block = self.document().findBlockByNumber(block_number)
@@ -189,15 +237,9 @@ class _BlameEditor(QPlainTextEdit):
 
     def select_line_at(self, y: int) -> None:
         """Put the cursor on the line the gutter was clicked next to."""
-        block = self.firstVisibleBlock()
-        top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
-        while block.isValid():
-            bottom = top + self.blockBoundingRect(block).height()
-            if top <= y < bottom:
-                self.select_line_at_block(block.blockNumber())
-                return
-            block = block.next()
-            top = bottom
+        block_number = self.block_at_y(y)
+        if block_number is not None:
+            self.select_line_at_block(block_number)
 
     # ── gutter painting ──────────────────────────────────────────────────────
 
@@ -239,7 +281,7 @@ class _BlameEditor(QPlainTextEdit):
                     painter.drawText(
                         x, top, width, height, Qt.AlignVCenter, _elide(line.author, AUTHOR_CHARS)
                     )
-                    x += fm.horizontalAdvance("W" * AUTHOR_CHARS) + COL_GAP
+                    x += self.author_column_width() + COL_GAP
                     painter.drawText(
                         x, top, width, height, Qt.AlignVCenter, f"{line.timestamp:%Y-%m-%d}"
                     )
@@ -260,10 +302,11 @@ class _BlameEditor(QPlainTextEdit):
             block_number += 1
 
 
-class BlameWindow(QWidget):
-    """Non-modal blame view for one file at one revision."""
+class BlamePane(QWidget):
+    """Blame for one file at one revision, shown in the commit list's column."""
 
     commit_selected = Signal(str)  # oid of the commit behind the current line
+    close_requested = Signal()
 
     def __init__(self, queries: QueryBus, path: str, at_oid: str | None = None, parent=None):
         super().__init__(parent)
@@ -284,11 +327,19 @@ class BlameWindow(QWidget):
 
         self._status = QLabel()
         self._status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._status.setWordWrap(False)
+
+        # There is no window chrome to close a pane, so it carries its own.
+        self._close_btn = QPushButton("✕")
+        self._close_btn.setFixedSize(28, 28)
+        self._close_btn.setToolTip("Close blame and show the commit list again (Esc)")
+        self._close_btn.clicked.connect(self.close_requested)
 
         header = QHBoxLayout()
         header.setContentsMargins(8, 6, 8, 6)
         header.addWidget(self._back_btn)
         header.addWidget(self._status, 1)
+        header.addWidget(self._close_btn)
 
         self._editor = _BlameEditor()
         self._editor.cursorPositionChanged.connect(self._on_cursor_moved)
@@ -300,9 +351,14 @@ class BlameWindow(QWidget):
         layout.addLayout(header)
         layout.addWidget(self._editor, 1)
 
-        self.resize(1000, 700)
         connect_widget(self, rebuild=self._editor.restyle)
         self._reload()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key_Escape:
+            self.close_requested.emit()
+            return
+        super().keyPressEvent(event)
 
     # ── loading ──────────────────────────────────────────────────────────────
 
@@ -348,6 +404,7 @@ class BlameWindow(QWidget):
         rev = self._oid[:SHA_CHARS] if self._oid else "HEAD"
         self.setWindowTitle(f"Blame — {self._path} @ {rev}")
         self._status.setText(f"Blaming {self._path} …" if loading else f"{self._path} @ {rev}")
+        self._status.setToolTip(f"{self._path} @ {rev}")
 
     # ── navigation ───────────────────────────────────────────────────────────
 

@@ -133,9 +133,7 @@ class MainWindow(
         self._log_panel = LogPanel()
         self._remote_running = False
         self._selected_oid: str | None = None
-        # Open blame windows, keyed by (path, revision). They are top-level
-        # and un-parented, so this is what keeps them alive.
-        self._blame_windows: dict[tuple[str, str | None], object] = {}
+        self._blame_pane = None  # BlamePane | None — occupies _left_stack index 1
         self._change_detector = None  # RepoChangeDetector | None
 
         self._right_stack = QStackedWidget()
@@ -149,11 +147,25 @@ class MainWindow(
         sidebar_splitter.addWidget(self._repo_list)
         sidebar_splitter.setSizes([400, 400])
 
+        # The commit list shares its column with blame: blame's job is to get
+        # you from a line to the change behind it, so it needs to sit beside the
+        # diff pane, and the commit list is what can give way for that.
+        self._left_stack = QStackedWidget()
+        self._left_stack.addWidget(self._graph)  # index 0: commit list
+
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(sidebar_splitter)
-        splitter.addWidget(self._graph)
+        splitter.addWidget(self._left_stack)
         splitter.addWidget(self._right_stack)
-        splitter.setSizes([220, 230, 950])
+        self._splitter = splitter
+        self._graph_sizes = [220, 230, 950]
+        # Blame and the diff both need room, and the split trades one against
+        # the other. Measured on a 1600px window: this leaves ~70 columns of
+        # code (15% of lines needing a horizontal scroll) and ~470px of diff.
+        # Giving blame more starves the diff it hands off to; less, and a
+        # third of the code is off screen.
+        self._blame_sizes = [220, 900, 480]
+        splitter.setSizes(self._graph_sizes)
 
         # Main layout: splitter on top, log panel at bottom
         central = QWidget()

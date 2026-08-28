@@ -60,8 +60,8 @@ class RepoLifecycleMixin:
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_repo_ready(self, path: str, queries: QueryBus, commands: CommandBus) -> None:
-        # Blame windows show a file from the repo being left behind.
-        self._close_blame_windows()
+        # Blame shows a file from the repo being left behind.
+        self._close_blame_pane()
         self._queries = queries
         self._commands = commands
         self._repo_path = path
@@ -151,7 +151,7 @@ class RepoLifecycleMixin:
 
     def _enter_empty_state(self) -> None:
         self._stop_change_detector()
-        self._close_blame_windows()
+        self._close_blame_pane()
         self._queries = None
         self._commands = None
         self._repo_path = None

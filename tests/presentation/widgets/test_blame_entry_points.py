@@ -15,7 +15,14 @@ class _Host(RightPanelMixin):
     def __init__(self) -> None:
         self._queries = MagicMock()
         self._graph = MagicMock()
-        self._blame_windows: dict = {}
+        self._diff = MagicMock()
+        self._left_stack = MagicMock()
+        self._right_stack = MagicMock()
+        self._splitter = MagicMock()
+        self._graph_sizes = [220, 230, 950]
+        self._blame_sizes = [220, 900, 480]
+        self._selected_oid = None
+        self._blame_pane = None
 
 
 @pytest.fixture
@@ -151,63 +158,76 @@ def test_file_history_still_fires_from_every_menu(qtbot):
     assert got == ["src/app.py"] * 3
 
 
-# ── Window lifecycle ─────────────────────────────────────────────────────────
+# ── Pane lifecycle ─────────────────────────────────────────────────────────
 
 
-def test_opening_blame_creates_one_window(host, qtbot):
-    with patch("git_gui.presentation.main_window.right_panel.BlameWindow") as factory:
+def test_opening_blame_puts_it_in_the_commit_list_column(host, qtbot):
+    with patch("git_gui.presentation.main_window.right_panel.BlamePane") as factory:
         host._on_blame_requested("src/app.py", None)
 
     factory.assert_called_once_with(host._queries, "src/app.py", None)
-    assert list(host._blame_windows) == [("src/app.py", None)]
+    assert host._blame_pane is factory.return_value
+    host._left_stack.setCurrentWidget.assert_called_once_with(factory.return_value)
+    host._splitter.setSizes.assert_called_once_with(host._blame_sizes)
 
 
-def test_reopening_the_same_file_raises_rather_than_duplicates(host, qtbot):
-    with patch("git_gui.presentation.main_window.right_panel.BlameWindow") as factory:
+def test_opening_blame_again_replaces_the_pane(host, qtbot):
+    """One column, one pane — a second file takes the place of the first."""
+    with patch("git_gui.presentation.main_window.right_panel.BlamePane") as factory:
+        host._on_blame_requested("a.py", None)
+        first = host._blame_pane
+        host._on_blame_requested("b.py", None)
+
+    assert factory.call_count == 2
+    host._left_stack.removeWidget.assert_called_once_with(first)
+    assert host._blame_pane is factory.return_value
+
+
+def test_closing_gives_the_column_back_to_the_commit_list(host, qtbot):
+    with patch("git_gui.presentation.main_window.right_panel.BlamePane") as factory:
         host._on_blame_requested("src/app.py", None)
-        host._on_blame_requested("src/app.py", None)
+        pane = factory.return_value
 
-    assert factory.call_count == 1
-    factory.return_value.raise_.assert_called_once()
-    factory.return_value.activateWindow.assert_called_once()
+        host._close_blame_pane()
+
+    assert host._blame_pane is None
+    host._left_stack.setCurrentIndex.assert_called_with(0)
+    host._left_stack.removeWidget.assert_called_once_with(pane)
+    host._splitter.setSizes.assert_called_with(host._graph_sizes)
 
 
-def test_a_different_revision_is_a_separate_window(host, qtbot):
-    """Blaming a file at HEAD and at an old commit are two different questions."""
-    with patch("git_gui.presentation.main_window.right_panel.BlameWindow"):
-        host._on_blame_requested("src/app.py", None)
-        host._on_blame_requested("src/app.py", "deadbeef")
-
-    assert set(host._blame_windows) == {("src/app.py", None), ("src/app.py", "deadbeef")}
+def test_closing_twice_is_harmless(host, qtbot):
+    host._close_blame_pane()
+    host._close_blame_pane()
+    assert host._blame_pane is None
 
 
 def test_nothing_opens_without_a_repo(host, qtbot):
     host._queries = None
-    with patch("git_gui.presentation.main_window.right_panel.BlameWindow") as factory:
+    with patch("git_gui.presentation.main_window.right_panel.BlamePane") as factory:
         host._on_blame_requested("src/app.py", None)
 
     factory.assert_not_called()
-    assert host._blame_windows == {}
-
-
-def test_switching_repo_closes_every_blame_window(host, qtbot):
-    """The windows show files from the repo being left behind."""
-    with patch("git_gui.presentation.main_window.right_panel.BlameWindow") as factory:
-        host._on_blame_requested("a.py", None)
-        host._on_blame_requested("b.py", None)
-        windows = [factory.return_value]
-
-    host._close_blame_windows()
-
-    assert host._blame_windows == {}
-    assert windows[0].close.called
+    assert host._blame_pane is None
 
 
 # ── What a click drives ──────────────────────────────────────────────────────
 
 
-def test_picking_a_line_brings_that_commit_up_in_the_graph(host, qtbot):
-    """reload_with_extra_tip, not scroll_to_oid: a blamed commit is often old
-    enough to sit beyond the loaded page, and has to be fetched to be shown."""
+def test_picking_a_line_shows_the_change_straight_away(host, qtbot):
+    """The diff is loaded directly, not by driving the commit list.
+
+    The list is off screen while blame is open, and reaching a commit through
+    it can mean a reload — measurably slower than loading the diff itself.
+    """
+    host._on_blame_commit_selected("deadbeef")
+
+    host._diff.load_commit.assert_called_once_with("deadbeef")
+    host._right_stack.setCurrentIndex.assert_called_once_with(0)
+    assert host._selected_oid == "deadbeef"
+
+
+def test_picking_a_line_also_re_points_the_commit_list(host, qtbot):
+    """So the list is on the right commit once blame closes."""
     host._on_blame_commit_selected("deadbeef")
     host._graph.reload_with_extra_tip.assert_called_once_with("deadbeef")
