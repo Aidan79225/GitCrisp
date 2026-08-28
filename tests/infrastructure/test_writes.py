@@ -467,3 +467,35 @@ def test_amend_on_unborn_branch_raises(tmp_path):
     impl = Pygit2Repository(str(tmp_path))
     with pytest.raises(ValueError, match="no commits yet"):
         impl.amend_commit("nothing to amend")
+
+
+def test_rebase_onto_remote_tracking_branch(writable_repo):
+    """`rebase` resolves remote-tracking branches, not just local ones.
+
+    Regression: the lookup only consulted ``branches.local``, so rebasing
+    onto ``origin/<name>`` raised ``KeyError: Branch not found``.
+    """
+    impl, path = writable_repo
+    raw = pygit2.Repository(str(path))
+    base = raw.head.target
+    sig = pygit2.Signature("Test User", "test@example.com")
+
+    # origin/staging: base -> S
+    (path / "s.txt").write_text("s")
+    raw.index.add("s.txt")
+    raw.index.write()
+    tree = raw.index.write_tree()
+    staging_oid = raw.create_commit(None, sig, sig, "S on staging", tree, [base])
+    raw.references.create("refs/remotes/origin/staging", staging_oid)
+    raw.index.read_tree(raw.get(base).tree)
+    raw.index.write()
+    (path / "s.txt").unlink()
+
+    # local branch adds M on top of base
+    (path / "m.txt").write_text("m")
+    impl.stage(["m.txt"])
+    impl.commit("M on master")
+
+    impl.rebase("origin/staging")
+
+    assert impl.is_ancestor(str(staging_oid), impl.get_head_oid()) is True
