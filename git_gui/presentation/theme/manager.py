@@ -28,9 +28,11 @@ class ThemeManager(QObject):
         self._current: Theme = self._resolve_theme()
         self._apply()
 
-        hints = QGuiApplication.styleHints()
-        if hasattr(hints, "colorSchemeChanged"):
-            hints.colorSchemeChanged.connect(self._on_system_scheme_changed)
+        # QStyleHints.colorScheme/colorSchemeChanged have existed since Qt 6.5
+        # and the project pins PySide6 >= 6.11, so these are read directly. A
+        # hasattr guard here would turn a rename into "system theme following
+        # quietly stopped working" rather than a crash that says what broke.
+        QGuiApplication.styleHints().colorSchemeChanged.connect(self._on_system_scheme_changed)
 
     @property
     def current(self) -> Theme:
@@ -141,8 +143,7 @@ class ThemeManager(QObject):
             return load_builtin("dark")
 
     def _system_theme(self) -> Theme:
-        hints = QGuiApplication.styleHints()
-        scheme = getattr(hints, "colorScheme", lambda: Qt.ColorScheme.Light)()
+        scheme = QGuiApplication.styleHints().colorScheme()
         if scheme == Qt.ColorScheme.Dark:
             return load_builtin("dark")
         return load_builtin("light")
