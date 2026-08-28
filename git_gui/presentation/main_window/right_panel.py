@@ -1,7 +1,10 @@
 # git_gui/presentation/main_window/right_panel.py
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
+
 from git_gui.domain.entities import WORKING_TREE_OID
+from git_gui.presentation.widgets.blame_window import BlameWindow
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
 from git_gui.presentation.widgets.insight_dialog import InsightDialog
 
@@ -23,6 +26,8 @@ class RightPanelMixin:
         self._graph.path_filter_changed.connect(self._diff.set_path_filter)
         self._working_tree.file_history_requested.connect(self._on_file_history_requested)
         self._diff.file_history_requested.connect(self._on_file_history_requested)
+        self._working_tree.blame_requested.connect(self._on_blame_requested)
+        self._diff.blame_requested.connect(self._on_blame_requested)
 
     def _on_commit_selected(self, oid: str) -> None:
         self._sidebar.clear_stash_selection()
@@ -37,6 +42,37 @@ class RightPanelMixin:
     def _on_file_history_requested(self, path: str) -> None:
         """Filter the commit list to one file's history."""
         self._graph.set_path_filter(path)
+
+    def _on_blame_requested(self, path: str, at_oid: str | None) -> None:
+        """Open (or raise) the blame window for one file."""
+        if self._queries is None:
+            return
+        key = (path, at_oid)
+        existing = self._blame_windows.get(key)
+        if existing is not None:
+            existing.raise_()
+            existing.activateWindow()
+            return
+
+        window = BlameWindow(self._queries, path, at_oid)
+        window.setAttribute(Qt.WA_DeleteOnClose)
+        window.commit_selected.connect(self._on_blame_commit_selected)
+        # Blame windows are top-level and un-parented, so nothing else keeps
+        # them alive; drop the reference when the window goes so reopening the
+        # same file builds a fresh one rather than raising a dead widget.
+        window.destroyed.connect(lambda _=None, k=key: self._blame_windows.pop(k, None))
+        self._blame_windows[key] = window
+        window.show()
+
+    def _on_blame_commit_selected(self, oid: str) -> None:
+        """A line was picked in blame — bring that commit up in the main window."""
+        self._graph.reload_with_extra_tip(oid)
+
+    def _close_blame_windows(self) -> None:
+        """Blame windows belong to the repo they were opened from."""
+        for window in list(self._blame_windows.values()):
+            window.close()
+        self._blame_windows.clear()
 
     def _on_working_tree_empty(self) -> None:
         """Working tree has no changes — switch back to commit info and refresh graph."""

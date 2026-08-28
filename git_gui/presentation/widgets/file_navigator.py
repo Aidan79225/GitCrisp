@@ -70,6 +70,7 @@ def _delta_dot_icon(delta: str, diameter: int = 8) -> QIcon:
 
 class FileNavigatorWidget(QWidget):
     file_history_requested = Signal(str)  # repo-relative path
+    blame_requested = Signal(str)  # repo-relative path
 
     """Two-shape file navigator backed by a shared QItemSelectionModel."""
 
@@ -217,8 +218,12 @@ class FileNavigatorWidget(QWidget):
     def _show_file_menu(self, global_pos, path: str) -> None:
         menu = QMenu(self)
         history_action = menu.addAction("Show file history")
-        if menu.exec(global_pos) is history_action:
+        blame_action = menu.addAction("Blame this file")
+        chosen = menu.exec(global_pos)
+        if chosen is history_action:
             self.file_history_requested.emit(path)
+        elif chosen is blame_action:
+            self.blame_requested.emit(path)
 
     def _on_list_context_menu(self, pos) -> None:
         index = self._list_view.indexAt(pos)

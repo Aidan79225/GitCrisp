@@ -133,6 +133,9 @@ class MainWindow(
         self._log_panel = LogPanel()
         self._remote_running = False
         self._selected_oid: str | None = None
+        # Open blame windows, keyed by (path, revision). They are top-level
+        # and un-parented, so this is what keeps them alive.
+        self._blame_windows: dict[tuple[str, str | None], object] = {}
         self._change_detector = None  # RepoChangeDetector | None
 
         self._right_stack = QStackedWidget()
