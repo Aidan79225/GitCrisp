@@ -328,15 +328,15 @@ def test_rebase_abort_restores_clean_state(writable_repo):
     with pytest.raises(RuntimeError):
         impl.rebase("master")
 
-    # During rebase, git detaches HEAD so repo_state returns DETACHED_HEAD;
-    # verify rebase is in progress via the rebase-merge directory
+    # Assert on libgit2's own view here rather than repo_state(); the
+    # REBASING mapping is covered by test_repo_state_rebasing.
     raw2 = pygit2.Repository(str(path))
-    assert raw2.state() != pygit2.GIT_REPOSITORY_STATE_NONE
+    assert raw2.state() != pygit2.enums.RepositoryState.NONE
 
     impl.rebase_abort()
 
     raw3 = pygit2.Repository(str(path))
-    assert raw3.state() == pygit2.GIT_REPOSITORY_STATE_NONE
+    assert raw3.state() == pygit2.enums.RepositoryState.NONE
 
 
 def test_rebase_continue_errors_on_clean_repo(writable_repo):

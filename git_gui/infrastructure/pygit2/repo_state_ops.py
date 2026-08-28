@@ -7,6 +7,25 @@ import pygit2
 from git_gui.domain.entities import RepoState, RepoStateInfo
 from git_gui.resources import git_ssh_env
 
+# Keyed by `pygit2.enums.RepositoryState` — the legacy `pygit2.GIT_REPOSITORY_*`
+# constants this used to read were removed in pygit2 1.20. Because they were
+# looked up with `getattr(..., None)`, their removal degraded silently: every
+# state mapped to CLEAN, so a conflicted merge or rebase reported no operation
+# in progress and the conflict banner never appeared.
+_REPO_STATE_MAP: dict[pygit2.enums.RepositoryState, RepoState] = {
+    pygit2.enums.RepositoryState.NONE: RepoState.CLEAN,
+    pygit2.enums.RepositoryState.MERGE: RepoState.MERGING,
+    pygit2.enums.RepositoryState.REVERT: RepoState.REVERTING,
+    pygit2.enums.RepositoryState.REVERT_SEQUENCE: RepoState.REVERTING,
+    pygit2.enums.RepositoryState.CHERRYPICK: RepoState.CHERRY_PICKING,
+    pygit2.enums.RepositoryState.CHERRYPICK_SEQUENCE: RepoState.CHERRY_PICKING,
+    pygit2.enums.RepositoryState.REBASE: RepoState.REBASING,
+    pygit2.enums.RepositoryState.REBASE_INTERACTIVE: RepoState.REBASING,
+    pygit2.enums.RepositoryState.REBASE_MERGE: RepoState.REBASING,
+    pygit2.enums.RepositoryState.APPLY_MAILBOX: RepoState.CLEAN,
+    pygit2.enums.RepositoryState.APPLY_MAILBOX_OR_REBASE: RepoState.REBASING,
+}
+
 
 class RepoStateOps:
     """Repository-level state reads (HEAD, state, MERGE_HEAD) and the
@@ -48,24 +67,7 @@ class RepoStateOps:
 
         # Check operation state FIRST — git detaches HEAD during rebase,
         # but we want to report REBASING, not DETACHED_HEAD.
-        state = self._repo.state()
-        raw_map = {
-            "GIT_REPOSITORY_STATE_NONE": RepoState.CLEAN,
-            "GIT_REPOSITORY_STATE_MERGE": RepoState.MERGING,
-            "GIT_REPOSITORY_STATE_REVERT": RepoState.REVERTING,
-            "GIT_REPOSITORY_STATE_CHERRYPICK": RepoState.CHERRY_PICKING,
-            "GIT_REPOSITORY_STATE_REBASE": RepoState.REBASING,
-            "GIT_REPOSITORY_STATE_REBASE_INTERACTIVE": RepoState.REBASING,
-            "GIT_REPOSITORY_STATE_REBASE_MERGE": RepoState.REBASING,
-            "GIT_REPOSITORY_STATE_APPLY_MAILBOX": RepoState.CLEAN,
-            "GIT_REPOSITORY_STATE_APPLY_MAILBOX_OR_REBASE": RepoState.REBASING,
-        }
-        state_map: dict[int, RepoState] = {}
-        for name, mapped_state in raw_map.items():
-            const = getattr(pygit2, name, None)
-            if const is not None:
-                state_map[const] = mapped_state
-        mapped = state_map.get(state, RepoState.CLEAN)
+        mapped = _REPO_STATE_MAP.get(self._repo.state(), RepoState.CLEAN)
 
         # If in an active operation (merge/rebase/etc), report that state
         # even if HEAD is detached (rebase detaches HEAD).
