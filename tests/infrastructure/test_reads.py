@@ -1,4 +1,5 @@
 import pygit2
+import pytest
 
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 
@@ -236,6 +237,37 @@ def test_repo_state_merging(repo_path, repo_impl):
     info = repo_impl.repo_state()
     assert info.state.name == "MERGING"
     assert info.head_branch == "master"
+
+
+def test_repo_state_rebasing(repo_path, repo_impl):
+    """A conflicted rebase reports REBASING, not CLEAN.
+
+    Guards the same mapping as `test_repo_state_merging`: `repo_state` must
+    translate every `RepositoryState` libgit2 reports, not just MERGE.
+    """
+    impl = Pygit2Repository(str(repo_path))
+    raw = pygit2.Repository(str(repo_path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    (repo_path / "README.md").write_text("master change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master change", tree_a, [base])
+
+    raw.branches.local.create("topic", raw.get(base))
+    raw.checkout("refs/heads/topic")
+    (repo_path / "README.md").write_text("topic change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    raw.create_commit("refs/heads/topic", sig, sig, "topic change", tree_b, [base])
+
+    with pytest.raises(RuntimeError):
+        impl.rebase("master")
+
+    assert repo_impl.repo_state().state.name == "REBASING"
 
 
 def test_get_commit_stats_with_multiple_commits(repo_path, repo_impl):
