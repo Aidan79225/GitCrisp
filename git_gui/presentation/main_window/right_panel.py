@@ -1,10 +1,8 @@
 # git_gui/presentation/main_window/right_panel.py
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-
 from git_gui.domain.entities import WORKING_TREE_OID
-from git_gui.presentation.widgets.blame_window import BlameWindow
+from git_gui.presentation.widgets.blame_pane import BlamePane
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
 from git_gui.presentation.widgets.insight_dialog import InsightDialog
 
@@ -44,35 +42,49 @@ class RightPanelMixin:
         self._graph.set_path_filter(path)
 
     def _on_blame_requested(self, path: str, at_oid: str | None) -> None:
-        """Open (or raise) the blame window for one file."""
+        """Show blame in the commit list's column, beside the diff pane."""
         if self._queries is None:
             return
-        key = (path, at_oid)
-        existing = self._blame_windows.get(key)
-        if existing is not None:
-            existing.raise_()
-            existing.activateWindow()
-            return
+        self._close_blame_pane()
 
-        window = BlameWindow(self._queries, path, at_oid)
-        window.setAttribute(Qt.WA_DeleteOnClose)
-        window.commit_selected.connect(self._on_blame_commit_selected)
-        # Blame windows are top-level and un-parented, so nothing else keeps
-        # them alive; drop the reference when the window goes so reopening the
-        # same file builds a fresh one rather than raising a dead widget.
-        window.destroyed.connect(lambda _=None, k=key: self._blame_windows.pop(k, None))
-        self._blame_windows[key] = window
-        window.show()
+        pane = BlamePane(self._queries, path, at_oid)
+        pane.commit_selected.connect(self._on_blame_commit_selected)
+        pane.close_requested.connect(self._close_blame_pane)
+        self._blame_pane = pane
+        self._left_stack.addWidget(pane)
+        self._left_stack.setCurrentWidget(pane)
+        # Blame needs room to read code in; the diff pane keeps enough to read
+        # a change in. The commit list is not on screen to need any.
+        self._splitter.setSizes(self._blame_sizes)
+        pane.setFocus()
 
     def _on_blame_commit_selected(self, oid: str) -> None:
-        """A line was picked in blame — bring that commit up in the main window."""
+        """A line was picked — show that change straight away.
+
+        The diff is loaded directly rather than by driving the commit list,
+        because the list is not on screen and reaching a commit through it can
+        mean a reload. The list is re-pointed in the background so it is on the
+        right commit once blame closes.
+        """
+        self._selected_oid = oid
+        self._right_stack.setCurrentIndex(0)
+        self._diff.load_commit(oid)
         self._graph.reload_with_extra_tip(oid)
 
-    def _close_blame_windows(self) -> None:
-        """Blame windows belong to the repo they were opened from."""
-        for window in list(self._blame_windows.values()):
-            window.close()
-        self._blame_windows.clear()
+    def _close_blame_pane(self) -> None:
+        """Give the column back to the commit list."""
+        pane = self._blame_pane
+        if pane is None:
+            return
+        self._blame_pane = None
+        self._left_stack.setCurrentIndex(0)
+        self._left_stack.removeWidget(pane)
+        pane.deleteLater()
+        self._splitter.setSizes(self._graph_sizes)
+
+    def _close_blame_panes(self) -> None:
+        """Blame shows a file from the repo being left behind."""
+        self._close_blame_pane()
 
     def _on_working_tree_empty(self) -> None:
         """Working tree has no changes — switch back to commit info and refresh graph."""

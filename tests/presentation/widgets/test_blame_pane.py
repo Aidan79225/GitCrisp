@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 from git_gui.domain.entities import BlameLine
 from git_gui.presentation.theme import get_theme_manager
-from git_gui.presentation.widgets.blame_window import (
+from git_gui.presentation.widgets.blame_pane import (
     AUTHOR_CHARS,
-    BlameWindow,
+    BlamePane,
     _elide,
     _lane_color,
 )
@@ -39,10 +39,10 @@ LINES = [
 ]
 
 
-def _window(qtbot, lines=None, path="src/app.py", at_oid=None) -> tuple[BlameWindow, MagicMock]:
+def _window(qtbot, lines=None, path="src/app.py", at_oid=None) -> tuple[BlamePane, MagicMock]:
     queries = MagicMock()
     queries.get_blame.execute.return_value = list(LINES if lines is None else lines)
-    w = BlameWindow(queries, path, at_oid)
+    w = BlamePane(queries, path, at_oid)
     qtbot.addWidget(w)
     qtbot.waitUntil(lambda: len(w._editor._lines) == len(queries.get_blame.execute.return_value))
     return w, queries
@@ -82,7 +82,7 @@ def test_title_names_the_revision_when_blaming_an_older_commit(qtbot):
 def test_failure_is_surfaced_rather_than_swallowed(qtbot):
     queries = MagicMock()
     queries.get_blame.execute.side_effect = ValueError("Cannot blame a binary file: logo.png")
-    w = BlameWindow(queries, "logo.png")
+    w = BlamePane(queries, "logo.png")
     qtbot.addWidget(w)
     qtbot.waitUntil(lambda: "binary" in w._status.text())
     assert w._editor._lines == []
@@ -156,7 +156,7 @@ def test_opening_does_not_emit_before_the_user_picks_a_line(qtbot):
     """Opening blame must not yank the main window's commit selection."""
     queries = MagicMock()
     queries.get_blame.execute.return_value = list(LINES)
-    w = BlameWindow(queries, "src/app.py")
+    w = BlamePane(queries, "src/app.py")
     qtbot.addWidget(w)
     got: list[str] = []
     w.commit_selected.connect(got.append)
