@@ -7,6 +7,7 @@ import subprocess
 import pygit2
 
 from git_gui.domain.entities import MergeAnalysisResult, MergeStrategy
+from git_gui.infrastructure.pygit2.repo_state_ops import REBASE_STATES
 from git_gui.resources import subprocess_kwargs
 
 
@@ -215,19 +216,10 @@ class MergeRebaseOps:
                 **subprocess_kwargs(),
             )
             if result.returncode != 0:
-                # Check if we're in a conflict state — let the banner handle it
-                state = self._repo.state()
-                rebase_states = set()
-                for name in (
-                    "GIT_REPOSITORY_STATE_REBASE",
-                    "GIT_REPOSITORY_STATE_REBASE_INTERACTIVE",
-                    "GIT_REPOSITORY_STATE_REBASE_MERGE",
-                ):
-                    const = getattr(pygit2, name, None)
-                    if const is not None:
-                        rebase_states.add(const)
-                if state in rebase_states:
-                    return  # conflict — Spec C banner will handle
+                # A stopped rebase is a conflict, not a failure — leave the repo
+                # as it is and let the conflict banner drive it from here.
+                if self._repo.state() in REBASE_STATES:
+                    return
                 msg = (
                     result.stderr.strip()
                     or result.stdout.strip()

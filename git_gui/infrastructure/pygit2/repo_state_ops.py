@@ -26,6 +26,14 @@ _REPO_STATE_MAP: dict[pygit2.enums.RepositoryState, RepoState] = {
     pygit2.enums.RepositoryState.APPLY_MAILBOX_OR_REBASE: RepoState.REBASING,
 }
 
+# The states that mean "a rebase is in progress", derived from the table above
+# so the two can never disagree. Callers that only need the yes/no answer take
+# this rather than re-listing constants of their own — doing that by name, with
+# `getattr(pygit2, name, None)`, is what broke silently in 1.20.
+REBASE_STATES = frozenset(
+    state for state, mapped in _REPO_STATE_MAP.items() if mapped is RepoState.REBASING
+)
+
 
 class RepoStateOps:
     """Repository-level state reads (HEAD, state, MERGE_HEAD) and the
