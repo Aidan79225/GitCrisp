@@ -100,7 +100,10 @@ class MergeRebaseOps:
                     self._repo.state_cleanup()
 
     def rebase(self, branch: str) -> None:
-        onto_ref = self._repo.branches.local[branch]
+        if branch in self._repo.branches.local:
+            onto_ref = self._repo.branches.local[branch]
+        else:
+            onto_ref = self._repo.branches.remote[branch]
         self._rebase_onto(onto_ref.target)
 
     def rebase_onto_commit(self, oid: str) -> None:
