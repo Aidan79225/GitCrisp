@@ -79,6 +79,24 @@ class Hunk:
 
 
 @dataclass
+class ReflogEntry:
+    """One movement of a ref, as recorded in its reflog.
+
+    The reflog is what makes a destructive operation recoverable: `oid_old` is
+    the state the ref was in before, and it stays reachable even when nothing
+    else points at it.
+    """
+
+    index: int  # 0 is the most recent — the `n` in `HEAD@{n}`
+    oid_new: str  # where the ref moved to
+    oid_old: str | None  # where it was; None on the entry that created the ref
+    operation: str  # "commit", "reset", "checkout", "rebase (finish)", …
+    summary: str  # the rest of the message, after the operation
+    committer: str
+    timestamp: datetime
+
+
+@dataclass
 class BlameLine:
     """One line of a file with the commit that last touched it.
 

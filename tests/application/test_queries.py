@@ -8,6 +8,7 @@ from git_gui.application.queries import (
     GetCommitGraph,
     GetFileDiff,
     GetMergeBase,
+    GetReflog,
     GetStashes,
     GetWorkingTree,
 )
@@ -44,6 +45,20 @@ def test_get_branches_delegates_to_reader():
     result = GetBranches(reader).execute()
     reader.get_branches.assert_called_once()
     assert result[0].name == "main"
+
+
+def test_get_reflog_defaults_to_head():
+    reader = MagicMock(spec=IRepositoryReader)
+    reader.get_reflog.return_value = []
+    assert GetReflog(reader).execute() == []
+    reader.get_reflog.assert_called_once_with("HEAD", 100)
+
+
+def test_get_reflog_passes_ref_and_limit_through():
+    reader = MagicMock(spec=IRepositoryReader)
+    reader.get_reflog.return_value = []
+    GetReflog(reader).execute("refs/heads/main", 5)
+    reader.get_reflog.assert_called_once_with("refs/heads/main", 5)
 
 
 def test_get_blame_delegates_to_reader():

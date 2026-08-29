@@ -83,6 +83,7 @@ from git_gui.application.queries import (
     GetMergeBase,
     GetMergeHead,
     GetMergeMsg,
+    GetReflog,
     GetRemoteTags,
     GetRepoState,
     GetStagedDiff,
@@ -109,6 +110,7 @@ class QueryBus:
     get_branches: GetBranches
     get_stashes: GetStashes
     get_tags: GetTags
+    get_reflog: GetReflog
     get_remote_tags: GetRemoteTags
     get_commit_stats: GetCommitStats
     get_commit_files: GetCommitFiles
@@ -145,6 +147,7 @@ class QueryBus:
             get_branches=GetBranches(reader),
             get_stashes=GetStashes(reader),
             get_tags=GetTags(reader),
+            get_reflog=GetReflog(reader),
             get_remote_tags=GetRemoteTags(reader),
             get_commit_stats=GetCommitStats(reader),
             get_commit_files=GetCommitFiles(reader),
