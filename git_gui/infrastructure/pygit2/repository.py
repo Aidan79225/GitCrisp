@@ -14,6 +14,7 @@ from git_gui.infrastructure.pygit2.branch_ops import BranchOps
 from git_gui.infrastructure.pygit2.commit_ops import CommitOps
 from git_gui.infrastructure.pygit2.diff_ops import DiffOps
 from git_gui.infrastructure.pygit2.merge_rebase_ops import MergeRebaseOps
+from git_gui.infrastructure.pygit2.reflog_ops import ReflogOps
 from git_gui.infrastructure.pygit2.remote_ops import RemoteOps
 from git_gui.infrastructure.pygit2.repo_state_ops import RepoStateOps
 from git_gui.infrastructure.pygit2.stage_ops import StageOps
@@ -32,6 +33,7 @@ class Pygit2Repository(
     TagOps,
     StashOps,
     MergeRebaseOps,
+    ReflogOps,
     RemoteOps,
     SubmoduleOps,
     RepoStateOps,

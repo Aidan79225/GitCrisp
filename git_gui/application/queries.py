@@ -12,6 +12,7 @@ from git_gui.domain.entities import (
     Hunk,
     LocalBranchInfo,
     MergeAnalysisResult,
+    ReflogEntry,
     Remote,
     RepoStateInfo,
     Stash,
@@ -158,6 +159,14 @@ class GetBlame:
 
     def execute(self, path: str, *, at_oid: str | None = None) -> list[BlameLine]:
         return self._reader.get_blame(path, at_oid=at_oid)
+
+
+class GetReflog:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, ref: str = "HEAD", limit: int = 100) -> list[ReflogEntry]:
+        return self._reader.get_reflog(ref, limit)
 
 
 class GetFileHistory:
