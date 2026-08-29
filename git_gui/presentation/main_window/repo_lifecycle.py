@@ -40,6 +40,21 @@ class RepoLifecycleMixin:
         self._repo_ready_signals.ready.connect(self._on_repo_ready)
         self._repo_ready_signals.failed.connect(self._on_repo_failed)
 
+        # Bridge branch -> "Checkout in New Worktree…" requests from the
+        # sidebar and graph context menus to the Add Worktree dialog. Bound
+        # once: the widgets live for the app's lifetime and the handler reads
+        # the active repo when it runs, so there is nothing repo-specific to
+        # rebind. It used to be re-bound on every repo switch, which meant
+        # disconnecting a signal that had nothing connected on the first pass —
+        # Qt warns rather than raising, so the `except` around it never caught
+        # anything and every run printed the warning.
+        for owner in (self._sidebar, self._graph):
+            owner.checkout_in_new_worktree_requested.connect(
+                lambda branch: self._open_add_worktree_dialog(
+                    preselect_branch=branch, default_create=False
+                )
+            )
+
     def _stop_change_detector(self) -> None:
         """Stop and release the current change detector, if any."""
         if self._change_detector is not None:
@@ -106,7 +121,7 @@ class RepoLifecycleMixin:
         # (Re)build SmartCheckout bound to the freshly created buses.
         from git_gui.presentation.services.smart_checkout import SmartCheckout
 
-        if getattr(self, "_smart_checkout", None) is not None:
+        if self._smart_checkout is not None:
             self._smart_checkout.deleteLater()
             self._smart_checkout = None
         self._smart_checkout = SmartCheckout(
@@ -115,32 +130,7 @@ class RepoLifecycleMixin:
             parent=self,
         )
         self._smart_checkout.switch_to_worktree_requested.connect(self._switch_repo)
-        if hasattr(self._sidebar, "set_smart_checkout"):
-            self._sidebar.set_smart_checkout(self._smart_checkout)
-
-        # Bridge branch -> "Checkout in New Worktree…" requests from
-        # sidebar / graph context menus to the Add Worktree dialog.
-        # Disconnect prior connections (idempotent via try/except).
-        for sig_owner_attr in ("_sidebar", "_graph"):
-            owner = getattr(self, sig_owner_attr, None)
-            if owner is not None and hasattr(owner, "checkout_in_new_worktree_requested"):
-                try:
-                    owner.checkout_in_new_worktree_requested.disconnect()
-                except (RuntimeError, TypeError):
-                    pass  # No prior connection
-        # Now connect fresh.
-        if hasattr(self._sidebar, "checkout_in_new_worktree_requested"):
-            self._sidebar.checkout_in_new_worktree_requested.connect(
-                lambda branch: self._open_add_worktree_dialog(
-                    preselect_branch=branch, default_create=False
-                )
-            )
-        if hasattr(self._graph, "checkout_in_new_worktree_requested"):
-            self._graph.checkout_in_new_worktree_requested.connect(
-                lambda branch: self._open_add_worktree_dialog(
-                    preselect_branch=branch, default_create=False
-                )
-            )
+        self._sidebar.set_smart_checkout(self._smart_checkout)
 
         # Load worktree list, paint badges/sidebar entries, refresh repo list.
         self._load_worktrees_for_active_repo()
@@ -159,10 +149,8 @@ class RepoLifecycleMixin:
         self._worktree_paths_by_branch = {}
         self._sidebar.set_repo_path(None)
         self._sidebar.set_buses(None, None)
-        if hasattr(self._sidebar, "set_smart_checkout"):
-            self._sidebar.set_smart_checkout(None)
-        if hasattr(self._sidebar, "set_worktree_branches"):
-            self._sidebar.set_worktree_branches(set())
+        self._sidebar.set_smart_checkout(None)
+        self._sidebar.set_worktree_branches(set())
         self._graph.set_repo_path(None)
         self._graph.set_buses(None, None)
         self._diff.set_buses(None, None)
@@ -243,8 +231,7 @@ class RepoLifecycleMixin:
         self._repo_list.reload()
         wt_branches = {wt.branch for wt in wts if wt.branch and not wt.is_main}
         wt_paths = {wt.branch: str(wt.path) for wt in wts if wt.branch and not wt.is_main}
-        if hasattr(self._sidebar, "set_worktree_branches"):
-            self._sidebar.set_worktree_branches(wt_branches)
+        self._sidebar.set_worktree_branches(wt_branches)
         self._worktree_paths_by_branch = wt_paths
 
     def _on_worktree_action(self, action: str, path: str) -> None:
