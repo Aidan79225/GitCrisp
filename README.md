@@ -209,7 +209,15 @@ uv run python main.py
 
 ```bash
 uv run pytest -v
+
+# Just the end-to-end journeys (real repo, real buses, real window)
+uv run pytest tests/e2e -v
 ```
+
+`tests/e2e` opens a `MainWindow` over a temporary git repository with the same
+session factory `main.py` uses — no mocked buses — and asserts on both what the
+window renders and what the repository on disk ends up containing. On Linux it
+needs an offscreen platform: `QT_QPA_PLATFORM=offscreen uv run pytest tests/e2e`.
 
 ## License
 
