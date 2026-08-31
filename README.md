@@ -101,6 +101,11 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - **Custom typography scale** (snaps to 10% steps) — drag the slider in any mode, click Apply, and the new scale persists across restarts via `settings.typography_scale`. Works in System / Light / Dark / Custom.
 - Live preview, no restart needed
 
+### Reflog
+- **`Git → Reflog...`** — where HEAD has been, and how to get back there. Opens in the commit list's column beside the diff pane, one dense line per movement with the operation as a colour-coded chip, so a `reset` or `rebase` is findable at a glance among the checkouts.
+- Picking a row shows that state in the diff pane — including **commits nothing references any more**, which the commit list cannot show at all. After a bad rebase or reset, this is the only place they exist.
+- Right-click → *Restore &lt;ref&gt; to the state before this* runs through the same reset dialog as any other reset, with its dirty-file preview: restoring is exactly as destructive as the operation it undoes. The entry that created the ref has nothing before it, so the action is disabled there.
+
 ### Insights
 - Per-author commit stats over a configurable date range (This Week / This Month / This Year / All / Custom)
 - **Streaming + cancellable** — `git log --numstat` runs in a worker thread; the loading label updates every ~250 ms (`Processed N commits, T s…`) and closing the dialog terminates the subprocess, so even "All" on a long-lived repo is workable

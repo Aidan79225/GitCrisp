@@ -19,6 +19,7 @@ from git_gui.presentation.main_window.branch_flows import BranchFlowsMixin
 from git_gui.presentation.main_window.cherry_pick_revert_flows import CherryPickRevertFlowsMixin
 from git_gui.presentation.main_window.commit_flows import CommitFlowsMixin
 from git_gui.presentation.main_window.merge_rebase_flows import MergeRebaseFlowsMixin
+from git_gui.presentation.main_window.reflog_flow import ReflogFlowMixin
 from git_gui.presentation.main_window.reload_coordinator import ReloadCoordinatorMixin
 from git_gui.presentation.main_window.remote_op_queue import RemoteOpQueueMixin
 from git_gui.presentation.main_window.repo_lifecycle import RepoLifecycleMixin, _RepoReadySignals
@@ -28,7 +29,6 @@ from git_gui.presentation.main_window.stash_flows import StashFlowsMixin
 from git_gui.presentation.main_window.tag_flows import TagFlowsMixin
 from git_gui.presentation.main_window.update_flow import UpdateFlowMixin
 from git_gui.presentation.menus.appearance import install_appearance_menu
-from git_gui.presentation.menus.git_menu import install_git_menu
 from git_gui.presentation.menus.help_menu import install_help_menu
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
@@ -42,6 +42,7 @@ class MainWindow(
     QMainWindow,
     ReloadCoordinatorMixin,
     RightPanelMixin,
+    ReflogFlowMixin,
     ResetFlowMixin,
     StashFlowsMixin,
     BranchFlowsMixin,
@@ -134,6 +135,7 @@ class MainWindow(
         self._remote_running = False
         self._selected_oid: str | None = None
         self._blame_pane = None  # BlamePane | None — occupies _left_stack index 1
+        self._reflog_pane = None  # ReflogPane | None — shares that slot
         self._change_detector = None  # RepoChangeDetector | None
 
         self._right_stack = QStackedWidget()
@@ -197,11 +199,5 @@ class MainWindow(
             sc.activated.connect(lambda idx=i: self._switch_to_repo_index(idx))
             self._repo_shortcuts.append(sc)
 
-        install_git_menu(
-            self,
-            queries=self._queries,
-            commands=self._commands,
-            repo_workdir=self._repo_path,
-            on_open_submodule=self._on_submodule_open_requested,
-        )
+        self._install_git_menu()
         install_help_menu(self)

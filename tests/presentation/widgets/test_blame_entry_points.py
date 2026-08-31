@@ -23,6 +23,13 @@ class _Host(RightPanelMixin):
         self._blame_sizes = [220, 900, 480]
         self._selected_oid = None
         self._blame_pane = None
+        # Blame and the reflog share the commit list's column, so opening one
+        # closes the other.
+        self._reflog_pane = None
+        self.closed_reflog = 0
+
+    def _close_reflog_pane(self) -> None:
+        self.closed_reflog += 1
 
 
 @pytest.fixture
@@ -166,6 +173,7 @@ def test_opening_blame_puts_it_in_the_commit_list_column(host, qtbot):
         host._on_blame_requested("src/app.py", None)
 
     factory.assert_called_once_with(host._queries, "src/app.py", None)
+    assert host.closed_reflog == 1, "the reflog shares this column"
     assert host._blame_pane is factory.return_value
     host._left_stack.setCurrentWidget.assert_called_once_with(factory.return_value)
     host._splitter.setSizes.assert_called_once_with(host._blame_sizes)

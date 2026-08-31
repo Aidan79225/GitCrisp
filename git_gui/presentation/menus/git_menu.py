@@ -20,6 +20,7 @@ def install_git_menu(
     repo_workdir: str | None,
     on_open_submodule: Callable[[str], None],
     on_open_worktrees_dialog: Callable[[], None] | None = None,
+    on_open_reflog: Callable[[], None] | None = None,
 ) -> None:
     """Add a `Git` menu with `Remotes...` and `Submodules...` actions.
 
@@ -80,6 +81,16 @@ def install_git_menu(
     git_menu.addAction(remote_branches_action)
     git_menu.addAction(submodule_action)
 
+    reflog_action = QAction("Ref&log...", window)
+    reflog_action.setStatusTip("Where HEAD has been — and how to get back there")
+
+    def _open_reflog() -> None:
+        if queries is None or on_open_reflog is None:
+            return
+        on_open_reflog()
+
+    reflog_action.triggered.connect(_open_reflog)
+
     worktrees_action = QAction("&Worktrees...", window)
 
     def _open_worktrees() -> None:
@@ -89,6 +100,8 @@ def install_git_menu(
 
     worktrees_action.triggered.connect(_open_worktrees)
     git_menu.addAction(worktrees_action)
+    git_menu.addSeparator()
+    git_menu.addAction(reflog_action)
 
     window._git_menu = git_menu  # type: ignore[attr-defined]
     window._git_remote_action = remote_action  # type: ignore[attr-defined]
