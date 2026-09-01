@@ -55,6 +55,28 @@ class RepoLifecycleMixin:
                 )
             )
 
+    def _install_git_menu(self) -> None:
+        """(Re)build the Git menu for whatever repo is open now.
+
+        One call site for the arguments. There used to be three, and they had
+        already drifted: the one that runs at startup never passed the
+        worktrees callback, so `Git → Worktrees…` did nothing until the user
+        switched repos.
+        """
+        bar = self.menuBar()
+        for action in list(bar.actions()):
+            if action.text() == "&Git":
+                bar.removeAction(action)
+        install_git_menu(
+            self,
+            queries=self._queries,
+            commands=self._commands,
+            repo_workdir=self._repo_path,
+            on_open_submodule=self._on_submodule_open_requested,
+            on_open_worktrees_dialog=self._open_worktrees_dialog,
+            on_open_reflog=self.open_reflog,
+        )
+
     def _stop_change_detector(self) -> None:
         """Stop and release the current change detector, if any."""
         if self._change_detector is not None:
@@ -75,8 +97,9 @@ class RepoLifecycleMixin:
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_repo_ready(self, path: str, queries: QueryBus, commands: CommandBus) -> None:
-        # Blame shows a file from the repo being left behind.
+        # Both panes show the repo being left behind.
         self._close_blame_pane()
+        self._close_reflog_pane()
         self._queries = queries
         self._commands = commands
         self._repo_path = path
@@ -96,18 +119,7 @@ class RepoLifecycleMixin:
         self._repo_list.reload()
         self.setWindowTitle(f"GitCrisp — {path}")
         # Re-install the Git menu so its actions bind to the new repo.
-        bar = self.menuBar()
-        for action in list(bar.actions()):
-            if action.text() == "&Git":
-                bar.removeAction(action)
-        install_git_menu(
-            self,
-            queries=self._queries,
-            commands=self._commands,
-            repo_workdir=self._repo_path,
-            on_open_submodule=self._on_submodule_open_requested,
-            on_open_worktrees_dialog=getattr(self, "_open_worktrees_dialog", None),
-        )
+        self._install_git_menu()
         self._right_stack.setCurrentIndex(0)
 
         # Replace any previous detector and start watching this repo.
@@ -142,6 +154,7 @@ class RepoLifecycleMixin:
     def _enter_empty_state(self) -> None:
         self._stop_change_detector()
         self._close_blame_pane()
+        self._close_reflog_pane()
         self._queries = None
         self._commands = None
         self._repo_path = None
@@ -159,18 +172,7 @@ class RepoLifecycleMixin:
         self._repo_list.set_active_worktrees([])
         self._repo_list.reload()
         self.setWindowTitle("GitCrisp")
-        bar = self.menuBar()
-        for action in list(bar.actions()):
-            if action.text() == "&Git":
-                bar.removeAction(action)
-        install_git_menu(
-            self,
-            queries=None,
-            commands=None,
-            repo_workdir=None,
-            on_open_submodule=self._on_submodule_open_requested,
-            on_open_worktrees_dialog=None,
-        )
+        self._install_git_menu()
 
     def _on_repo_open(self, path: str) -> None:
         self._repo_store.add_open(path)

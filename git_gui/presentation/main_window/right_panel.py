@@ -46,6 +46,7 @@ class RightPanelMixin:
         if self._queries is None:
             return
         self._close_blame_pane()
+        self._close_reflog_pane()  # both live in the commit list's column
 
         pane = BlamePane(self._queries, path, at_oid)
         pane.commit_selected.connect(self._on_blame_commit_selected)
