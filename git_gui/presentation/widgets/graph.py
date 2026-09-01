@@ -262,6 +262,7 @@ class GraphWidget(QWidget):
     fetch_all_requested = Signal()
     stash_requested = Signal()
     insight_requested = Signal()
+    reflog_requested = Signal()
 
     def __init__(
         self, queries: QueryBus, commands: CommandBus, repo_store: IRepoStore, parent=None
@@ -331,6 +332,11 @@ class GraphWidget(QWidget):
             ("ic_pull", "Pull", self.pull_requested),
             ("ic_fetch", "Fetch All --prune", self.fetch_all_requested),
             ("ic_insight", "Git Insight", self.insight_requested),
+            (
+                "ic_reflog",
+                "Reflog — where HEAD has been, and how to get back there",
+                self.reflog_requested,
+            ),
         ]:
             btn = QPushButton()
             btn.setFixedSize(QSize(36, 36))

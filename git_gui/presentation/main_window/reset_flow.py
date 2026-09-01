@@ -17,6 +17,7 @@ class ResetFlowMixin:
 
     def _on_reset_to_commit(self, oid: str, default_mode: ResetMode) -> None:
         short = oid[:7]
+        head_before = self.head_before_operation()
         try:
             commit = self._queries.get_commit_detail.execute(oid)
             head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
@@ -34,7 +35,9 @@ class ResetFlowMixin:
                 return
             mode = dlg.result_mode()
             self._commands.reset_branch.execute(oid, mode)
-            self._log_panel.log(f"Reset {head_branch} --{mode.value.lower()} to {short}")
+            self._log_undoable(
+                f"Reset {head_branch} --{mode.value.lower()} to {short}", head_before
+            )
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Reset to {short} — ERROR: {e}")

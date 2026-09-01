@@ -13,6 +13,45 @@ from git_gui.presentation.widgets.reflog_pane import ReflogPane
 
 
 class ReflogFlowMixin:
+    def _wire_reflog_signals(self) -> None:
+        self._log_panel.action_triggered.connect(self._on_log_action)
+        # The toolbar is not only for what you press often; it is also where the
+        # app says what it is for. Getting back from a mistake is one of those
+        # things, so it gets a button as well as its menu entry.
+        self._graph.reflog_requested.connect(self.open_reflog)
+
+    def head_before_operation(self) -> str | None:
+        """Where HEAD is right now, to be offered back if the next step is wrong."""
+        if self._queries is None:
+            return None
+        try:
+            return self._queries.get_head_oid.execute()
+        except Exception:
+            return None
+
+    def _log_undoable(self, message: str, head_before: str | None) -> None:
+        """Log an operation, with an Undo returning HEAD to where it started.
+
+        The oid is captured before the operation rather than read back from the
+        reflog when the link is clicked: it names the state the user was
+        actually in, and stays right even if something else moves HEAD in
+        between. Reading `HEAD@{1}` at click time would undo whatever happened
+        most recently instead of what this line reports.
+        """
+        if not head_before:
+            self._log_panel.log(message)
+            return
+        self._undoable[head_before] = message
+        self._log_panel.log_action(message, "Undo", head_before)
+
+    def _on_log_action(self, action_id: str) -> None:
+        message = self._undoable.get(action_id)
+        if message is None:
+            return
+        # Same path as restoring from the pane: an undo is a reset, and is as
+        # destructive as whatever it undoes.
+        self._on_reflog_restore_requested(action_id, message)
+
     def open_reflog(self) -> None:
         """Show where HEAD has been, in the commit list's column."""
         if self._queries is None:

@@ -160,9 +160,10 @@ class BranchFlowsMixin:
                     )
                     if reply != QMessageBox.Yes:
                         return
+                    head_before = self.head_before_operation()
                     self._commands.checkout.execute(local_name)
                     self._commands.reset_branch_to_ref.execute(local_name, name)
-                    self._log_panel.log(f"Reset {local_name} to {name}")
+                    self._log_undoable(f"Reset {local_name} to {name}", head_before)
                 else:
                     self._commands.checkout_remote_branch.execute(name)
                     self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
@@ -266,8 +267,9 @@ class BranchFlowsMixin:
         )
         if reply != QMessageBox.Yes:
             return
+        head_before = self.head_before_operation()
         self._commands.reset_branch_to_ref.execute(branch.name, upstream)
-        self._log_panel.log(f"Reset {branch.name} to {upstream}")
+        self._log_undoable(f"Reset {branch.name} to {upstream}", head_before)
 
     def _upstream_for(self, name: str) -> str | None:
         """Return the upstream (remote-tracking) shorthand for a local branch,

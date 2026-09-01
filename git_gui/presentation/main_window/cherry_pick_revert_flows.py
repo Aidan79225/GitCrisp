@@ -23,9 +23,10 @@ class CherryPickRevertFlowsMixin:
 
     def _on_cherry_pick(self, oid: str) -> None:
         short = oid[:7]
+        head_before = self.head_before_operation()
         try:
             self._commands.cherry_pick.execute(oid)
-            self._log_panel.log(f"Cherry-pick: {short}")
+            self._log_undoable(f"Cherry-pick: {short}", head_before)
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Cherry-pick {short} — ERROR: {e}")
@@ -33,9 +34,10 @@ class CherryPickRevertFlowsMixin:
 
     def _on_revert(self, oid: str) -> None:
         short = oid[:7]
+        head_before = self.head_before_operation()
         try:
             self._commands.revert_commit.execute(oid)
-            self._log_panel.log(f"Revert: {short}")
+            self._log_undoable(f"Revert: {short}", head_before)
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Revert {short} — ERROR: {e}")
