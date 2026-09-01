@@ -29,7 +29,10 @@ def _entry(
     *,
     oid_old: str | None = "b" * 40,
     orphaned: bool = False,
+    went_nowhere: bool = False,
 ):
+    if went_nowhere:
+        oid_old = f"{index:040d}"  # the ref ended up where it started
     return ReflogEntry(
         index=index,
         oid_new=f"{index:040d}",
@@ -50,12 +53,14 @@ ENTRIES = [
 ]
 
 
-def _pane(qtbot, entries=None) -> tuple[ReflogPane, MagicMock]:
+def _pane(qtbot, entries=None, *, expect_rows: int | None = None) -> tuple[ReflogPane, MagicMock]:
     queries = MagicMock()
-    queries.get_reflog.execute.return_value = list(ENTRIES if entries is None else entries)
+    supplied = list(ENTRIES if entries is None else entries)
+    queries.get_reflog.execute.return_value = supplied
     pane = ReflogPane(queries)
     qtbot.addWidget(pane)
-    qtbot.waitUntil(lambda: pane._model.rowCount() == len(queries.get_reflog.execute.return_value))
+    wanted = len(supplied) if expect_rows is None else expect_rows
+    qtbot.waitUntil(lambda: pane._model.rowCount() == wanted)
     return pane, queries
 
 
@@ -315,3 +320,98 @@ def test_the_stripe_never_overlaps_the_content(qtbot):
 
     rect = QRect(0, 0, 600, 30)
     assert ReflogDelegate.content_left(rect) >= rect.left() + ORPHAN_STRIPE_W
+
+
+# ── Folding the entries that changed nothing ─────────────────────────────────
+
+
+def test_an_entry_that_ended_where_it_started_went_nowhere():
+    from git_gui.presentation.widgets.reflog_pane import _went_nowhere
+
+    assert _went_nowhere(_entry(0, "checkout", "same place", went_nowhere=True))
+    assert not _went_nowhere(_entry(1, "commit", "moved"))
+
+
+def test_the_ref_creation_entry_did_not_go_nowhere():
+    """Its oid_old is absent, not equal — a different thing from a no-op."""
+    from git_gui.presentation.widgets.reflog_pane import _went_nowhere
+
+    assert not _went_nowhere(_entry(0, "branch", "Created from HEAD", oid_old=None))
+
+
+def test_entries_that_changed_nothing_are_hidden_by_default(qtbot):
+    """Restoring to one would put the ref where it already is."""
+    entries = [
+        _entry(0, "checkout", "same place", went_nowhere=True),
+        _entry(1, "commit", "real work"),
+        _entry(2, "checkout", "same place again", went_nowhere=True),
+    ]
+    pane, _ = _pane(qtbot, entries, expect_rows=1)
+
+    assert pane._model.rowCount() == 1
+    assert pane._model.entry_at(0).summary == "real work"
+    assert pane._model.hidden_count() == 2
+
+
+def test_a_checkout_that_moved_head_is_kept(qtbot):
+    """Filtering by operation type would have thrown these away."""
+    entries = [_entry(0, "checkout", "switched to another commit")]
+    pane, _ = _pane(qtbot, entries, expect_rows=1)
+
+    assert pane._model.rowCount() == 1
+
+
+def test_an_orphan_is_never_hidden(qtbot):
+    """Reaching those is the one thing nothing else in the app can do."""
+    entries = [
+        _entry(
+            0, "checkout", "went nowhere but is all that holds it", went_nowhere=True, orphaned=True
+        )
+    ]
+    pane, _ = _pane(qtbot, entries, expect_rows=1)
+
+    assert pane._model.rowCount() == 1
+    assert pane._model.hidden_count() == 0
+
+
+def test_show_every_movement_brings_them_back(qtbot):
+    entries = [
+        _entry(0, "checkout", "same place", went_nowhere=True),
+        _entry(1, "commit", "real work"),
+    ]
+    pane, _ = _pane(qtbot, entries, expect_rows=1)
+
+    pane._show_all_box.setChecked(True)
+
+    assert pane._model.rowCount() == 2
+    assert pane._model.hidden_count() == 0
+
+
+def test_the_status_line_says_how_many_are_hidden(qtbot):
+    entries = [
+        _entry(0, "checkout", "same place", went_nowhere=True),
+        _entry(1, "commit", "real work"),
+    ]
+    pane, _ = _pane(qtbot, entries, expect_rows=1)
+
+    assert "1 that changed nothing hidden" in pane._status.text()
+
+    pane._show_all_box.setChecked(True)
+    assert "hidden" not in pane._status.text()
+
+
+def test_filtering_does_not_renumber_the_entries(qtbot):
+    """The position is HEAD@{n}, which git counts over every entry.
+
+    Renumbering to the visible rows would make the label a lie and the sha it
+    names unreachable from the command line.
+    """
+    entries = [
+        _entry(0, "checkout", "same place", went_nowhere=True),
+        _entry(1, "commit", "real work"),
+        _entry(2, "checkout", "same place", went_nowhere=True),
+        _entry(3, "commit", "more work"),
+    ]
+    pane, _ = _pane(qtbot, entries, expect_rows=2)
+
+    assert [pane._model.entry_at(r).index for r in range(2)] == [1, 3]

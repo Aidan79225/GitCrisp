@@ -14,6 +14,7 @@ import threading
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -68,12 +69,45 @@ def _operation_color(operation: str) -> QColor:
     return colors.as_qcolor(_OPERATION_ROLES.get(head, "status_unknown"))
 
 
+def _went_nowhere(entry: ReflogEntry) -> bool:
+    """True when the ref ended up exactly where it started.
+
+    Restoring to such an entry would put the ref where it already is, so it
+    offers nothing to someone looking for a state to get back to. Filtering by
+    operation type instead would be a worse cut: most checkouts move HEAD to a
+    different commit, and those are perfectly good states to return to.
+    """
+    return entry.oid_old is not None and entry.oid_old == entry.oid_new
+
+
 class ReflogModel(QAbstractTableModel):
     """One column per row; the whole row is painted by ReflogDelegate."""
 
-    def __init__(self, entries: list[ReflogEntry] | None = None, parent=None) -> None:
+    def __init__(
+        self, entries: list[ReflogEntry] | None = None, parent=None, *, show_all: bool = False
+    ) -> None:
         super().__init__(parent)
-        self._entries: list[ReflogEntry] = entries or []
+        self._all: list[ReflogEntry] = entries or []
+        self._show_all = show_all
+        self._entries: list[ReflogEntry] = self._visible()
+
+    def _visible(self) -> list[ReflogEntry]:
+        if self._show_all:
+            return list(self._all)
+        # An orphan is never hidden whatever it did: reaching those is the one
+        # thing nothing else in the app can do.
+        return [e for e in self._all if e.is_orphaned or not _went_nowhere(e)]
+
+    def hidden_count(self) -> int:
+        return len(self._all) - len(self._entries)
+
+    def set_show_all(self, show_all: bool) -> None:
+        if show_all == self._show_all:
+            return
+        self.beginResetModel()
+        self._show_all = show_all
+        self._entries = self._visible()
+        self.endResetModel()
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self._entries)
@@ -121,7 +155,8 @@ class ReflogModel(QAbstractTableModel):
 
     def reload(self, entries: list[ReflogEntry]) -> None:
         self.beginResetModel()
-        self._entries = entries
+        self._all = entries
+        self._entries = self._visible()
         self.endResetModel()
 
 
@@ -257,6 +292,13 @@ class ReflogPane(QWidget):
         self._status = QLabel()
         self._status.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
+        self._show_all_box = QCheckBox("Show every movement")
+        self._show_all_box.setToolTip(
+            "Include entries where the ref ended up where it started —\n"
+            "there is nothing to restore to on those, but they are part of the record."
+        )
+        self._show_all_box.toggled.connect(self._on_show_all_toggled)
+
         self._close_btn = QPushButton("✕")
         self._close_btn.setFixedSize(28, 28)
         self._close_btn.setToolTip("Close the reflog and show the commit list again (Esc)")
@@ -265,6 +307,7 @@ class ReflogPane(QWidget):
         header = QHBoxLayout()
         header.setContentsMargins(8, 6, 8, 6)
         header.addWidget(self._status, 1)
+        header.addWidget(self._show_all_box)
         header.addWidget(self._close_btn)
 
         self._model = ReflogModel()
@@ -317,7 +360,19 @@ class ReflogPane(QWidget):
     def _on_loaded(self, entries: list[ReflogEntry]) -> None:
         self._model.reload(entries)
         self._last_emitted = None
-        self._status.setText(f"{self._ref} — {len(entries)} movements, most recent first")
+        self._update_status()
+
+    def _on_show_all_toggled(self, checked: bool) -> None:
+        self._model.set_show_all(checked)
+        self._update_status()
+
+    def _update_status(self) -> None:
+        shown = self._model.rowCount()
+        hidden = self._model.hidden_count()
+        text = f"{self._ref} — {shown} movements, most recent first"
+        if hidden:
+            text += f"  ({hidden} that changed nothing hidden)"
+        self._status.setText(text)
 
     def _on_failed(self, message: str) -> None:
         self._model.reload([])
