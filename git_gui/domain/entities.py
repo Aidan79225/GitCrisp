@@ -94,6 +94,10 @@ class ReflogEntry:
     summary: str  # the rest of the message, after the operation
     committer: str
     timestamp: datetime
+    is_orphaned: bool = False
+    # True when no branch, tag or other ref can reach `oid_new` any more. The
+    # reflog is then the only way back to it, and gc will collect it when the
+    # entry expires — which is what makes these the entries worth finding.
 
 
 @dataclass

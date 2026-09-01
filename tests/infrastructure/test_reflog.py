@@ -138,3 +138,68 @@ def test_unknown_ref_raises(moved_repo):
 )
 def test_message_split(message, expected):
     assert _split_message(message) == expected
+
+
+# ── Orphaned entries ─────────────────────────────────────────────────────────
+
+
+def test_a_commit_no_ref_reaches_is_marked_orphaned(repo_path: Path):
+    """The reflog is the only way back to these, which is why they matter."""
+    _git(repo_path, "checkout", "-q", "-b", "doomed")
+    (repo_path / "gone.txt").write_text("only on this branch\n")
+    _git(repo_path, "add", ".")
+    _git(repo_path, "commit", "-qm", "will be orphaned")
+    orphan = str(pygit2.Repository(str(repo_path)).head.target)
+    _git(repo_path, "checkout", "-q", "master")
+    _git(repo_path, "branch", "-D", "doomed")
+
+    entries = Pygit2Repository(str(repo_path)).get_reflog()
+    by_oid = {e.oid_new: e for e in entries}
+
+    assert by_oid[orphan].is_orphaned, "nothing points at it any more"
+
+
+def test_commits_a_branch_still_reaches_are_not_orphaned(repo_path: Path):
+    (repo_path / "kept.txt").write_text("reachable\n")
+    _git(repo_path, "add", ".")
+    _git(repo_path, "commit", "-qm", "still on master")
+    kept = str(pygit2.Repository(str(repo_path)).head.target)
+
+    entries = Pygit2Repository(str(repo_path)).get_reflog()
+    by_oid = {e.oid_new: e for e in entries}
+
+    assert not by_oid[kept].is_orphaned
+
+
+def test_a_commit_only_a_tag_reaches_is_not_orphaned(repo_path: Path):
+    """A tag is a ref too — the reflog is not the last resort here."""
+    _git(repo_path, "checkout", "-q", "-b", "tagged")
+    (repo_path / "t.txt").write_text("tagged\n")
+    _git(repo_path, "add", ".")
+    _git(repo_path, "commit", "-qm", "will be tagged")
+    oid = str(pygit2.Repository(str(repo_path)).head.target)
+    _git(repo_path, "tag", "keep-me")
+    _git(repo_path, "checkout", "-q", "master")
+    _git(repo_path, "branch", "-D", "tagged")
+
+    entries = Pygit2Repository(str(repo_path)).get_reflog()
+    assert not {e.oid_new: e for e in entries}[oid].is_orphaned
+
+
+def test_a_reset_leaves_the_commits_it_dropped_orphaned(repo_path: Path):
+    """The recovery case: reset --hard, and the reflog is all that is left."""
+    (repo_path / "a.txt").write_text("keep\n")
+    _git(repo_path, "add", ".")
+    _git(repo_path, "commit", "-qm", "keep")
+    base = str(pygit2.Repository(str(repo_path)).head.target)
+    (repo_path / "a.txt").write_text("lose\n")
+    _git(repo_path, "add", ".")
+    _git(repo_path, "commit", "-qm", "about to be dropped")
+    dropped = str(pygit2.Repository(str(repo_path)).head.target)
+    _git(repo_path, "reset", "--hard", base)
+
+    entries = Pygit2Repository(str(repo_path)).get_reflog()
+    by_oid = {e.oid_new: e for e in entries}
+
+    assert by_oid[dropped].is_orphaned
+    assert not by_oid[base].is_orphaned
