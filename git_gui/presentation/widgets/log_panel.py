@@ -3,14 +3,21 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCharFormat, QTextCursor
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QDesktopServices, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QLabel, QTextBrowser, QVBoxLayout, QWidget
 
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 
+# Links in the log are either a real URL (the update check posts one) or an
+# action for the app to run. A scheme tells them apart, since QTextBrowser hands
+# both to the same place.
+ACTION_SCHEME = "gitcrisp-action"
+
 
 class LogPanel(QWidget):
+    action_triggered = Signal(str)  # the action id from a clicked log link
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._expanded = False
@@ -24,7 +31,11 @@ class LogPanel(QWidget):
         self._body.setReadOnly(True)
         self._body.setLineWrapMode(QTextBrowser.NoWrap)
         self._body.setMaximumHeight(150)
-        self._body.setOpenExternalLinks(True)
+        # Links are handled here rather than opened blindly: an action link has
+        # to reach the app, and a real URL still has to reach the browser.
+        self._body.setOpenLinks(False)
+        self._body.setOpenExternalLinks(False)
+        self._body.anchorClicked.connect(self._on_anchor_clicked)
         font = self._body.font()
         font.setFamily("Courier New")
         self._body.setFont(font)
@@ -93,6 +104,37 @@ class LogPanel(QWidget):
         cursor.insertHtml(
             f'<span style="color: {on_surface};">[{ts}] </span>'
             f'<a href="{safe_url}" style="color: {link_color};">{safe_msg}</a>'
+        )
+        self._body.setTextCursor(cursor)
+        self._body.ensureCursorVisible()
+
+    def _on_anchor_clicked(self, url) -> None:
+        if url.scheme() == ACTION_SCHEME:
+            self.action_triggered.emit(url.path().lstrip("/") or url.host())
+            return
+        QDesktopServices.openUrl(url)
+
+    def log_action(self, message: str, action_label: str, action_id: str) -> None:
+        """Log `message` with a trailing link that runs `action_id` when clicked.
+
+        This is where an undo belongs: right after the operation, on the line
+        that reports it, where the reader is already looking. A permanent
+        control would have to be found; this one arrives.
+        """
+        from html import escape
+
+        ts = datetime.now().strftime("%H:%M:%S")
+        c = get_theme_manager().current.colors
+        link_color = c.as_qcolor("primary").name()
+        on_surface = c.as_qcolor("on_surface").name()
+        href = escape(f"{ACTION_SCHEME}:/{action_id}", quote=True)
+        cursor = self._body.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        if self._body.document().characterCount() > 1:
+            cursor.insertBlock()
+        cursor.insertHtml(
+            f'<span style="color: {on_surface};">[{ts}] {escape(message)}  ·  </span>'
+            f'<a href="{href}" style="color: {link_color};">{escape(action_label)}</a>'
         )
         self._body.setTextCursor(cursor)
         self._body.ensureCursorVisible()

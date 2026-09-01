@@ -101,8 +101,9 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - **Custom typography scale** (snaps to 10% steps) — drag the slider in any mode, click Apply, and the new scale persists across restarts via `settings.typography_scale`. Works in System / Light / Dark / Custom.
 - Live preview, no restart needed
 
-### Reflog
-- **`Git → Reflog...`** — where HEAD has been, and how to get back there. Opens in the commit list's column beside the diff pane, one dense line per movement with the operation as a colour-coded chip, so a `reset` or `rebase` is findable at a glance among the checkouts.
+### Reflog & Undo
+- **Undo in the operations log** — after a reset, rebase, merge, cherry-pick, revert or branch reset, that operation's log line carries an **Undo** link returning HEAD to where it was. The state is captured *before* the operation, so the link always names what that line reports even if something else moved HEAD afterwards. It runs through the same reset dialog as any other reset — an undo is as destructive as what it undoes.
+- **Reflog button** in the commit-list toolbar, beside Reload and Push, as well as **`Git → Reflog...`** — where HEAD has been, and how to get back there. Opens in the commit list's column beside the diff pane, one dense line per movement with the operation as a colour-coded chip, so a `reset` or `rebase` is findable at a glance among the checkouts.
 - Picking a row shows that state in the diff pane — including **commits nothing references any more**, which the commit list cannot show at all. After a bad rebase or reset, this is the only place they exist.
 - Entries where the ref **ended up where it started** are folded away by default — restoring to one would put the ref where it already is. A *Show every movement* toggle brings them back, and the `@{n}` positions keep git's own numbering so they still match the command line. On this repository that hides a third of the list.
 - Those entries are **marked with a red stripe and a wash**, since they are the ones the pane exists for: nothing else can reach them, and gc collects them once the reflog entry expires. Hovering says so.

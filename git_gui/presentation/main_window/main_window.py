@@ -90,6 +90,7 @@ class MainWindow(
         self._wire_merge_rebase_flow_signals()
         self._wire_commit_flow_signals()
         self._wire_remote_op_signals()
+        self._wire_reflog_signals()
         self._wire_repo_lifecycle_signals()
 
         # Load any persisted graph view mode for the initial repo.
@@ -136,6 +137,8 @@ class MainWindow(
         self._selected_oid: str | None = None
         self._blame_pane = None  # BlamePane | None — occupies _left_stack index 1
         self._reflog_pane = None  # ReflogPane | None — shares that slot
+        # HEAD oid -> what the operation was, for the Undo links in the log.
+        self._undoable: dict[str, str] = {}
         self._change_detector = None  # RepoChangeDetector | None
 
         self._right_stack = QStackedWidget()

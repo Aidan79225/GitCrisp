@@ -53,17 +53,19 @@ class MergeRebaseFlowsMixin:
             if dlg.exec() != MergeDialog.Accepted:
                 return
             req = dlg.result_value()
+            head_before = self.head_before_operation()
             self._commands.merge.execute(branch, strategy=req.strategy, message=req.message)
-            self._log_panel.log(f"Merge: {branch} into {head_branch}")
+            self._log_undoable(f"Merge: {branch} into {head_branch}", head_before)
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Merge {branch} — ERROR: {e}")
         self._reload()
 
     def _on_rebase(self, branch: str) -> None:
+        head_before = self.head_before_operation()
         try:
             self._commands.rebase.execute(branch)
-            self._log_panel.log(f"Rebase onto {branch}")
+            self._log_undoable(f"Rebase onto {branch}", head_before)
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Rebase onto {branch} — ERROR: {e}")
@@ -86,17 +88,19 @@ class MergeRebaseFlowsMixin:
             if dlg.exec() != MergeDialog.Accepted:
                 return
             req = dlg.result_value()
+            head_before = self.head_before_operation()
             self._commands.merge_commit.execute(oid, strategy=req.strategy, message=req.message)
-            self._log_panel.log(f"Merge: commit {short_oid} into {head_branch}")
+            self._log_undoable(f"Merge: commit {short_oid} into {head_branch}", head_before)
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Merge commit {short_oid} — ERROR: {e}")
         self._reload()
 
     def _on_rebase_onto_commit(self, oid: str) -> None:
+        head_before = self.head_before_operation()
         try:
             self._commands.rebase_onto_commit.execute(oid)
-            self._log_panel.log(f"Rebase onto commit {oid[:7]}")
+            self._log_undoable(f"Rebase onto commit {oid[:7]}", head_before)
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Rebase onto commit {oid[:7]} — ERROR: {e}")
