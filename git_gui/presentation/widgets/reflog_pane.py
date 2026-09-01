@@ -35,6 +35,8 @@ OID_ROLE = Qt.UserRole  # the commit the ref moved to
 
 SHA_CHARS = 8
 ROW_PAD = 6
+ORPHAN_STRIPE_W = 4  # marks the entries only the reflog can still reach
+ORPHAN_TINT_ALPHA = 38  # a wash over the row, enough to catch a scan
 COL_GAP = 10
 CHIP_H_PAD = 6
 CHIP_RADIUS = 4
@@ -89,6 +91,17 @@ class ReflogModel(QAbstractTableModel):
             return entry.oid_new
         if role == ENTRY_ROLE:
             return entry
+        if role == Qt.ToolTipRole:
+            when = f"{entry.timestamp:%Y-%m-%d %H:%M}"
+            base = f"{entry.oid_new[:SHA_CHARS]}  {entry.committer}  {when}"
+            if not entry.is_orphaned:
+                return base
+            return (
+                f"{base}\n\n"
+                "No branch or tag reaches this commit any more — the reflog is "
+                "the only way back to it, and it will be collected once this "
+                "entry expires."
+            )
         return None
 
     def widest_operation(self, fm) -> int:
@@ -119,6 +132,16 @@ class ReflogDelegate(QStyledItemDelegate):
     scanning for the point to go back to is the whole job.
     """
 
+    @staticmethod
+    def content_left(rect) -> int:
+        """Where a row's content starts, marked or not.
+
+        The orphan stripe's width is reserved on every row. Adding it only to
+        the marked rows shifted their text right, undoing the column alignment
+        the chip column exists to provide.
+        """
+        return rect.left() + ROW_PAD + ORPHAN_STRIPE_W
+
     def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
         return QSize(option.rect.width(), option.fontMetrics.height() + ROW_PAD * 2)
 
@@ -143,7 +166,20 @@ class ReflogDelegate(QStyledItemDelegate):
         )
         strong = colors.as_qcolor("on_primary") if selected else colors.as_qcolor("on_surface")
         top, height = rect.top(), rect.height()
-        x = rect.left() + ROW_PAD
+        x = self.content_left(rect)
+
+        # Entries nothing else references are the whole reason the pane exists:
+        # the commit list cannot show them at all, and gc takes them when the
+        # entry expires. A stripe alone was too quiet to find in a scan, so the
+        # row carries a wash of the same colour too.
+        if entry.is_orphaned and not selected:
+            tint = QColor(colors.as_qcolor("status_deleted"))
+            tint.setAlpha(ORPHAN_TINT_ALPHA)
+            painter.fillRect(rect, tint)
+        if entry.is_orphaned:
+            painter.fillRect(
+                rect.left(), top, ORPHAN_STRIPE_W, height, colors.as_qcolor("status_deleted")
+            )
 
         position = f"@{{{entry.index}}}"
         painter.setPen(muted)

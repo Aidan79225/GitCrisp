@@ -7,19 +7,29 @@ from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QFont, QFontMetrics
 
 from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.theme import get_theme_manager
 from git_gui.presentation.widgets.reflog_pane import (
     _OPERATION_ROLES,
+    ORPHAN_STRIPE_W,
+    ROW_PAD,
     ReflogModel,
     ReflogPane,
     _operation_color,
 )
 
 
-def _entry(index: int, operation: str, summary: str, *, oid_old: str | None = "b" * 40):
+def _entry(
+    index: int,
+    operation: str,
+    summary: str,
+    *,
+    oid_old: str | None = "b" * 40,
+    orphaned: bool = False,
+):
     return ReflogEntry(
         index=index,
         oid_new=f"{index:040d}",
@@ -28,6 +38,7 @@ def _entry(index: int, operation: str, summary: str, *, oid_old: str | None = "b
         summary=summary,
         committer="Alice",
         timestamp=datetime(2026, 1, 1, 12, 0),
+        is_orphaned=orphaned,
     )
 
 
@@ -112,7 +123,6 @@ def test_destructive_and_navigational_operations_are_told_apart(qtbot):
 
 def test_model_reports_the_widest_operation_for_column_alignment(qtbot):
     """Chips differ in width; the summaries must still line up."""
-    from PySide6.QtGui import QFont, QFontMetrics
 
     model = ReflogModel(list(ENTRIES))
     fm = QFontMetrics(QFont())
@@ -127,7 +137,6 @@ def test_model_lookup_is_bounded(qtbot):
 
 
 def test_widest_operation_of_an_empty_model_is_zero(qtbot):
-    from PySide6.QtGui import QFont, QFontMetrics
 
     assert ReflogModel([]).widest_operation(QFontMetrics(QFont())) == 0
 
@@ -262,3 +271,47 @@ def test_dismissing_the_menu_restores_nothing(qtbot, monkeypatch):
     _menu_on(pane, 0, monkeypatch, choose=False)
 
     assert got == []
+
+
+# ── Orphan marking ───────────────────────────────────────────────────────────
+
+
+def test_the_tooltip_explains_what_an_orphan_is(qtbot):
+    """A stripe cannot say "gc will take this"; the tooltip has to."""
+    entries = [_entry(0, "commit", "lost", orphaned=True)]
+    pane, _ = _pane(qtbot, entries)
+
+    tip = pane._model.data(pane._model.index(0, 0), Qt.ToolTipRole)
+
+    assert "only way back" in tip
+    assert "expires" in tip
+
+
+def test_a_reachable_entry_gets_the_plain_tooltip(qtbot):
+    pane, _ = _pane(qtbot, [_entry(0, "commit", "fine")])
+
+    tip = pane._model.data(pane._model.index(0, 0), Qt.ToolTipRole)
+
+    assert "only way back" not in tip
+    assert "Alice" in tip
+
+
+def test_content_starts_at_the_same_x_marked_or_not(qtbot):
+    """The orphan stripe's width is reserved on every row.
+
+    Adding it only to the marked rows shifted their text right, undoing the
+    column alignment the chip column exists to provide. This is a geometry
+    fact, so it is checked as one — comparing rendered pixels ends up
+    measuring the tint's effect on antialiasing instead.
+    """
+    from git_gui.presentation.widgets.reflog_pane import ReflogDelegate
+
+    rect = QRect(0, 0, 600, 30)
+    assert ReflogDelegate.content_left(rect) == rect.left() + ROW_PAD + ORPHAN_STRIPE_W
+
+
+def test_the_stripe_never_overlaps_the_content(qtbot):
+    from git_gui.presentation.widgets.reflog_pane import ReflogDelegate
+
+    rect = QRect(0, 0, 600, 30)
+    assert ReflogDelegate.content_left(rect) >= rect.left() + ORPHAN_STRIPE_W

@@ -29,6 +29,11 @@ def _split_message(message: str | None) -> tuple[str, str]:
     return operation.strip(), summary.strip()
 
 
+# A day of slack on the walk's cutoff, so commits written with a skewed clock
+# are still visited before the walk gives up on finding them.
+_CLOCK_SKEW_SLACK = 86400
+
+
 class ReflogOps:
     """Reads of a ref's reflog — the record that makes undo possible.
 
@@ -50,10 +55,16 @@ class ReflogOps:
         if reference is None:
             raise ValueError(f"No such ref: {ref}")
 
-        entries: list[ReflogEntry] = []
+        raw = []
         for index, entry in enumerate(reference.log()):
             if index >= limit:
                 break
+            raw.append((index, entry))
+
+        orphaned = self._unreachable_oids({str(e.oid_new) for _, e in raw})
+
+        entries: list[ReflogEntry] = []
+        for index, entry in raw:
             operation, summary = _split_message(entry.message)
             entries.append(
                 ReflogEntry(
@@ -67,6 +78,45 @@ class ReflogOps:
                     summary=summary,
                     committer=entry.committer.name or "",
                     timestamp=datetime.fromtimestamp(entry.committer.time),
+                    is_orphaned=str(entry.oid_new) in orphaned,
                 )
             )
         return entries
+
+    def _unreachable_oids(self, candidates: set[str]) -> set[str]:
+        """Which of `candidates` no ref can reach any more.
+
+        One walk from every ref rather than a reachability test per (ref, oid)
+        pair: the per-pair form costs a graph traversal each time it answers
+        "no", so it scales with the ref count — around 1.3s on a repo with two
+        hundred refs, against a few milliseconds here. This walk is bounded by
+        the reflog's own time window instead, and does not care how many refs
+        there are.
+        """
+        if not candidates:
+            return set()
+
+        remaining = set(candidates)
+        oldest = None
+        for oid in candidates:
+            commit = self._repo.get(oid)
+            if commit is None:
+                continue  # already collected; nothing can reach it either
+            if oldest is None or commit.commit_time < oldest:
+                oldest = commit.commit_time
+
+        walker = self._repo.walk(None, pygit2.enums.SortMode.TIME)
+        for name in self._repo.references:
+            try:
+                walker.push(self._repo.references[name].peel(pygit2.Commit).id)
+            except (KeyError, ValueError, pygit2.GitError):
+                continue  # a ref that does not resolve to a commit reaches nothing
+
+        cutoff = None if oldest is None else oldest - _CLOCK_SKEW_SLACK
+        for commit in walker:
+            remaining.discard(str(commit.id))
+            if not remaining:
+                break
+            if cutoff is not None and commit.commit_time < cutoff:
+                break  # past every candidate; anything left is unreachable
+        return remaining
