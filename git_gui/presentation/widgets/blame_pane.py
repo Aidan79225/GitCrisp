@@ -167,16 +167,25 @@ class _BlameEditor(QPlainTextEdit):
         return max((fm.horizontalAdvance(n) for n in names), default=0)
 
     def _measure_gutter(self) -> int:
+        """Author and the line number. Nothing else.
+
+        Sha, author and date together cost ~190px of a ~263px gutter, in a pane
+        whose width comes straight out of the diff beside it. Picking a line
+        loads that commit into the diff, and the gutter's tooltip already
+        carries the sha, the full date and the commit subject — so the two
+        columns beside the author were paying width to repeat what a click or
+        a hover gives.
+
+        What identifies a commit here is the stripe's colour, which is keyed
+        on the oid: two adjacent runs by the same author stay distinguishable
+        without a sha column to tell them apart.
+        """
         fm = QFontMetrics(self.font())
         digits = max(len(str(len(self._lines))), 2)
         return (
             STRIPE_W
             + GUTTER_PAD
-            + fm.horizontalAdvance("0" * SHA_CHARS)
-            + COL_GAP
             + self.author_column_width()
-            + COL_GAP
-            + fm.horizontalAdvance("2026-01-01")
             + COL_GAP
             + fm.horizontalAdvance("9" * digits)
             + GUTTER_PAD
@@ -248,7 +257,6 @@ class _BlameEditor(QPlainTextEdit):
         painter = QPainter(self._gutter)
         painter.fillRect(event.rect(), colors.as_qcolor("surface_container"))
 
-        fm = QFontMetrics(self.font())
         muted = colors.as_qcolor("on_surface_variant")
         strong = colors.as_qcolor("on_surface")
         divider = colors.as_qcolor("outline_variant")
@@ -274,16 +282,7 @@ class _BlameEditor(QPlainTextEdit):
                         painter.drawLine(STRIPE_W, top, width, top)
                     painter.setPen(strong)
                     painter.drawText(
-                        x, top, width, height, Qt.AlignVCenter, line.commit_oid[:SHA_CHARS]
-                    )
-                    x += fm.horizontalAdvance("0" * SHA_CHARS) + COL_GAP
-                    painter.setPen(muted)
-                    painter.drawText(
                         x, top, width, height, Qt.AlignVCenter, _elide(line.author, AUTHOR_CHARS)
-                    )
-                    x += self.author_column_width() + COL_GAP
-                    painter.drawText(
-                        x, top, width, height, Qt.AlignVCenter, f"{line.timestamp:%Y-%m-%d}"
                     )
 
                 painter.setPen(muted)
@@ -321,8 +320,16 @@ class BlamePane(QWidget):
         self._suppress_emit = False
         self._load_signals: _LoadSignals | None = None
 
+        # Undoes one step of "Blame before this commit", nothing more. It sat
+        # in the header permanently, greyed out, next to the ✕ that does leave
+        # blame — which reads as "back to the commit list". It appears only
+        # once there is a dig to climb out of.
         self._back_btn = QPushButton("← Back")
-        self._back_btn.setEnabled(False)
+        self._back_btn.setToolTip(
+            "Return to the revision you were blaming before "
+            '"Blame before this commit" walked back from it'
+        )
+        self._back_btn.setVisible(False)
         self._back_btn.clicked.connect(self._go_back)
 
         self._status = QLabel()
@@ -364,7 +371,7 @@ class BlamePane(QWidget):
 
     def _reload(self) -> None:
         path, oid = self._path, self._oid
-        self._back_btn.setEnabled(bool(self._history))
+        self._back_btn.setVisible(bool(self._history))
         self._set_title(loading=True)
 
         signals = _LoadSignals()
