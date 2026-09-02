@@ -459,23 +459,37 @@ def test_a_failed_load_does_not_leave_a_stale_branch_on_the_action(qtbot, monkey
 # ── Header layout ────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("width", [320, 400, 520, 700, 900])
+# The first four are narrower than the header's natural width with this
+# fixture's text; 900 is the roomy control case.
+@pytest.mark.parametrize("width", [260, 320, 400, 480, 900])
 def test_the_header_controls_stay_reachable_however_narrow_the_pane(qtbot, width):
     """The status line gives way; the checkbox and the close button do not.
 
     A plain QLabel treats its full text as a minimum width, so below the
-    header's natural width the layout pushed the close button off the right
-    edge and into the checkbox instead of shortening the status line.
+    header's natural width the layout could not honour the pane's width at all
+    and put the close button outside it.
+
+    The controls are measured against themselves at a roomy width rather than
+    against a fixed number or a sizeHint: the macOS style insets a widget's
+    layout cell from its geometry to leave room for a focus ring, so absolute
+    pixel comparisons there disagree with every other platform by a pixel or
+    two whether or not the bug is present.
     """
     pane, _ = _pane(qtbot)
     pane.show()
-    pane.resize(width, 400)
-    qtbot.waitUntil(lambda: pane._close_btn.geometry().right() > 0)
 
-    status, box, close = pane._status, pane._show_all_box, pane._close_btn
-    assert close.geometry().right() <= width, "the close button ran off the pane"
-    assert status.geometry().right() <= box.geometry().left(), "the status line ran into the box"
-    assert box.geometry().right() <= close.geometry().left(), "the box ran into the close button"
+    pane.resize(1200, 400)
+    qtbot.waitUntil(lambda: pane._close_btn.geometry().right() > 0)
+    controls = (("checkbox", pane._show_all_box), ("close button", pane._close_btn))
+    roomy = {name: w.width() for name, w in controls}
+
+    pane.resize(width, 400)
+    qtbot.waitUntil(lambda: pane.width() == width)
+
+    for name, w in controls:
+        assert w.geometry().left() >= 0, f"the {name} ran off the left of the pane"
+        assert w.geometry().right() <= width, f"the {name} ran off the right of the pane"
+        assert w.width() == roomy[name], f"the {name} was squeezed instead of the status line"
 
 
 def test_a_cut_status_line_keeps_the_whole_text_in_its_tooltip(qtbot):
