@@ -53,10 +53,13 @@ ENTRIES = [
 ]
 
 
-def _pane(qtbot, entries=None, *, expect_rows: int | None = None) -> tuple[ReflogPane, MagicMock]:
+def _pane(
+    qtbot, entries=None, *, expect_rows: int | None = None, branch: str | None = "master"
+) -> tuple[ReflogPane, MagicMock]:
     queries = MagicMock()
     supplied = list(ENTRIES if entries is None else entries)
     queries.get_reflog.execute.return_value = supplied
+    queries.get_repo_state.execute.return_value.head_branch = branch
     pane = ReflogPane(queries)
     qtbot.addWidget(pane)
     wanted = len(supplied) if expect_rows is None else expect_rows
@@ -415,3 +418,39 @@ def test_filtering_does_not_renumber_the_entries(qtbot):
     pane, _ = _pane(qtbot, entries, expect_rows=2)
 
     assert [pane._model.entry_at(r).index for r in range(2)] == [1, 3]
+
+
+# ── What the restore action names ────────────────────────────────────────────
+
+
+def test_the_restore_action_names_the_branch_it_moves(qtbot, monkeypatch):
+    """Restoring is a reset, and a reset moves the current branch.
+
+    The action said "Restore HEAD", which left the one ref that actually
+    changes unnamed — and HEAD's reflog spans checkouts, so the entry picked
+    may well be from a time the user was on a different branch.
+    """
+    pane, _ = _pane(qtbot, branch="feature/x")
+
+    actions = _menu_on(pane, 0, monkeypatch, choose=False)
+
+    assert actions[0].text == "Restore feature/x to the state before this"
+
+
+def test_a_detached_head_names_head_because_head_is_what_moves(qtbot, monkeypatch):
+    """With no branch checked out, the old wording was the right one."""
+    pane, _ = _pane(qtbot, branch=None)
+
+    actions = _menu_on(pane, 0, monkeypatch, choose=False)
+
+    assert actions[0].text == "Restore HEAD to the state before this"
+
+
+def test_a_failed_load_does_not_leave_a_stale_branch_on_the_action(qtbot, monkeypatch):
+    queries = MagicMock()
+    queries.get_reflog.execute.side_effect = ValueError("No such ref: refs/heads/nope")
+    pane = ReflogPane(queries, "refs/heads/nope")
+    qtbot.addWidget(pane)
+    qtbot.waitUntil(lambda: "No such ref" in pane._status.text())
+
+    assert pane.restore_target() == "refs/heads/nope"
