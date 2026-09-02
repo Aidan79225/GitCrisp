@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
@@ -16,7 +17,7 @@ class _RepoReadySignals(QObject):
 
 
 class _WorktreeOpSignals(QObject):
-    succeeded = Signal()
+    succeeded = Signal(str)  # the path that was removed
     dirty_error = Signal(str)
     locked_error = Signal(str, str)  # path, reason
     failed = Signal(str)
@@ -385,7 +386,7 @@ class RepoLifecycleMixin:
         def _worker():
             try:
                 self._commands.remove_worktree.execute(path, force=force)
-                signals.succeeded.emit()
+                signals.succeeded.emit(path)
             except Exception as e:
                 # Dispatch by class name to keep this layer infra-free
                 # (the architecture guard forbids importing the concrete
@@ -406,8 +407,48 @@ class RepoLifecycleMixin:
         )
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_worktree_removed(self) -> None:
-        self._load_worktrees_for_active_repo()
+    def _on_worktree_removed(self, path: str) -> None:
+        """Leave the deleted directory rather than sitting in it.
+
+        Removing the worktree you are currently in used to succeed and change
+        nothing else: the active path, the window title and the repo store all
+        went on naming a directory that no longer existed, and every read after
+        that raised "head reference does not exist" until the user clicked
+        another repo themselves.
+        """
+        self._repo_store.forget(path)
+        self._repo_store.save()
+
+        if path != self._repo_path:
+            self._load_worktrees_for_active_repo()
+            self._repo_list.reload()
+            return
+
+        home = self._home_after_removing(path)
+        if home is None:
+            self._log_panel.log(f"Removed worktree {path} — nothing left to open")
+            self._enter_empty_state()
+            return
+        self._log_panel.log(f"Removed worktree {path} — switched to {home}")
+        self._switch_repo(home)
+
+    def _home_after_removing(self, removed: str) -> str | None:
+        """Where to land once the worktree under us is gone.
+
+        The repo that owned it comes first: it is what the worktree was a view
+        of, it is certain to still exist, and it is the same place every time —
+        picking an arbitrary sibling worktree would not be. Siblings and the
+        other open repos are the fallbacks for a session that was opened
+        straight into a worktree, where the owner was never recorded.
+        """
+        owner = self._repo_list.worktree_owner()
+        candidates = [owner] if owner else []
+        candidates += list(self._worktree_paths_by_branch.values())
+        candidates += list(self._repo_store.get_open_repos())
+        for candidate in candidates:
+            if candidate and candidate != removed and Path(candidate).is_dir():
+                return candidate
+        return None
 
     def _on_remove_dirty(self, path: str) -> None:
         from PySide6.QtWidgets import QMessageBox

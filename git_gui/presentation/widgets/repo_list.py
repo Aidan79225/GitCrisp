@@ -372,6 +372,15 @@ class RepoListWidget(QWidget):
         self._active_worktrees = list(worktrees)
         self._worktree_owner = owner_path
 
+    def worktree_owner(self) -> str | None:
+        """The open repo whose worktree group is loaded, if any.
+
+        Stays pointed at the main repo while a child worktree is the active
+        path, which is what makes it the place to return to when that child is
+        deleted.
+        """
+        return self._worktree_owner
+
     def reload(self) -> None:
         self._model.clear()
         active = self._store.get_active()
