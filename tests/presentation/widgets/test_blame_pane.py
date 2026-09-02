@@ -9,6 +9,10 @@ from git_gui.domain.entities import BlameLine
 from git_gui.presentation.theme import get_theme_manager
 from git_gui.presentation.widgets.blame_pane import (
     AUTHOR_CHARS,
+    COL_GAP,
+    GUTTER_PAD,
+    SHA_CHARS,
+    STRIPE_W,
     BlamePane,
     _elide,
     _lane_color,
@@ -149,6 +153,47 @@ def test_gutter_widens_with_the_line_number_column(qtbot):
     assert w._editor.gutter_width() > narrow
 
 
+def test_the_gutter_carries_the_author_and_nothing_else(qtbot):
+    """Sha, author and date together cost ~190px of a ~263px gutter.
+
+    In a pane that shares its width with the diff, that came straight out of
+    the code — to repeat what picking the line or hovering it already gives.
+    """
+    from PySide6.QtGui import QFontMetrics
+
+    w, _ = _window(qtbot)
+    editor = w._editor
+    fm = QFontMetrics(editor.font())
+
+    author_and_line_number = (
+        STRIPE_W
+        + GUTTER_PAD
+        + editor.author_column_width()
+        + COL_GAP
+        + fm.horizontalAdvance("99")
+        + GUTTER_PAD
+    )
+    assert editor.gutter_width() == author_and_line_number
+    assert editor.gutter_width() < fm.horizontalAdvance("0" * SHA_CHARS) + author_and_line_number
+
+
+def test_the_sha_and_date_are_still_reachable_on_the_line(qtbot):
+    """Dropping the columns is only fair because the tooltip carries them."""
+    w, _ = _window(qtbot)
+    w.show()
+    # The document's top margin means y=0 is above the first block; find the
+    # first y that lands on one rather than assuming where it starts.
+    editor = w._editor
+    qtbot.waitUntil(lambda: any(editor.block_at_y(y) is not None for y in range(40)))
+    y = next(y for y in range(40) if editor.block_at_y(y) is not None)
+
+    tip = editor.attribution_at(y)
+
+    assert "2026-01-01" in tip
+    assert AAA[:SHA_CHARS] in tip
+    assert "did a thing" in tip, "and the subject, which never had a column"
+
+
 # ── Selecting a commit ───────────────────────────────────────────────────────
 
 
@@ -225,7 +270,23 @@ def test_back_returns_to_the_previous_revision(qtbot):
     qtbot.waitUntil(lambda: w._oid is None)
 
     assert w._history == []
-    assert not w._back_btn.isEnabled()
+    assert w._back_btn.isHidden(), "nothing left to climb out of"
+
+
+def test_back_is_absent_until_there_is_a_dig_to_climb_out_of(qtbot):
+    """It read as "back to the commit list" sitting greyed out beside the ✕.
+
+    It undoes one step of "Blame before this commit" and nothing else, so it
+    is only there once such a step has been taken.
+    """
+    w, queries = _window(qtbot)
+    assert w._back_btn.isHidden()
+
+    queries.get_commit_detail.execute.return_value = MagicMock(parents=["parent-oid"])
+    w._blame_before(BBB)
+    qtbot.waitUntil(lambda: w._oid == "parent-oid")
+
+    assert not w._back_btn.isHidden()
 
 
 def test_back_does_nothing_with_an_empty_history(qtbot):

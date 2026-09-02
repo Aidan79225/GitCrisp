@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtWidgets import QStyleOptionViewItem
 
 from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.theme import get_theme_manager
@@ -16,6 +17,7 @@ from git_gui.presentation.widgets.reflog_pane import (
     _OPERATION_ROLES,
     ORPHAN_STRIPE_W,
     ROW_PAD,
+    SHA_CHARS,
     ReflogModel,
     ReflogPane,
     _operation_color,
@@ -51,6 +53,31 @@ ENTRIES = [
     _entry(2, "commit", "add another thing"),
     _entry(3, "branch", "Created from HEAD", oid_old=None),  # the ref-creation entry
 ]
+
+
+def _painted_row(delegate, option, index) -> list[tuple[int, int, int, str]]:
+    """Every (x, y, width, text) the delegate draws for one row.
+
+    Painting into an image and reading pixels was tried first and is a trap:
+    the orphan tint lifts antialiased edges, so a colour probe passes or fails
+    on rows it was never meant to judge.
+    """
+    from PySide6.QtGui import QImage, QPainter
+
+    calls: list[tuple[int, int, int, str]] = []
+    image = QImage(option.rect.width(), option.rect.height(), QImage.Format_ARGB32)
+    painter = QPainter(image)
+    real = painter.drawText
+
+    def spy(*args):
+        if len(args) >= 6 and isinstance(args[-1], str):
+            calls.append((args[0], args[1], args[2], args[-1]))
+        return real(*args)
+
+    painter.drawText = spy
+    delegate.paint(painter, option, index)
+    painter.end()
+    return calls
 
 
 def _pane(
@@ -500,3 +527,61 @@ def test_a_cut_status_line_keeps_the_whole_text_in_its_tooltip(qtbot):
     assert pane._status.text() != pane._status.full_text(), "this width has to cut it"
     assert pane._status.text().endswith("…")
     assert pane._status.toolTip() == pane._status.full_text()
+
+
+# ── Row density ──────────────────────────────────────────────────────────────
+
+
+def test_the_summary_gets_the_width_the_metadata_used_to_hold(qtbot):
+    """The position, sha and date each held a column beside the summary.
+
+    381px of a row was spoken for before the summary got any, in a pane whose
+    width comes straight out of the diff. They are on a second line now, so
+    the summary runs to the row's edge.
+    """
+    pane, _ = _pane(qtbot)
+    delegate = pane._view.itemDelegate()
+    option = QStyleOptionViewItem()
+    option.initFrom(pane._view)
+    option.font = pane._view.font()
+    option.fontMetrics = QFontMetrics(option.font)
+    option.rect = QRect(0, 0, 400, 50)
+
+    painted = _painted_row(delegate, option, pane._model.index(0, 0))
+
+    summary_end = max(x + w for x, _y, w, text in painted if text == ENTRIES[0].summary)
+    metadata = {text for *_rest, text in painted}
+    assert summary_end > 380, "the summary should reach the row's edge"
+    assert f"@{{{ENTRIES[0].index}}}" in metadata
+    assert ENTRIES[0].oid_new[:SHA_CHARS] in metadata
+
+
+def test_the_two_lines_do_not_overlap(qtbot):
+    pane, _ = _pane(qtbot)
+    delegate = pane._view.itemDelegate()
+    option = QStyleOptionViewItem()
+    option.initFrom(pane._view)
+    option.font = pane._view.font()
+    option.fontMetrics = QFontMetrics(option.font)
+    option.rect = QRect(0, 0, 400, delegate.sizeHint(option, pane._model.index(0, 0)).height())
+
+    painted = _painted_row(delegate, option, pane._model.index(0, 0))
+    summary_y = next(y for _x, y, _w, text in painted if text == ENTRIES[0].summary)
+    meta_y = next(y for _x, y, _w, text in painted if text.startswith("@{"))
+
+    assert meta_y > summary_y, "the metadata line sits under the summary"
+    assert meta_y + option.fontMetrics.height() <= option.rect.height(), "and inside the row"
+
+
+def test_the_row_is_tall_enough_for_both_lines(qtbot):
+    """The view pinned rows to the header's 30px default, clipping the row."""
+    pane, _ = _pane(qtbot)
+    delegate = pane._view.itemDelegate()
+    option = QStyleOptionViewItem()
+    option.initFrom(pane._view)
+    option.font = pane._view.font()
+    option.fontMetrics = QFontMetrics(option.font)
+    option.rect = QRect(0, 0, 400, 50)
+
+    wanted = delegate.sizeHint(option, pane._model.index(0, 0)).height()
+    assert pane._view.rowHeight(0) >= wanted
