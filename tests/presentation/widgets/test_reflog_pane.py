@@ -155,7 +155,7 @@ def test_widest_operation_of_an_empty_model_is_zero(qtbot):
 def test_loads_head_and_says_how_much_it_found(qtbot):
     pane, queries = _pane(qtbot)
     queries.get_reflog.execute.assert_called_once_with("HEAD")
-    assert "4 movements" in pane._status.text()
+    assert "4 movements" in pane._status.full_text()
 
 
 def test_failure_is_surfaced_rather_than_swallowed(qtbot):
@@ -163,7 +163,7 @@ def test_failure_is_surfaced_rather_than_swallowed(qtbot):
     queries.get_reflog.execute.side_effect = ValueError("No such ref: refs/heads/nope")
     pane = ReflogPane(queries, "refs/heads/nope")
     qtbot.addWidget(pane)
-    qtbot.waitUntil(lambda: "No such ref" in pane._status.text())
+    qtbot.waitUntil(lambda: "No such ref" in pane._status.full_text())
     assert pane._model.rowCount() == 0
 
 
@@ -397,10 +397,10 @@ def test_the_status_line_says_how_many_are_hidden(qtbot):
     ]
     pane, _ = _pane(qtbot, entries, expect_rows=1)
 
-    assert "1 that changed nothing hidden" in pane._status.text()
+    assert "1 that changed nothing hidden" in pane._status.full_text()
 
     pane._show_all_box.setChecked(True)
-    assert "hidden" not in pane._status.text()
+    assert "hidden" not in pane._status.full_text()
 
 
 def test_filtering_does_not_renumber_the_entries(qtbot):
@@ -451,6 +451,38 @@ def test_a_failed_load_does_not_leave_a_stale_branch_on_the_action(qtbot, monkey
     queries.get_reflog.execute.side_effect = ValueError("No such ref: refs/heads/nope")
     pane = ReflogPane(queries, "refs/heads/nope")
     qtbot.addWidget(pane)
-    qtbot.waitUntil(lambda: "No such ref" in pane._status.text())
+    qtbot.waitUntil(lambda: "No such ref" in pane._status.full_text())
 
     assert pane.restore_target() == "refs/heads/nope"
+
+
+# ── Header layout ────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("width", [320, 400, 520, 700, 900])
+def test_the_header_controls_stay_reachable_however_narrow_the_pane(qtbot, width):
+    """The status line gives way; the checkbox and the close button do not.
+
+    A plain QLabel treats its full text as a minimum width, so below the
+    header's natural width the layout pushed the close button off the right
+    edge and into the checkbox instead of shortening the status line.
+    """
+    pane, _ = _pane(qtbot)
+    pane.show()
+    pane.resize(width, 400)
+    qtbot.waitUntil(lambda: pane._close_btn.geometry().right() > 0)
+
+    status, box, close = pane._status, pane._show_all_box, pane._close_btn
+    assert close.geometry().right() <= width, "the close button ran off the pane"
+    assert status.geometry().right() <= box.geometry().left(), "the status line ran into the box"
+    assert box.geometry().right() <= close.geometry().left(), "the box ran into the close button"
+
+
+def test_a_cut_status_line_keeps_the_whole_text_in_its_tooltip(qtbot):
+    pane, _ = _pane(qtbot)
+    pane.show()
+    pane.resize(320, 400)
+
+    assert pane._status.text() != pane._status.full_text(), "this width has to cut it"
+    assert pane._status.text().endswith("…")
+    assert pane._status.toolTip() == pane._status.full_text()
