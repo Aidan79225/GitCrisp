@@ -12,10 +12,11 @@ from __future__ import annotations
 import threading
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMenu,
     QPushButton,
@@ -37,6 +38,8 @@ OID_ROLE = Qt.UserRole  # the commit the ref moved to
 
 SHA_CHARS = 8
 ROW_PAD = 6
+META_GAP = 2  # between a row's two lines
+META_SCALE = 0.85  # the metadata line reads as secondary to the summary
 ORPHAN_STRIPE_W = 4  # marks the entries only the reflog can still reach
 ORPHAN_TINT_ALPHA = 38  # a wash over the row, enough to catch a scan
 COL_GAP = 10
@@ -127,16 +130,16 @@ class ReflogModel(QAbstractTableModel):
         if role == ENTRY_ROLE:
             return entry
         if role == Qt.ToolTipRole:
-            when = f"{entry.timestamp:%Y-%m-%d %H:%M}"
-            base = f"{entry.oid_new[:SHA_CHARS]}  {entry.committer}  {when}"
+            # The sha and the date are on the row now; the committer is not.
+            base = f"By {entry.committer}" if entry.committer else ""
             if not entry.is_orphaned:
-                return base
-            return (
-                f"{base}\n\n"
+                return base or None
+            orphan_note = (
                 "No branch or tag reaches this commit any more — the reflog is "
                 "the only way back to it, and it will be collected once this "
                 "entry expires."
             )
+            return f"{base}\n\n{orphan_note}" if base else orphan_note
         return None
 
     def widest_operation(self, fm) -> int:
@@ -161,11 +164,21 @@ class ReflogModel(QAbstractTableModel):
         self.endResetModel()
 
 
-class ReflogDelegate(QStyledItemDelegate):
-    """A single dense line per entry: position, operation, what and when.
+def _meta_font(base: QFont) -> QFont:
+    font = QFont(base)
+    font.setPointSizeF(max(1.0, base.pointSizeF() * META_SCALE))
+    return font
 
-    One line rather than two so more of the history is on screen at once —
-    scanning for the point to go back to is the whole job.
+
+class ReflogDelegate(QStyledItemDelegate):
+    """Two lines per entry: what happened, then where and when.
+
+    It was one line, with the position, sha and date each holding a column of
+    their own — 381px of a row spoken for before the summary got any. In a
+    pane that shares its width with the diff, that came straight out of the
+    diff. Stacking the three onto a second line costs a row of height and
+    hands the width back, and it puts the summary next to the operation chip
+    that qualifies it, which is the pairing a scan actually reads.
     """
 
     @staticmethod
@@ -179,7 +192,11 @@ class ReflogDelegate(QStyledItemDelegate):
         return rect.left() + ROW_PAD + ORPHAN_STRIPE_W
 
     def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
-        return QSize(option.rect.width(), option.fontMetrics.height() + ROW_PAD * 2)
+        meta = QFontMetrics(_meta_font(option.font))
+        return QSize(
+            option.rect.width(),
+            option.fontMetrics.height() + META_GAP + meta.height() + ROW_PAD * 2,
+        )
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         entry: ReflogEntry | None = index.data(ENTRY_ROLE)
@@ -201,7 +218,14 @@ class ReflogDelegate(QStyledItemDelegate):
             colors.as_qcolor("on_primary") if selected else colors.as_qcolor("on_surface_variant")
         )
         strong = colors.as_qcolor("on_primary") if selected else colors.as_qcolor("on_surface")
-        top, height = rect.top(), rect.height()
+        meta_fm = QFontMetrics(_meta_font(option.font))
+        # Line 1 holds the chip and the summary; line 2 the position, sha and
+        # date. Both are laid out from the row's top rather than centred, so a
+        # taller row from a scaled font grows downwards and the two stay
+        # locked together.
+        top = rect.top() + ROW_PAD
+        height = fm.height()
+        meta_top = top + height + META_GAP
         x = self.content_left(rect)
 
         # Entries nothing else references are the whole reason the pane exists:
@@ -213,14 +237,14 @@ class ReflogDelegate(QStyledItemDelegate):
             tint.setAlpha(ORPHAN_TINT_ALPHA)
             painter.fillRect(rect, tint)
         if entry.is_orphaned:
+            # Full row height, not line 1's: the stripe marks the entry.
             painter.fillRect(
-                rect.left(), top, ORPHAN_STRIPE_W, height, colors.as_qcolor("status_deleted")
+                rect.left(),
+                rect.top(),
+                ORPHAN_STRIPE_W,
+                rect.height(),
+                colors.as_qcolor("status_deleted"),
             )
-
-        position = f"@{{{entry.index}}}"
-        painter.setPen(muted)
-        painter.drawText(x, top, fm.horizontalAdvance("@{999}"), height, Qt.AlignVCenter, position)
-        x += fm.horizontalAdvance("@{999}") + COL_GAP
 
         # Operation chip — coloured so a scan finds resets and rebases fast.
         # The chip is sized to its own label; the column is sized to the widest
@@ -239,23 +263,8 @@ class ReflogDelegate(QStyledItemDelegate):
         widest = model.widest_operation(fm) if hasattr(model, "widest_operation") else 0
         x += max(chip_w, widest + CHIP_H_PAD * 2) + COL_GAP
 
-        # Right-hand columns are laid out first so the summary knows its room.
-        date_text = f"{entry.timestamp:%Y-%m-%d %H:%M}"
-        date_w = fm.horizontalAdvance("2026-01-01 00:00")
-        sha_w = fm.horizontalAdvance("0" * SHA_CHARS)
         right = rect.right() - ROW_PAD
-        painter.setPen(muted)
-        painter.drawText(right - date_w, top, date_w, height, Qt.AlignVCenter, date_text)
-        painter.drawText(
-            right - date_w - COL_GAP - sha_w,
-            top,
-            sha_w,
-            height,
-            Qt.AlignVCenter,
-            entry.oid_new[:SHA_CHARS],
-        )
-
-        summary_w = max(right - date_w - COL_GAP - sha_w - COL_GAP - x, 0)
+        summary_w = max(right - x, 0)
         painter.setPen(strong)
         painter.drawText(
             x,
@@ -265,6 +274,21 @@ class ReflogDelegate(QStyledItemDelegate):
             Qt.AlignVCenter,
             fm.elidedText(entry.summary, Qt.ElideRight, summary_w),
         )
+
+        # Where and when, in one run under the summary. Each is short and
+        # fixed-width, so they read as a group without needing columns.
+        painter.setFont(_meta_font(option.font))
+        painter.setPen(muted)
+        meta_x = self.content_left(rect)
+        meta_h = meta_fm.height()
+        for text in (
+            f"@{{{entry.index}}}",
+            entry.oid_new[:SHA_CHARS],
+            f"{entry.timestamp:%Y-%m-%d %H:%M}",
+        ):
+            painter.drawText(meta_x, meta_top, right - meta_x, meta_h, Qt.AlignVCenter, text)
+            meta_x += meta_fm.horizontalAdvance(text) + COL_GAP
+        painter.setFont(option.font)
 
         painter.setPen(colors.as_qcolor("outline_variant"))
         painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
@@ -352,6 +376,10 @@ class ReflogPane(QWidget):
         self._view.setShowGrid(False)
         self._view.setEditTriggers(QTableView.NoEditTriggers)
         self._view.verticalHeader().setVisible(False)
+        # Follow the delegate rather than the header's fixed 30px default,
+        # which silently clipped the row. Measuring every row is bounded here:
+        # the pane reads at most `limit` entries.
+        self._view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self._view.horizontalHeader().setVisible(False)
         self._view.horizontalHeader().setStretchLastSection(True)
         self._view.setContextMenuPolicy(Qt.CustomContextMenu)
