@@ -28,6 +28,7 @@ from git_gui.presentation.main_window.right_panel import RightPanelMixin
 from git_gui.presentation.main_window.stash_flows import StashFlowsMixin
 from git_gui.presentation.main_window.tag_flows import TagFlowsMixin
 from git_gui.presentation.main_window.update_flow import UpdateFlowMixin
+from git_gui.presentation.main_window.window_state import WindowStateMixin
 from git_gui.presentation.menus.appearance import install_appearance_menu
 from git_gui.presentation.menus.help_menu import install_help_menu
 from git_gui.presentation.widgets.diff import DiffWidget
@@ -53,6 +54,7 @@ class MainWindow(
     RemoteOpQueueMixin,
     RepoLifecycleMixin,
     UpdateFlowMixin,
+    WindowStateMixin,
 ):
     def __init__(
         self,
@@ -113,9 +115,18 @@ class MainWindow(
         self._repo_list.reload()
         self._start_update_check()
 
+    def closeEvent(self, event) -> None:
+        """Remember the arrangement before the window goes.
+
+        On MainWindow rather than in WindowStateMixin: QMainWindow is listed
+        first, so Python resolves Qt event handlers to it before any mixin.
+        """
+        self._save_window_state()
+        super().closeEvent(event)
+
     def _build_chrome(self) -> None:
         self.setWindowTitle(f"GitCrisp — {self._repo_path}" if self._repo_path else "GitCrisp")
-        self.resize(1400, 800)
+        self._restore_window_geometry()
         self.menuBar().setStyleSheet(
             "QMenu { padding: 6px; }QMenu::item { padding: 6px 24px 6px 20px; }"
         )
@@ -150,7 +161,6 @@ class MainWindow(
         sidebar_splitter = QSplitter(Qt.Vertical)
         sidebar_splitter.addWidget(self._sidebar)
         sidebar_splitter.addWidget(self._repo_list)
-        sidebar_splitter.setSizes([400, 400])
 
         # The commit list shares its column with blame: blame's job is to get
         # you from a line to the change behind it, so it needs to sit beside the
@@ -163,14 +173,7 @@ class MainWindow(
         splitter.addWidget(self._left_stack)
         splitter.addWidget(self._right_stack)
         self._splitter = splitter
-        self._graph_sizes = [220, 230, 950]
-        # Blame and the diff both need room, and the split trades one against
-        # the other. Measured on a 1600px window: this leaves ~70 columns of
-        # code (15% of lines needing a horizontal scroll) and ~470px of diff.
-        # Giving blame more starves the diff it hands off to; less, and a
-        # third of the code is off screen.
-        self._blame_sizes = [220, 900, 480]
-        splitter.setSizes(self._graph_sizes)
+        self._restore_splits(splitter, sidebar_splitter)
 
         # Main layout: splitter on top, log panel at bottom
         central = QWidget()
