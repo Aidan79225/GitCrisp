@@ -36,15 +36,25 @@ class RepoChangeDetector(QObject):
         repo_path: str,
         on_reload: Callable[[], None],
         parent: QObject | None = None,
+        *,
+        debounce_ms: int = _DEBOUNCE_MS,
+        suppress_ms: int = _SELF_RELOAD_SUPPRESS_MS,
     ) -> None:
+        """The two windows are arguments so a test can pick unambiguous ones.
+
+        Left as constants, a test can only wait a fixed number of milliseconds
+        and hope the machine keeps up — which turns "events coalesce" into a
+        race against the scheduler.
+        """
         super().__init__(parent)
         self._repo_path = Path(repo_path)
         self._on_reload = on_reload
+        self._suppress_ms = suppress_ms
 
         # Debouncer — single-shot timer, restarted on each event.
         self._debouncer = QTimer(self)
         self._debouncer.setSingleShot(True)
-        self._debouncer.setInterval(_DEBOUNCE_MS)
+        self._debouncer.setInterval(debounce_ms)
         self._debouncer.timeout.connect(self._fire_reload)
 
         # Git-state watcher.
@@ -55,8 +65,14 @@ class RepoChangeDetector(QObject):
 
         # Focus watcher.
         app = QGuiApplication.instance()
+        # Whether the connection was made is tracked rather than rediscovered:
+        # disconnecting something that is not connected makes Qt warn without
+        # raising, so a try/except around it catches nothing and the warning
+        # prints anyway.
+        self._app_state_connected = False
         if app is not None:
             app.applicationStateChanged.connect(self._on_app_state_changed)
+            self._app_state_connected = True
 
         self._suppress_until_ms: float = 0.0
 
@@ -65,11 +81,9 @@ class RepoChangeDetector(QObject):
     def stop(self) -> None:
         """Disconnect and release watches. Idempotent."""
         app = QGuiApplication.instance()
-        if app is not None:
-            try:
-                app.applicationStateChanged.disconnect(self._on_app_state_changed)
-            except (RuntimeError, TypeError):
-                pass  # Already disconnected.
+        if app is not None and self._app_state_connected:
+            app.applicationStateChanged.disconnect(self._on_app_state_changed)
+            self._app_state_connected = False
         # Qt warns "removePaths: list is empty" if either argument is empty —
         # which happens when the watch list never got populated (e.g. the path
         # is a monorepo subdirectory with no .git/ of its own).
@@ -86,7 +100,7 @@ class RepoChangeDetector(QObject):
         arriving within the next _SELF_RELOAD_SUPPRESS_MS are ignored, so
         in-app commits don't cause a duplicate reload from the filesystem
         events that our own writes produce."""
-        self._suppress_until_ms = monotonic() * 1000.0 + _SELF_RELOAD_SUPPRESS_MS
+        self._suppress_until_ms = monotonic() * 1000.0 + self._suppress_ms
 
     # ── Watch-set setup ─────────────────────────────────────────────────
 
