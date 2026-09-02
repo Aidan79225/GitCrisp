@@ -53,10 +53,13 @@ ENTRIES = [
 ]
 
 
-def _pane(qtbot, entries=None, *, expect_rows: int | None = None) -> tuple[ReflogPane, MagicMock]:
+def _pane(
+    qtbot, entries=None, *, expect_rows: int | None = None, branch: str | None = "master"
+) -> tuple[ReflogPane, MagicMock]:
     queries = MagicMock()
     supplied = list(ENTRIES if entries is None else entries)
     queries.get_reflog.execute.return_value = supplied
+    queries.get_repo_state.execute.return_value.head_branch = branch
     pane = ReflogPane(queries)
     qtbot.addWidget(pane)
     wanted = len(supplied) if expect_rows is None else expect_rows
@@ -152,7 +155,7 @@ def test_widest_operation_of_an_empty_model_is_zero(qtbot):
 def test_loads_head_and_says_how_much_it_found(qtbot):
     pane, queries = _pane(qtbot)
     queries.get_reflog.execute.assert_called_once_with("HEAD")
-    assert "4 movements" in pane._status.text()
+    assert "4 movements" in pane._status.full_text()
 
 
 def test_failure_is_surfaced_rather_than_swallowed(qtbot):
@@ -160,7 +163,7 @@ def test_failure_is_surfaced_rather_than_swallowed(qtbot):
     queries.get_reflog.execute.side_effect = ValueError("No such ref: refs/heads/nope")
     pane = ReflogPane(queries, "refs/heads/nope")
     qtbot.addWidget(pane)
-    qtbot.waitUntil(lambda: "No such ref" in pane._status.text())
+    qtbot.waitUntil(lambda: "No such ref" in pane._status.full_text())
     assert pane._model.rowCount() == 0
 
 
@@ -394,10 +397,10 @@ def test_the_status_line_says_how_many_are_hidden(qtbot):
     ]
     pane, _ = _pane(qtbot, entries, expect_rows=1)
 
-    assert "1 that changed nothing hidden" in pane._status.text()
+    assert "1 that changed nothing hidden" in pane._status.full_text()
 
     pane._show_all_box.setChecked(True)
-    assert "hidden" not in pane._status.text()
+    assert "hidden" not in pane._status.full_text()
 
 
 def test_filtering_does_not_renumber_the_entries(qtbot):
@@ -415,3 +418,85 @@ def test_filtering_does_not_renumber_the_entries(qtbot):
     pane, _ = _pane(qtbot, entries, expect_rows=2)
 
     assert [pane._model.entry_at(r).index for r in range(2)] == [1, 3]
+
+
+# ── What the restore action names ────────────────────────────────────────────
+
+
+def test_the_restore_action_names_the_branch_it_moves(qtbot, monkeypatch):
+    """Restoring is a reset, and a reset moves the current branch.
+
+    The action said "Restore HEAD", which left the one ref that actually
+    changes unnamed — and HEAD's reflog spans checkouts, so the entry picked
+    may well be from a time the user was on a different branch.
+    """
+    pane, _ = _pane(qtbot, branch="feature/x")
+
+    actions = _menu_on(pane, 0, monkeypatch, choose=False)
+
+    assert actions[0].text == "Restore feature/x to the state before this"
+
+
+def test_a_detached_head_names_head_because_head_is_what_moves(qtbot, monkeypatch):
+    """With no branch checked out, the old wording was the right one."""
+    pane, _ = _pane(qtbot, branch=None)
+
+    actions = _menu_on(pane, 0, monkeypatch, choose=False)
+
+    assert actions[0].text == "Restore HEAD to the state before this"
+
+
+def test_a_failed_load_does_not_leave_a_stale_branch_on_the_action(qtbot, monkeypatch):
+    queries = MagicMock()
+    queries.get_reflog.execute.side_effect = ValueError("No such ref: refs/heads/nope")
+    pane = ReflogPane(queries, "refs/heads/nope")
+    qtbot.addWidget(pane)
+    qtbot.waitUntil(lambda: "No such ref" in pane._status.full_text())
+
+    assert pane.restore_target() == "refs/heads/nope"
+
+
+# ── Header layout ────────────────────────────────────────────────────────────
+
+
+# The first four are narrower than the header's natural width with this
+# fixture's text; 900 is the roomy control case.
+@pytest.mark.parametrize("width", [260, 320, 400, 480, 900])
+def test_the_header_controls_stay_reachable_however_narrow_the_pane(qtbot, width):
+    """The status line gives way; the checkbox and the close button do not.
+
+    A plain QLabel treats its full text as a minimum width, so below the
+    header's natural width the layout could not honour the pane's width at all
+    and put the close button outside it.
+
+    The controls are measured against themselves at a roomy width rather than
+    against a fixed number or a sizeHint: the macOS style insets a widget's
+    layout cell from its geometry to leave room for a focus ring, so absolute
+    pixel comparisons there disagree with every other platform by a pixel or
+    two whether or not the bug is present.
+    """
+    pane, _ = _pane(qtbot)
+    pane.show()
+
+    pane.resize(1200, 400)
+    qtbot.waitUntil(lambda: pane._close_btn.geometry().right() > 0)
+    controls = (("checkbox", pane._show_all_box), ("close button", pane._close_btn))
+    roomy = {name: w.width() for name, w in controls}
+
+    pane.resize(width, 400)
+    qtbot.waitUntil(lambda: pane.width() == width)
+
+    for name, w in controls:
+        assert w.geometry().left() >= 0, f"the {name} ran off the left of the pane"
+        assert w.geometry().right() <= width, f"the {name} ran off the right of the pane"
+        assert w.width() == roomy[name], f"the {name} was squeezed instead of the status line"
+
+
+def test_a_cut_status_line_keeps_the_whole_text_in_its_tooltip(qtbot):
+    pane, _ = _pane(qtbot)
+    pane.show()
+    pane.resize(320, 400)
+
+    assert pane._status.text() != pane._status.full_text(), "this width has to cut it"
+    assert pane._status.text().endswith("…")
+    assert pane._status.toolTip() == pane._status.full_text()

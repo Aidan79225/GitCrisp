@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -270,8 +271,40 @@ class ReflogDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class _ElidingLabel(QLabel):
+    """A status line that gives way to the controls beside it.
+
+    A QLabel reports its full text width as its *minimum*, so a stretch factor
+    cannot shrink it: below the header's natural width the layout had nowhere
+    to take the space from and pushed the close button off the right edge, into
+    the checkbox. A status line is the part of a header that can afford to lose
+    characters, so it is the part that gives.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def setText(self, text: str) -> None:
+        self._full = text
+        self.setToolTip(text)  # the whole line stays reachable when it is cut
+        self._elide()
+
+    def full_text(self) -> str:
+        """The text as set, whatever is currently painted."""
+        return self._full
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        QLabel.setText(self, self.fontMetrics().elidedText(self._full, Qt.ElideRight, self.width()))
+
+
 class _LoadSignals(QObject):
-    done = Signal(list)
+    done = Signal(list, object)  # entries, current branch name or None
     failed = Signal(str)
 
 
@@ -286,11 +319,11 @@ class ReflogPane(QWidget):
         super().__init__(parent)
         self._queries = queries
         self._ref = ref
+        self._branch: str | None = None
         self._last_emitted: str | None = None
         self._load_signals: _LoadSignals | None = None
 
-        self._status = QLabel()
-        self._status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._status = _ElidingLabel()
 
         self._show_all_box = QCheckBox("Show every movement")
         self._show_all_box.setToolTip(
@@ -350,14 +383,19 @@ class ReflogPane(QWidget):
         def _worker() -> None:
             try:
                 entries = queries.get_reflog.execute(ref)
+                # Read in the same load rather than at right-click time: the
+                # restore action has to name what it moves, and a blocking repo
+                # read while a context menu is opening is the wrong place for it.
+                branch = queries.get_repo_state.execute().head_branch
             except Exception as e:  # surfaced in the header, not swallowed
                 signals.failed.emit(str(e))
                 return
-            signals.done.emit(entries)
+            signals.done.emit(entries, branch)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_loaded(self, entries: list[ReflogEntry]) -> None:
+    def _on_loaded(self, entries: list[ReflogEntry], branch: str | None) -> None:
+        self._branch = branch
         self._model.reload(entries)
         self._last_emitted = None
         self._update_status()
@@ -375,6 +413,7 @@ class ReflogPane(QWidget):
         self._status.setText(text)
 
     def _on_failed(self, message: str) -> None:
+        self._branch = None
         self._model.reload([])
         self._status.setText(message)
 
@@ -385,6 +424,17 @@ class ReflogPane(QWidget):
             self.close_requested.emit()
             return
         super().keyPressEvent(event)
+
+    def restore_target(self) -> str:
+        """What a restore would actually move.
+
+        The pane reads HEAD's reflog — that is the complete record, since it
+        alone spans checkouts between branches. But restoring runs `git reset`,
+        which moves the *current branch*, so saying "HEAD" in the action left
+        the one thing that changes unnamed. With a detached HEAD there is no
+        branch and HEAD itself moves, which is when the old wording was right.
+        """
+        return self._branch or self._ref
 
     def current_entry(self) -> ReflogEntry | None:
         return self._model.entry_at(self._view.currentIndex().row())
@@ -412,7 +462,7 @@ class ReflogPane(QWidget):
             return
 
         menu = QMenu(self._view)
-        restore = menu.addAction(f"Restore {self._ref} to the state before this")
+        restore = menu.addAction(f"Restore {self.restore_target()} to the state before this")
         # The entry that created the ref has nothing before it to go back to.
         restore.setEnabled(entry.oid_old is not None)
         if entry.oid_old is None:
