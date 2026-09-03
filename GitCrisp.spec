@@ -2,7 +2,25 @@
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(SPECPATH)))
+from git_gui.observability import _get_version
+
 block_cipher = None
+
+
+def _bundle_version():
+    """The version to stamp into the macOS bundle.
+
+    Read through the same resolver the running app uses, so what Finder shows
+    and what the app reports cannot disagree. This was a literal '0.1.0' for
+    twenty-six releases: every .app since v0.1.0 claimed to be v0.1.0 in Get
+    Info and in About, whatever tag had built it.
+
+    A local build has no baked version and resolves to 'unknown', which is not
+    a version string a plist accepts — 0.0.0 marks it as the dev build it is.
+    """
+    version = _get_version()
+    return '0.0.0' if version == 'unknown' else version
 
 a = Analysis(
     ['main.py'],
@@ -64,7 +82,8 @@ app = BUNDLE(
     icon=None,
     bundle_identifier='com.gitcrisp.app',
     info_plist={
-        'CFBundleShortVersionString': '0.1.0',
+        'CFBundleShortVersionString': _bundle_version(),
+        'CFBundleVersion': _bundle_version(),
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '12.0',
     },

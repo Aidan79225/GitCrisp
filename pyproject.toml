@@ -1,6 +1,11 @@
 [project]
 name = "gitcrisp"
-version = "0.1.0"
+# Not the version that ships. A release is built from a git tag, which
+# release.yml bakes into git_gui/_build_config.py — that is what the app
+# reports and what the macOS bundle is stamped with. This line only reaches
+# anything through importlib.metadata, if someone installs the checkout, and
+# 0.0.0 says plainly that such an install is not a release.
+version = "0.0.0"
 description = "A clean, focused Git GUI"
 readme = "README.md"
 requires-python = ">=3.13"
