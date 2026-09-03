@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QScrollArea,
+    QScrollBar,
     QSizePolicy,
     QSpacerItem,
     QToolButton,
@@ -26,6 +27,7 @@ from git_gui.presentation.widgets.diff_block import (
     make_file_block,
     make_syntax_formats,
 )
+from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
 # Cap on how many file blocks the aggregate ("all files") diff view builds at
@@ -70,9 +72,15 @@ class HunkDiffWidget(QWidget):
         self._layout.setContentsMargins(4, 8, 4, 4)
         self._scroll.setWidget(self._container)
 
+        # One horizontal bar for every hunk, under the pane rather than inside
+        # each of them — see SharedHScroll.
+        self._hscroll = QScrollBar()
+        self._hscroll_sync = SharedHScroll(self._hscroll, self._container, self)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self._scroll)
+        outer.addWidget(self._hscroll, 0)
 
         # Diff render formats — line backgrounds plus Pygments syntax colours and
         # word-level overlays, matching the commit-detail diff view. Rebuilt on
@@ -163,10 +171,26 @@ class HunkDiffWidget(QWidget):
         label.setContentsMargins(8, 8, 8, 8)
         return label
 
+    def _sync_hscroll(self) -> None:
+        """Re-measure the shared horizontal bar once the layout has settled.
+
+        Deferred: an editor added this turn has no width yet, so its scroll
+        range reads as zero until Qt has laid it out.
+        """
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, self._hscroll_sync.refresh)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # A wider pane means less of the content is out of reach.
+        self._hscroll_sync.refresh()
+
     def clear(self) -> None:
         self._current_path = None
         self._all_paths = None
         self._clear_layout()
+        self._sync_hscroll()
 
     def _fetch_and_render(self) -> None:
         if self._current_path is None:
@@ -255,6 +279,7 @@ class HunkDiffWidget(QWidget):
             self._add_hunk_block(
                 hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
             )
+        self._sync_hscroll()
 
     def _render_sync(self) -> None:
         """Post-action refresh for single-file mode."""
@@ -283,6 +308,7 @@ class HunkDiffWidget(QWidget):
 
         self._layout.addWidget(frame)
         self._layout.addStretch()
+        self._sync_hscroll()
 
     def _render_all_sync(self) -> None:
         """Post-action refresh for all-files mode."""
@@ -290,6 +316,7 @@ class HunkDiffWidget(QWidget):
             return
         # Reload via the lazy pipeline
         self.load_all_files(self._all_paths)
+        self._sync_hscroll()
 
     def _add_hunk_block(
         self,
