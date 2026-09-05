@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -39,6 +38,7 @@ class _ClickableLabel(QLabel):
 from git_gui.domain.entities import Hunk
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
+from git_gui.presentation.widgets.side_by_side import parse_hunk_header
 
 # ---------------------------------------------------------------------------
 # Style constants
@@ -259,19 +259,6 @@ def make_diff_editor() -> QPlainTextEdit:
         "QPlainTextEdit { font-family: 'Consolas', 'Courier New', 'Menlo', 'Monaco', monospace; }"
     )
     return editor
-
-
-# ---------------------------------------------------------------------------
-# Parse helpers
-# ---------------------------------------------------------------------------
-
-
-def parse_hunk_header(header: str) -> tuple[int, int]:
-    """Return (old_start, new_start) line numbers parsed from a @@ header string."""
-    m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", header)
-    if m:
-        return int(m.group(1)), int(m.group(2))
-    return 1, 1
 
 
 # ---------------------------------------------------------------------------
