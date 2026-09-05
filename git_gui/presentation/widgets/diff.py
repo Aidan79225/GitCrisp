@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QScrollBar,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -28,6 +29,7 @@ from git_gui.presentation.widgets.diff_block import (
     make_syntax_formats,
 )
 from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget, NavMode
+from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
 logger = logging.getLogger(__name__)
@@ -292,9 +294,15 @@ class DiffWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
+        # One horizontal bar for every hunk, under the pane rather than inside
+        # each of them — see SharedHScroll.
+        self._hscroll = QScrollBar()
+        self._hscroll_sync = SharedHScroll(self._hscroll, self._diff_container, self)
+
         layout.addWidget(self._state_banner, 0)
         layout.addWidget(self._pin_slot, 0)
         layout.addWidget(self._scroll_area, 1)
+        layout.addWidget(self._hscroll, 0)
 
         # Diff render formats
         self._formats = make_diff_formats()
@@ -405,6 +413,8 @@ class DiffWidget(QWidget):
         super().resizeEvent(event)
         if hasattr(self, "_sticky_controller"):
             self._sticky_controller.on_owner_resize()
+        # A wider pane means less of the content is out of reach.
+        self._hscroll_sync.refresh()
 
     def load_commit(self, oid: str) -> None:
         self._current_oid = oid
@@ -486,6 +496,14 @@ class DiffWidget(QWidget):
 
     # ── Internal helpers ────────────────────────────────────────────────────
 
+    def _sync_hscroll(self) -> None:
+        """Re-measure the shared horizontal bar once the layout has settled.
+
+        Deferred: an editor added this turn has no width yet, so its scroll
+        range reads as zero until Qt has laid it out.
+        """
+        QTimer.singleShot(0, self._hscroll_sync.refresh)
+
     def _clear_blocks(self) -> None:
         """Remove all widgets and items from the diff layout."""
         while self._diff_layout.count():
@@ -495,6 +513,7 @@ class DiffWidget(QWidget):
                 widget.deleteLater()
         if self._loader:
             self._loader.clear()
+        self._sync_hscroll()
 
     def _refresh_submodule_paths(self) -> None:
         """Refresh the cached set of submodule paths from the repository."""
@@ -594,6 +613,7 @@ class DiffWidget(QWidget):
                 w = item.widget() if item else None
                 if w is not None:
                     w.setVisible(False)
+        self._sync_hscroll()
 
     def _on_file_selected(self, index) -> None:
         if self._current_oid is None:
@@ -622,6 +642,7 @@ class DiffWidget(QWidget):
         block = self._build_file_block(path, hunks)
         self._diff_layout.addWidget(block)
         self._diff_layout.addStretch()
+        self._sync_hscroll()
         if self._sticky_controller._pinned:
             self._scroll_area.verticalScrollBar().setValue(self._diff_container.geometry().top())
         # (else: leave scroll position alone — user is in unpinned, full-context view)
