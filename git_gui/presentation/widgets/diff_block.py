@@ -298,6 +298,48 @@ def _build_pair_index(lines: list[tuple[str, str]]) -> dict[int, tuple[str, str]
     return pairs
 
 
+def apply_syntax_tokens(
+    document,
+    content_start: int,
+    text: str,
+    filename: str,
+    syntax_formats: SyntaxFormats,
+) -> None:
+    """Layer Pygments colours over *text* already inserted at *content_start*.
+
+    Shared by the unified and side-by-side renderers so one line reads the same
+    in both. A very long line is left alone: tokenizing it costs more than the
+    colour is worth, and minified files are mostly one such line.
+    """
+    from PySide6.QtGui import QTextCursor
+
+    from git_gui.presentation.widgets.syntax_highlighter import tokenize
+
+    if not text or len(text) + 1 > _LONG_LINE_LIMIT:
+        return
+    for tok in tokenize(text, filename):
+        attr = _KIND_TO_ATTR.get(tok.kind)
+        if attr is None:
+            continue
+        tok_cursor = QTextCursor(document)
+        tok_cursor.setPosition(content_start + tok.start)
+        tok_cursor.setPosition(content_start + tok.end, QTextCursor.KeepAnchor)
+        tok_cursor.mergeCharFormat(getattr(syntax_formats, attr))
+
+
+def apply_word_overlay(document, content_start: int, spans, overlay) -> None:
+    """Tint the spans a word-level diff marked as changed."""
+    from PySide6.QtGui import QTextCursor
+
+    for span in spans:
+        if span.kind != "changed":
+            continue
+        ws_cursor = QTextCursor(document)
+        ws_cursor.setPosition(content_start + span.start)
+        ws_cursor.setPosition(content_start + span.end, QTextCursor.KeepAnchor)
+        ws_cursor.mergeCharFormat(overlay)
+
+
 def _render_lines_range(
     cursor,
     hunk,
@@ -315,9 +357,6 @@ def _render_lines_range(
     When *pair_index* is given, also apply a word-level overlay to changed
     spans of paired -/+ lines.
     """
-    from PySide6.QtGui import QTextCursor
-
-    from git_gui.presentation.widgets.syntax_highlighter import tokenize
     from git_gui.presentation.widgets.word_diff import pair_diff
 
     old_line, new_line = parse_hunk_header(hunk.header)
@@ -359,26 +398,15 @@ def _render_lines_range(
 
         if not apply_syntax:
             continue
-        if len(line_with_eol) > _LONG_LINE_LIMIT:
-            continue
 
         content_text = line_with_eol.rstrip("\n")
         if not content_text:
             continue
 
         # Pass 2 — syntax tokens
-        tokens = tokenize(content_text, filename)
-        for tok in tokens:
-            tok_cursor = QTextCursor(cursor.document())
-            tok_cursor.setPosition(content_doc_start + tok.start)
-            tok_cursor.setPosition(
-                content_doc_start + tok.end,
-                QTextCursor.KeepAnchor,
-            )
-            attr = _KIND_TO_ATTR.get(tok.kind)
-            if attr is None:
-                continue
-            tok_cursor.mergeCharFormat(getattr(syntax_formats, attr))
+        apply_syntax_tokens(
+            cursor.document(), content_doc_start, content_text, filename, syntax_formats
+        )
 
         # Pass 3 — word-level overlay (only for paired -/+)
         if idx not in pair_index or origin == " ":
@@ -390,16 +418,7 @@ def _render_lines_range(
             if origin == "-"
             else (new_spans, syntax_formats.added_word_overlay)
         )
-        for span in spans:
-            if span.kind != "changed":
-                continue
-            ws_cursor = QTextCursor(cursor.document())
-            ws_cursor.setPosition(content_doc_start + span.start)
-            ws_cursor.setPosition(
-                content_doc_start + span.end,
-                QTextCursor.KeepAnchor,
-            )
-            ws_cursor.mergeCharFormat(overlay)
+        apply_word_overlay(cursor.document(), content_doc_start, spans, overlay)
 
 
 def render_hunk_content_lines(
@@ -498,6 +517,42 @@ def render_hunk_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
 # ---------------------------------------------------------------------------
 
 
+def make_hunk_header_row(
+    hunk: Hunk,
+    *,
+    extra_left_widgets: list[QWidget] | None = None,
+    extra_right_widgets: list[QWidget] | None = None,
+    on_header_clicked: Callable[[], None] | None = None,
+) -> tuple[QWidget, Callable[[], None]]:
+    """Return the @@ row that sits above a hunk, and a restyle callback.
+
+    The callback comes back because the label's colour is set inline rather
+    than through the stylesheet, so a theme change has to reapply it.
+    """
+    header_row = QWidget()
+    header_layout = QHBoxLayout(header_row)
+    header_layout.setContentsMargins(0, HEADER_ROW_VPAD, 0, HEADER_ROW_VPAD)
+    header_layout.setSpacing(4)
+    for w in extra_left_widgets or []:
+        header_layout.addWidget(w)
+    header_text = hunk.header.strip()
+    if on_header_clicked is not None:
+        header_label: QLabel = _ClickableLabel(header_text, on_header_clicked)
+    else:
+        header_label = QLabel(header_text)
+    header_label.setStyleSheet(f"color: {_hunk_header_color()};")
+    header_layout.addWidget(header_label)
+    header_layout.addStretch()
+    for w in extra_right_widgets or []:
+        header_layout.addWidget(w)
+    header_row.setFixedHeight(HEADER_ROW_HEIGHT + HEADER_ROW_VPAD * 2)
+
+    def restyle() -> None:
+        header_label.setStyleSheet(f"color: {_hunk_header_color()};")
+
+    return header_row, restyle
+
+
 def add_hunk_widget(
     parent_layout: QVBoxLayout,
     hunk: Hunk,
@@ -521,23 +576,12 @@ def add_hunk_widget(
         extra_right_widgets = []
 
     # --- Header row ---
-    header_row = QWidget()
-    header_layout = QHBoxLayout(header_row)
-    header_layout.setContentsMargins(0, HEADER_ROW_VPAD, 0, HEADER_ROW_VPAD)
-    header_layout.setSpacing(4)
-    for w in extra_left_widgets:
-        header_layout.addWidget(w)
-    header_text = hunk.header.strip()
-    if on_header_clicked is not None:
-        header_label = _ClickableLabel(header_text, on_header_clicked)
-    else:
-        header_label = QLabel(header_text)
-    header_label.setStyleSheet(f"color: {_hunk_header_color()};")
-    header_layout.addWidget(header_label)
-    header_layout.addStretch()
-    for w in extra_right_widgets:
-        header_layout.addWidget(w)
-    header_row.setFixedHeight(HEADER_ROW_HEIGHT + HEADER_ROW_VPAD * 2)
+    header_row, restyle_header = make_hunk_header_row(
+        hunk,
+        extra_left_widgets=extra_left_widgets,
+        extra_right_widgets=extra_right_widgets,
+        on_header_clicked=on_header_clicked,
+    )
 
     # --- Diff editor ---
     editor = make_diff_editor()
@@ -565,7 +609,7 @@ def add_hunk_widget(
     editor.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
     def _rebuild() -> None:
-        header_label.setStyleSheet(f"color: {_hunk_header_color()};")
+        restyle_header()
         # Rebuild syntax_formats from the new theme too — but only if syntax was active.
         new_syntax = make_syntax_formats() if syntax_formats is not None else None
         editor.clear()
