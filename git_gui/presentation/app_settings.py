@@ -69,3 +69,21 @@ def get_split_sizes(name: str) -> list[int] | None:
 def set_split_sizes(name: str, sizes: list[int]) -> None:
     """Persist one splitter's pixel sizes."""
     QSettings().setValue(_KEY_SPLIT.format(name=name), ",".join(str(s) for s in sizes))
+
+
+_KEY_SIDE_BY_SIDE = "diff/side_by_side"
+
+
+def get_side_by_side_diff() -> bool:
+    """Whether diffs are drawn as two panes rather than one column.
+
+    Off by default: unified is what the app has always shown, and it is the
+    better view in a narrow window, where two columns leave neither side wide
+    enough to read.
+    """
+    return QSettings().value(_KEY_SIDE_BY_SIDE, False, type=bool)
+
+
+def set_side_by_side_diff(value: bool) -> None:
+    """Persist the diff-view preference."""
+    QSettings().setValue(_KEY_SIDE_BY_SIDE, value)

@@ -216,6 +216,10 @@ class WorkingTreeWidget(QWidget):
         path-sensitive helper. Called on repo switch by the composite."""
         self._repo_path = path
 
+    def refresh_diff_view(self) -> None:
+        """Redraw the working-tree diff after the diff-view choice changed."""
+        self._hunk_diff.refresh_view()
+
     def reload(self) -> None:
         queries = self._queries
 

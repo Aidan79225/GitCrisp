@@ -37,6 +37,16 @@ class RightPanelMixin:
             self._right_stack.setCurrentIndex(0)
             self._diff.load_commit(oid)
 
+    def _on_diff_view_changed(self) -> None:
+        """Redraw both diff panes in the newly chosen view.
+
+        Both, not just the visible one: the other is one click away, and a
+        pane still drawn the old way after the menu says otherwise is the bug
+        this exists to avoid.
+        """
+        self._diff.refresh_view()
+        self._working_tree.refresh_diff_view()
+
     def _on_file_history_requested(self, path: str) -> None:
         """Filter the commit list to one file's history."""
         self._graph.set_path_filter(path)

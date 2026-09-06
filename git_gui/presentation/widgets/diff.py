@@ -23,12 +23,12 @@ from git_gui.presentation.theme import connect_widget, get_theme_manager
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.diff_block import (
-    add_hunk_widget,
     make_diff_formats,
     make_file_block,
     make_syntax_formats,
 )
 from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget, NavMode
+from git_gui.presentation.widgets.hunk_view import add_hunk_view
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
@@ -470,6 +470,15 @@ class DiffWidget(QWidget):
         self._sticky_controller.recompute_threshold()
         self._sticky_controller.force_unpin()
 
+    def refresh_view(self) -> None:
+        """Redraw the current commit after the unified/side-by-side choice changed.
+
+        A full reload rather than a re-layout: the two views build different
+        widgets per hunk, so the blocks have to be rebuilt anyway.
+        """
+        if self._current_oid is not None:
+            self.load_commit(self._current_oid)
+
     def set_path_filter(self, path: str | None) -> None:
         """Restrict the panel to one file, following the graph's file history.
 
@@ -556,7 +565,7 @@ class DiffWidget(QWidget):
         frame.setProperty("file_path", path)
 
         for hunk in hunks:
-            add_hunk_widget(
+            add_hunk_view(
                 inner,
                 hunk,
                 self._formats,
@@ -592,7 +601,7 @@ class DiffWidget(QWidget):
         is_submodule = path in self._submodule_paths
         on_click = (lambda p=path: self.submodule_open_requested.emit(p)) if is_submodule else None
         for hunk in hunks:
-            add_hunk_widget(
+            add_hunk_view(
                 inner,
                 hunk,
                 self._formats,
