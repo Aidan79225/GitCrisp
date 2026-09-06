@@ -22,11 +22,11 @@ from git_gui.domain.entities import WORKING_TREE_OID, Hunk
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import connect_widget
 from git_gui.presentation.widgets.diff_block import (
-    add_hunk_widget,
     make_diff_formats,
     make_file_block,
     make_syntax_formats,
 )
+from git_gui.presentation.widgets.hunk_view import add_hunk_view
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
@@ -191,6 +191,15 @@ class HunkDiffWidget(QWidget):
         self._all_paths = None
         self._clear_layout()
         self._sync_hscroll()
+
+    def refresh_view(self) -> None:
+        """Redraw after the unified/side-by-side choice changed, keeping the
+        file selection: one file stays one file, and the aggregate view stays
+        aggregate."""
+        if self._current_path is not None:
+            self.load_file(self._current_path)
+        elif self._all_paths is not None:
+            self.load_all_files(self._all_paths)
 
     def _fetch_and_render(self) -> None:
         if self._current_path is None:
@@ -367,7 +376,7 @@ class HunkDiffWidget(QWidget):
             if path in self._submodule_paths
             else None
         )
-        add_hunk_widget(
+        add_hunk_view(
             target_layout,
             hunk,
             self._formats,

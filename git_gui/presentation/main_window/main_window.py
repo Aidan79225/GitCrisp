@@ -31,6 +31,7 @@ from git_gui.presentation.main_window.update_flow import UpdateFlowMixin
 from git_gui.presentation.main_window.window_state import WindowStateMixin
 from git_gui.presentation.menus.appearance import install_appearance_menu
 from git_gui.presentation.menus.help_menu import install_help_menu
+from git_gui.presentation.menus.view_menu import install_diff_view_menu
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
@@ -131,6 +132,7 @@ class MainWindow(
             "QMenu { padding: 6px; }QMenu::item { padding: 6px 24px 6px 20px; }"
         )
         install_appearance_menu(self)
+        install_diff_view_menu(self, self._on_diff_view_changed)
 
     def _build_widgets(self) -> None:
         self._repo_ready_signals = _RepoReadySignals()

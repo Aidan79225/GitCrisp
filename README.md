@@ -25,6 +25,7 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - **Per-hunk staging** — stage or unstage individual diff hunks within a file
 - Inline diff viewer with line numbers, monospace font, and added/removed highlighting
 - **Syntax highlighting** in diff hunks via Pygments — supports hundreds of languages
+- **Side-by-side diff** — `View → Side-by-side diff` draws each hunk as two panes, the file as it was on the left and as it is on the right, so a change reads across rather than down. Both sides stay level: where three lines were replaced by five, the left is padded out rather than closed up, and one shared horizontal bar keeps the two showing the same columns of a long line. The choice is remembered, and applies to both the commit diff and the working tree.
 - **Word-level intra-line diff** highlights the changed words within `-`/`+` line pairs
 - **Lazy diff loading** — skeleton placeholders that realize on scroll for smooth handling of large commits
 - **Collapsible commit message + per-file diff blocks** — chevron toggles next to the message header and on each file's header collapse to the subject line / file header respectively, so you can skip past large diffs without scrolling
