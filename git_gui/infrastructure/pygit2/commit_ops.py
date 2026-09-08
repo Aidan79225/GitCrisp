@@ -227,7 +227,22 @@ class CommitOps:
         *,
         cancel: Callable[[], bool] | None = None,
     ) -> Iterator[CommitStat]:
-        cmd = ["git", "log", "--numstat", "--format=__COMMIT__%n%H%n%aN <%aE>%n%aI"]
+        """Yield one CommitStat per non-merge commit reachable from HEAD.
+
+        Merges are excluded. A merge commit introduces no changes of its own —
+        `--numstat` prints nothing for one — so counting it adds to every
+        commit total while contributing zero lines to sit beside it. On a repo
+        that lands its work through pull requests that is not a rounding error:
+        a merge per branch can be a third of the history, and it lands entirely
+        on whoever pressed the button rather than on whoever wrote the code.
+        """
+        cmd = [
+            "git",
+            "log",
+            "--no-merges",
+            "--numstat",
+            "--format=__COMMIT__%n%H%n%aN <%aE>%n%aI",
+        ]
         if since:
             cmd.append(f"--since={since.isoformat()}")
         if until:

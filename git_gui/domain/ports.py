@@ -66,7 +66,13 @@ class IRepositoryReader(Protocol):
         until: datetime | None = None,
         *,
         cancel: Callable[[], bool] | None = None,
-    ) -> Iterator[CommitStat]: ...
+    ) -> Iterator[CommitStat]:
+        """Per-commit line and file counts, merges excluded.
+
+        A merge introduces no changes of its own, so including it would add to
+        a commit count with no lines to account for it.
+        """
+
     def repo_state(self) -> RepoStateInfo: ...
     def is_ancestor(self, ancestor_oid: str, descendant_oid: str) -> bool: ...
     def merge_analysis(self, oid: str) -> MergeAnalysisResult: ...
