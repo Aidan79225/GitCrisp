@@ -11,6 +11,9 @@ AppPublisher=Aidan Wang
 DefaultDirName={autopf}\GitCrisp
 DefaultGroupName=GitCrisp
 UninstallDisplayIcon={app}\GitCrisp.exe
+; The wizard's own icon. Without it the installer ships with Inno's default,
+; which is the first thing a user sees of the app.
+SetupIconFile=arts\gitcrisp.ico
 OutputBaseFilename=GitCrisp-windows-setup
 OutputDir=.
 ArchitecturesAllowed=x64compatible
