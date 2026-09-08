@@ -513,10 +513,19 @@ class GraphWidget(QWidget):
         signals.reload_done.connect(self._on_reload_done)
         self._load_signals = signals  # prevent GC
 
+        # Pinning an out-of-page tip draws it with no descendants — a merged
+        # branch rendered as a lane that never merges. So ask for it only once
+        # the doubling retry has nowhere deeper to go, where a pinned row beats
+        # a click that appears to do nothing.
+        pin = effective_limit >= MAX_RELOAD_LIMIT
+
         def _worker():
             if path is None:
                 commits = queries.get_commit_graph.execute(
-                    limit=effective_limit, extra_tips=effective_tips, first_parent=fp
+                    limit=effective_limit,
+                    extra_tips=effective_tips,
+                    first_parent=fp,
+                    pin_unreachable=pin,
                 )
             else:
                 commits = queries.get_file_history.execute(
@@ -586,8 +595,13 @@ class GraphWidget(QWidget):
             self.reload()
             return
 
-        self._loaded_count = len(commits)
-        self._has_more = len(commits) == self._reload_limit
+        # A pinned tip rides along past the end of the page, so the page can
+        # come back longer than the limit. Both of these read the walk, not
+        # the list: `>=` because a full page still means there is more, and
+        # the clamp because `skip` counts walker positions — counting the
+        # pinned row would step over a real commit on the next page.
+        self._loaded_count = min(len(commits), self._reload_limit)
+        self._has_more = len(commits) >= self._reload_limit
 
         refs: dict[str, list[str]] = {}
         head_branch: str | None = None
@@ -782,8 +796,8 @@ class GraphWidget(QWidget):
             self._has_more = False
             return
 
-        self._has_more = len(more) == PAGE_SIZE
-        self._loaded_count += len(more)
+        self._has_more = len(more) >= PAGE_SIZE
+        self._loaded_count += min(len(more), PAGE_SIZE)
 
         refs: dict[str, list[str]] = {}
         for b in branches:

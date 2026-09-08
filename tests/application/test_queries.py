@@ -28,7 +28,9 @@ def test_get_commit_graph_delegates_to_reader():
     reader = _reader()
     reader.get_commits.return_value = [_make_commit()]
     result = GetCommitGraph(reader).execute(limit=50)
-    reader.get_commits.assert_called_once_with(50, 0, extra_tips=None, first_parent=False)
+    reader.get_commits.assert_called_once_with(
+        50, 0, extra_tips=None, first_parent=False, pin_unreachable=False
+    )
     assert len(result) == 1
 
 
@@ -36,7 +38,9 @@ def test_get_commit_graph_default_limit():
     reader = _reader()
     reader.get_commits.return_value = []
     GetCommitGraph(reader).execute()
-    reader.get_commits.assert_called_once_with(200, 0, extra_tips=None, first_parent=False)
+    reader.get_commits.assert_called_once_with(
+        200, 0, extra_tips=None, first_parent=False, pin_unreachable=False
+    )
 
 
 def test_get_branches_delegates_to_reader():
