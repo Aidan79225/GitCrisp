@@ -7,6 +7,16 @@ from git_gui.observability import _get_version
 
 block_cipher = None
 
+# PyInstaller takes a raster container, a different format per platform: the
+# .ico is embedded into the Windows exe, and the .icns is what Finder reads off
+# the bundle. Linux uses neither — the AppImage's icon is the SVG that
+# release.yml copies into the AppDir. All three come from the same
+# arts/gitcrisp.svg; scripts/build_icons.py regenerates the two rasters.
+_ICON = {
+    'win32': 'arts/gitcrisp.ico',
+    'darwin': 'arts/gitcrisp.icns',
+}.get(sys.platform)
+
 
 def _bundle_version():
     """The version to stamp into the macOS bundle.
@@ -64,6 +74,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
+    icon=_ICON,
 )
 
 coll = COLLECT(
@@ -79,7 +90,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='GitCrisp.app',
-    icon=None,
+    icon='arts/gitcrisp.icns',
     bundle_identifier='com.gitcrisp.app',
     info_plist={
         'CFBundleShortVersionString': _bundle_version(),

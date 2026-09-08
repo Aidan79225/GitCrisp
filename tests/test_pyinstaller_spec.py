@@ -36,3 +36,24 @@ def test_theme_builtin_is_in_hiddenimports():
     """Sanity check that hiddenimports still includes the theme module
     — guards against accidental wholesale rewrite of the list."""
     assert "'git_gui.presentation.theme.builtin'" in _read_spec()
+
+
+def test_exe_names_an_icon():
+    """EXE must pass `icon=`, and not because a missing one means "no icon".
+
+    PyInstaller substitutes its own icon when the argument is absent, so every
+    Windows build before this was set shipped an exe wearing PyInstaller's
+    feather. An empty `icon=` argument would silently restore that.
+    """
+    spec = _read_spec()
+    assert "icon=_ICON," in spec, "EXE must pass icon=_ICON"
+    assert "'win32': 'arts/gitcrisp.ico'" in spec
+    assert (SPEC_PATH.parent / "arts" / "gitcrisp.ico").exists()
+
+
+def test_bundle_names_an_icon():
+    """BUNDLE carried `icon=None` for every release so far, which is why
+    GitCrisp.app showed Finder's blank-document placeholder."""
+    spec = _read_spec()
+    assert "icon='arts/gitcrisp.icns'" in spec, "BUNDLE must point at the .icns"
+    assert (SPEC_PATH.parent / "arts" / "gitcrisp.icns").exists()
