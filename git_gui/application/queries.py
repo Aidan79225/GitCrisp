@@ -34,12 +34,14 @@ class GetCommitGraph:
         extra_tips: list[str] | None = None,
         *,
         first_parent: bool = False,
+        pin_unreachable: bool = False,
     ) -> list[Commit]:
         return self._reader.get_commits(
             limit,
             skip,
             extra_tips=extra_tips,
             first_parent=first_parent,
+            pin_unreachable=pin_unreachable,
         )
 
 

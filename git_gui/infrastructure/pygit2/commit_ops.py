@@ -35,7 +35,21 @@ class CommitOps:
         extra_tips: list[str] | None = None,
         *,
         first_parent: bool = False,
+        pin_unreachable: bool = False,
     ) -> list[Commit]:
+        """One page of the walk, newest first.
+
+        `extra_tips` are pushed as additional walker tips, so a diverged
+        branch and everything under it join the walk. A tip older than the
+        page still sorts beyond `limit`, though, and `pin_unreachable` is the
+        last resort for that: it appends the tip itself so a caller can at
+        least find it. Appending is off by default because a pinned commit
+        arrives with none of its descendants, which draws as a lane that
+        never merges — a lie about a branch that was merged long ago — and
+        because it makes the page longer than `limit`, which is how a caller
+        tells a full page from the end of history. Load deeper first; pin
+        only when there is no deeper left to go.
+        """
         if self._repo.head_is_unborn:
             return []
 
@@ -75,10 +89,10 @@ class CommitOps:
                 return []
         result = [_commit_to_entity(c) for c, _ in zip(walker, range(limit), strict=False)]
 
-        # Guarantee the requested tips are present even when they sort beyond
-        # `limit` in the topological/time-ordered walk (e.g. an old branch tip
-        # that predates many newer mainline commits). Without this, callers
-        # can't locate/scroll to such a tip. Appended in time-descending order
+        if not pin_unreachable:
+            return result
+
+        # Last resort — see the docstring. Appended in time-descending order
         # so the model still renders them oldest-last.
         loaded = {c.oid for c in result}
         missing: list[Commit] = []

@@ -246,6 +246,13 @@ class GraphModel(QAbstractTableModel):
         self.endResetModel()
 
     def append(self, commits: list[Commit], refs: dict[str, list[str]]) -> None:
+        # A tip pinned onto the first page (see get_commits' pin_unreachable)
+        # sits in the list already, and the walk reaches it again several
+        # pages later. Appending it twice would draw the same commit on two
+        # rows, each with its own lane.
+        if commits:
+            known = {c.oid for c in self._commits}
+            commits = [c for c in commits if c.oid not in known]
         if not commits:
             return
         start = len(self._commits)
