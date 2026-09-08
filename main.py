@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pygit2
 from PySide6.QtCore import qInstallMessageHandler
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from git_gui.infrastructure.pygit2 import Pygit2Repository
@@ -14,6 +15,7 @@ from git_gui.observability import init_crash_reporting
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
 from git_gui.presentation.theme import ThemeManager, set_theme_manager
+from git_gui.resources import get_resource_path
 
 
 def _is_git_repo(path: str) -> bool:
@@ -83,6 +85,12 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setOrganizationName("GitCrisp")
     app.setApplicationName("GitCrisp")
+    # Windows takes the running app's icon from the exe and macOS from the
+    # bundle, so this is really for Linux, where a window manager that cannot
+    # match the window back to its .desktop entry falls back to a generic
+    # placeholder. Qt is handed the SVG rather than the .ico so it can rasterise
+    # at whatever size the desktop asks for, and so the icon has one source.
+    app.setWindowIcon(QIcon(str(get_resource_path("arts") / "gitcrisp.svg")))
 
     theme_manager = ThemeManager(app)
     set_theme_manager(theme_manager)

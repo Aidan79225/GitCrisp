@@ -138,3 +138,14 @@ def test_generated_icons_still_match_the_svg(qapp, container):
         f"arts/gitcrisp.{container} no longer looks like arts/gitcrisp.svg "
         f"(drift {drift:.1f}). Re-run: uv run scripts/build_icons.py"
     )
+
+
+def test_main_gives_the_running_app_a_window_icon():
+    """Without this a Linux window manager that cannot match the window to its
+    .desktop entry shows a generic placeholder while the app is running."""
+    source = (Path(__file__).resolve().parent.parent / "main.py").read_text(encoding="utf-8")
+    assert "setWindowIcon" in source
+    assert 'get_resource_path("arts") / "gitcrisp.svg"' in source, (
+        "the window icon must resolve through get_resource_path so it is found "
+        "inside a PyInstaller bundle, not just from a source checkout"
+    )
