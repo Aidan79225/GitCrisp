@@ -13,11 +13,44 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import pytest
 from PySide6.QtWidgets import QWidget
 
 from git_gui.domain.entities import Commit
 from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.widgets.graph import MAX_RELOAD_LIMIT, PAGE_SIZE, GraphWidget
+
+
+class _InlineThread:
+    """Runs the worker where it was created.
+
+    A real worker thread here outlives the test: it emits into a widget qtbot
+    has already torn down, which on Windows is heap corruption rather than a
+    failure. Nothing in these tests needs the work to be off the main thread.
+    """
+
+    def __init__(self, target=None, daemon=None, **kwargs) -> None:
+        self._target = target
+
+    def start(self) -> None:
+        if self._target is not None:
+            self._target()
+
+
+@pytest.fixture
+def inline_workers(monkeypatch):
+    monkeypatch.setattr("git_gui.presentation.widgets.graph.threading.Thread", _InlineThread)
+
+
+def _quiet_queries(w: GraphWidget) -> None:
+    """Return values a finished load can be delivered with."""
+    w._queries.get_commit_graph.execute.return_value = []
+    w._queries.get_branches.execute.return_value = []
+    w._queries.get_tags.execute.return_value = []
+    w._queries.is_dirty.execute.return_value = False
+    w._queries.get_head_oid.execute.return_value = ""
+    w._queries.get_repo_state.execute.return_value = None
+    w._queries.get_merge_head.execute.return_value = None
 
 
 def _commits(n: int, prefix: str = "c") -> list[Commit]:
@@ -109,38 +142,35 @@ def test_a_short_page_still_ends_the_scroll(qtbot):
 # ── Pinning is the last resort, not the first ────────────────────────────────
 
 
-def test_a_first_load_does_not_ask_for_a_pin(qtbot):
+def test_a_first_load_does_not_ask_for_a_pin(qtbot, inline_workers):
     """Pinning draws the tip with no descendants. While there is a deeper load
     left to try, the deeper load is the right answer."""
     w = _widget(qtbot)
-    w._queries.get_commit_graph.execute.return_value = []
+    _quiet_queries(w)
 
     w.reload(extra_tips=["old"], limit=PAGE_SIZE)
-    qtbot.waitUntil(lambda: w._queries.get_commit_graph.execute.called)
 
     assert w._queries.get_commit_graph.execute.call_args.kwargs["pin_unreachable"] is False
 
 
-def test_the_last_retry_asks_for_a_pin(qtbot):
+def test_the_last_retry_asks_for_a_pin(qtbot, inline_workers):
     """At the cap there is nothing deeper to load, and a pinned row beats a
     click that appears to do nothing."""
     w = _widget(qtbot)
-    w._queries.get_commit_graph.execute.return_value = []
+    _quiet_queries(w)
 
     w.reload(extra_tips=["old"], limit=MAX_RELOAD_LIMIT)
-    qtbot.waitUntil(lambda: w._queries.get_commit_graph.execute.called)
 
     assert w._queries.get_commit_graph.execute.call_args.kwargs["pin_unreachable"] is True
 
 
-def test_scrolling_never_asks_for_a_pin(qtbot):
+def test_scrolling_never_asks_for_a_pin(qtbot, inline_workers):
     """Every page would carry its own copy of the tip."""
     w = _widget(qtbot)
+    _quiet_queries(w)
     w._extra_tips = ["old"]
-    w._queries.get_commit_graph.execute.return_value = []
 
     w._load_more()
-    qtbot.waitUntil(lambda: w._queries.get_commit_graph.execute.called)
 
     kwargs = w._queries.get_commit_graph.execute.call_args.kwargs
     assert kwargs.get("pin_unreachable", False) is False
