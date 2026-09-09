@@ -96,6 +96,7 @@ class GetCommitStats:
         *,
         cancel: Callable[[], bool] | None = None,
     ) -> Iterator[CommitStat]:
+        """Per-commit line and file counts in the range, merges excluded."""
         return self._reader.get_commit_stats(since, until, cancel=cancel)
 
 

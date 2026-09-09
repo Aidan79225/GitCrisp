@@ -542,7 +542,13 @@ class InsightDialog(QDialog):
         # ── Summary cards row ────────────────────────────────────────────────
         summary_row = QHBoxLayout()
         summary_row.setSpacing(12)
-        summary_row.addWidget(_SummaryCard(str(total_commits), "Total Commits"))
+        # Say why this disagrees with `git log | wc -l` rather than leaving the
+        # reader to wonder: on a merge-per-branch history the gap is large.
+        commits_card = _SummaryCard(str(total_commits), "Total Commits")
+        commits_card.setToolTip(
+            "Merge commits are not counted — a merge introduces no changes of its own."
+        )
+        summary_row.addWidget(commits_card)
         summary_row.addWidget(_SummaryCard(str(active_authors), "Active Authors"))
         summary_row.addWidget(_SummaryCard(str(total_files), "Files Changed"))
         summary_widget = QWidget()
