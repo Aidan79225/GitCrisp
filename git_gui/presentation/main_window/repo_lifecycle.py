@@ -18,6 +18,7 @@ class _RepoReadySignals(QObject):
 
 class _WorktreeOpSignals(QObject):
     succeeded = Signal(str)  # the path that was removed
+    completed = Signal()  # an op with nothing to hand on (lock/unlock)
     dirty_error = Signal(str)
     locked_error = Signal(str, str)  # path, reason
     failed = Signal(str)
@@ -347,11 +348,11 @@ class RepoLifecycleMixin:
         def _worker():
             try:
                 self._commands.lock_worktree.execute(path, reason=reason or None)
-                signals.succeeded.emit()
+                signals.completed.emit()
             except Exception as e:
                 signals.failed.emit(str(e))
 
-        signals.succeeded.connect(self._load_worktrees_for_active_repo)
+        signals.completed.connect(self._load_worktrees_for_active_repo)
         signals.failed.connect(
             lambda msg: self._log_panel.log_error(f"Lock worktree failed: {msg}")
         )
@@ -371,11 +372,11 @@ class RepoLifecycleMixin:
         def _worker():
             try:
                 self._commands.unlock_worktree.execute(path)
-                signals.succeeded.emit()
+                signals.completed.emit()
             except Exception as e:
                 signals.failed.emit(str(e))
 
-        signals.succeeded.connect(self._load_worktrees_for_active_repo)
+        signals.completed.connect(self._load_worktrees_for_active_repo)
         signals.failed.connect(
             lambda msg: self._log_panel.log_error(f"Unlock worktree failed: {msg}")
         )
