@@ -664,3 +664,59 @@ def test_on_reload_done_skips_base_check_when_pending_merge_base_is_none(qtbot):
     assert w._pending_scroll_oid is None
     assert w._pending_merge_base is None
     w.reload.assert_not_called()
+
+
+# ── 12. reload_with_extra_tip pushes a clicked branch's upstream too ─────
+
+
+def test_reload_with_extra_tip_pushes_the_upstream_alongside_the_branch(qtbot):
+    """A local branch behind its remote must bring the remote tip into the
+    walk, or the graph ends at the local tip and the commits the remote holds
+    ahead of it are drawn nowhere."""
+    w = _make_widget(qtbot, commits=[_make_commit("HEAD")])
+    w._queries.get_head_oid.execute.return_value = "HEAD"
+    w._queries.get_merge_base.execute.return_value = "BASE"
+    w.reload = MagicMock()
+
+    w.reload_with_extra_tip("LOCAL", ["REMOTE"])
+
+    w.reload.assert_called_once_with(extra_tips=["LOCAL", "REMOTE"])
+    assert w._pending_scroll_oid == "LOCAL", "the click still lands on the branch itself"
+
+
+def test_reload_with_extra_tip_reloads_while_the_upstream_is_missing(qtbot):
+    """The local tip being on screen is not enough to short-circuit: that is
+    exactly the case where the remote's commits are the ones missing."""
+    w = _make_widget(qtbot, commits=[_make_commit("HEAD"), _make_commit("LOCAL")])
+    w._queries.get_head_oid.execute.return_value = "HEAD"
+    w._queries.get_merge_base.execute.return_value = "BASE"
+    w.reload = MagicMock()
+
+    w.reload_with_extra_tip("LOCAL", ["REMOTE"])
+
+    w.reload.assert_called_once_with(extra_tips=["LOCAL", "REMOTE"])
+
+
+def test_reload_with_extra_tip_short_circuits_once_every_tip_is_drawn(qtbot):
+    w = _make_widget(
+        qtbot, commits=[_make_commit("REMOTE"), _make_commit("LOCAL"), _make_commit("HEAD")]
+    )
+    w.reload = MagicMock()
+
+    w.reload_with_extra_tip("LOCAL", ["REMOTE"])
+
+    w.reload.assert_not_called()
+    selected_index = w._view.setCurrentIndex.call_args.args[0]
+    assert selected_index.row() == 1  # LOCAL's row, not the upstream's
+
+
+def test_reload_with_extra_tip_ignores_an_upstream_that_is_the_branch_tip(qtbot):
+    """In sync — the upstream adds nothing to push."""
+    w = _make_widget(qtbot, commits=[_make_commit("HEAD")])
+    w._queries.get_head_oid.execute.return_value = "HEAD"
+    w._queries.get_merge_base.execute.return_value = "BASE"
+    w.reload = MagicMock()
+
+    w.reload_with_extra_tip("LOCAL", ["LOCAL"])
+
+    w.reload.assert_called_once_with(extra_tips=["LOCAL"])
