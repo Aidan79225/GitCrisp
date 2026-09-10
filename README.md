@@ -1,6 +1,20 @@
+<img src="arts/gitcrisp.svg" alt="" width="96" align="left" hspace="16" vspace="4">
+
 # GitCrisp
 
-A clean, focused desktop Git client built with Python and PySide6 (Qt) for everyday Git workflows. Visual commit graph, per-hunk staging, multi-repository management, and full management dialogs for branches, remotes, submodules, tags, and themes.
+**Everything Git knows, one glance away. Everything Git does, one undo away.**
+
+<br clear="left">
+
+A desktop Git client built with Python and PySide6 (Qt) that keeps the graph, the diff,
+the blame and the reflog in a single window — and never runs a destructive operation
+without showing you what it will do and how to get back.
+
+Every feature below is one of three things:
+
+- **One glance away** — blame opens beside the diff, the reflog in that same column, file history filters the list in place. The answer is in this window, not the next one.
+- **One undo away** — reset, rebase, merge, cherry-pick and revert each leave a link back to the HEAD they started from; the reflog reaches the commits nothing references any more.
+- **Nothing hidden** — a branch is drawn with the commits its remote is holding ahead of it, conflicts are marked and sorted to the top, and the repo reloads itself when it changes underneath you.
 
 ## Screenshot
 
