@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- GitCrisp app icon: a four-commit graph held inside a hexagonal C.
+
+       Colours are anchored to the built-in themes rather than picked fresh.
+       The plate ramp is centred on `background`; the C runs from a tint to a
+       shade of `secondary`, the same blue the app badges branches with; the
+       graph runs from a tint of lane 3 of `graph_lane_colors` toward
+       red-orange. So the icon and the commit graph the app draws share a
+       palette instead of being two unrelated blues.
+
+       The C is a FILLED band, not a stroked path — the band between a
+       pointy-top hexagon of apothem 174 and one of apothem 120, so it is 54
+       wide, with a slot cut out of the right-hand edge. It has to be filled
+       rather than stroked because the terminals are bevelled: `stroke-linecap`
+       offers butt, round and square, none of which is an angled cut, and a
+       filled outline is also what gets the corners mitred instead of rounded.
+       Nothing in the mark is round now except the graph's own caps.
+
+       Both terminal faces run (-54,+31) — parallel to the hexagon's own edges,
+       so each cut is a 30-degree bevel. Making them parallel rather than
+       mirrored is what keeps the mouth a constant 110px: mirrored faces give a
+       clean parallelogram tail but pinch the mouth to 54px at the inner edge.
+       Only the lower terminal carries a tail, 90 long on the outer edge; the
+       upper one just ends on the corner face from (430,156) to (376,187).
+       Tails cost mouth, and with only one of them to pay for there is room
+       for both.
+
+       The top and bottom nodes cross the C's inner edge by ~15px rather than
+       sitting politely inside it. A halo — the same shapes 8px fatter,
+       painted in `url(#plate)` — separates them where they cross. Painting it
+       in the plate's own gradient rather than a flat colour is what makes it
+       disappear: over the plate it matches exactly at every y, and it reads as
+       a dark ring only where the graph is over the C. The right node sits in
+       the mouth; its halo crosses x=376 only between y=245 and y=291, which
+       keeps it off the tail's inner tip at y=297.
+
+       Depth is gradients only — no `feDropShadow`, no blur. SVG filters are
+       not in SVG Tiny 1.2, which is all Qt's renderer implements, so a
+       filtered shadow would draw under GNOME's librsvg and silently vanish
+       under KDE. There is no baked drop shadow under the plate either: the
+       Dock and the taskbar draw their own, and a second one reads as a halo.
+
+       Content is 348 wide and 402 tall on the 512 canvas — 82px either side,
+       55px top and bottom, within the 10% the macOS icon grid allows a shape
+       taller than it is wide. Four nodes and a ring is more than survives a
+       16px render — expect a blob in a window title bar, and a separate
+       simplified mark if that ever matters. Sizes above ~32px are where this
+       one is meant to be read. -->
+  <defs>
+    <linearGradient id="plate" gradientUnits="userSpaceOnUse" x1="256" y1="0" x2="256" y2="512">
+      <stop offset="0" stop-color="#262627"/><stop offset="1" stop-color="#171718"/>
+    </linearGradient>
+    <linearGradient id="ring" gradientUnits="userSpaceOnUse" x1="82" y1="55" x2="430" y2="457">
+      <stop offset="0" stop-color="#6ba6ff"/><stop offset="1" stop-color="#0538a8"/>
+    </linearGradient>
+    <linearGradient id="graph" gradientUnits="userSpaceOnUse" x1="186" y1="138" x2="342" y2="374">
+      <stop offset="0" stop-color="#ffc255"/><stop offset="1" stop-color="#ea5514"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="url(#plate)"/>
+  <path d="M 430 156 L 256 55 L 82 156 L 82 356 L 256 457 L 430 356 L 430 266
+           L 376 297 L 376 325 L 256 395 L 136 325 L 136 187 L 256 117 L 376 187 Z"
+        fill="url(#ring)"/>
+  <g fill="none" stroke="url(#plate)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 260 138 V 374"/>
+    <path d="M 186 216 H 234 Q 260 216 260 190"/>
+    <path d="M 342 268 H 286 Q 260 268 260 294"/>
+  </g>
+  <g fill="url(#plate)">
+    <circle cx="260" cy="138" r="41"/>
+    <circle cx="186" cy="216" r="41"/>
+    <circle cx="342" cy="268" r="41"/>
+    <circle cx="260" cy="374" r="41"/>
+  </g>
+  <g fill="none" stroke="url(#graph)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 260 138 V 374"/>
+    <path d="M 186 216 H 234 Q 260 216 260 190"/>
+    <path d="M 342 268 H 286 Q 260 268 260 294"/>
+  </g>
+  <g fill="url(#graph)">
+    <circle cx="260" cy="138" r="33"/>
+    <circle cx="186" cy="216" r="33"/>
+    <circle cx="342" cy="268" r="33"/>
+    <circle cx="260" cy="374" r="33"/>
+  </g>
+</svg>

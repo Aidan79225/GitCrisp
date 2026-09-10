@@ -5,124 +5,190 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ site.title }}</title>
   <meta name="description" content="{{ site.description }}">
+  <link rel="icon" type="image/svg+xml" href="{{ '/assets/gitcrisp.svg' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
 </head>
 <body>
 
   <!-- Hero -->
-  <section class="hero">
+  <header class="hero">
+    <img class="app-icon" src="{{ '/assets/gitcrisp.svg' | relative_url }}" alt="GitCrisp icon" width="112" height="112">
     <h1>GitCrisp</h1>
-    <p class="tagline">A clean, focused Git GUI</p>
-    <p class="subtitle">Visual commit graph, per-hunk staging, interactive rebase, conflict resolution, and full management dialogs for branches, remotes, submodules, and tags &mdash; built with Python and Qt.</p>
+    <p class="mission">
+      Everything Git knows, <em>one glance away.</em><br>
+      Everything Git does, <em>one undo away.</em>
+    </p>
+    <p class="subtitle">
+      A desktop Git client that keeps the graph, the diff, the blame and the reflog in a
+      single window &mdash; and never runs a destructive operation without showing you what
+      it will do and how to get back. Built with Python and Qt.
+    </p>
     <div class="hero-actions">
       <a href="https://github.com/Aidan79225/GitCrisp/releases/latest" class="btn btn-primary">Download</a>
       <a href="https://github.com/Aidan79225/GitCrisp" class="btn btn-secondary">View on GitHub</a>
     </div>
-  </section>
+  </header>
 
   <!-- Hero Screenshot -->
   <section class="hero-shot">
-    <img src="{{ '/screenshot/basic-view.png' | relative_url }}" alt="GitCrisp main window" />
+    <img src="{{ '/screenshot/basic-view.png' | relative_url }}" alt="GitCrisp main window: commit graph, diff pane and sidebar">
   </section>
 
-  <!-- Features -->
-  <section class="features">
-    <h2>Features</h2>
-    <div class="feature-grid">
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F4CA;</div>
-        <h3>Visual Commit Graph</h3>
-        <p>Lane-based graph with lazy pagination, inline search (Ctrl+F), branch navigation, and click-to-copy commit hash. Auto-refresh on focus return preserves your scroll position.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F9E9;</div>
-        <h3>Per-Hunk Staging</h3>
-        <p>Stage or unstage individual diff hunks. Lazy diff loading with skeleton placeholders for smooth handling of large commits. Collapsible commit message and per-file diff blocks let you skip past noise.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F33F;</div>
-        <h3>Branch &amp; Rebase</h3>
-        <p>Merge options dialog (ff-only / no-ff / allow-ff), interactive rebase with pick / squash / fixup / drop, and a checkout-conflict reset prompt.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x26A0;&#xFE0F;</div>
-        <h3>Conflict Resolution</h3>
-        <p>Abort / Continue banner in both panels, conflict file indicators, per-block conflict hunks, and dual-parent graph during merges.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F3F7;&#xFE0F;</div>
-        <h3>Tags &amp; Stash</h3>
-        <p>Create, delete, and push tags. A Stash button appears in the commit graph header when you have uncommitted changes — confirms before stashing. View contents inline, pop / apply / drop from context menu.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F310;</div>
-        <h3>Remote Operations</h3>
-        <p>Push, pull, fetch with status bar indicator. Force push prompt on rejection (confirmation message box offers <code>--force-with-lease</code>). Delete remote branches from the sidebar OR the graph context menu. Remotes CRUD dialog. Background threading.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F517;</div>
-        <h3>Submodule Support</h3>
-        <p>Manage submodules from a dedicated dialog, click diffs to jump into submodule repos, and detect submodule HEAD divergence in the parent.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F4C2;</div>
-        <h3>Multi-Repository</h3>
-        <p>Two-line repo entries for disambiguation, drag-and-drop reordering, submodule grouping, and keyboard shortcuts (Ctrl+W, Ctrl+1-9).</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">&#x1F3A8;</div>
-        <h3>Theming &amp; Insights</h3>
-        <p>Softer primary-tinted Light theme and a Material 3 Dark, plus a global typography scale that persists across restarts. Custom panel doubles as an inspection tool — open it in any mode to read every token's hex code. Per-author commit stats stream incrementally with progress and cancellation, so even <em>All</em> on a long-lived repo is workable.</p>
-      </div>
+  <!-- The three promises the whole app is organised around -->
+  <section class="pillars" id="principles">
+    <h2>Three promises</h2>
+    <p class="section-lede">Every feature below is one of these three, wearing a different hat.</p>
+
+    <div class="pillar-grid">
+      <article class="pillar" style="--accent: #4fc1ff">
+        <h3>One glance away</h3>
+        <p class="pillar-line">The answer is in this window, not the next one.</p>
+        <ul>
+          <li><strong>Blame beside the diff</strong> &mdash; it opens in the commit list's column, so clicking a line shows the commit that explains it without a window switch.</li>
+          <li><strong>Reflog in that same column</strong> &mdash; one dense line per movement, the operation as a colour-coded chip.</li>
+          <li><strong>File history in place</strong> &mdash; filter the commit list to one file, follow renames, and step back out with an &times;.</li>
+          <li><strong>Side-by-side or unified diff</strong>, word-level highlighting, syntax colouring, and lazy loading for big commits.</li>
+          <li><strong>Insights</strong> &mdash; per-author stats that stream in with progress and a cancel, so <em>All</em> stays usable on an old repo.</li>
+        </ul>
+      </article>
+
+      <article class="pillar" style="--accent: #90be6d">
+        <h3>One undo away</h3>
+        <p class="pillar-line">Nothing destructive happens unannounced, or unrecoverably.</p>
+        <ul>
+          <li><strong>Undo on the log line</strong> &mdash; reset, rebase, merge, cherry-pick and revert each leave a link back to the HEAD they started from.</li>
+          <li><strong>Reflog restore</strong> reaches commits nothing references any more &mdash; after a bad rebase, the only place they exist.</li>
+          <li><strong>Dirty-file preview</strong> before a hard reset, and the same reset dialog for every path that rewinds HEAD.</li>
+          <li><strong>Force push asks first</strong>, then uses <code>--force-with-lease</code>.</li>
+          <li><strong>Amend guards</strong> &mdash; disabled mid-merge, and it warns when a remote still points at the commit you are about to rewrite.</li>
+        </ul>
+      </article>
+
+      <article class="pillar" style="--accent: #f8961e">
+        <h3>Nothing hidden</h3>
+        <p class="pillar-line">The state you would have had to go looking for comes to you.</p>
+        <ul>
+          <li><strong>Your branch's remote is drawn with it</strong> &mdash; select a local branch and the commits its upstream is holding ahead are right there.</li>
+          <li><strong>Auto-refresh</strong> when the repo changes outside the app, with your scroll position kept.</li>
+          <li><strong>Conflicts are marked</strong>, sorted to the top, split per conflict block, with Abort and Continue in both panels.</li>
+          <li><strong>Worktrees and submodules report themselves</strong> &mdash; branch badges for worktrees, HEAD divergence for submodules.</li>
+          <li><strong>Merge analysis before you merge</strong> &mdash; &ldquo;can fast-forward&rdquo; or &ldquo;requires a merge commit&rdquo;.</li>
+        </ul>
+      </article>
     </div>
   </section>
 
   <!-- Screenshot Strip -->
   <section class="screenshot-strip">
-    <h2>A Closer Look</h2>
+    <h2>A closer look</h2>
     <div class="shot-grid">
       <figure class="shot-card">
-        <img src="{{ '/screenshot/branches-dialog.png' | relative_url }}" alt="Branches dialog" onerror="this.parentElement.style.display='none'" />
-        <figcaption>Branches dialog &mdash; upstream tracking and inline management</figcaption>
+        <img src="{{ '/screenshot/branches-dialog.png' | relative_url }}" alt="Branches dialog" onerror="this.parentElement.style.display='none'">
+        <figcaption>Branches &mdash; upstream tracking, worktree badges, inline management</figcaption>
       </figure>
       <figure class="shot-card">
-        <img src="{{ '/screenshot/theme-dialog.png' | relative_url }}" alt="Theme dialog" onerror="this.parentElement.style.display='none'" />
-        <figcaption>Appearance &mdash; light/dark themes, typography scale, and Custom panel inspection mode</figcaption>
+        <img src="{{ '/screenshot/theme-dialog.png' | relative_url }}" alt="Appearance dialog" onerror="this.parentElement.style.display='none'">
+        <figcaption>Appearance &mdash; light and dark, typography scale, token inspection</figcaption>
       </figure>
       <figure class="shot-card">
-        <img src="{{ '/screenshot/insight-dialog.png' | relative_url }}" alt="Insight dialog" onerror="this.parentElement.style.display='none'" />
-        <figcaption>Insights &mdash; per-author commit stats over time</figcaption>
+        <img src="{{ '/screenshot/insight-dialog.png' | relative_url }}" alt="Insights dialog" onerror="this.parentElement.style.display='none'">
+        <figcaption>Insights &mdash; per-author commit stats over any range</figcaption>
       </figure>
     </div>
   </section>
 
+  <!-- Full surface -->
+  <section class="features" id="features">
+    <h2>Everything in the box</h2>
+    <p class="section-lede">The whole surface, grouped by what you came to do.</p>
+
+    <div class="feature-grid">
+      <div class="feature-card">
+        <h3>Commit graph</h3>
+        <p>Lane-based topological graph with lazy pagination that expands to reach distant branches, inline search across message, author, hash and date (Ctrl+F), and click-to-copy of the full OID.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Working tree &amp; staging</h3>
+        <p>Stage by file or by hunk, discard a hunk or a whole file, add to <code>.gitignore</code> from the context menu, and amend the last commit with its message and author preserved.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Branches</h3>
+        <p>Sidebar tree of local and remote branches, create / rename / delete / checkout, set or unset upstream, and a prompt to reset a local branch that collides with the remote you are checking out.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Merge &amp; rebase</h3>
+        <p>Merge dialog with strategy (ff-only / no-ff / allow-ff) and merge analysis; interactive rebase with pick / squash / fixup / drop and drag-to-reorder.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Commit operations</h3>
+        <p>Cherry-pick, revert, and reset in soft / mixed / hard from any ancestor of HEAD &mdash; each one reversible from the log line it writes.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Conflicts</h3>
+        <p>Abort / Continue banner in both panels, red <em>C</em> badges sorted to the top, ours/theirs colouring per conflict block, and a dual-parent row in the graph while a merge is in progress.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Tags &amp; stash</h3>
+        <p>Lightweight or annotated tags, delete and push individually. A Stash button appears in the graph header when the tree is dirty; view contents inline, then pop, apply or drop.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Remotes</h3>
+        <p>Push, pull, fetch and fetch-all-prune in background threads with a status indicator, a remotes CRUD dialog, and batch deletion of remote branches from a filterable list.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Worktrees</h3>
+        <p>List, add, lock, unlock and remove worktrees; they nest under their parent repo. Checking out a branch that lives in another worktree switches you there instead of erroring.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Submodules</h3>
+        <p>Add, edit, remove and open submodules, clone with <code>--recurse-submodules</code>, and click a submodule diff header to jump straight into that repo.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Many repositories</h3>
+        <p>Persistent open and recent lists, two-line entries that disambiguate same-named directories, drag-to-reorder, and Ctrl+W / Ctrl+1&ndash;9 to move between them.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Appearance</h3>
+        <p>Material 3 light and dark themes with live preview, a typography scale that survives restarts, and a Custom panel that doubles as a token inspector showing every hex in use.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- Architecture -->
-  <section class="architecture">
-    <h2>Architecture</h2>
-    <p>GitCrisp follows <strong>Clean Architecture</strong> with strict layer separation and protocol-based dependency injection.</p>
+  <section class="architecture" id="architecture">
+    <h2>How it is built</h2>
+    <p class="section-lede">
+      Clean Architecture, strictly enforced: dependencies point inward, and the domain
+      knows nothing about Qt or pygit2.
+    </p>
     <div class="arch-layers">
       <div class="arch-layer layer-domain">
         <strong>Domain</strong>
-        <span>Entities &amp; Protocols</span>
+        <span>Entities &amp; protocols</span>
       </div>
       <div class="arch-layer layer-application">
         <strong>Application</strong>
-        <span>Commands &amp; Queries</span>
+        <span>Commands &amp; queries</span>
       </div>
       <div class="arch-layer layer-infrastructure">
         <strong>Infrastructure</strong>
-        <span>pygit2 Adapter, Submodule CLI &amp; Repo Store</span>
+        <span>pygit2 adapter, git CLI, repo store</span>
       </div>
       <div class="arch-layer layer-presentation">
         <strong>Presentation</strong>
-        <span>Qt Widgets, Dialogs &amp; Signal Bus</span>
+        <span>Qt widgets, dialogs &amp; signal bus</span>
       </div>
     </div>
+    <p class="arch-note">
+      Protocol-based injection, a signal bridge instead of widget-to-widget references, and
+      background threads for everything that touches the network or a large history.
+    </p>
   </section>
 
   <!-- Footer -->
   <footer class="site-footer">
     <div class="footer-content">
+      <img class="footer-mark" src="{{ '/assets/gitcrisp.svg' | relative_url }}" alt="" width="28" height="28">
       <p>
         <a href="https://github.com/Aidan79225/GitCrisp">GitHub</a>
         &middot; MIT License
