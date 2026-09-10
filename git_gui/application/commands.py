@@ -1,5 +1,13 @@
 from __future__ import annotations
-from git_gui.domain.entities import Branch, Commit, MergeStrategy
+
+from git_gui.domain.entities import (
+    Branch,
+    Commit,
+    MergeStrategy,
+    RemoteBranchDeleteResult,
+    ResetMode,
+    Worktree,
+)
 from git_gui.domain.ports import IRepositoryWriter
 
 
@@ -25,6 +33,22 @@ class CreateCommit:
 
     def execute(self, message: str) -> Commit:
         return self._writer.commit(message)
+
+
+class AmendCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, message: str) -> Commit:
+        return self._writer.amend_commit(message)
+
+
+class SetIdentity:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, name: str, email: str, global_: bool) -> None:
+        self._writer.set_identity(name, email, global_)
 
 
 class Checkout:
@@ -91,6 +115,22 @@ class PushTag:
         self._writer.push_tag(remote, name)
 
 
+class DeleteRemoteBranch:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, branch: str) -> None:
+        self._writer.delete_remote_branch(remote, branch)
+
+
+class DeleteRemoteBranches:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, remote: str, branches: list[str]) -> list[RemoteBranchDeleteResult]:
+        return self._writer.delete_remote_branches(remote, branches)
+
+
 class DeleteRemoteTag:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
@@ -103,7 +143,12 @@ class Merge:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
 
-    def execute(self, branch: str, strategy: MergeStrategy = MergeStrategy.ALLOW_FF, message: str | None = None) -> None:
+    def execute(
+        self,
+        branch: str,
+        strategy: MergeStrategy = MergeStrategy.ALLOW_FF,
+        message: str | None = None,
+    ) -> None:
         self._writer.merge(branch, strategy, message)
 
 
@@ -119,7 +164,9 @@ class MergeCommit:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
 
-    def execute(self, oid: str, strategy: MergeStrategy = MergeStrategy.ALLOW_FF, message: str | None = None) -> None:
+    def execute(
+        self, oid: str, strategy: MergeStrategy = MergeStrategy.ALLOW_FF, message: str | None = None
+    ) -> None:
         self._writer.merge_commit(oid, strategy, message)
 
 
@@ -169,6 +216,14 @@ class FetchAllPrune:
 
     def execute(self) -> None:
         self._writer.fetch_all_prune()
+
+
+class CancelRemoteOp:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.cancel_remote_op()
 
 
 class Stash:
@@ -353,3 +408,103 @@ class InteractiveRebase:
 
     def execute(self, target_oid: str, entries: list[tuple[str, str]]) -> None:
         self._writer.interactive_rebase(target_oid, entries)
+
+
+class CherryPickCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str) -> None:
+        self._writer.cherry_pick(oid)
+
+
+class RevertCommit:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str) -> None:
+        self._writer.revert_commit(oid)
+
+
+class ResetBranch:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, oid: str, mode: ResetMode) -> None:
+        self._writer.reset_to(oid, mode)
+
+
+class CherryPickAbort:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.cherry_pick_abort()
+
+
+class CherryPickContinue:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.cherry_pick_continue()
+
+
+class RevertAbort:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.revert_abort()
+
+
+class RevertContinue:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self) -> None:
+        self._writer.revert_continue()
+
+
+class AddWorktree:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(
+        self,
+        path: str,
+        branch: str,
+        *,
+        create_branch: bool,
+        base_ref: str | None,
+    ) -> Worktree:
+        return self._writer.add_worktree(
+            path,
+            branch,
+            create_branch=create_branch,
+            base_ref=base_ref,
+        )
+
+
+class RemoveWorktree:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, *, force: bool) -> None:
+        self._writer.remove_worktree(path, force=force)
+
+
+class LockWorktree:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str, *, reason: str | None = None) -> None:
+        self._writer.lock_worktree(path, reason=reason)
+
+
+class UnlockWorktree:
+    def __init__(self, writer: IRepositoryWriter) -> None:
+        self._writer = writer
+
+    def execute(self, path: str) -> None:
+        self._writer.unlock_worktree(path)

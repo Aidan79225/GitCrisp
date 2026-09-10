@@ -1,8 +1,9 @@
 from __future__ import annotations
-import pytest
+
 from PySide6.QtWidgets import QDialogButtonBox
+
 from git_gui.domain.entities import MergeStrategy
-from git_gui.presentation.dialogs.merge_dialog import MergeDialog, MergeRequest
+from git_gui.presentation.dialogs.merge_dialog import MergeDialog
 
 
 def test_default_strategy_is_no_ff(qtbot):

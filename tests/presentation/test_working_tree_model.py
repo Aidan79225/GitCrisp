@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
+
 from PySide6.QtCore import Qt
+
 from git_gui.domain.entities import FileStatus
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 

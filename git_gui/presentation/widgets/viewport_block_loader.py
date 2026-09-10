@@ -7,8 +7,11 @@ and realizes one block per event-loop tick when it enters the viewport.
 Used by both DiffWidget (commit view) and HunkDiffWidget (working tree)
 to avoid duplicating the viewport-intersection + stale-frame logic.
 """
+
 from __future__ import annotations
-from typing import Any, Callable
+
+from collections.abc import Callable
+from typing import Any
 
 from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
@@ -44,13 +47,9 @@ class ViewportBlockLoader:
         self._scroll_timer.setInterval(50)
         self._scroll_timer.timeout.connect(self._check_viewport)
 
-        scroll_area.verticalScrollBar().valueChanged.connect(
-            lambda _: self._scroll_timer.start()
-        )
+        scroll_area.verticalScrollBar().valueChanged.connect(lambda _: self._scroll_timer.start())
 
-    def set_blocks(
-        self, block_refs: list[tuple[str, QFrame, QVBoxLayout, QWidget | None]]
-    ) -> None:
+    def set_blocks(self, block_refs: list[tuple[str, QFrame, QVBoxLayout, QWidget | None]]) -> None:
         """Register skeleton blocks. Resets loaded-paths and diff map."""
         self._block_refs = list(block_refs)
         self._loaded_paths = set()
@@ -64,6 +63,15 @@ class ViewportBlockLoader:
         """
         self._diff_map = diff_map
         QTimer.singleShot(0, self._check_viewport)
+
+    def check_viewport(self) -> None:
+        """Re-run the viewport intersection check on the next debounce tick.
+
+        Useful when a layout change (e.g., a file diff block collapsing or
+        expanding) shifts which blocks are visible without firing a
+        scrollbar valueChanged signal.
+        """
+        self._scroll_timer.start()
 
     def clear(self) -> None:
         """Reset all state. Call from the widget's layout-clear method."""

@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
-from git_gui.domain.entities import LocalBranchInfo
+
 from git_gui.application.queries import ListLocalBranchesWithUpstream
+from git_gui.domain.entities import LocalBranchInfo
 
 
 def test_list_local_branches_with_upstream_calls_reader():

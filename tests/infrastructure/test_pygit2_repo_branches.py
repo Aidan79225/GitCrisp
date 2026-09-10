@@ -1,13 +1,15 @@
 import subprocess
 from pathlib import Path
+
 import pytest
 
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 def _run(cwd, *args):
-    subprocess.run(["git", *args], cwd=cwd, check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["git", *args], cwd=cwd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
 
 
 @pytest.fixture
@@ -57,6 +59,32 @@ def test_rename_branch(repo):
     names = [i.name for i in r.list_local_branches_with_upstream()]
     assert "feature2" in names
     assert "feature" not in names
+
+
+def test_reset_branch_to_ref_resolves_an_annotated_tag_to_its_commit(repo):
+    """An annotated tag's own oid is not the commit's — peel before resetting.
+
+    libgit2 happens to peel it for us, so this pins the behaviour rather than
+    reporting a break: the code now names the object it wants instead of
+    relying on reset to work that out.
+    """
+    import pygit2
+
+    r, p = repo
+    raw = pygit2.Repository(str(p))
+    first = str(raw.head.target)
+    (p / "later.txt").write_text("later")
+    _run(str(p), "add", ".")
+    _run(str(p), "commit", "-q", "-m", "later")
+    _run(str(p), "tag", "-a", "v1.0", first, "-m", "annotated")
+
+    raw = pygit2.Repository(str(p))
+    tag_oid = str(raw.revparse_single("v1.0").id)
+    assert tag_oid != first, "an annotated tag must be its own object for this to test anything"
+
+    r.reset_branch_to_ref("master", "v1.0")
+
+    assert str(pygit2.Repository(str(p)).head.target) == first
 
 
 def test_reset_branch_to_ref(repo):

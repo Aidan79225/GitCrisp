@@ -1,9 +1,16 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QLabel, QPlainTextEdit,
-    QRadioButton, QVBoxLayout,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QPlainTextEdit,
+    QRadioButton,
+    QVBoxLayout,
 )
+
 from git_gui.domain.entities import MergeStrategy
 
 

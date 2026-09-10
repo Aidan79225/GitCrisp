@@ -1,10 +1,17 @@
 """Interactive rebase commit list editor dialog."""
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox,
-    QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QAbstractItemView,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QHeaderView,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
 
 from git_gui.domain.entities import Commit

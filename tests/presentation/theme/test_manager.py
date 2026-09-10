@@ -1,5 +1,6 @@
 import pytest
 from PySide6.QtWidgets import QApplication
+
 from git_gui.presentation.theme import settings as s
 from git_gui.presentation.theme.manager import ThemeManager
 from git_gui.presentation.theme.tokens import Theme
@@ -54,8 +55,9 @@ def test_set_mode_applies_global_qss(app, isolated_settings):
 
 
 def test_set_mode_custom_loads_from_file(app, isolated_settings, tmp_path, monkeypatch):
-    import json
     import dataclasses
+    import json
+
     from git_gui.presentation.theme import settings as s
     from git_gui.presentation.theme.loader import load_builtin
 
@@ -82,8 +84,11 @@ def test_set_mode_custom_loads_from_file(app, isolated_settings, tmp_path, monke
     assert mgr.current.name == "Custom Test"
 
 
-def test_set_mode_custom_missing_file_falls_back_to_dark(app, isolated_settings, tmp_path, monkeypatch, caplog):
+def test_set_mode_custom_missing_file_falls_back_to_dark(
+    app, isolated_settings, tmp_path, monkeypatch, caplog
+):
     from git_gui.presentation.theme import settings as s
+
     monkeypatch.setattr(s, "custom_theme_path", lambda: tmp_path / "missing.json")
 
     mgr = ThemeManager(app)
@@ -96,6 +101,7 @@ def test_set_mode_custom_missing_file_falls_back_to_dark(app, isolated_settings,
 
 def test_palette_follows_theme(app, isolated_settings):
     from PySide6.QtGui import QPalette
+
     mgr = ThemeManager(app)
     mgr.set_mode("dark")
     pal_dark = app.palette()
@@ -109,5 +115,26 @@ def test_palette_follows_theme(app, isolated_settings):
 
     # Sanity: Highlight should match the theme's primary token in light mode.
     from git_gui.presentation.theme.loader import load_builtin
+
     expected = load_builtin("light").colors.primary
     assert pal_light.color(QPalette.Highlight).name() == expected
+
+
+def test_typography_scale_applies_to_app_font(app, isolated_settings):
+    """When typography_scale is set, _apply scales body_medium.size before
+    setting the QApplication font. Verifies the setting actually drives
+    text size, not just sits in JSON."""
+    import sys
+
+    from git_gui.presentation.theme import settings as s
+    from git_gui.presentation.theme.loader import load_builtin
+
+    s.save_settings({"theme_mode": "light", "typography_scale": 1.5})
+    mgr = ThemeManager(app)
+    body = load_builtin("light").typography.body_medium
+    expected_pt = max(1, round(body.size * 1.5))
+    if sys.platform != "darwin":
+        assert app.font().pointSize() == expected_pt
+    else:
+        unscaled = max(1, round(body.size * 1.0))
+        assert app.font().pointSize() > unscaled

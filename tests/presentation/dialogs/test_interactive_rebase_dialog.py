@@ -1,9 +1,10 @@
 """Tests for InteractiveRebaseDialog."""
+
 from __future__ import annotations
+
 from datetime import datetime
 
-import pytest
-from PySide6.QtWidgets import QComboBox, QDialogButtonBox
+from PySide6.QtWidgets import QDialogButtonBox
 
 from git_gui.domain.entities import Commit
 from git_gui.presentation.dialogs.interactive_rebase_dialog import (
@@ -13,9 +14,23 @@ from git_gui.presentation.dialogs.interactive_rebase_dialog import (
 
 def _commits():
     return [
-        Commit(oid="aaa111", message="first commit", author="a", timestamp=datetime.now(), parents=[]),
-        Commit(oid="bbb222", message="second commit", author="a", timestamp=datetime.now(), parents=["aaa111"]),
-        Commit(oid="ccc333", message="third commit", author="a", timestamp=datetime.now(), parents=["bbb222"]),
+        Commit(
+            oid="aaa111", message="first commit", author="a", timestamp=datetime.now(), parents=[]
+        ),
+        Commit(
+            oid="bbb222",
+            message="second commit",
+            author="a",
+            timestamp=datetime.now(),
+            parents=["aaa111"],
+        ),
+        Commit(
+            oid="ccc333",
+            message="third commit",
+            author="a",
+            timestamp=datetime.now(),
+            parents=["bbb222"],
+        ),
     ]
 
 

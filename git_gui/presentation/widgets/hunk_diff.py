@@ -1,19 +1,43 @@
 # git_gui/presentation/widgets/hunk_diff.py
 from __future__ import annotations
+
 import threading
-from PySide6.QtCore import QObject, QSize, Qt, Signal
+
+from PySide6.QtCore import QObject, QSize, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QCheckBox, QMessageBox, QScrollArea,
-    QSpacerItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
+    QCheckBox,
+    QLabel,
+    QMessageBox,
+    QScrollArea,
+    QScrollBar,
+    QSizePolicy,
+    QSpacerItem,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
-from git_gui.domain.entities import Hunk
+
+from git_gui.domain.entities import WORKING_TREE_OID, Hunk
 from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.domain.entities import WORKING_TREE_OID
+from git_gui.presentation.theme import connect_widget
 from git_gui.presentation.widgets.diff_block import (
-    make_file_block, make_diff_formats, add_hunk_widget,
+    make_diff_formats,
+    make_file_block,
+    make_syntax_formats,
 )
+from git_gui.presentation.widgets.hunk_view import add_hunk_view
+from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
+
+# Cap on how many file blocks the aggregate ("all files") diff view builds at
+# once. Each block is a full QFrame subtree registered with the theme manager,
+# so building one per changed file freezes the UI when the working tree holds
+# thousands of changes. Above this cap only the first N files get a diff block;
+# the rest stay reachable by selecting them in the file list (single-file mode
+# is cheap). Chosen well above a typical review size but low enough that block
+# construction stays imperceptible.
+MAX_AGGREGATE_FILE_BLOCKS = 200
 
 
 class _LoadSignals(QObject):
@@ -48,14 +72,28 @@ class HunkDiffWidget(QWidget):
         self._layout.setContentsMargins(4, 8, 4, 4)
         self._scroll.setWidget(self._container)
 
+        # One horizontal bar for every hunk, under the pane rather than inside
+        # each of them — see SharedHScroll.
+        self._hscroll = QScrollBar()
+        self._hscroll_sync = SharedHScroll(self._hscroll, self._container, self)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self._scroll)
+        outer.addWidget(self._hscroll, 0)
 
-        # Diff formats
+        # Diff render formats — line backgrounds plus Pygments syntax colours and
+        # word-level overlays, matching the commit-detail diff view. Rebuilt on
+        # theme change so blocks realised after a theme switch use fresh colours.
         self._formats = make_diff_formats()
+        self._syntax_formats = make_syntax_formats()
+        connect_widget(self, rebuild=self._on_theme_changed)
 
         self._loader = ViewportBlockLoader(self._scroll, self._realize_block_from_loader)
+
+    def _on_theme_changed(self) -> None:
+        self._formats = make_diff_formats()
+        self._syntax_formats = make_syntax_formats()
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
@@ -69,7 +107,13 @@ class HunkDiffWidget(QWidget):
         self._fetch_and_render()
 
     def load_all_files(self, paths: list[str]) -> None:
-        """Load and display hunks for all given paths with a bordered file block per file."""
+        """Load and display hunks for the given paths with a bordered file block per file.
+
+        To keep the UI responsive when the working tree holds a very large
+        number of changes, at most ``MAX_AGGREGATE_FILE_BLOCKS`` diff blocks are
+        built; any remainder is summarised by a trailing notice. Every file
+        stays inspectable via the file list (single-file mode).
+        """
         self._current_path = None
         self._all_paths = list(paths)
         if not paths:
@@ -80,8 +124,12 @@ class HunkDiffWidget(QWidget):
         self._clear_layout()
 
         from git_gui.presentation.widgets.diff_block import make_skeleton_container
+
+        shown = paths[:MAX_AGGREGATE_FILE_BLOCKS]
+        hidden = len(paths) - len(shown)
+
         block_refs = []
-        for path in paths:
+        for path in shown:
             frame, inner = self._make_file_block(path)
             skeleton = make_skeleton_container()
             inner.addWidget(skeleton)
@@ -89,6 +137,9 @@ class HunkDiffWidget(QWidget):
             spacer = QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
             self._layout.addItem(spacer)
             block_refs.append((path, frame, inner, skeleton))
+
+        if hidden > 0:
+            self._layout.addWidget(self._make_overflow_notice(hidden))
 
         self._layout.addStretch()
         self._loader.set_blocks(block_refs)
@@ -100,17 +151,55 @@ class HunkDiffWidget(QWidget):
 
         def _worker():
             try:
-                result = queries.get_working_tree_diff_map.execute()
+                # Only compute diffs for the paths we actually render — computing
+                # hunks for every changed file is what makes large working trees
+                # hang, even off the UI thread.
+                result = queries.get_working_tree_diff_map.execute(shown)
             except Exception:
                 result = {}
             signals.done.emit(result)
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _make_overflow_notice(self, hidden: int) -> QWidget:
+        """A muted one-line notice standing in for files beyond the block cap."""
+        label = QLabel(
+            f"+ {hidden} more changed file{'s' if hidden != 1 else ''} not shown — "
+            "select a file above to view its diff."
+        )
+        label.setWordWrap(True)
+        label.setContentsMargins(8, 8, 8, 8)
+        return label
+
+    def _sync_hscroll(self) -> None:
+        """Re-measure the shared horizontal bar once the layout has settled.
+
+        Deferred: an editor added this turn has no width yet, so its scroll
+        range reads as zero until Qt has laid it out.
+        """
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, self._hscroll_sync.refresh)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # A wider pane means less of the content is out of reach.
+        self._hscroll_sync.refresh()
+
     def clear(self) -> None:
         self._current_path = None
         self._all_paths = None
         self._clear_layout()
+        self._sync_hscroll()
+
+    def refresh_view(self) -> None:
+        """Redraw after the unified/side-by-side choice changed, keeping the
+        file selection: one file stays one file, and the aggregate view stays
+        aggregate."""
+        if self._current_path is not None:
+            self.load_file(self._current_path)
+        elif self._all_paths is not None:
+            self.load_all_files(self._all_paths)
 
     def _fetch_and_render(self) -> None:
         if self._current_path is None:
@@ -145,9 +234,7 @@ class HunkDiffWidget(QWidget):
             self._submodule_paths = set()
             return
         try:
-            self._submodule_paths = {
-                s.path for s in self._queries.list_submodules.execute()
-            }
+            self._submodule_paths = {s.path for s in self._queries.list_submodules.execute()}
         except Exception:
             self._submodule_paths = set()
 
@@ -155,12 +242,14 @@ class HunkDiffWidget(QWidget):
         """Return a bordered QFrame file block and its inner layout."""
         on_click = (
             (lambda p=path: self.submodule_open_requested.emit(p))
-            if path in self._submodule_paths else None
+            if path in self._submodule_paths
+            else None
         )
         return make_file_block(path, on_header_clicked=on_click)
 
-    def _on_load_done(self, path: str, staged_hunks: list[Hunk],
-                      unstaged_hunks: list[Hunk], is_untracked: bool) -> None:
+    def _on_load_done(
+        self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk], is_untracked: bool
+    ) -> None:
         if path != self._current_path:
             return
         self._refresh_submodule_paths()
@@ -168,11 +257,13 @@ class HunkDiffWidget(QWidget):
 
         frame, inner = self._make_file_block(path)
         for hunk in staged_hunks:
-            self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
-                                 path=path, parent_layout=inner)
+            self._add_hunk_block(
+                hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
+            )
         for hunk in unstaged_hunks:
-            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
-                                 path=path, parent_layout=inner)
+            self._add_hunk_block(
+                hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
+            )
 
         self._layout.addWidget(frame)
         self._layout.addStretch()
@@ -190,11 +281,14 @@ class HunkDiffWidget(QWidget):
             inner.removeWidget(skeleton)
             skeleton.deleteLater()
         for hunk in staged_hunks:
-            self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
-                                 path=path, parent_layout=inner)
+            self._add_hunk_block(
+                hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
+            )
         for hunk in unstaged_hunks:
-            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
-                                 path=path, parent_layout=inner)
+            self._add_hunk_block(
+                hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
+            )
+        self._sync_hscroll()
 
     def _render_sync(self) -> None:
         """Post-action refresh for single-file mode."""
@@ -204,9 +298,7 @@ class HunkDiffWidget(QWidget):
             return
         path = self._current_path
         staged_hunks = self._queries.get_staged_diff.execute(path)
-        unstaged_hunks = self._queries.get_file_diff.execute(
-            WORKING_TREE_OID, path
-        )
+        unstaged_hunks = self._queries.get_file_diff.execute(WORKING_TREE_OID, path)
         is_untracked = (
             not staged_hunks
             and bool(unstaged_hunks)
@@ -215,14 +307,17 @@ class HunkDiffWidget(QWidget):
 
         frame, inner = self._make_file_block(path)
         for hunk in staged_hunks:
-            self._add_hunk_block(hunk, is_staged=True, is_untracked=False,
-                                 path=path, parent_layout=inner)
+            self._add_hunk_block(
+                hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
+            )
         for hunk in unstaged_hunks:
-            self._add_hunk_block(hunk, is_staged=False, is_untracked=is_untracked,
-                                 path=path, parent_layout=inner)
+            self._add_hunk_block(
+                hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
+            )
 
         self._layout.addWidget(frame)
         self._layout.addStretch()
+        self._sync_hscroll()
 
     def _render_all_sync(self) -> None:
         """Post-action refresh for all-files mode."""
@@ -230,10 +325,16 @@ class HunkDiffWidget(QWidget):
             return
         # Reload via the lazy pipeline
         self.load_all_files(self._all_paths)
+        self._sync_hscroll()
 
-    def _add_hunk_block(self, hunk: Hunk, is_staged: bool, is_untracked: bool,
-                        path: str | None = None,
-                        parent_layout: QVBoxLayout | None = None) -> None:
+    def _add_hunk_block(
+        self,
+        hunk: Hunk,
+        is_staged: bool,
+        is_untracked: bool,
+        path: str | None = None,
+        parent_layout: QVBoxLayout | None = None,
+    ) -> None:
         # Use explicitly passed path, fall back to self._current_path for backward compat
         if path is None:
             path = self._current_path
@@ -245,8 +346,9 @@ class HunkDiffWidget(QWidget):
         checkbox = QCheckBox()
         checkbox.setChecked(is_staged)
         checkbox.toggled.connect(
-            lambda checked, p=path, h=header, u=is_untracked:
-                self._on_hunk_toggled(p, h, checked, u)
+            lambda checked, p=path, h=header, u=is_untracked: self._on_hunk_toggled(
+                p, h, checked, u
+            )
         )
 
         extra_right: list = []
@@ -263,27 +365,31 @@ class HunkDiffWidget(QWidget):
             x_btn.setToolTip("Discard this file" if is_whole_file else "Discard this hunk")
             x_btn.setAutoRaise(True)
             x_btn.clicked.connect(
-                lambda _=False, p=path, h=header, w=is_whole_file:
-                    self._on_discard_file_clicked(p) if w
-                    else self._on_discard_hunk_clicked(p, h)
+                lambda _=False, p=path, h=header, w=is_whole_file: (
+                    self._on_discard_file_clicked(p) if w else self._on_discard_hunk_clicked(p, h)
+                )
             )
             extra_right = [x_btn]
 
         on_click = (
             (lambda p=path: self.submodule_open_requested.emit(p))
-            if path in self._submodule_paths else None
+            if path in self._submodule_paths
+            else None
         )
-        add_hunk_widget(
+        add_hunk_view(
             target_layout,
             hunk,
             self._formats,
             extra_left_widgets=[checkbox],
             extra_right_widgets=extra_right,
             on_header_clicked=on_click,
+            syntax_formats=self._syntax_formats,
+            filename=path,
         )
 
-    def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool,
-                         is_untracked: bool = False) -> None:
+    def _on_hunk_toggled(
+        self, path: str, hunk_header: str, checked: bool, is_untracked: bool = False
+    ) -> None:
         # Whole-file add (untracked → stage, or staged-add → unstage):
         # the synthesised "@@ -0,0 +1,N @@" hunk can't be processed by
         # `git apply [--cached] [--reverse]`, so route to stage/unstage_files.

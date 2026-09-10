@@ -1,25 +1,34 @@
 # git_gui/presentation/widgets/graph.py
 from __future__ import annotations
+
 import threading
 from datetime import datetime
-from git_gui.resources import get_resource_path
-from PySide6.QtCore import QModelIndex, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, QObject, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QStyle,
-    QStyleOptionViewItem, QTableView, QVBoxLayout, QWidget,
-)
-from git_gui.domain.entities import Branch, Commit, Tag, WORKING_TREE_OID
-from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.presentation.theme import get_theme_manager, connect_widget
-from git_gui.presentation.models.graph_model import GraphModel
-from git_gui.presentation.widgets.graph_lane_delegate import GraphLaneDelegate, LANE_W
-from git_gui.presentation.widgets.commit_info_delegate import (
-    CommitInfoDelegate, BADGE_GAP, BADGE_H_PAD, CELL_PAD,
+    QCheckBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QTableView,
+    QVBoxLayout,
+    QWidget,
 )
 
+from git_gui.domain.entities import WORKING_TREE_OID, Branch, Commit, ResetMode, Tag
+from git_gui.domain.ports import IRepoStore
+from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE, GraphModel
+from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.widgets.commit_row_delegate import CommitRowDelegate
+from git_gui.resources import get_resource_path
 
 PAGE_SIZE = 50
+MAX_RELOAD_LIMIT = 2000  # cap doubling retry to avoid unbounded loads
 
 
 class _GraphTableView(QTableView):
@@ -46,6 +55,7 @@ class _GraphTableView(QTableView):
     def paintEvent(self, event):
         if self._hover_row >= 0:
             from PySide6.QtGui import QPainter
+
             painter = QPainter(self.viewport())
             row_rect = self.visualRect(self.model().index(self._hover_row, 0))
             # Extend to full row width
@@ -60,8 +70,12 @@ class _GraphTableView(QTableView):
 
 
 class _LoadSignals(QObject):
-    reload_done = Signal(list, list, list, bool, str, object, object)  # commits, branches, tags, is_dirty, head_oid, repo_state, merge_head
-    append_done = Signal(list, list, list)              # more_commits, branches, tags
+    # commits, branches, tags, is_dirty, head_oid, repo_state, merge_head,
+    # first_parent, path_filter
+    reload_done = Signal(list, list, list, bool, str, object, object, bool, object)
+    # more_commits, branches, tags, first_parent
+    # more, branches, tags, first_parent, path_filter
+    append_done = Signal(list, list, list, bool, object)
 
 
 _ARTS = get_resource_path("arts")
@@ -87,13 +101,15 @@ def _btn_style() -> str:
     return (
         "QPushButton { border: none; border-radius: 4px; }"
         f"QPushButton:hover {{ background-color: {c.hover_overlay}; }}"
+        f"QPushButton:checked {{ background-color: {c.primary}; }}"
+        f"QPushButton:checked:hover {{ background-color: {c.primary}; }}"
     )
 
 
 class _SearchBar(QWidget):
     """Inline search bar for filtering commits by message, author, hash, or date."""
 
-    navigate_requested = Signal(int)   # +1 = next, -1 = prev
+    navigate_requested = Signal(int)  # +1 = next, -1 = prev
     closed = Signal()
 
     def __init__(self, parent=None) -> None:
@@ -138,6 +154,7 @@ class _SearchBar(QWidget):
 
     def eventFilter(self, obj, event) -> bool:
         from PySide6.QtCore import QEvent
+
         if obj is self._input and event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_Escape:
                 self.closed.emit()
@@ -171,27 +188,85 @@ class _SearchBar(QWidget):
         return self._input
 
 
+class _PathFilterBar(QWidget):
+    """Chip showing the path the commit list is currently filtered to."""
+
+    closed = Signal()
+    follow_toggled = Signal(bool)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setVisible(False)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        self._label = QLabel()
+        self._label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self._label, 1)
+
+        self._follow = QCheckBox("Follow renames")
+        self._follow.setChecked(True)
+        self._follow.setToolTip(
+            "Keep following the file's history past a rename, back to its earlier name."
+        )
+        self._follow.toggled.connect(self.follow_toggled)
+        layout.addWidget(self._follow)
+
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(28, 28)
+        btn_close.setToolTip("Show the full history again")
+        btn_close.clicked.connect(self.closed.emit)
+        layout.addWidget(btn_close)
+
+        self._path: str | None = None
+
+    def open(self, path: str) -> None:
+        self._path = path
+        self._label.setText(f"History of  {path}")
+        self._label.setToolTip(path)
+        self.setVisible(True)
+
+    def close_bar(self) -> None:
+        self._path = None
+        self.setVisible(False)
+
+    def follow(self) -> bool:
+        return self._follow.isChecked()
+
+
 class GraphWidget(QWidget):
     commit_selected = Signal(str)  # emits oid (or WORKING_TREE_OID)
-    create_branch_requested = Signal(str)       # oid
-    create_tag_requested = Signal(str)          # oid
-    checkout_commit_requested = Signal(str)      # oid
-    checkout_branch_requested = Signal(str)      # branch name (local or remote)
-    delete_branch_requested = Signal(str)        # local branch name
-    merge_branch_requested = Signal(str)             # branch name (merge into current)
-    merge_commit_requested = Signal(str)             # oid (merge commit into current)
-    rebase_onto_branch_requested = Signal(str)       # branch name (rebase current onto)
-    rebase_onto_commit_requested = Signal(str)       # oid (rebase current onto commit)
-    interactive_rebase_branch_requested = Signal(str)   # branch name
-    interactive_rebase_commit_requested = Signal(str)    # oid
+    path_filter_changed = Signal(object)  # str path, or None when cleared
+    commit_double_clicked = Signal(str)  # oid — double-click to switch branch
+    create_branch_requested = Signal(str)  # oid
+    create_tag_requested = Signal(str)  # oid
+    checkout_commit_requested = Signal(str)  # oid
+    checkout_branch_requested = Signal(str)  # branch name (local or remote)
+    checkout_in_new_worktree_requested = Signal(str)  # branch name
+    delete_branch_requested = Signal(str)  # local branch name
+    remote_branch_delete_requested = Signal(str, str)  # (remote, branch)
+    merge_branch_requested = Signal(str)  # branch name (merge into current)
+    merge_commit_requested = Signal(str)  # oid (merge commit into current)
+    rebase_onto_branch_requested = Signal(str)  # branch name (rebase current onto)
+    rebase_onto_commit_requested = Signal(str)  # oid (rebase current onto commit)
+    interactive_rebase_branch_requested = Signal(str)  # branch name
+    interactive_rebase_commit_requested = Signal(str)  # oid
+    cherry_pick_requested = Signal(str)  # oid
+    revert_commit_requested = Signal(str)  # oid
+    reset_to_commit_requested = Signal(str, object)  # oid, ResetMode
     reload_requested = Signal()
     push_requested = Signal()
     pull_requested = Signal()
     fetch_all_requested = Signal()
     stash_requested = Signal()
     insight_requested = Signal()
+    reflog_requested = Signal()
 
-    def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
+    def __init__(
+        self, queries: QueryBus, commands: CommandBus, repo_store: IRepoStore, parent=None
+    ) -> None:
         super().__init__(parent)
         self._queries = queries
         self._loaded_count = 0  # how many commits loaded (excluding synthetic)
@@ -199,7 +274,22 @@ class GraphWidget(QWidget):
         self._loading = False
         self._reload_limit = PAGE_SIZE
         self._pending_scroll_oid: str | None = None
+        self._pending_merge_base: str | None = None
         self._extra_tips: list[str] | None = None
+        # Tracks the currently-selected commit so the highlight can be
+        # restored after a model reset (which clears the view's current row).
+        self._selected_oid: str | None = None
+        # OID at the top of the viewport before a reload, used to restore
+        # the user's scroll position after auto-refresh on focus return.
+        self._scroll_anchor_oid: str | None = None
+
+        self._repo_store = repo_store
+        self._repo_path: str | None = None
+        self._first_parent = False
+        # Path the commit list is filtered to (file history), or None for the
+        # full graph. Filtered listings are a sparse subset of history, so the
+        # lane graph is suppressed while one is active.
+        self._path_filter: str | None = None
 
         self._view = _GraphTableView()
         self._view.setSelectionBehavior(QTableView.SelectRows)
@@ -214,20 +304,18 @@ class GraphWidget(QWidget):
         # Let delegates control row height via sizeHint
         self._view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
 
-        # Delegates
-        self._view.setItemDelegateForColumn(0, GraphLaneDelegate(self._view))
-        self._view.setItemDelegateForColumn(1, CommitInfoDelegate(self._view))
+        # One delegate paints the whole row: lane graph first, then the commit
+        # info indented just past that row's own lanes.
+        self._view.setItemDelegate(CommitRowDelegate(self._view))
 
         self._model = GraphModel([], {})
         self._view.setModel(self._model)
 
-        # Column widths — col 0 fixed by lane count, col 1 stretches to fill
-        header = self._view.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        self._view.setColumnWidth(0, LANE_W)
+        # Single column, stretched to fill the panel
+        self._view.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
+        self._view.doubleClicked.connect(self._on_double_clicked)
 
         self._view.verticalScrollBar().valueChanged.connect(self._on_scroll)
         self._view.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -244,6 +332,11 @@ class GraphWidget(QWidget):
             ("ic_pull", "Pull", self.pull_requested),
             ("ic_fetch", "Fetch All --prune", self.fetch_all_requested),
             ("ic_insight", "Git Insight", self.insight_requested),
+            (
+                "ic_reflog",
+                "Reflog — where HEAD has been, and how to get back there",
+                self.reflog_requested,
+            ),
         ]:
             btn = QPushButton()
             btn.setFixedSize(QSize(36, 36))
@@ -253,6 +346,17 @@ class GraphWidget(QWidget):
             header_bar.addWidget(btn)
             self._styled_buttons.append(btn)
             self._tinted_button_icons.append((btn, icon_name))
+
+        # First-parent view toggle (checkable)
+        self._first_parent_btn = QPushButton()
+        self._first_parent_btn.setFixedSize(QSize(36, 36))
+        self._first_parent_btn.setIconSize(QSize(28, 28))
+        self._first_parent_btn.setCheckable(True)
+        self._first_parent_btn.setToolTip("Show first-parent history only")
+        self._first_parent_btn.toggled.connect(self._on_first_parent_toggled)
+        header_bar.addWidget(self._first_parent_btn)
+        self._styled_buttons.append(self._first_parent_btn)
+        self._tinted_button_icons.append((self._first_parent_btn, "ic_first_parent"))
 
         header_bar.addStretch()
 
@@ -265,6 +369,11 @@ class GraphWidget(QWidget):
         self._stash_btn.setVisible(False)
         header_bar.addWidget(self._stash_btn)
         self._styled_buttons.append(self._stash_btn)
+
+        # Path filter chip (hidden by default, shown by set_path_filter)
+        self._path_filter_bar = _PathFilterBar()
+        self._path_filter_bar.closed.connect(self.clear_path_filter)
+        self._path_filter_bar.follow_toggled.connect(self._on_follow_toggled)
 
         # Search bar (hidden by default, toggled by Ctrl+F)
         self._search_bar = _SearchBar()
@@ -279,6 +388,7 @@ class GraphWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addLayout(header_bar)
+        layout.addWidget(self._path_filter_bar)
         layout.addWidget(self._search_bar)
         layout.addWidget(self._view)
 
@@ -293,60 +403,215 @@ class GraphWidget(QWidget):
         for btn, icon_name in self._tinted_button_icons:
             btn.setIcon(_tinted_icon(str(_ARTS / f"{icon_name}.svg"), on_bg))
 
-
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
+        # Reset per-click state — the previous repo's selection is meaningless
+        # in the new repo. Reset _reload_limit too so the new repo starts at
+        # PAGE_SIZE; otherwise a previously-doubled limit (e.g. 2000 for a
+        # deep divergence) carries into the new repo and over-loads on first
+        # render.
+        self._extra_tips = None
+        self._pending_scroll_oid = None
+        self._pending_merge_base = None
+        self._selected_oid = None
+        self._scroll_anchor_oid = None
+        self._reload_limit = PAGE_SIZE
+        # A file history from the previous repo means nothing in the new one.
+        if self._path_filter is not None:
+            self._path_filter = None
+            self._path_filter_bar.close_bar()
+            self.path_filter_changed.emit(None)
         if queries is None:
             self._model.reload([], {})
         else:
             self.reload()
 
-    def reload(self, extra_tips: list[str] | None = None, limit: int = PAGE_SIZE) -> None:
+    def set_repo_path(self, path: str | None) -> None:
+        """Load the persisted first-parent setting for `path` and sync the
+        toggle button silently. Call this BEFORE set_buses on repo switches
+        so the first reload reflects the right mode."""
+        self._repo_path = path
+        if path is None:
+            new_value = False
+        else:
+            new_value = bool(self._repo_store.get_repo_setting(path, "first_parent", False))
+        self._first_parent = new_value
+        # blockSignals to avoid re-entering the toggle handler.
+        was_blocked = self._first_parent_btn.blockSignals(True)
+        try:
+            self._first_parent_btn.setChecked(new_value)
+        finally:
+            self._first_parent_btn.blockSignals(was_blocked)
+
+    def _on_first_parent_toggled(self, checked: bool) -> None:
+        self._first_parent = checked
+        if self._repo_path is not None:
+            self._repo_store.set_repo_setting(self._repo_path, "first_parent", checked)
+            self._repo_store.save()
+        # No-op if queries aren't wired up yet (empty state).
+        if self._queries is not None:
+            self.reload()
+
+    def set_path_filter(self, path: str) -> None:
+        """Show only the commits that touched `path` (file history)."""
+        if self._path_filter == path and self._path_filter_bar.isVisible():
+            return
+        self._path_filter = path
+        self._path_filter_bar.open(path)
+        self._reset_paging()
+        self.path_filter_changed.emit(path)
+        if self._queries is not None:
+            self.reload()
+
+    def clear_path_filter(self) -> None:
+        """Go back to the full commit graph."""
+        if self._path_filter is None:
+            return
+        self._path_filter = None
+        self._path_filter_bar.close_bar()
+        self._reset_paging()
+        self.path_filter_changed.emit(None)
+        if self._queries is not None:
+            self.reload()
+
+    def _reset_paging(self) -> None:
+        """Drop paging and scroll state that belongs to the previous listing."""
+        self._reload_limit = PAGE_SIZE
+        self._extra_tips = None
+        self._pending_scroll_oid = None
+        self._pending_merge_base = None
+        self._scroll_anchor_oid = None
+        self._has_more = True
+
+    def _on_follow_toggled(self, _checked: bool) -> None:
+        if self._path_filter is not None and self._queries is not None:
+            self._reset_paging()
+            self.reload()
+
+    def reload(self, extra_tips: list[str] | None = None, limit: int | None = None) -> None:
         if self._loading:
             return
         self._loading = True
-        self._extra_tips = extra_tips
-        self._reload_limit = limit
+        self._capture_scroll_anchor()
+        # Sticky semantic: a bare reload() preserves both the user's last-
+        # clicked diverged branch (extra_tips) and the load size that was
+        # needed to draw its lane (limit). Auto-reloads from the change
+        # detector and post-operation flows pass neither, and would otherwise
+        # regress to PAGE_SIZE — losing the merge base from the loaded set
+        # and reverting the diverged lane to a floating circle.
+        # set_buses() explicitly clears state on repo switch.
+        effective_tips = extra_tips if extra_tips is not None else self._extra_tips
+        effective_limit = limit if limit is not None else self._reload_limit
+        self._extra_tips = effective_tips
+        self._reload_limit = effective_limit
         queries = self._queries
+        fp = self._first_parent
+        path = self._path_filter
+        follow = self._path_filter_bar.follow()
 
         signals = _LoadSignals()
         signals.reload_done.connect(self._on_reload_done)
         self._load_signals = signals  # prevent GC
 
+        # Pinning an out-of-page tip draws it with no descendants — a merged
+        # branch rendered as a lane that never merges. So ask for it only once
+        # the doubling retry has nowhere deeper to go, where a pinned row beats
+        # a click that appears to do nothing.
+        pin = effective_limit >= MAX_RELOAD_LIMIT
+
         def _worker():
-            commits = queries.get_commit_graph.execute(limit=limit, extra_tips=extra_tips)
+            if path is None:
+                commits = queries.get_commit_graph.execute(
+                    limit=effective_limit,
+                    extra_tips=effective_tips,
+                    first_parent=fp,
+                    pin_unreachable=pin,
+                )
+            else:
+                commits = queries.get_file_history.execute(
+                    path, limit=effective_limit, follow=follow
+                )
             branches = queries.get_branches.execute()
             tags = queries.get_tags.execute()
             dirty = queries.is_dirty.execute()
             head_oid = queries.get_head_oid.execute() or ""
             repo_state = queries.get_repo_state.execute()
             merge_head = queries.get_merge_head.execute()
-            signals.reload_done.emit(commits, branches, tags, dirty, head_oid, repo_state, merge_head)
+            signals.reload_done.emit(
+                commits, branches, tags, dirty, head_oid, repo_state, merge_head, fp, path
+            )
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def reload_with_extra_tip(self, oid: str) -> None:
-        """Reload graph including the given oid as an extra walker tip, then scroll to it."""
-        # If oid is already in the current commit list, just scroll and select
-        for row in range(self._model.rowCount()):
-            row_oid = self._model.data(self._model.index(row, 0), Qt.UserRole)
-            if row_oid == oid:
-                self.scroll_to_oid(oid, select=True)
-                return
-        # Otherwise reload with extra tip and scroll after load
-        self._pending_scroll_oid = oid
-        self.reload(extra_tips=[oid])
+    def reload_with_extra_tip(self, oid: str, extra_tips: list[str] | None = None) -> None:
+        """Reload graph including the given oid as an extra walker tip, then
+        scroll to it and select it (highlighting the branch's tip row and
+        loading its commit into the diff pane). For diverged tips, also load
+        down to the merge base with HEAD so the lane converges into HEAD's
+        mainline visually.
 
-    def _on_reload_done(self, commits: list[Commit], branches: list[Branch],
-                        tags: list[Tag], is_dirty: bool, head_oid: str,
-                        repo_state_info, merge_head: str | None) -> None:
+        `extra_tips` are pushed alongside `oid` but not scrolled to — a
+        clicked local branch passes its upstream here, so a branch that is
+        behind still draws the commits its remote is holding ahead of it
+        instead of ending at a tip with nothing above it.
+        """
+        tips = [oid, *(t for t in extra_tips or [] if t != oid)]
+
+        # Nothing to fetch when every tip is already drawn — just scroll and select.
+        loaded = {
+            self._model.data(self._model.index(row, 0), OID_ROLE)
+            for row in range(self._model.rowCount())
+        }
+        if loaded.issuperset(tips):
+            self.scroll_to_oid(oid, select=True)
+            return
+
+        # Compute merge base with HEAD so the doubling retry knows when to stop.
+        merge_base: str | None = None
+        if self._queries is not None:
+            head_oid = self._queries.get_head_oid.execute() or ""
+            if head_oid and head_oid != oid:
+                try:
+                    merge_base = self._queries.get_merge_base.execute(head_oid, oid)
+                except Exception:
+                    merge_base = None
+
+        self._pending_scroll_oid = oid
+        self._pending_merge_base = merge_base
+        self.reload(extra_tips=tips)
+
+    def _on_reload_done(
+        self,
+        commits: list[Commit],
+        branches: list[Branch],
+        tags: list[Tag],
+        is_dirty: bool,
+        head_oid: str,
+        repo_state_info,
+        merge_head: str | None,
+        first_parent: bool,
+        path_filter: str | None = None,
+    ) -> None:
         self._loading = False
         self._stash_btn.setVisible(is_dirty)
         if self._queries is None:
             return
 
-        self._loaded_count = len(commits)
-        self._has_more = len(commits) == self._reload_limit
+        # If the user toggled the view mode or changed the path filter while
+        # this load was in-flight, the in-flight reload() call was dropped by
+        # the `if self._loading` guard. Pick up the change now by triggering
+        # another reload.
+        if first_parent != self._first_parent or path_filter != self._path_filter:
+            self.reload()
+            return
+
+        # A pinned tip rides along past the end of the page, so the page can
+        # come back longer than the limit. Both of these read the walk, not
+        # the list: `>=` because a full page still means there is more, and
+        # the clamp because `skip` counts walker positions — counting the
+        # pinned row would step over a real commit on the next page.
+        self._loaded_count = min(len(commits), self._reload_limit)
+        self._has_more = len(commits) >= self._reload_limit
 
         refs: dict[str, list[str]] = {}
         head_branch: str | None = None
@@ -362,7 +627,9 @@ class GraphWidget(QWidget):
             refs.setdefault(head_oid, []).insert(0, "HEAD")
 
         all_commits = list(commits)
-        if is_dirty:
+        # The synthetic "Uncommitted Changes" row is anchored to HEAD's parents,
+        # which say nothing about a path-filtered listing — skip it there.
+        if is_dirty and path_filter is None:
             state_name = repo_state_info.state.name if repo_state_info else "CLEAN"
             if state_name == "MERGING":
                 message = "Merge in progress (conflicts)"
@@ -383,29 +650,58 @@ class GraphWidget(QWidget):
             )
             all_commits.insert(0, synthetic)
 
-        self._model.reload(all_commits, refs, head_branch)
-        self._update_column_widths()
+        self._model.reload(
+            all_commits,
+            refs,
+            head_branch,
+            first_parent=first_parent,
+            show_graph=path_filter is None,
+        )
 
+        retrying = False
         if self._pending_scroll_oid:
-            # Check if the target oid was found in loaded commits
-            found = any(
-                self._model.data(self._model.index(r, 0), Qt.UserRole) == self._pending_scroll_oid
+            loaded_oids = {
+                self._model.data(self._model.index(r, 0), OID_ROLE)
                 for r in range(self._model.rowCount())
+            }
+            target_loaded = self._pending_scroll_oid in loaded_oids
+            base_loaded = (
+                self._pending_merge_base is None or self._pending_merge_base in loaded_oids
             )
-            if found:
+            if target_loaded and base_loaded:
                 self.scroll_to_oid(self._pending_scroll_oid, select=True)
                 self._pending_scroll_oid = None
-            elif self._has_more:
-                # Target not found yet — retry with double the limit
-                oid = self._pending_scroll_oid
+                self._pending_merge_base = None
+            elif self._has_more and self._reload_limit < MAX_RELOAD_LIMIT:
                 tips = self._extra_tips
-                new_limit = self._reload_limit * 2
-                self._pending_scroll_oid = oid
+                new_limit = min(self._reload_limit * 2, MAX_RELOAD_LIMIT)
                 self._loading = False
                 self.reload(extra_tips=tips, limit=new_limit)
+                retrying = True
             else:
-                # No more commits to load — give up
+                # No more commits OR cap reached — the converging lane couldn't
+                # be fully loaded. Still scroll+select the target if we managed
+                # to load it (e.g. an old branch tip pinned via extra_tips);
+                # only give up silently when the target itself is absent.
+                if self._pending_scroll_oid in loaded_oids:
+                    self.scroll_to_oid(self._pending_scroll_oid, select=True)
                 self._pending_scroll_oid = None
+                self._pending_merge_base = None
+
+        # Restore the previous selection so the highlighted row stays in sync
+        # with the diff pane. The model reset above wiped the view's current
+        # row; without this restore the user sees a diff pane with content but
+        # no corresponding highlight in the graph. Skipped during retry — the
+        # next reload will run this branch.
+        if not retrying and self._selected_oid is not None:
+            self._restore_selection_no_scroll(self._selected_oid)
+
+        # Restore the user's scroll position. Auto-refreshes (e.g., on focus
+        # return) used to silently jump the viewport back to the top because
+        # QTableView resets its scrollbar after a model reset. Only kicks in
+        # when there's no explicit pending scroll target.
+        if not retrying and self._pending_scroll_oid is None:
+            self._restore_scroll_anchor()
 
         # If a search was deferred until all commits were loaded, run it now.
         if self._pending_search:
@@ -413,59 +709,50 @@ class GraphWidget(QWidget):
             self._pending_search = None
             self._run_search(needle)
 
-    def _get_visible_rows(self) -> tuple[int, int]:
-        """Return (first_visible_row, last_visible_row) indices."""
-        vp = self._view.viewport()
-        first = self._view.rowAt(0)
-        last = self._view.rowAt(vp.height())
-        if first < 0:
-            first = 0
-        if last < 0:
-            last = self._model.rowCount() - 1
-        return first, last
-
-    _INFO_MIN_W = 250
-
-    def _compute_info_width(self, first: int, last: int) -> int:
-        """Compute the minimum info column width to fit visible rows' content."""
-        fm = self._view.fontMetrics()
-        spacing = fm.horizontalAdvance("  ")
-        pad = CELL_PAD * 2
-        max_w = self._INFO_MIN_W
-        for r in range(first, last + 1):
-            info = self._model.data(self._model.index(r, 1), Qt.UserRole + 1)
-            if info is None:
-                continue
-            author = info.author.split("<")[0].strip() if "<" in info.author else info.author
-            w1 = fm.horizontalAdvance(author) + fm.horizontalAdvance(info.timestamp) + spacing
-            badges_w = sum(
-                fm.horizontalAdvance(n) + BADGE_H_PAD * 2 + BADGE_GAP
-                for n in info.branch_names
-            )
-            w2 = badges_w + fm.horizontalAdvance(info.short_oid) + spacing
-            max_w = max(max_w, w1, w2)
-        return max_w + pad
-
-    def _update_column_widths(self) -> None:
+    def _capture_scroll_anchor(self) -> None:
+        """Remember the OID of the row at the top of the visible viewport so
+        we can restore the scroll position after a reload. Called from
+        reload() before the worker runs."""
         if self._model.rowCount() == 0:
+            self._scroll_anchor_oid = None
             return
-        first, last = self._get_visible_rows()
+        top_left = self._view.viewport().rect().topLeft()
+        index = self._view.indexAt(top_left)
+        if index.isValid():
+            self._scroll_anchor_oid = self._model.data(self._model.index(index.row(), 0), OID_ROLE)
+        else:
+            self._scroll_anchor_oid = None
 
-        max_lanes = max(
-            (self._model.data(self._model.index(r, 0), Qt.UserRole + 1).n_lanes
-             for r in range(first, last + 1)
-             if self._model.data(self._model.index(r, 0), Qt.UserRole + 1) is not None),
-            default=1,
-        )
-        graph_w = max_lanes * LANE_W + LANE_W
-        info_w = self._compute_info_width(first, last)
-        self._view.setColumnWidth(0, graph_w)
-        # Info column stretches to fill, but set minimumWidth so
-        # the splitter gives us enough total space
-        self.setMinimumWidth(graph_w + info_w)
+    def _restore_scroll_anchor(self) -> None:
+        """Scroll the captured anchor OID back to the top of the viewport.
+        No-op if the anchor wasn't captured or its commit is no longer
+        loaded."""
+        if self._scroll_anchor_oid is None:
+            return
+        for row in range(self._model.rowCount()):
+            if self._model.data(self._model.index(row, 0), OID_ROLE) == self._scroll_anchor_oid:
+                index = self._model.index(row, 0)
+                self._view.scrollTo(index, QTableView.PositionAtTop)
+                return
+        # Anchor commit no longer in the loaded set; clear so we don't keep
+        # trying.
+        self._scroll_anchor_oid = None
+
+    def _restore_selection_no_scroll(self, oid: str) -> None:
+        """Re-apply the highlighted row to the row matching `oid` after a
+        model reset, without scrolling. Used in _on_reload_done so the
+        graph's highlight survives auto-reloads (RepoChangeDetector,
+        post-operation flows) without losing the user's selection."""
+        for row in range(self._model.rowCount()):
+            if self._model.data(self._model.index(row, 0), OID_ROLE) == oid:
+                index = self._model.index(row, 0)
+                self._view.selectionModel().setCurrentIndex(
+                    index,
+                    QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows,
+                )
+                return
 
     def _on_scroll(self, value: int) -> None:
-        self._update_column_widths()
         scrollbar = self._view.verticalScrollBar()
         if self._has_more and not self._loading and value >= scrollbar.maximum() - 1:
             self._load_more()
@@ -473,31 +760,54 @@ class GraphWidget(QWidget):
     def _load_more(self) -> None:
         self._loading = True
         queries = self._queries
+        fp = self._first_parent
         skip = self._loaded_count
+        path = self._path_filter
+        follow = self._path_filter_bar.follow()
 
         signals = _LoadSignals()
         signals.append_done.connect(self._on_append_done)
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            more = queries.get_commit_graph.execute(limit=PAGE_SIZE, skip=skip, extra_tips=self._extra_tips)
+            if path is None:
+                more = queries.get_commit_graph.execute(
+                    limit=PAGE_SIZE, skip=skip, extra_tips=self._extra_tips, first_parent=fp
+                )
+            else:
+                more = queries.get_file_history.execute(
+                    path, limit=PAGE_SIZE, skip=skip, follow=follow
+                )
             branches = queries.get_branches.execute()
             tags = queries.get_tags.execute()
-            signals.append_done.emit(more, branches, tags)
+            signals.append_done.emit(more, branches, tags, fp, path)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_append_done(self, more: list[Commit], branches: list[Branch], tags: list[Tag]) -> None:
+    def _on_append_done(
+        self,
+        more: list[Commit],
+        branches: list[Branch],
+        tags: list[Tag],
+        first_parent: bool,
+        path_filter: str | None = None,
+    ) -> None:
         self._loading = False
         if self._queries is None:
+            return
+
+        # User toggled mid-flight: discard the appended page (it was fetched
+        # in the wrong mode) and re-run a full reload in the new mode.
+        if first_parent != self._first_parent or path_filter != self._path_filter:
+            self.reload()
             return
 
         if not more:
             self._has_more = False
             return
 
-        self._has_more = len(more) == PAGE_SIZE
-        self._loaded_count += len(more)
+        self._has_more = len(more) >= PAGE_SIZE
+        self._loaded_count += min(len(more), PAGE_SIZE)
 
         refs: dict[str, list[str]] = {}
         for b in branches:
@@ -511,26 +821,26 @@ class GraphWidget(QWidget):
         index = self._view.indexAt(pos)
         if not index.isValid():
             return
-        oid = self._model.data(self._model.index(index.row(), 0), Qt.UserRole)
+        oid = self._model.data(self._model.index(index.row(), 0), OID_ROLE)
         if not oid or oid == WORKING_TREE_OID:
             return
 
-        info = self._model.data(self._model.index(index.row(), 1), Qt.UserRole + 1)
+        info = self._model.data(self._model.index(index.row(), 0), INFO_ROLE)
         branch_names = info.branch_names if info else []
 
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
-        menu.setStyleSheet(
-            "QMenu { padding: 6px; }"
-            "QMenu::item { padding: 6px 24px 6px 20px; }"
-        )
+        menu.setStyleSheet("QMenu { padding: 6px; }QMenu::item { padding: 6px 24px 6px 20px; }")
 
         menu.addAction("Create Branch").triggered.connect(
-            lambda: self.create_branch_requested.emit(oid))
+            lambda: self.create_branch_requested.emit(oid)
+        )
         menu.addAction("Create Tag...").triggered.connect(
-            lambda: self.create_tag_requested.emit(oid))
+            lambda: self.create_tag_requested.emit(oid)
+        )
         menu.addAction("Checkout (detached HEAD)").triggered.connect(
-            lambda: self.checkout_commit_requested.emit(oid))
+            lambda: self.checkout_commit_requested.emit(oid)
+        )
 
         # Filter out HEAD pseudo-ref and tag refs for branch operations
         real_branches = [n for n in branch_names if n != "HEAD" and not n.startswith("tag:")]
@@ -548,29 +858,75 @@ class GraphWidget(QWidget):
             if len(real_branches) == 1:
                 name = real_branches[0]
                 menu.addAction(f"Checkout branch: {name}").triggered.connect(
-                    lambda: self.checkout_branch_requested.emit(name))
+                    lambda _checked=False, n=name: self.checkout_branch_requested.emit(n)
+                )
             else:
                 sub = menu.addMenu("Checkout branch")
                 for name in real_branches:
                     sub.addAction(name).triggered.connect(
-                        lambda _checked=False, n=name: self.checkout_branch_requested.emit(n))
+                        lambda _checked=False, n=name: self.checkout_branch_requested.emit(n)
+                    )
+
+        if real_branches:
+            if len(real_branches) == 1:
+                name = real_branches[0]
+                menu.addAction(f"Checkout in New Worktree: {name}").triggered.connect(
+                    lambda: self.checkout_in_new_worktree_requested.emit(name)
+                )
+            else:
+                sub = menu.addMenu("Checkout in New Worktree")
+                for name in real_branches:
+                    sub.addAction(name).triggered.connect(
+                        lambda _checked=False, n=name: self.checkout_in_new_worktree_requested.emit(
+                            n
+                        )
+                    )
 
         if local_branches:
             if len(local_branches) == 1:
                 name = local_branches[0]
                 menu.addAction(f"Delete branch: {name}").triggered.connect(
-                    lambda: self.delete_branch_requested.emit(name))
+                    lambda _checked=False, n=name: self.delete_branch_requested.emit(n)
+                )
             else:
                 sub = menu.addMenu("Delete branch")
                 for name in local_branches:
                     sub.addAction(name).triggered.connect(
-                        lambda _checked=False, n=name: self.delete_branch_requested.emit(n))
+                        lambda _checked=False, n=name: self.delete_branch_requested.emit(n)
+                    )
+
+        remote_branches = [n for n in real_branches if n not in local_set]
+        if remote_branches:
+            if len(remote_branches) == 1:
+                name = remote_branches[0]
+                menu.addAction(f"Delete remote branch: {name}").triggered.connect(
+                    lambda _checked=False, n=name: self._emit_remote_delete(n)
+                )
+            else:
+                sub = menu.addMenu("Delete remote branch")
+                for name in remote_branches:
+                    sub.addAction(name).triggered.connect(
+                        lambda _checked=False, n=name: self._emit_remote_delete(n)
+                    )
 
         self._add_merge_rebase_section(menu, oid, real_branches)
 
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
-    def _add_merge_rebase_section(self, menu: QMenu, oid: str, branches_on_commit: list[str]) -> None:
+    def _emit_remote_delete(self, name: str) -> None:
+        """Split a qualified remote-branch name (e.g. 'origin/feature/foo')
+        on the first slash and emit (remote, branch). Defensively bail if
+        the input is malformed."""
+        if "/" not in name:
+            return
+        remote, branch = name.split("/", 1)
+        if not remote or not branch:
+            return
+        self.remote_branch_delete_requested.emit(remote, branch)
+
+    def _add_merge_rebase_section(
+        self, menu: QMenu, oid: str, branches_on_commit: list[str]
+    ) -> None:
         """Append the Merge / Rebase section to a context menu, applying disable rules."""
         try:
             state_info = self._queries.get_repo_state.execute()
@@ -637,47 +993,59 @@ class GraphWidget(QWidget):
                     ancestor_tooltip = "Already up to date"
             except Exception:
                 pass
-            merge_actions.append((
-                f"{b} into {head_label}",
-                ancestor_tooltip,
-                lambda _checked=False, n=b: self.merge_branch_requested.emit(n),
-            ))
+            merge_actions.append(
+                (
+                    f"{b} into {head_label}",
+                    ancestor_tooltip,
+                    lambda _checked=False, n=b: self.merge_branch_requested.emit(n),
+                )
+            )
         if show_commit_merge:
-            merge_actions.append((
-                f"commit {short_oid} into {head_label}",
-                None,
-                lambda _checked=False, o=oid: self.merge_commit_requested.emit(o),
-            ))
+            merge_actions.append(
+                (
+                    f"commit {short_oid} into {head_label}",
+                    None,
+                    lambda _checked=False, o=oid: self.merge_commit_requested.emit(o),
+                )
+            )
 
         # Collect rebase actions
         rebase_actions: list[tuple[str, str | None, object]] = []
         for b in branch_targets:
-            rebase_actions.append((
-                f"{head_label} onto {b}",
-                None,
-                lambda _checked=False, n=b: self.rebase_onto_branch_requested.emit(n),
-            ))
+            rebase_actions.append(
+                (
+                    f"{head_label} onto {b}",
+                    None,
+                    lambda _checked=False, n=b: self.rebase_onto_branch_requested.emit(n),
+                )
+            )
         if show_commit_rebase:
-            rebase_actions.append((
-                f"{head_label} onto commit {short_oid}",
-                None,
-                lambda _checked=False, o=oid: self.rebase_onto_commit_requested.emit(o),
-            ))
+            rebase_actions.append(
+                (
+                    f"{head_label} onto commit {short_oid}",
+                    None,
+                    lambda _checked=False, o=oid: self.rebase_onto_commit_requested.emit(o),
+                )
+            )
 
         # Collect interactive rebase actions
         irebase_actions: list[tuple[str, str | None, object]] = []
         for b in branch_targets:
-            irebase_actions.append((
-                f"Interactive rebase onto {b}",
-                None,
-                lambda _checked=False, n=b: self.interactive_rebase_branch_requested.emit(n),
-            ))
+            irebase_actions.append(
+                (
+                    f"Interactive rebase onto {b}",
+                    None,
+                    lambda _checked=False, n=b: self.interactive_rebase_branch_requested.emit(n),
+                )
+            )
         if show_commit_rebase:
-            irebase_actions.append((
-                f"Interactive rebase onto commit {short_oid}",
-                None,
-                lambda _checked=False, o=oid: self.interactive_rebase_commit_requested.emit(o),
-            ))
+            irebase_actions.append(
+                (
+                    f"Interactive rebase onto commit {short_oid}",
+                    None,
+                    lambda _checked=False, o=oid: self.interactive_rebase_commit_requested.emit(o),
+                )
+            )
 
         # Add merge actions: submenu if ≥2, top-level if 1
         if len(merge_actions) == 1:
@@ -709,6 +1077,60 @@ class GraphWidget(QWidget):
             for label, tooltip, emit in irebase_actions:
                 _add(sub, label, tooltip, emit)
 
+        # ── Cherry-pick / Revert / Reset section ───────────────────────
+        # Only show when we have a HEAD and target != HEAD.
+        if head_oid and oid != head_oid:
+            menu.addSeparator()
+
+            # Cherry-pick
+            cp_action = menu.addAction(f"Cherry-pick commit {short_oid}")
+            if global_disable_reason:
+                cp_action.setEnabled(False)
+                cp_action.setToolTip(global_disable_reason)
+            else:
+                cp_action.triggered.connect(
+                    lambda _checked=False, o=oid: self.cherry_pick_requested.emit(o)
+                )
+
+            # Revert
+            rv_action = menu.addAction(f"Revert commit {short_oid}")
+            if global_disable_reason:
+                rv_action.setEnabled(False)
+                rv_action.setToolTip(global_disable_reason)
+            else:
+                rv_action.triggered.connect(
+                    lambda _checked=False, o=oid: self.revert_commit_requested.emit(o)
+                )
+
+            # Reset — only enabled when target is an ancestor of HEAD.
+            can_reset = False
+            try:
+                can_reset = self._queries.is_ancestor.execute(oid, head_oid)
+            except Exception:
+                can_reset = False
+
+            reset_sub = menu.addMenu(f"Reset {head_label} to {short_oid}")
+            reset_sub.setToolTipsVisible(True)
+            modes = [
+                (ResetMode.SOFT, "Soft (keep index + working tree)"),
+                (ResetMode.MIXED, "Mixed (keep working tree, reset index)"),
+                (ResetMode.HARD, "Hard (discard everything)"),
+            ]
+            for mode, label in modes:
+                a = reset_sub.addAction(label)
+                if global_disable_reason:
+                    a.setEnabled(False)
+                    a.setToolTip(global_disable_reason)
+                elif not can_reset:
+                    a.setEnabled(False)
+                    a.setToolTip("Target is not an ancestor of HEAD")
+                else:
+                    a.triggered.connect(
+                        lambda _checked=False, o=oid, m=mode: self.reset_to_commit_requested.emit(
+                            o, m
+                        )
+                    )
+
     def reload_and_scroll_to(self, oid: str) -> None:
         """Reload and scroll to the given oid after load completes."""
         self._pending_scroll_oid = oid
@@ -717,7 +1139,7 @@ class GraphWidget(QWidget):
     def scroll_to_oid(self, oid: str, select: bool = False) -> None:
         """Scroll so the row with the given oid is the first visible item."""
         for row in range(self._model.rowCount()):
-            row_oid = self._model.data(self._model.index(row, 0), Qt.UserRole)
+            row_oid = self._model.data(self._model.index(row, 0), OID_ROLE)
             if row_oid == oid:
                 index = self._model.index(row, 0)
                 self._view.scrollTo(index, QTableView.PositionAtTop)
@@ -766,7 +1188,7 @@ class GraphWidget(QWidget):
         self._search_matches.clear()
         self._search_idx = -1
         for row in range(self._model.rowCount()):
-            info = self._model.data(self._model.index(row, 1), Qt.UserRole + 1)
+            info = self._model.data(self._model.index(row, 0), INFO_ROLE)
             if info is None:
                 continue
             haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
@@ -776,7 +1198,8 @@ class GraphWidget(QWidget):
             self._search_idx = 0
             self._jump_to_match()
         self._search_bar.set_match_label(
-            self._search_idx, len(self._search_matches),
+            self._search_idx,
+            len(self._search_matches),
         )
 
     def _on_search_navigate(self, direction: int) -> None:
@@ -785,7 +1208,8 @@ class GraphWidget(QWidget):
         self._search_idx = (self._search_idx + direction) % len(self._search_matches)
         self._jump_to_match()
         self._search_bar.set_match_label(
-            self._search_idx, len(self._search_matches),
+            self._search_idx,
+            len(self._search_matches),
         )
 
     def _jump_to_match(self) -> None:
@@ -795,6 +1219,27 @@ class GraphWidget(QWidget):
         self._view.setCurrentIndex(index)
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
-        oid = self._model.data(self._model.index(current.row(), 0), Qt.UserRole)
-        if oid:
+        oid = self._model.data(self._model.index(current.row(), 0), OID_ROLE)
+        # Skip re-emitting for the already-selected commit. A model reset (from
+        # an auto-reload) invalidates the current index, so restoring the
+        # selection fires currentRowChanged with the same oid. Re-emitting there
+        # would reload the diff/commit-detail pane and reset its scroll,
+        # yanking the user away from what they were reading. Commits are
+        # immutable, so the pane never needs a reload for an unchanged oid; the
+        # working tree refreshes via the reload coordinator, not this signal.
+        if oid and oid != self._selected_oid:
+            self._selected_oid = oid
             self.commit_selected.emit(oid)
+
+    def _on_double_clicked(self, index: QModelIndex) -> None:
+        """Double-click a commit to switch to a branch pointing at it.
+
+        The branch-resolution and checkout flow lives in the main window
+        (it owns the query/command buses and the confirmation dialogs); here
+        we only forward the commit's oid. The synthetic working-tree row has
+        no branch to switch to, so it is ignored."""
+        if not index.isValid():
+            return
+        oid = self._model.data(self._model.index(index.row(), 0), OID_ROLE)
+        if oid and oid != WORKING_TREE_OID:
+            self.commit_double_clicked.emit(oid)

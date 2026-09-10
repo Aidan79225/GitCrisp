@@ -1,17 +1,17 @@
 # git_gui/infrastructure/git_clone.py
 from __future__ import annotations
+
 import re
 import subprocess
-import threading
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
-from git_gui.resources import subprocess_kwargs
+from git_gui.resources import git_ssh_env, subprocess_kwargs
 
 
 @dataclass
 class CloneProgress:
-    phase: str    # e.g. "Receiving objects", "Resolving deltas"
+    phase: str  # e.g. "Receiving objects", "Resolving deltas"
     percent: int  # 0-100
 
 
@@ -32,6 +32,7 @@ def clone_repo(
         ["git", "clone", "--progress", "--recurse-submodules", url, dest],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=git_ssh_env(),
         **subprocess_kwargs(),
     )
 
@@ -47,10 +48,12 @@ def clone_repo(
             if line and on_progress:
                 m = _PROGRESS_RE.search(line)
                 if m:
-                    on_progress(CloneProgress(
-                        phase=m.group(1).strip(),
-                        percent=int(m.group(2)),
-                    ))
+                    on_progress(
+                        CloneProgress(
+                            phase=m.group(1).strip(),
+                            percent=int(m.group(2)),
+                        )
+                    )
         else:
             buf += chunk
 
@@ -58,6 +61,8 @@ def clone_repo(
     if proc.returncode != 0:
         stderr_output = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
         raise subprocess.CalledProcessError(
-            proc.returncode, ["git", "clone", "--recurse-submodules", url, dest],
-            output=b"", stderr=stderr_output.encode(),
+            proc.returncode,
+            ["git", "clone", "--recurse-submodules", url, dest],
+            output=b"",
+            stderr=stderr_output.encode(),
         )

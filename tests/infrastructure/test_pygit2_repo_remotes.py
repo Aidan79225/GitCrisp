@@ -1,13 +1,15 @@
 import subprocess
 from pathlib import Path
+
 import pytest
 
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 def _run(cwd, *args):
-    subprocess.run(["git", *args], cwd=cwd, check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["git", *args], cwd=cwd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
 
 
 @pytest.fixture

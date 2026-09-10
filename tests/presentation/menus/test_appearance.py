@@ -1,4 +1,5 @@
 """Tests for the View → Appearance menu installer."""
+
 from __future__ import annotations
 
 import pytest
@@ -41,6 +42,7 @@ def test_triggering_action_opens_theme_dialog(app, monkeypatch):
         return 0
 
     from git_gui.presentation.dialogs import theme_dialog as td
+
     monkeypatch.setattr(td.ThemeDialog, "exec", fake_exec)
 
     window = QMainWindow()

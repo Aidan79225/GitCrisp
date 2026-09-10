@@ -1,6 +1,10 @@
 from unittest.mock import MagicMock
+
 from git_gui.application.commands import (
-    SetBranchUpstream, UnsetBranchUpstream, RenameBranch, ResetBranchToRef,
+    RenameBranch,
+    ResetBranchToRef,
+    SetBranchUpstream,
+    UnsetBranchUpstream,
 )
 
 

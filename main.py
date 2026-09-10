@@ -1,62 +1,96 @@
+import logging
 import sys
-import pygit2
 from pathlib import Path
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
-from git_gui.infrastructure.repo_store import JsonRepoStore
+
+import pygit2
+from PySide6.QtCore import qInstallMessageHandler
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
+
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
+from git_gui.infrastructure.repo_store import JsonRepoStore
+from git_gui.logging_setup import setup_logging
+from git_gui.observability import init_crash_reporting
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
 from git_gui.presentation.theme import ThemeManager, set_theme_manager
-from git_gui.logging_setup import setup_logging
+from git_gui.resources import get_resource_path
 
 
 def _is_git_repo(path: str) -> bool:
     return pygit2.discover_repository(path) is not None
 
 
-def _pick_repo() -> str:
-    while True:
-        dialog = QFileDialog()
-        dialog.setWindowTitle("Open Repository")
-        dialog.setFileMode(QFileDialog.Directory)
-        dialog.setOption(QFileDialog.ShowDirsOnly, True)
-        if dialog.exec() != QFileDialog.Accepted:
-            return ""
-        dirs = dialog.selectedFiles()
-        if not dirs:
-            return ""
-        path = dirs[0]
-        if _is_git_repo(path):
-            return path
-        QMessageBox.warning(
-            None,
-            "Not a Git Repository",
-            "The selected folder is not a Git repository.\n"
-            "Please choose a folder that contains a Git repository.",
-        )
-
-
 def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
-    """Return the first valid repo path from active or open list, pruning invalid ones."""
-    active = repo_store.get_active()
-    if active and Path(active).is_dir() and _is_git_repo(active):
-        return active
+    """Return a valid repo to open, pruning every stored path that no longer
+    resolves to a git repository.
 
-    for path in list(repo_store.get_open_repos()):
-        if Path(path).is_dir() and _is_git_repo(path):
-            repo_store.set_active(path)
-            return path
-        repo_store.close_repo(path)
+    Pruning scans the *entire* open and recent lists — not just up to the first
+    valid entry — so stale paths (e.g. a deleted worktree) never linger across
+    sessions, rendering as repo rows that fail with "Repository not found" when
+    switched to. Returns the active repo if still valid, otherwise the first
+    surviving open repo, otherwise None.
+    """
+
+    def _valid(p: str | None) -> bool:
+        return bool(p) and Path(p).is_dir() and _is_git_repo(p)
+
+    for path in list(repo_store.get_open_repos()) + list(repo_store.get_recent_repos()):
+        if not _valid(path):
+            repo_store.forget(path)
+
+    # Keep a still-valid active repo even if it isn't in the open list (e.g. an
+    # active worktree, recorded via set_active without add_open). Otherwise fall
+    # back to the first surviving open repo.
+    active = repo_store.get_active()
+    if _valid(active):
+        selected = active
+    else:
+        if active is not None:
+            repo_store.forget(active)  # clear a dead active not in open/recent
+        open_repos = repo_store.get_open_repos()
+        selected = open_repos[0] if open_repos else None
+
+    if selected is not None:
+        repo_store.set_active(selected)
 
     repo_store.save()
-    return None
+    return selected
+
+
+def _open_session(path: str) -> tuple[QueryBus, CommandBus]:
+    repo = Pygit2Repository(path)
+    return QueryBus.from_reader(repo), CommandBus.from_writer(repo)
+
+
+_SUPPRESSED_FRAGMENTS = (
+    "Unable to open monitor interface",
+    "cached device pixel ratio value was stale",
+)
+
+
+def _qt_message_filter(mode, context, message):
+    """Filter out known-noisy Qt platform warnings (Windows QPA bugs)."""
+    if any(fragment in message for fragment in _SUPPRESSED_FRAGMENTS):
+        logging.debug("Suppressed Qt warning: %s", message)
+        return
+    sys.stderr.write(f"Qt {mode.name}: {message}\n")
 
 
 def main() -> None:
     setup_logging()
+    init_crash_reporting()
+    qInstallMessageHandler(_qt_message_filter)
     app = QApplication(sys.argv)
+    app.setOrganizationName("GitCrisp")
     app.setApplicationName("GitCrisp")
+    # Windows takes the running app's icon from the exe and macOS from the
+    # bundle, so this is really for Linux, where a window manager that cannot
+    # match the window back to its .desktop entry falls back to a generic
+    # placeholder. Qt is handed the SVG rather than the .ico so it can rasterise
+    # at whatever size the desktop asks for, and so the icon has one source.
+    app.setWindowIcon(QIcon(str(get_resource_path("arts") / "gitcrisp.svg")))
 
     theme_manager = ThemeManager(app)
     set_theme_manager(theme_manager)
@@ -67,22 +101,23 @@ def main() -> None:
 
     repo_path = _find_valid_repo(repo_store)
 
-    if not repo_path:
-        repo_path = _pick_repo()
-        if not repo_path:
-            sys.exit(0)
+    if repo_path and repo_path not in repo_store.get_open_repos():
         repo_store.add_open(repo_path)
         repo_store.save()
 
-    if repo_path not in repo_store.get_open_repos():
-        repo_store.add_open(repo_path)
-        repo_store.save()
+    if repo_path:
+        queries, commands = _open_session(repo_path)
+    else:
+        queries, commands = None, None
 
-    repo = Pygit2Repository(repo_path)
-    queries = QueryBus.from_reader(repo)
-    commands = CommandBus.from_writer(repo)
-
-    window = MainWindow(queries, commands, repo_store, remote_tag_cache, repo_path)
+    window = MainWindow(
+        queries,
+        commands,
+        repo_store,
+        remote_tag_cache,
+        repo_path,
+        session_factory=_open_session,
+    )
     window.show()
     sys.exit(app.exec())
 

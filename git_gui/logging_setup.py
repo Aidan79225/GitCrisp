@@ -8,22 +8,32 @@ Also installs global exception hooks so any uncaught exception (main
 thread or background thread) is logged at CRITICAL level with a full
 traceback before the interpreter exits or the thread dies.
 
+Native crashes (segfaults, access violations) are captured by
+``faulthandler`` into ``~/.gitcrisp/logs/faulthandler.log`` with the
+Python stacks of every thread at the moment of the fault.
+
 Idempotent — calling ``setup_logging()`` multiple times is safe and
 will not install duplicate handlers or hooks.
 """
+
 from __future__ import annotations
+
+import faulthandler
 import logging
 import logging.handlers
 import sys
 import threading
 from pathlib import Path
+from typing import IO
 
 _LOG_DIR = Path.home() / ".gitcrisp" / "logs"
 _LOG_FILE = _LOG_DIR / "gitcrisp.log"
+_FAULT_FILE = _LOG_DIR / "faulthandler.log"
 _MAX_BYTES = 1_000_000  # 1 MB per file
-_BACKUP_COUNT = 3       # keep gitcrisp.log.1 .. .3
+_BACKUP_COUNT = 3  # keep gitcrisp.log.1 .. .3
 
 _uncaught_logger = logging.getLogger("gitcrisp.uncaught")
+_fault_fp: IO[str] | None = None
 
 
 def _log_uncaught(exc_type, exc_value, exc_traceback) -> None:
@@ -71,9 +81,7 @@ def setup_logging() -> None:
             backupCount=_BACKUP_COUNT,
             encoding="utf-8",
         )
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s %(levelname)s %(name)s: %(message)s"
-        ))
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         root.setLevel(logging.WARNING)
         root.addHandler(handler)
 
@@ -82,3 +90,12 @@ def setup_logging() -> None:
         sys.excepthook = _log_uncaught
     if threading.excepthook is not _log_uncaught_thread:
         threading.excepthook = _log_uncaught_thread
+
+    # Enable faulthandler so native crashes (segfaults, EXCEPTION_ACCESS_VIOLATION
+    # on Windows) dump every thread's Python stack to faulthandler.log before
+    # the interpreter dies. Idempotent — only opens the file once per process.
+    global _fault_fp
+    if _fault_fp is None:
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
+        _fault_fp = open(_FAULT_FILE, "a", buffering=1, encoding="utf-8")
+        faulthandler.enable(file=_fault_fp, all_threads=True)

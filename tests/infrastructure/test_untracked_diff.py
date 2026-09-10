@@ -1,6 +1,7 @@
 from pathlib import Path
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+
 from git_gui.domain.entities import WORKING_TREE_OID
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 def _init(repo_path: Path) -> Pygit2Repository:

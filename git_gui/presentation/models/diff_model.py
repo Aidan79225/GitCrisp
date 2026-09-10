@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
+
 from git_gui.domain.entities import FileStatus
 
 

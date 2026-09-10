@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -22,6 +23,13 @@ class Branch:
     is_remote: bool
     is_head: bool
     target_oid: str
+
+
+@dataclass
+class RemoteBranchDeleteResult:
+    branch: str  # full shorthand, e.g. "origin/feature-a"
+    ok: bool
+    message: str
 
 
 @dataclass
@@ -71,6 +79,46 @@ class Hunk:
 
 
 @dataclass
+class ReflogEntry:
+    """One movement of a ref, as recorded in its reflog.
+
+    The reflog is what makes a destructive operation recoverable: `oid_old` is
+    the state the ref was in before, and it stays reachable even when nothing
+    else points at it.
+    """
+
+    index: int  # 0 is the most recent — the `n` in `HEAD@{n}`
+    oid_new: str  # where the ref moved to
+    oid_old: str | None  # where it was; None on the entry that created the ref
+    operation: str  # "commit", "reset", "checkout", "rebase (finish)", …
+    summary: str  # the rest of the message, after the operation
+    committer: str
+    timestamp: datetime
+    is_orphaned: bool = False
+    # True when no branch, tag or other ref can reach `oid_new` any more. The
+    # reflog is then the only way back to it, and gc will collect it when the
+    # entry expires — which is what makes these the entries worth finding.
+
+
+@dataclass
+class BlameLine:
+    """One line of a file with the commit that last touched it.
+
+    `is_run_start` marks the first line of each consecutive run from the same
+    commit, so a view can show the attribution once per run instead of
+    repeating it on every line.
+    """
+
+    line_no: int  # 1-based, within the blamed revision of the file
+    text: str  # the line itself, without its trailing newline
+    commit_oid: str
+    author: str
+    timestamp: datetime
+    summary: str  # first line of that commit's message
+    is_run_start: bool
+
+
+@dataclass
 class Remote:
     name: str
     fetch_url: str
@@ -113,7 +161,24 @@ class MergeStrategy(str, Enum):
     ALLOW_FF = "ALLOW_FF"
 
 
+class ResetMode(str, Enum):
+    SOFT = "SOFT"
+    MIXED = "MIXED"
+    HARD = "HARD"
+
+
 @dataclass(frozen=True)
 class MergeAnalysisResult:
     can_ff: bool
     is_up_to_date: bool
+
+
+@dataclass(frozen=True)
+class Worktree:
+    path: str
+    branch: str | None  # None when HEAD is detached
+    head_sha: str
+    is_locked: bool
+    lock_reason: str | None  # None when not locked or no reason given
+    is_bare: bool
+    is_main: bool  # True for the primary worktree

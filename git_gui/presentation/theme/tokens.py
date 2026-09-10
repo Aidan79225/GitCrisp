@@ -1,6 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass, field, fields
-from typing import List
+
+from dataclasses import dataclass
+
 from PySide6.QtGui import QColor, QFont
 
 
@@ -28,7 +29,7 @@ class Colors:
     diff_added_fg: str
     diff_removed_bg: str
     diff_removed_fg: str
-    graph_lane_colors: List[str]
+    graph_lane_colors: list[str]
     ref_badge_branch_bg: str
     ref_badge_tag_bg: str
     ref_badge_remote_bg: str
@@ -49,6 +50,18 @@ class Colors:
     # Misc
     on_badge: str
     hover_overlay: str
+    # Syntax highlighting (Pygments token roles)
+    syntax_keyword: str
+    syntax_function: str
+    syntax_class: str
+    syntax_string: str
+    syntax_number: str
+    syntax_comment: str
+    syntax_operator: str
+    syntax_decorator: str
+    # Word-level diff overlays (layered over line overlays)
+    diff_added_word_overlay: str
+    diff_removed_word_overlay: str
 
     def as_qcolor(self, name: str) -> QColor:
         if not hasattr(self, name):

@@ -1,10 +1,12 @@
 """ThemeDialog — pick System/Light/Dark/Custom theme."""
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QGroupBox,
@@ -16,41 +18,80 @@ from PySide6.QtWidgets import (
 )
 
 from git_gui.presentation.theme import get_theme_manager
-
+from git_gui.presentation.theme import settings as _settings
+from git_gui.presentation.theme.loader import load_builtin
+from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
 
 _MODES: list[tuple[str, str]] = [
     ("system", "System"),
-    ("dark",   "Dark"),
-    ("light",  "Light"),
+    ("dark", "Dark"),
+    ("light", "Light"),
     ("custom", "Custom"),
 ]
 
 
 _GROUPS: list[tuple[str, list[str]]] = [
-    ("Brand", [
-        "primary", "on_primary", "primary_container", "on_primary_container",
-        "secondary", "on_secondary", "error", "on_error",
-    ]),
-    ("Surface", [
-        "background", "on_background", "surface", "on_surface",
-        "surface_variant", "on_surface_variant",
-        "surface_container", "surface_container_high",
-        "outline", "outline_variant",
-    ]),
-    ("Status badges", [
-        "status_modified", "status_added", "status_deleted",
-        "status_renamed", "status_unknown", "on_badge",
-    ]),
-    ("Branches & refs", [
-        "branch_head_bg",
-        "ref_badge_branch_bg", "ref_badge_tag_bg", "ref_badge_remote_bg",
-    ]),
-    ("Diff", [
-        "diff_added_bg", "diff_added_fg",
-        "diff_removed_bg", "diff_removed_fg",
-        "diff_added_overlay", "diff_removed_overlay",
-        "diff_file_header_fg", "diff_hunk_header_fg",
-    ]),
+    (
+        "Brand",
+        [
+            "primary",
+            "on_primary",
+            "primary_container",
+            "on_primary_container",
+            "secondary",
+            "on_secondary",
+            "error",
+            "on_error",
+        ],
+    ),
+    (
+        "Surface",
+        [
+            "background",
+            "on_background",
+            "surface",
+            "on_surface",
+            "surface_variant",
+            "on_surface_variant",
+            "surface_container",
+            "surface_container_high",
+            "outline",
+            "outline_variant",
+        ],
+    ),
+    (
+        "Status badges",
+        [
+            "status_modified",
+            "status_added",
+            "status_deleted",
+            "status_renamed",
+            "status_unknown",
+            "on_badge",
+        ],
+    ),
+    (
+        "Branches & refs",
+        [
+            "branch_head_bg",
+            "ref_badge_branch_bg",
+            "ref_badge_tag_bg",
+            "ref_badge_remote_bg",
+        ],
+    ),
+    (
+        "Diff",
+        [
+            "diff_added_bg",
+            "diff_added_fg",
+            "diff_removed_bg",
+            "diff_removed_fg",
+            "diff_added_overlay",
+            "diff_removed_overlay",
+            "diff_file_header_fg",
+            "diff_hunk_header_fg",
+        ],
+    ),
     ("Misc", ["hover_overlay"]),
 ]
 
@@ -65,10 +106,8 @@ _TYPOGRAPHY_SCALE_STEP = 10
 def _hex_for_token(token: str, qcolor: QColor) -> str:
     """Return hex string for a token; hex8 (#AARRGGBB) for overlay tokens."""
     if token.endswith("_overlay") or token == "hover_overlay":
-        return "#{:02x}{:02x}{:02x}{:02x}".format(
-            qcolor.alpha(), qcolor.red(), qcolor.green(), qcolor.blue()
-        )
-    return "#{:02x}{:02x}{:02x}".format(qcolor.red(), qcolor.green(), qcolor.blue())
+        return f"#{qcolor.alpha():02x}{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
+    return f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
 
 
 def _qcolor_for_hex(hex_str: str) -> QColor:
@@ -82,7 +121,9 @@ def _readable_fg_for(hex_value: str) -> str:
     if len(s) == 8:
         s = s[2:]
     try:
-        r = int(s[0:2], 16); g = int(s[2:4], 16); b = int(s[4:6], 16)
+        r = int(s[0:2], 16)
+        g = int(s[2:4], 16)
+        b = int(s[4:6], 16)
     except ValueError:
         return "#000"
     # Perceived luminance
@@ -102,6 +143,18 @@ class ThemeDialog(QDialog):
         self._mgr = get_theme_manager()
         layout = QVBoxLayout(self)
 
+        # --- Avatars ---
+        avatar_group = QGroupBox("Avatars")
+        avatar_layout = QVBoxLayout(avatar_group)
+        self._gravatar_checkbox = QCheckBox(
+            "Fetch avatars from Gravatar (sends a hash of the author email to gravatar.com)"
+        )
+        self._gravatar_checkbox.setChecked(
+            bool(_settings.load_settings().get("avatar_gravatar_enabled", True))
+        )
+        avatar_layout.addWidget(self._gravatar_checkbox)
+        layout.addWidget(avatar_group)
+
         # --- Mode radios ---
         mode_group = QGroupBox("Mode")
         mode_layout = QHBoxLayout(mode_group)
@@ -116,9 +169,20 @@ class ThemeDialog(QDialog):
             radio.toggled.connect(self._on_mode_radio_toggled)
         layout.addWidget(mode_group)
 
+        # _base_theme drives the Custom panel's swatch pre-fill and is
+        # re-seeded whenever the user toggles the mode radio.
+        # _base_theme_mode remembers the mode that produced the current
+        # pre-fill so the toggle handler can short-circuit no-op refreshes.
+        self._base_theme_mode = self._mgr.mode
+        self._base_theme = self._mgr.theme_for_mode(self._base_theme_mode)
+        # Saved custom theme files store typography sizes generated by
+        # scaling Dark's typography. _typography_base is the divisor for
+        # the slider's reverse-computation, so it must always be Dark
+        # regardless of which radio the user is on.
+        self._typography_base = load_builtin("dark")
+
         # --- Custom panel ---
         self._custom_panel = self._build_custom_panel()
-        self._custom_panel.setEnabled(self._selected_mode() == "custom")
         layout.addWidget(self._custom_panel)
 
         layout.addStretch()
@@ -141,11 +205,19 @@ class ThemeDialog(QDialog):
         return self._mgr.mode
 
     def _on_mode_radio_toggled(self, _checked: bool) -> None:
-        self._custom_panel.setEnabled(self._selected_mode() == "custom")
+        mode = self._selected_mode()
+        if mode == self._base_theme_mode or mode == "custom":
+            return
+        self._base_theme_mode = mode
+        self._base_theme = self._mgr.theme_for_mode(mode)
+        self._reset_to_base_state()
+        for token, hex_value in self._working_colors.items():
+            self._apply_swatch_color(token, hex_value)
+        for i, hex_value in enumerate(self._working_lane_colors):
+            self._apply_lane_swatch_color(i, hex_value)
 
     def _build_custom_panel(self) -> QGroupBox:
         from PySide6.QtWidgets import QGridLayout, QPushButton, QSlider, QToolBox
-        from git_gui.presentation.theme.loader import load_builtin
 
         panel = QGroupBox("Custom")
         outer = QVBoxLayout(panel)
@@ -159,8 +231,11 @@ class ThemeDialog(QDialog):
         self._typo_slider.setPageStep(_TYPOGRAPHY_SCALE_STEP)
         self._typo_slider.setTickInterval(_TYPOGRAPHY_SCALE_STEP)
         self._typo_slider.setTickPosition(QSlider.TicksBelow)
-        self._typo_slider.setValue(_TYPOGRAPHY_SCALE_DEFAULT)
-        self._typo_label = QLabel(f"{_TYPOGRAPHY_SCALE_DEFAULT}%")
+        saved_scale = float(_settings.load_settings().get("typography_scale", 1.0))
+        initial_value = round(saved_scale * 100 / _TYPOGRAPHY_SCALE_STEP) * _TYPOGRAPHY_SCALE_STEP
+        initial_value = max(_TYPOGRAPHY_SCALE_MIN, min(_TYPOGRAPHY_SCALE_MAX, initial_value))
+        self._typo_slider.setValue(initial_value)
+        self._typo_label = QLabel(f"{initial_value}%")
 
         def _snap_typo(v: int) -> None:
             snapped = round(v / _TYPOGRAPHY_SCALE_STEP) * _TYPOGRAPHY_SCALE_STEP
@@ -175,13 +250,12 @@ class ThemeDialog(QDialog):
         typo_row.addWidget(self._typo_label)
         outer.addLayout(typo_row)
 
-        # --- Working colour state, prefilled from dark ---
-        self._dark_defaults = load_builtin("dark")
+        # --- Working colour state, prefilled from the currently-active theme ---
         self._working_colors: dict[str, str] = {}
         self._working_lane_colors: list[str] = []
         self._swatch_buttons: dict[str, QPushButton] = {}
         self._lane_buttons: list[QPushButton] = []
-        self._reset_to_dark_defaults_state()
+        self._reset_to_base_state()
 
         # --- Accordion (QToolBox) ---
         self._toolbox = QToolBox()
@@ -193,9 +267,7 @@ class ThemeDialog(QDialog):
                 btn = QPushButton()
                 btn.setFixedSize(80, 22)
                 btn.setFlat(True)
-                btn.clicked.connect(
-                    lambda _checked=False, t=token: self._open_picker(t)
-                )
+                btn.clicked.connect(lambda _checked=False, t=token: self._open_picker(t))
                 self._swatch_buttons[token] = btn
                 self._apply_swatch_color(token, self._working_colors[token])
                 grid.addWidget(btn, row, 1)
@@ -211,9 +283,7 @@ class ThemeDialog(QDialog):
             btn = QPushButton()
             btn.setFixedSize(40, 22)
             btn.setFlat(True)
-            btn.clicked.connect(
-                lambda _checked=False, idx=i: self._open_lane_picker(idx)
-            )
+            btn.clicked.connect(lambda _checked=False, idx=i: self._open_lane_picker(idx))
             self._lane_buttons.append(btn)
             self._apply_lane_swatch_color(i, hex_value)
             lanes_row.addWidget(btn)
@@ -225,16 +295,13 @@ class ThemeDialog(QDialog):
         outer.addWidget(self._toolbox, 1)
         return panel
 
-    def _reset_to_dark_defaults_state(self) -> None:
-        c = self._dark_defaults.colors
+    def _reset_to_base_state(self) -> None:
+        c = self._base_theme.colors
         self._working_colors = {}
         for _, tokens in _GROUPS:
             for token in tokens:
                 self._working_colors[token] = getattr(c, token)
         self._working_lane_colors = list(c.graph_lane_colors)
-        if hasattr(self, "_typo_slider"):
-            self._typo_slider.setValue(_TYPOGRAPHY_SCALE_DEFAULT)
-            self._typo_label.setText(f"{_TYPOGRAPHY_SCALE_DEFAULT}%")
 
     def _apply_swatch_color(self, token: str, hex_value: str) -> None:
         btn = self._swatch_buttons[token]
@@ -254,7 +321,10 @@ class ThemeDialog(QDialog):
         )
 
     def _open_picker(self, token: str) -> None:
+        if self._selected_mode() != "custom":
+            return
         from PySide6.QtWidgets import QColorDialog
+
         current = self._working_colors[token]
         initial = _qcolor_for_hex(current)
         is_overlay = token.endswith("_overlay") or token == "hover_overlay"
@@ -270,23 +340,45 @@ class ThemeDialog(QDialog):
             self._apply_swatch_color(token, new_hex)
 
     def _open_lane_picker(self, idx: int) -> None:
+        if self._selected_mode() != "custom":
+            return
         from PySide6.QtWidgets import QColorDialog
+
         current = self._working_lane_colors[idx]
         initial = _qcolor_for_hex(current)
         chosen = QColorDialog.getColor(initial, self, f"Lane {idx}")
         if chosen.isValid():
-            new_hex = "#{:02x}{:02x}{:02x}".format(
-                chosen.red(), chosen.green(), chosen.blue()
-            )
+            new_hex = f"#{chosen.red():02x}{chosen.green():02x}{chosen.blue():02x}"
             self._working_lane_colors[idx] = new_hex
             self._apply_lane_swatch_color(idx, new_hex)
 
     def _on_apply(self) -> None:
         mode = self._selected_mode()
+        self._save_typography_scale()
         if mode == "custom":
             self._write_custom_theme()
-        self._mgr.set_mode(mode, force=(mode == "custom"))
+        # force=True so _apply runs and picks up the new typography_scale
+        # even if the mode itself didn't change.
+        self._mgr.set_mode(mode, force=True)
+        self._save_avatar_setting()
         self.accept()
+
+    def _save_typography_scale(self) -> None:
+        scale = self._typo_slider.value() / 100.0
+        data = _settings.load_settings()
+        if data.get("typography_scale") == scale:
+            return
+        data["typography_scale"] = scale
+        _settings.save_settings(data)
+
+    def _save_avatar_setting(self) -> None:
+        enabled = self._gravatar_checkbox.isChecked()
+        data = _settings.load_settings()
+        if data.get("avatar_gravatar_enabled") == enabled:
+            return
+        data["avatar_gravatar_enabled"] = enabled
+        _settings.save_settings(data)
+        get_avatar_loader().set_enabled(enabled)
 
     def _on_cancel(self) -> None:
         self.reject()
@@ -294,45 +386,33 @@ class ThemeDialog(QDialog):
     def _on_reset(self) -> None:
         if self._selected_mode() != "custom":
             return
-        self._reset_to_dark_defaults_state()
+        self._reset_to_base_state()
         for token, hex_value in self._working_colors.items():
             self._apply_swatch_color(token, hex_value)
         for i, hex_value in enumerate(self._working_lane_colors):
             self._apply_lane_swatch_color(i, hex_value)
 
     def _write_custom_theme(self) -> None:
-        import json
         import dataclasses
+        import json
+
         from git_gui.presentation.theme import settings as _settings
-        from git_gui.presentation.theme.tokens import (
-            Colors, Theme, Typography, TextStyle,
-        )
+        from git_gui.presentation.theme.tokens import Colors, Theme
 
-        scale = self._typo_slider.value() / 100.0
-        dark = self._dark_defaults
+        base = self._base_theme
 
-        scaled_styles = {}
-        for field in dataclasses.fields(Typography):
-            base: TextStyle = getattr(dark.typography, field.name)
-            scaled_styles[field.name] = TextStyle(
-                family=base.family,
-                size=max(1, round(base.size * scale)),
-                weight=base.weight,
-                letter_spacing=base.letter_spacing,
-            )
-
-        colors_kwargs = dict(dataclasses.asdict(dark.colors))
+        colors_kwargs = dict(dataclasses.asdict(base.colors))
         for token, hex_value in self._working_colors.items():
             colors_kwargs[token] = hex_value
         colors_kwargs["graph_lane_colors"] = list(self._working_lane_colors)
 
         custom_theme = Theme(
             name="Custom",
-            is_dark=dark.is_dark,
+            is_dark=base.is_dark,
             colors=Colors(**colors_kwargs),
-            typography=Typography(**scaled_styles),
-            shape=dark.shape,
-            spacing=dark.spacing,
+            typography=self._typography_base.typography,
+            shape=base.shape,
+            spacing=base.spacing,
         )
 
         path = _settings.custom_theme_path()
@@ -341,7 +421,8 @@ class ThemeDialog(QDialog):
 
     def _maybe_load_existing_custom_theme(self) -> None:
         from git_gui.presentation.theme import settings as _settings
-        from git_gui.presentation.theme.loader import load_theme, ThemeValidationError
+        from git_gui.presentation.theme.loader import ThemeValidationError, load_theme
+
         path = _settings.custom_theme_path()
         if not path.exists():
             return
@@ -361,18 +442,11 @@ class ThemeDialog(QDialog):
             if i < len(self._lane_buttons):
                 self._apply_lane_swatch_color(i, hex_value)
 
-        dark_size = self._dark_defaults.typography.body_medium.size
-        if dark_size > 0:
-            ratio = theme.typography.body_medium.size / dark_size
-            slider_value = round(ratio * 100 / _TYPOGRAPHY_SCALE_STEP) * _TYPOGRAPHY_SCALE_STEP
-            slider_value = max(_TYPOGRAPHY_SCALE_MIN, min(_TYPOGRAPHY_SCALE_MAX, slider_value))
-            self._typo_slider.setValue(slider_value)
-            self._typo_label.setText(f"{slider_value}%")
-
 
 def _theme_to_json(theme) -> dict:
     """Serialize Theme to a dict matching the loader's strict schema."""
     import dataclasses
+
     return {
         "name": theme.name,
         "is_dark": theme.is_dark,

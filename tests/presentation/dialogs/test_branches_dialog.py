@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
@@ -47,9 +48,7 @@ def test_rename_calls_command(qtbot, buses):
     d = BranchesDialog(queries, commands)
     qtbot.addWidget(d)
     d._table.selectRow(1)
-    with patch(
-        "git_gui.presentation.dialogs.branches_dialog._RenameDialog"
-    ) as RD:
+    with patch("git_gui.presentation.dialogs.branches_dialog._RenameDialog") as RD:
         instance = RD.return_value
         instance.exec.return_value = 1  # QDialog.Accepted
         instance.value.return_value = "wip2"
@@ -62,9 +61,7 @@ def test_set_upstream_calls_command(qtbot, buses):
     d = BranchesDialog(queries, commands)
     qtbot.addWidget(d)
     d._table.selectRow(1)
-    with patch(
-        "git_gui.presentation.dialogs.branches_dialog._UpstreamDialog"
-    ) as UD:
+    with patch("git_gui.presentation.dialogs.branches_dialog._UpstreamDialog") as UD:
         instance = UD.return_value
         instance.exec.return_value = 1
         instance.value.return_value = "origin/master"
@@ -77,9 +74,7 @@ def test_set_upstream_none_calls_unset(qtbot, buses):
     d = BranchesDialog(queries, commands)
     qtbot.addWidget(d)
     d._table.selectRow(0)
-    with patch(
-        "git_gui.presentation.dialogs.branches_dialog._UpstreamDialog"
-    ) as UD:
+    with patch("git_gui.presentation.dialogs.branches_dialog._UpstreamDialog") as UD:
         instance = UD.return_value
         instance.exec.return_value = 1
         instance.value.return_value = None
@@ -93,8 +88,10 @@ def test_error_shows_messagebox(qtbot, buses):
     d = BranchesDialog(queries, commands)
     qtbot.addWidget(d)
     d._table.selectRow(1)
-    with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes), \
-         patch.object(QMessageBox, "warning") as warn:
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+        patch.object(QMessageBox, "warning") as warn,
+    ):
         d._on_delete()
     warn.assert_called_once()
     assert "boom" in warn.call_args[0][2]

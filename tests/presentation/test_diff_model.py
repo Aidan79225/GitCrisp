@@ -1,6 +1,7 @@
+from PySide6.QtCore import Qt
+
 from git_gui.domain.entities import FileStatus
 from git_gui.presentation.models.diff_model import DiffModel
-from PySide6.QtCore import Qt
 
 
 def _make_file(path, status="staged", delta="modified"):

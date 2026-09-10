@@ -1,9 +1,19 @@
 from __future__ import annotations
+
 import os
+
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLineEdit,
-    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
 
 
@@ -150,7 +160,10 @@ class SubmoduleDialog(QDialog):
         path = self._selected_path()
         if not path:
             return
-        if QMessageBox.question(self, "Remove submodule", f"Remove submodule '{path}'?") != QMessageBox.Yes:
+        if (
+            QMessageBox.question(self, "Remove submodule", f"Remove submodule '{path}'?")
+            != QMessageBox.Yes
+        ):
             return
         try:
             self._commands.remove_submodule.execute(path)

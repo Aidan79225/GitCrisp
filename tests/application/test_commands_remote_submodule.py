@@ -1,7 +1,13 @@
 from unittest.mock import MagicMock
+
 from git_gui.application.commands import (
-    AddRemote, RemoveRemote, RenameRemote, SetRemoteUrl,
-    AddSubmodule, RemoveSubmodule, SetSubmoduleUrl,
+    AddRemote,
+    AddSubmodule,
+    RemoveRemote,
+    RemoveSubmodule,
+    RenameRemote,
+    SetRemoteUrl,
+    SetSubmoduleUrl,
 )
 
 

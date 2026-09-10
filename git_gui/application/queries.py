@@ -1,6 +1,25 @@
 from __future__ import annotations
+
+from collections.abc import Callable, Iterator
 from datetime import datetime
-from git_gui.domain.entities import Branch, Commit, CommitStat, FileStatus, Hunk, LocalBranchInfo, Remote, RepoStateInfo, Stash, Submodule, Tag, MergeAnalysisResult
+
+from git_gui.domain.entities import (
+    BlameLine,
+    Branch,
+    Commit,
+    CommitStat,
+    FileStatus,
+    Hunk,
+    LocalBranchInfo,
+    MergeAnalysisResult,
+    ReflogEntry,
+    Remote,
+    RepoStateInfo,
+    Stash,
+    Submodule,
+    Tag,
+    Worktree,
+)
 from git_gui.domain.ports import IRepositoryReader
 
 
@@ -8,8 +27,22 @@ class GetCommitGraph:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
 
-    def execute(self, limit: int = 200, skip: int = 0, extra_tips: list[str] | None = None) -> list[Commit]:
-        return self._reader.get_commits(limit, skip, extra_tips=extra_tips)
+    def execute(
+        self,
+        limit: int = 200,
+        skip: int = 0,
+        extra_tips: list[str] | None = None,
+        *,
+        first_parent: bool = False,
+        pin_unreachable: bool = False,
+    ) -> list[Commit]:
+        return self._reader.get_commits(
+            limit,
+            skip,
+            extra_tips=extra_tips,
+            first_parent=first_parent,
+            pin_unreachable=pin_unreachable,
+        )
 
 
 class GetBranches:
@@ -36,6 +69,14 @@ class GetTags:
         return self._reader.get_tags()
 
 
+class GetIdentity:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> tuple[str | None, str | None]:
+        return self._reader.get_identity()
+
+
 class GetRemoteTags:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
@@ -48,8 +89,15 @@ class GetCommitStats:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
 
-    def execute(self, since: datetime | None = None, until: datetime | None = None) -> list[CommitStat]:
-        return self._reader.get_commit_stats(since, until)
+    def execute(
+        self,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        *,
+        cancel: Callable[[], bool] | None = None,
+    ) -> Iterator[CommitStat]:
+        """Per-commit line and file counts in the range, merges excluded."""
+        return self._reader.get_commit_stats(since, until, cancel=cancel)
 
 
 class GetCommitFiles:
@@ -108,6 +156,30 @@ class GetCommitDetail:
         return self._reader.get_commit(oid)
 
 
+class GetBlame:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, path: str, *, at_oid: str | None = None) -> list[BlameLine]:
+        return self._reader.get_blame(path, at_oid=at_oid)
+
+
+class GetReflog:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, ref: str = "HEAD", limit: int = 100) -> list[ReflogEntry]:
+        return self._reader.get_reflog(ref, limit)
+
+
+class GetFileHistory:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, path: str, limit: int, skip: int = 0, *, follow: bool = True) -> list[Commit]:
+        return self._reader.get_file_history(path, limit, skip, follow=follow)
+
+
 class ListRemotes:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
@@ -151,6 +223,7 @@ class IsAncestor:
 class GetMergeAnalysis:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
+
     def execute(self, oid: str) -> MergeAnalysisResult:
         return self._reader.merge_analysis(oid)
 
@@ -158,6 +231,7 @@ class GetMergeAnalysis:
 class GetMergeHead:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
+
     def execute(self) -> str | None:
         return self._reader.get_merge_head()
 
@@ -165,6 +239,7 @@ class GetMergeHead:
 class GetMergeMsg:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
+
     def execute(self) -> str | None:
         return self._reader.get_merge_msg()
 
@@ -172,6 +247,7 @@ class GetMergeMsg:
 class HasUnresolvedConflicts:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
+
     def execute(self) -> bool:
         return self._reader.has_unresolved_conflicts()
 
@@ -188,8 +264,8 @@ class GetWorkingTreeDiffMap:
     def __init__(self, reader: IRepositoryReader) -> None:
         self._reader = reader
 
-    def execute(self) -> dict[str, dict[str, list[Hunk]]]:
-        return self._reader.get_working_tree_diff_map()
+    def execute(self, paths: list[str] | None = None) -> dict[str, dict[str, list[Hunk]]]:
+        return self._reader.get_working_tree_diff_map(paths)
 
 
 class GetCommitRange:
@@ -198,3 +274,35 @@ class GetCommitRange:
 
     def execute(self, head_oid: str, base_oid: str) -> list[Commit]:
         return self._reader.get_commit_range(head_oid, base_oid)
+
+
+class GetMergeBase:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, oid_a: str, oid_b: str) -> str | None:
+        return self._reader.merge_base(oid_a, oid_b)
+
+
+class ListWorktrees:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> list[Worktree]:
+        return self._reader.list_worktrees()
+
+
+class FindWorktreeForBranch:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self, branch: str) -> Worktree | None:
+        return self._reader.find_worktree_for_branch(branch)
+
+
+class RemoteDefaultBranches:
+    def __init__(self, reader: IRepositoryReader) -> None:
+        self._reader = reader
+
+    def execute(self) -> dict[str, str]:
+        return self._reader.remote_default_branches()

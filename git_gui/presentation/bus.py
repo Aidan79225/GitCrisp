@@ -1,39 +1,116 @@
 # git_gui/presentation/bus.py
 from __future__ import annotations
+
 from dataclasses import dataclass
-from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
-from git_gui.application.queries import (
-    GetCommitGraph, GetBranches, GetStashes, GetTags, GetRemoteTags, GetCommitStats,
-    GetCommitFiles, GetFileDiff, GetStagedDiff, GetWorkingTree,
-    GetCommitDetail, IsDirty, GetHeadOid,
-    ListRemotes, ListSubmodules, ListLocalBranchesWithUpstream,
-    GetRepoState, IsAncestor, GetMergeAnalysis,
-    GetMergeHead, GetMergeMsg, HasUnresolvedConflicts,
-    GetCommitDiffMap, GetWorkingTreeDiffMap, GetCommitRange,
-)
+
 from git_gui.application.commands import (
-    StageFiles, UnstageFiles, CreateCommit,
-    Checkout, CheckoutCommit, CheckoutRemoteBranch, CreateBranch, DeleteBranch,
-    CreateTag, DeleteTag, PushTag, DeleteRemoteTag,
-    Merge, Rebase, Push, ForcePush, Pull, Fetch,
-    Stash, PopStash, ApplyStash, DropStash,
-    StageHunk, UnstageHunk, FetchAllPrune,
-    DiscardFile, DiscardHunk,
-    AddRemote, RemoveRemote, RenameRemote, SetRemoteUrl,
-    AddSubmodule, RemoveSubmodule, SetSubmoduleUrl,
-    SetBranchUpstream, UnsetBranchUpstream, RenameBranch, ResetBranchToRef,
-    MergeCommit, RebaseOntoCommit,
-    MergeAbort, RebaseAbort, RebaseContinue,
+    AddRemote,
+    AddSubmodule,
+    AddWorktree,
+    AmendCommit,
+    ApplyStash,
+    CancelRemoteOp,
+    Checkout,
+    CheckoutCommit,
+    CheckoutRemoteBranch,
+    CherryPickAbort,
+    CherryPickCommit,
+    CherryPickContinue,
+    CreateBranch,
+    CreateCommit,
+    CreateTag,
+    DeleteBranch,
+    DeleteRemoteBranch,
+    DeleteRemoteBranches,
+    DeleteRemoteTag,
+    DeleteTag,
+    DiscardFile,
+    DiscardHunk,
+    DropStash,
+    Fetch,
+    FetchAllPrune,
+    ForcePush,
     InteractiveRebase,
+    LockWorktree,
+    Merge,
+    MergeAbort,
+    MergeCommit,
+    PopStash,
+    Pull,
+    Push,
+    PushTag,
+    Rebase,
+    RebaseAbort,
+    RebaseContinue,
+    RebaseOntoCommit,
+    RemoveRemote,
+    RemoveSubmodule,
+    RemoveWorktree,
+    RenameBranch,
+    RenameRemote,
+    ResetBranch,
+    ResetBranchToRef,
+    RevertAbort,
+    RevertCommit,
+    RevertContinue,
+    SetBranchUpstream,
+    SetIdentity,
+    SetRemoteUrl,
+    SetSubmoduleUrl,
+    StageFiles,
+    StageHunk,
+    Stash,
+    UnlockWorktree,
+    UnsetBranchUpstream,
+    UnstageFiles,
+    UnstageHunk,
 )
+from git_gui.application.queries import (
+    FindWorktreeForBranch,
+    GetBlame,
+    GetBranches,
+    GetCommitDetail,
+    GetCommitDiffMap,
+    GetCommitFiles,
+    GetCommitGraph,
+    GetCommitRange,
+    GetCommitStats,
+    GetFileDiff,
+    GetFileHistory,
+    GetHeadOid,
+    GetIdentity,
+    GetMergeAnalysis,
+    GetMergeBase,
+    GetMergeHead,
+    GetMergeMsg,
+    GetReflog,
+    GetRemoteTags,
+    GetRepoState,
+    GetStagedDiff,
+    GetStashes,
+    GetTags,
+    GetWorkingTree,
+    GetWorkingTreeDiffMap,
+    HasUnresolvedConflicts,
+    IsAncestor,
+    IsDirty,
+    ListLocalBranchesWithUpstream,
+    ListRemotes,
+    ListSubmodules,
+    ListWorktrees,
+    RemoteDefaultBranches,
+)
+from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
 
 
 @dataclass
 class QueryBus:
     get_commit_graph: GetCommitGraph
+    get_blame: GetBlame
     get_branches: GetBranches
     get_stashes: GetStashes
     get_tags: GetTags
+    get_reflog: GetReflog
     get_remote_tags: GetRemoteTags
     get_commit_stats: GetCommitStats
     get_commit_files: GetCommitFiles
@@ -42,6 +119,7 @@ class QueryBus:
     get_working_tree: GetWorkingTree
     get_commit_detail: GetCommitDetail
     is_dirty: IsDirty
+    get_file_history: GetFileHistory
     get_head_oid: GetHeadOid
     list_remotes: ListRemotes
     list_submodules: ListSubmodules
@@ -55,14 +133,21 @@ class QueryBus:
     get_commit_diff_map: GetCommitDiffMap
     get_working_tree_diff_map: GetWorkingTreeDiffMap
     get_commit_range: GetCommitRange
+    get_merge_base: GetMergeBase
+    get_identity: GetIdentity
+    list_worktrees: ListWorktrees
+    find_worktree_for_branch: FindWorktreeForBranch
+    remote_default_branches: RemoteDefaultBranches
 
     @classmethod
-    def from_reader(cls, reader: IRepositoryReader) -> "QueryBus":
+    def from_reader(cls, reader: IRepositoryReader) -> QueryBus:
         return cls(
             get_commit_graph=GetCommitGraph(reader),
+            get_blame=GetBlame(reader),
             get_branches=GetBranches(reader),
             get_stashes=GetStashes(reader),
             get_tags=GetTags(reader),
+            get_reflog=GetReflog(reader),
             get_remote_tags=GetRemoteTags(reader),
             get_commit_stats=GetCommitStats(reader),
             get_commit_files=GetCommitFiles(reader),
@@ -71,6 +156,7 @@ class QueryBus:
             get_working_tree=GetWorkingTree(reader),
             get_commit_detail=GetCommitDetail(reader),
             is_dirty=IsDirty(reader),
+            get_file_history=GetFileHistory(reader),
             get_head_oid=GetHeadOid(reader),
             list_remotes=ListRemotes(reader),
             list_submodules=ListSubmodules(reader),
@@ -84,6 +170,11 @@ class QueryBus:
             get_commit_diff_map=GetCommitDiffMap(reader),
             get_working_tree_diff_map=GetWorkingTreeDiffMap(reader),
             get_commit_range=GetCommitRange(reader),
+            get_merge_base=GetMergeBase(reader),
+            get_identity=GetIdentity(reader),
+            list_worktrees=ListWorktrees(reader),
+            find_worktree_for_branch=FindWorktreeForBranch(reader),
+            remote_default_branches=RemoteDefaultBranches(reader),
         )
 
 
@@ -92,11 +183,14 @@ class CommandBus:
     stage_files: StageFiles
     unstage_files: UnstageFiles
     create_commit: CreateCommit
+    amend_commit: AmendCommit
     checkout: Checkout
     checkout_commit: CheckoutCommit
     checkout_remote_branch: CheckoutRemoteBranch
     create_branch: CreateBranch
     delete_branch: DeleteBranch
+    delete_remote_branch: DeleteRemoteBranch
+    delete_remote_branches: DeleteRemoteBranches
     create_tag: CreateTag
     delete_tag: DeleteTag
     push_tag: PushTag
@@ -118,6 +212,7 @@ class CommandBus:
     discard_file: DiscardFile
     discard_hunk: DiscardHunk
     fetch_all_prune: FetchAllPrune
+    cancel_remote_op: CancelRemoteOp
     add_remote: AddRemote
     remove_remote: RemoveRemote
     rename_remote: RenameRemote
@@ -133,18 +228,33 @@ class CommandBus:
     rebase_abort: RebaseAbort
     rebase_continue: RebaseContinue
     interactive_rebase: InteractiveRebase
+    cherry_pick: CherryPickCommit
+    revert_commit: RevertCommit
+    reset_branch: ResetBranch
+    cherry_pick_abort: CherryPickAbort
+    cherry_pick_continue: CherryPickContinue
+    revert_abort: RevertAbort
+    revert_continue: RevertContinue
+    set_identity: SetIdentity
+    add_worktree: AddWorktree
+    remove_worktree: RemoveWorktree
+    lock_worktree: LockWorktree
+    unlock_worktree: UnlockWorktree
 
     @classmethod
-    def from_writer(cls, writer: IRepositoryWriter) -> "CommandBus":
+    def from_writer(cls, writer: IRepositoryWriter) -> CommandBus:
         return cls(
             stage_files=StageFiles(writer),
             unstage_files=UnstageFiles(writer),
             create_commit=CreateCommit(writer),
+            amend_commit=AmendCommit(writer),
             checkout=Checkout(writer),
             checkout_commit=CheckoutCommit(writer),
             checkout_remote_branch=CheckoutRemoteBranch(writer),
             create_branch=CreateBranch(writer),
             delete_branch=DeleteBranch(writer),
+            delete_remote_branch=DeleteRemoteBranch(writer),
+            delete_remote_branches=DeleteRemoteBranches(writer),
             create_tag=CreateTag(writer),
             delete_tag=DeleteTag(writer),
             push_tag=PushTag(writer),
@@ -166,6 +276,7 @@ class CommandBus:
             discard_file=DiscardFile(writer),
             discard_hunk=DiscardHunk(writer),
             fetch_all_prune=FetchAllPrune(writer),
+            cancel_remote_op=CancelRemoteOp(writer),
             add_remote=AddRemote(writer),
             remove_remote=RemoveRemote(writer),
             rename_remote=RenameRemote(writer),
@@ -181,4 +292,16 @@ class CommandBus:
             rebase_abort=RebaseAbort(writer),
             rebase_continue=RebaseContinue(writer),
             interactive_rebase=InteractiveRebase(writer),
+            cherry_pick=CherryPickCommit(writer),
+            revert_commit=RevertCommit(writer),
+            reset_branch=ResetBranch(writer),
+            cherry_pick_abort=CherryPickAbort(writer),
+            cherry_pick_continue=CherryPickContinue(writer),
+            revert_abort=RevertAbort(writer),
+            revert_continue=RevertContinue(writer),
+            set_identity=SetIdentity(writer),
+            add_worktree=AddWorktree(writer),
+            remove_worktree=RemoveWorktree(writer),
+            lock_worktree=LockWorktree(writer),
+            unlock_worktree=UnlockWorktree(writer),
         )

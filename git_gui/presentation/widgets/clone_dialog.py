@@ -1,16 +1,25 @@
 # git_gui/presentation/widgets/clone_dialog.py
 from __future__ import annotations
+
 import re
 import threading
 from pathlib import Path
+
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
-    QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-    QLineEdit, QProgressBar, QPushButton, QVBoxLayout,
+    QDialog,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
 )
-from git_gui.infrastructure.git_clone import CloneProgress, clone_repo
-from git_gui.presentation.theme import get_theme_manager, connect_widget
 
+from git_gui.infrastructure.git_clone import CloneProgress, clone_repo
+from git_gui.presentation.theme import connect_widget, get_theme_manager
 
 _REPO_NAME_RE = re.compile(r"[/:]([^/:]+?)(?:\.git)?/?$")
 
@@ -22,9 +31,9 @@ def _parse_repo_name(url: str) -> str:
 
 
 class _CloneSignals(QObject):
-    progress = Signal(str, int)    # phase, percent
-    finished = Signal(str)         # dest path
-    failed = Signal(str)           # error message
+    progress = Signal(str, int)  # phase, percent
+    finished = Signal(str)  # dest path
+    failed = Signal(str)  # error message
 
 
 class CloneDialog(QDialog):
@@ -38,7 +47,9 @@ class CloneDialog(QDialog):
 
         # URL
         self._url_edit = QLineEdit()
-        self._url_edit.setPlaceholderText("https://github.com/user/repo.git  or  git@github.com:user/repo.git")
+        self._url_edit.setPlaceholderText(
+            "https://github.com/user/repo.git  or  git@github.com:user/repo.git"
+        )
         self._url_edit.textChanged.connect(self._on_url_changed)
 
         # Folder location
@@ -148,8 +159,10 @@ class CloneDialog(QDialog):
 
         def _worker():
             try:
+
                 def _report(p: CloneProgress):
                     signals.progress.emit(p.phase, p.percent)
+
                 clone_repo(url, dest, on_progress=_report)
                 signals.finished.emit(dest)
             except Exception as e:

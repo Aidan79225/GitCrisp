@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
-from git_gui.domain.entities import Remote, Submodule
+
 from git_gui.application.queries import ListRemotes, ListSubmodules
+from git_gui.domain.entities import Remote, Submodule
 
 
 def test_list_remotes_calls_reader():

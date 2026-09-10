@@ -1,12 +1,19 @@
 from __future__ import annotations
+
 import json
 import re
 from dataclasses import fields
 from importlib import resources
 from pathlib import Path
 from typing import Any
+
 from .tokens import (
-    Theme, Colors, Typography, TextStyle, Shape, Spacing,
+    Colors,
+    Shape,
+    Spacing,
+    TextStyle,
+    Theme,
+    Typography,
 )
 
 
@@ -53,9 +60,7 @@ def _build_colors(data: dict) -> Colors:
 
 def _build_typography(data: dict) -> Typography:
     _check_keys(Typography, data, "typography")
-    return Typography(**{
-        k: _build_text_style(v, f"typography.{k}") for k, v in data.items()
-    })
+    return Typography(**{k: _build_text_style(v, f"typography.{k}") for k, v in data.items()})
 
 
 def _build_simple(cls, data: dict, path: str):

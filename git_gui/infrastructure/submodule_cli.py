@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 import shutil
 import subprocess
 from pathlib import Path
 
-from git_gui.resources import subprocess_kwargs
+from git_gui.resources import git_ssh_env, subprocess_kwargs
 
 
 class SubmoduleCommandError(Exception):
@@ -23,9 +24,7 @@ class SubmoduleCli:
 
     def _run(self, *args: str) -> None:
         if shutil.which(self._git) is None:
-            raise SubmoduleCommandError(
-                f"`{self._git}` executable not found on PATH"
-            )
+            raise SubmoduleCommandError(f"`{self._git}` executable not found on PATH")
         try:
             subprocess.run(
                 [self._git, *args],
@@ -33,15 +32,14 @@ class SubmoduleCli:
                 check=True,
                 capture_output=True,
                 text=True,
+                env=git_ssh_env(),
                 **subprocess_kwargs(),
             )
         except subprocess.CalledProcessError as e:
             stderr = (e.stderr or "").strip() or (e.stdout or "").strip() or str(e)
             raise SubmoduleCommandError(stderr) from e
         except FileNotFoundError as e:
-            raise SubmoduleCommandError(
-                f"`{self._git}` executable not found on PATH"
-            ) from e
+            raise SubmoduleCommandError(f"`{self._git}` executable not found on PATH") from e
 
     def add(self, path: str, url: str) -> None:
         self._run("submodule", "add", "--", url, path)

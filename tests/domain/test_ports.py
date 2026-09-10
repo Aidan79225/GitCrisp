@@ -1,7 +1,8 @@
-from unittest.mock import MagicMock
-from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
-from git_gui.domain.entities import Commit, Branch, FileStatus, Hunk
 from datetime import datetime
+from unittest.mock import MagicMock
+
+from git_gui.domain.entities import Commit
+from git_gui.domain.ports import IRepositoryReader, IRepositoryWriter
 
 
 def _make_commit():

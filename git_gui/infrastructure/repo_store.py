@@ -1,18 +1,21 @@
 from __future__ import annotations
+
 import json
 from pathlib import Path
+from typing import Any
 
 _RECENT_LIMIT = 20
 
 
 class JsonRepoStore:
-    """Persists open/recent repo lists to a JSON file."""
+    """Persists open/recent repo lists and per-repo settings to a JSON file."""
 
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or Path.home() / ".gitcrisp" / "repos.json"
         self._open: list[str] = []
         self._recent: list[str] = []
         self._active: str | None = None
+        self._settings: dict[str, dict[str, Any]] = {}
 
     def load(self) -> None:
         if self._path.exists():
@@ -20,14 +23,24 @@ class JsonRepoStore:
             self._open = list(data.get("open", []))
             self._recent = list(data.get("recent", []))
             self._active = data.get("active")
+            raw_settings = data.get("settings", {}) or {}
+            self._settings = {
+                str(k): dict(v) for k, v in raw_settings.items() if isinstance(v, dict)
+            }
         else:
             self._open = []
             self._recent = []
             self._active = None
+            self._settings = {}
 
     def save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"open": self._open, "recent": self._recent, "active": self._active}
+        data = {
+            "open": self._open,
+            "recent": self._recent,
+            "active": self._active,
+            "settings": self._settings,
+        }
         self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def get_open_repos(self) -> list[str]:
@@ -64,9 +77,29 @@ class JsonRepoStore:
         if path in self._recent:
             self._recent.remove(path)
 
+    def forget(self, path: str) -> None:
+        """Drop a path entirely — from open, recent, and active.
+
+        Unlike close_repo (which demotes an open repo to recent), this fully
+        removes a path. Used to prune stored paths that no longer resolve to a
+        git repository (e.g. a deleted worktree) so they stop reappearing.
+        """
+        if path in self._open:
+            self._open.remove(path)
+        if path in self._recent:
+            self._recent.remove(path)
+        if self._active == path:
+            self._active = None
+
     def set_active(self, path: str) -> None:
         self._active = path
 
     def set_open_order(self, paths: list[str]) -> None:
         """Replace the open repos list with a new ordering."""
         self._open = list(paths)
+
+    def get_repo_setting(self, path: str, key: str, default: Any = None) -> Any:
+        return self._settings.get(path, {}).get(key, default)
+
+    def set_repo_setting(self, path: str, key: str, value: Any) -> None:
+        self._settings.setdefault(path, {})[key] = value

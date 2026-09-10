@@ -1,10 +1,12 @@
 """Install a `View → Appearance...` menu item that opens the Theme dialog."""
+
 from __future__ import annotations
 
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMainWindow
 
 from git_gui.presentation.dialogs.theme_dialog import ThemeDialog
+from git_gui.presentation.menus.view_menu import view_menu
 
 
 def install_appearance_menu(window: QMainWindow) -> None:
@@ -12,10 +14,8 @@ def install_appearance_menu(window: QMainWindow) -> None:
 
     Clicking the action opens the Theme dialog.
     """
-    bar = window.menuBar()
-    view_menu = bar.addMenu("&View")
     action = QAction("&Appearance...", window)
     action.triggered.connect(lambda: ThemeDialog(window).exec())
-    view_menu.addAction(action)
+    view_menu(window).addAction(action)
     # Hold a reference to keep the action alive.
     window._appearance_action = action  # type: ignore[attr-defined]

@@ -1,23 +1,24 @@
 """Tests for keyboard shortcuts: Ctrl+F search, Ctrl+W close repo, Ctrl+1-9 switch repo."""
+
 from __future__ import annotations
+
 from datetime import datetime
 from unittest.mock import MagicMock
 
-import pytest
-from PySide6.QtCore import Qt
-
 from git_gui.domain.entities import Commit
-from git_gui.presentation.widgets.graph import _SearchBar, GraphWidget
-
+from git_gui.presentation.widgets.graph import GraphWidget, _SearchBar
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-def _commit(oid="abc", msg="Initial commit", author="Alice <a@a.com>",
-            ts=None, parents=None):
-    return Commit(oid=oid, message=msg, author=author,
-                  timestamp=ts or datetime(2026, 1, 15, 10, 30),
-                  parents=parents or [])
+def _commit(oid="abc", msg="Initial commit", author="Alice <a@a.com>", ts=None, parents=None):
+    return Commit(
+        oid=oid,
+        message=msg,
+        author=author,
+        timestamp=ts or datetime(2026, 1, 15, 10, 30),
+        parents=parents or [],
+    )
 
 
 def _fake_buses():
@@ -84,7 +85,9 @@ class TestSearchBar:
 class TestGraphSearch:
     def _make_widget(self, qtbot, commits, refs=None):
         queries, commands = _fake_buses()
-        w = GraphWidget(queries, commands)
+        repo_store = MagicMock()
+        repo_store.get_repo_setting.return_value = False
+        w = GraphWidget(queries, commands, repo_store=repo_store)
         qtbot.addWidget(w)
         w._model.reload(commits, refs or {})
         w._has_more = False  # all commits are pre-loaded in tests
@@ -238,12 +241,14 @@ def _make_main_window_stub(repo_path, open_repos):
 class TestCloseCurrentRepoLogic:
     def test_close_delegates_to_on_repo_close(self):
         from git_gui.presentation.main_window import MainWindow
+
         stub = _make_main_window_stub("/repo/a", ["/repo/a"])
         MainWindow._close_current_repo(stub)
         stub._on_repo_close.assert_called_once_with("/repo/a")
 
     def test_close_noop_without_repo(self):
         from git_gui.presentation.main_window import MainWindow
+
         stub = _make_main_window_stub(None, [])
         MainWindow._close_current_repo(stub)
         stub._on_repo_close.assert_not_called()
@@ -252,24 +257,28 @@ class TestCloseCurrentRepoLogic:
 class TestSwitchToRepoIndexLogic:
     def test_switch_to_valid_index(self):
         from git_gui.presentation.main_window import MainWindow
+
         stub = _make_main_window_stub("/repo/a", ["/repo/a", "/repo/b", "/repo/c"])
         MainWindow._switch_to_repo_index(stub, 2)
         stub._switch_repo.assert_called_once_with("/repo/b")
 
     def test_switch_to_out_of_range(self):
         from git_gui.presentation.main_window import MainWindow
+
         stub = _make_main_window_stub("/repo/a", ["/repo/a"])
         MainWindow._switch_to_repo_index(stub, 5)
         stub._switch_repo.assert_not_called()
 
     def test_switch_to_current_repo_noop(self):
         from git_gui.presentation.main_window import MainWindow
+
         stub = _make_main_window_stub("/repo/a", ["/repo/a", "/repo/b"])
         MainWindow._switch_to_repo_index(stub, 1)  # /repo/a is already active
         stub._switch_repo.assert_not_called()
 
     def test_switch_to_third_repo(self):
         from git_gui.presentation.main_window import MainWindow
+
         stub = _make_main_window_stub("/repo/a", ["/repo/a", "/repo/b", "/repo/c"])
         MainWindow._switch_to_repo_index(stub, 3)
         stub._switch_repo.assert_called_once_with("/repo/c")

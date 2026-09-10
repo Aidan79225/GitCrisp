@@ -1,16 +1,18 @@
-import os
 import subprocess
 from pathlib import Path
+
 import pytest
 
 from git_gui.infrastructure.submodule_cli import (
-    SubmoduleCli, SubmoduleCommandError,
+    SubmoduleCli,
+    SubmoduleCommandError,
 )
 
 
 def _run(cwd: str, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=cwd, check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["git", *args], cwd=cwd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
 
 
 @pytest.fixture

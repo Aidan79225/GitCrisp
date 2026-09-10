@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import pygit2
 import pytest
-from pathlib import Path
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+
 from git_gui.domain.entities import MergeStrategy, RepoState
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 @pytest.fixture
@@ -119,8 +121,7 @@ def test_merge_commit_fast_forward(writable_repo):
     # Get main/master branch name dynamically
     branches = impl.get_branches()
     main_branch_name = next(
-        (b.name for b in branches if not b.is_remote and b.name in ["main", "master"]),
-        "master"
+        (b.name for b in branches if not b.is_remote and b.name in ["main", "master"]), "master"
     )
     # Checkout main/master branch
     impl.checkout(main_branch_name)
@@ -147,7 +148,11 @@ def test_rebase_onto_commit(writable_repo):
     impl.stage(["c.txt"])
     c = impl.commit("C on feature")
     # back to main, rebase onto commit C
-    main_name = "main" if "main" in [br.name for br in impl.get_branches() if not br.is_remote] else "master"
+    main_name = (
+        "main"
+        if "main" in [br.name for br in impl.get_branches() if not br.is_remote]
+        else "master"
+    )
     impl.checkout(main_name)
 
     impl.rebase_onto_commit(c.oid)
@@ -255,6 +260,48 @@ def test_merge_abort_restores_clean_state(writable_repo):
     assert impl.get_merge_head() is None
 
 
+def test_checkout_after_aborted_merge_does_not_see_stale_conflicts(writable_repo):
+    """Regression: merging via the long-lived impl populates its in-memory
+    index with conflict entries. Aborting via subprocess clears the on-disk
+    index but NOT the cached in-memory one. A subsequent checkout through the
+    same impl must not fail with 'unresolved conflicts exist in the index'."""
+    impl, path = writable_repo
+    raw = pygit2.Repository(str(path))
+    sig = pygit2.Signature("T", "t@t.com")
+    base = raw.head.target
+
+    # Advance master with a change to README.md
+    (path / "README.md").write_text("master change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_a = raw.index.write_tree()
+    raw.create_commit("refs/heads/master", sig, sig, "master change", tree_a, [base])
+
+    # Conflicting branch from base
+    raw.branches.local.create("conflict-branch", raw.get(base))
+    raw.checkout("refs/heads/conflict-branch")
+    (path / "README.md").write_text("branch change\n")
+    raw.index.add("README.md")
+    raw.index.write()
+    tree_b = raw.index.write_tree()
+    raw.create_commit("refs/heads/conflict-branch", sig, sig, "branch change", tree_b, [base])
+
+    # Back to master, then merge THROUGH THE IMPL so its in-memory index is
+    # polluted with conflict entries (this is the real app's code path).
+    raw.checkout("refs/heads/master")
+    raw.set_head("refs/heads/master")
+    impl.merge("conflict-branch")
+    assert impl.repo_state().state == RepoState.MERGING
+
+    # Abort via subprocess — clears the on-disk index, not impl's cached one.
+    impl.merge_abort()
+    assert impl.repo_state().state == RepoState.CLEAN
+
+    # Checkout through the same impl must succeed.
+    impl.checkout("conflict-branch")
+    assert pygit2.Repository(str(path)).head.shorthand == "conflict-branch"
+
+
 def test_rebase_abort_restores_clean_state(writable_repo):
     impl, path = writable_repo
     raw = pygit2.Repository(str(path))
@@ -281,16 +328,15 @@ def test_rebase_abort_restores_clean_state(writable_repo):
     with pytest.raises(RuntimeError):
         impl.rebase("master")
 
-    # During rebase, git detaches HEAD so repo_state returns DETACHED_HEAD;
-    # verify rebase is in progress via the rebase-merge directory
-    import os
+    # Assert on libgit2's own view here rather than repo_state(); the
+    # REBASING mapping is covered by test_repo_state_rebasing.
     raw2 = pygit2.Repository(str(path))
-    assert raw2.state() != pygit2.GIT_REPOSITORY_STATE_NONE
+    assert raw2.state() != pygit2.enums.RepositoryState.NONE
 
     impl.rebase_abort()
 
     raw3 = pygit2.Repository(str(path))
-    assert raw3.state() == pygit2.GIT_REPOSITORY_STATE_NONE
+    assert raw3.state() == pygit2.enums.RepositoryState.NONE
 
 
 def test_rebase_continue_errors_on_clean_repo(writable_repo):
@@ -329,6 +375,7 @@ def test_interactive_rebase_squash(repo_impl, repo_path):
     assert len(new_commits) == 2
     # The squashed commit should contain both files
     import os
+
     assert os.path.exists(repo_path / "b.txt")
     assert os.path.exists(repo_path / "c.txt")
 
@@ -355,5 +402,100 @@ def test_interactive_rebase_drop(repo_impl, repo_path):
     new_commits = repo_impl.get_commits(limit=10)
     assert len(new_commits) == 2  # initial + B only
     import os
+
     assert os.path.exists(repo_path / "b.txt")
     assert not os.path.exists(repo_path / "c.txt")
+
+
+# ── amend ────────────────────────────────────────────────────────────────────
+
+
+def test_amend_replaces_head_and_keeps_parent(writable_repo):
+    impl, path = writable_repo
+    (path / "a.txt").write_text("v1\n")
+    impl.stage(["a.txt"])
+    original = impl.commit("typo in subjcet")
+    raw = pygit2.Repository(str(path))
+    original_parents = [str(p) for p in raw[raw.head.target].parent_ids]
+
+    amended = impl.amend_commit("fix: typo in subject")
+
+    assert amended.message == "fix: typo in subject"
+    assert amended.oid != original.oid
+    raw = pygit2.Repository(str(path))
+    assert str(raw.head.target) == amended.oid
+    # History is rewritten in place, not extended.
+    assert [str(p) for p in raw[raw.head.target].parent_ids] == original_parents
+
+
+def test_amend_folds_in_staged_changes(writable_repo):
+    impl, path = writable_repo
+    (path / "b.txt").write_text("first\n")
+    impl.stage(["b.txt"])
+    impl.commit("add b.txt")
+
+    (path / "forgotten.txt").write_text("oops\n")
+    impl.stage(["forgotten.txt"])
+    amended = impl.amend_commit("add b.txt and forgotten.txt")
+
+    raw = pygit2.Repository(str(path))
+    tree = raw[raw.head.target].tree
+    assert "b.txt" in tree and "forgotten.txt" in tree
+    assert amended.message == "add b.txt and forgotten.txt"
+
+
+def test_amend_preserves_original_author(writable_repo):
+    """`git commit --amend` keeps the author and only moves the committer."""
+    impl, path = writable_repo
+    (path / "c.txt").write_text("x\n")
+    impl.stage(["c.txt"])
+    impl.commit("original")
+    raw = pygit2.Repository(str(path))
+    before = raw[raw.head.target].author
+
+    impl.amend_commit("reworded")
+
+    raw = pygit2.Repository(str(path))
+    after = raw[raw.head.target].author
+    assert (after.name, after.email, after.time) == (before.name, before.email, before.time)
+
+
+def test_amend_on_unborn_branch_raises(tmp_path):
+    from git_gui.infrastructure.pygit2 import Pygit2Repository
+
+    pygit2.init_repository(str(tmp_path))
+    impl = Pygit2Repository(str(tmp_path))
+    with pytest.raises(ValueError, match="no commits yet"):
+        impl.amend_commit("nothing to amend")
+
+
+def test_rebase_onto_remote_tracking_branch(writable_repo):
+    """`rebase` resolves remote-tracking branches, not just local ones.
+
+    Regression: the lookup only consulted ``branches.local``, so rebasing
+    onto ``origin/<name>`` raised ``KeyError: Branch not found``.
+    """
+    impl, path = writable_repo
+    raw = pygit2.Repository(str(path))
+    base = raw.head.target
+    sig = pygit2.Signature("Test User", "test@example.com")
+
+    # origin/staging: base -> S
+    (path / "s.txt").write_text("s")
+    raw.index.add("s.txt")
+    raw.index.write()
+    tree = raw.index.write_tree()
+    staging_oid = raw.create_commit(None, sig, sig, "S on staging", tree, [base])
+    raw.references.create("refs/remotes/origin/staging", staging_oid)
+    raw.index.read_tree(raw.get(base).tree)
+    raw.index.write()
+    (path / "s.txt").unlink()
+
+    # local branch adds M on top of base
+    (path / "m.txt").write_text("m")
+    impl.stage(["m.txt"])
+    impl.commit("M on master")
+
+    impl.rebase("origin/staging")
+
+    assert impl.is_ancestor(str(staging_oid), impl.get_head_oid()) is True

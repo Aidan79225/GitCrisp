@@ -1,7 +1,16 @@
 from __future__ import annotations
+
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLineEdit,
-    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
 
 
@@ -128,7 +137,10 @@ class RemoteDialog(QDialog):
         name = self._selected_name()
         if not name:
             return
-        if QMessageBox.question(self, "Remove remote", f"Remove remote '{name}'?") != QMessageBox.Yes:
+        if (
+            QMessageBox.question(self, "Remove remote", f"Remove remote '{name}'?")
+            != QMessageBox.Yes
+        ):
             return
         try:
             self._commands.remove_remote.execute(name)

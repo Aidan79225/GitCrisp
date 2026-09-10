@@ -9,9 +9,10 @@ destroyed (via the `destroyed` signal). This prevents `RuntimeError:
 Internal C++ object already deleted` when the theme changes after a
 widget has been removed (e.g. closing a diff and reopening another).
 """
+
 from __future__ import annotations
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from PySide6.QtWidgets import QWidget
 
@@ -21,7 +22,7 @@ from .tokens import Theme
 
 def connect_widget(
     widget: QWidget,
-    rebuild: Optional[Callable[[], None]] = None,
+    rebuild: Callable[[], None] | None = None,
 ) -> None:
     """Refresh `widget` whenever the active theme changes.
 

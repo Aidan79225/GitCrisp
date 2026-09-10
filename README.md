@@ -1,6 +1,20 @@
+<img src="arts/gitcrisp.svg" alt="" width="96" align="left" hspace="16" vspace="4">
+
 # GitCrisp
 
-A clean, focused desktop Git client built with Python and PySide6 (Qt) for everyday Git workflows. Visual commit graph, per-hunk staging, multi-repository management, and full management dialogs for branches, remotes, submodules, tags, and themes.
+**Everything Git knows, one glance away. Everything Git does, one undo away.**
+
+<br clear="left">
+
+A desktop Git client built with Python and PySide6 (Qt) that keeps the graph, the diff,
+the blame and the reflog in a single window — and never runs a destructive operation
+without showing you what it will do and how to get back.
+
+Every feature below is one of three things:
+
+- **One glance away** — blame opens beside the diff, the reflog in that same column, file history filters the list in place. The answer is in this window, not the next one.
+- **One undo away** — reset, rebase, merge, cherry-pick and revert each leave a link back to the HEAD they started from; the reflog reaches the commits nothing references any more.
+- **Nothing hidden** — a branch is drawn with the commits its remote is holding ahead of it, conflicts are marked and sorted to the top, and the repo reloads itself when it changes underneath you.
 
 ## Screenshot
 
@@ -12,17 +26,27 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - Lane-based visual graph with topological + time sort
 - Lazy pagination — automatically expands the loaded range to reach distant branches
 - **Inline search** (Ctrl+F) — search commit messages, authors, hashes, and dates across the full history
+- **Blame** — right-click any file → *Blame this file* opens blame **in the commit list's column, beside the diff pane**. Click a line and the diff pane shows that commit straight away, so reading a line and reading the change that explains it is one glance rather than a window switch. Attribution is written once per run of lines from the same commit, each commit gets a stable colour from the graph's lane palette, and hovering the gutter shows the full sha, author, date, and commit subject. Right-click the gutter for *Blame before &lt;sha&gt;* to walk back through a file's history, with Back to return; ✕ or Esc gives the column back to the commit list. Blaming from a commit's file list blames *that* revision, not HEAD.
+- **File history** — right-click any file (working-tree list, commit file pills, or a diff block's header) → *Show file history* to filter the commit list to just that file. A chip above the list shows the path with a *Follow renames* toggle (on by default, so history continues past a rename) and an ✕ to go back to the full graph. The lane graph is hidden while filtered — the commits are a sparse subset, so lanes between them would be misleading — and the diff panel narrows to that one file.
 - Click any commit to view its file list and unified diff
+- **Click the commit hash** on the detail panel to copy the full 40-char OID to the clipboard; a status-bar toast confirms
+- **Auto-refresh** — the UI reloads automatically when the repo changes outside GitCrisp (e.g., a `git commit` in a terminal) or when you tab back after editing a file in your editor; your scroll position in the commit list is preserved across the refresh
+- Timestamps render in your local timezone (was UTC pre-2026-05-06)
 - Click a branch in the sidebar to scroll the graph to its HEAD
 
 ### Working Tree & Staging
 - File-level stage / unstage with checkbox toggles
 - **Per-hunk staging** — stage or unstage individual diff hunks within a file
 - Inline diff viewer with line numbers, monospace font, and added/removed highlighting
+- **Syntax highlighting** in diff hunks via Pygments — supports hundreds of languages
+- **Side-by-side diff** — `View → Side-by-side diff` draws each hunk as two panes, the file as it was on the left and as it is on the right, so a change reads across rather than down. Both sides stay level: where three lines were replaced by five, the left is padded out rather than closed up, and one shared horizontal bar keeps the two showing the same columns of a long line. The choice is remembered, and applies to both the commit diff and the working tree.
+- **Word-level intra-line diff** highlights the changed words within `-`/`+` line pairs
 - **Lazy diff loading** — skeleton placeholders that realize on scroll for smooth handling of large commits
+- **Collapsible commit message + per-file diff blocks** — chevron toggles next to the message header and on each file's header collapse to the subject line / file header respectively, so you can skip past large diffs without scrolling
 - Discard a single hunk or an entire file from the diff view
 - Add files to `.gitignore` from the context menu
 - Commit message editor with immediate feedback
+- **Amend last commit** — tick *Amend last commit* next to the Commit button to replace HEAD instead of adding a commit. The editor prefills with HEAD's message (your in-progress draft is kept and restored if you untick), staged changes fold into the amended commit, and the original author is preserved. Disabled during a merge / rebase / cherry-pick / revert, and warns first when a remote branch still points at the commit you're about to rewrite.
 
 ### Branch Management
 - Local + remote branches in a collapsible sidebar tree (HEAD highlighted)
@@ -31,6 +55,12 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - **Interactive rebase** — commit list editor with action dropdowns (pick / squash / fixup / drop) and drag-and-drop row reordering
 - **`Git → Branches...`** dialog: list local branches with their upstream and last commit; checkout, create, rename, delete, and set/unset upstream
 - **Checkout-conflict prompt** — when checking out a remote branch whose same-named local branch already exists, offer to hard-reset the local to the remote HEAD
+
+### Commit Operations
+- **Cherry-pick** — right-click a commit in the graph → "Cherry-pick commit …"
+- **Revert** — right-click a commit → "Revert commit …" (creates an inverse commit on HEAD)
+- **Reset** — right-click an ancestor of HEAD → "Reset <branch> to <sha> ▸" with soft / mixed / hard modes; hard shows a dirty-file preview before confirming
+- Cherry-pick / revert conflicts are surfaced by the existing conflict banner with Abort and Continue buttons
 
 ### Conflict Resolution
 - **Merge / rebase conflict banner** — visible in both the working tree and commit detail panels with Abort and Continue buttons
@@ -46,14 +76,15 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - Tag refs shown in the sidebar and on the graph
 
 ### Stash
-- One-click stash from the toolbar with confirmation
+- One-click stash — a Stash button appears in the commit graph header when you have uncommitted changes; confirms before stashing.
 - View stash contents (file list + diff) by clicking a stash in the sidebar
 - Pop, apply, or drop stashes via context menu
 
 ### Remote Operations
 - Push, pull, fetch, and fetch-all-prune from the toolbar
 - Fetch from a specific remote via sidebar context menu
-- **Force push dialog** — when a push is rejected (non-fast-forward), offers to force push with `--force-with-lease`
+- **Delete a remote branch** — from the sidebar context menu OR by right-clicking a graph row carrying a remote-only ref (e.g., `origin/some-feature`); both prompt for confirmation
+- **Force push prompt** — when a push is rejected (non-fast-forward), a confirmation message box offers to force push with `--force-with-lease`
 - **`Git → Remotes...`** dialog: list, add, edit (rename / change URL), and remove remotes
 - All remote operations run in background threads with status bar indicator
 
@@ -70,13 +101,32 @@ A clean, focused desktop Git client built with Python and PySide6 (Qt) for every
 - Open repositories from disk or clone from URL
 - Persistent state in `~/.gitcrisp/repos.json`
 
+### Worktrees
+- List, add, lock/unlock, and remove `git worktree` instances from inside GitCrisp
+- Worktrees appear nested under their parent repo in the sidebar; click to switch
+- **Smart checkout** — picking a branch already checked out in another worktree transparently switches to that worktree instead of erroring
+- **Add Worktree dialog** — branch combo with disabled state for already-used branches, "Create new branch" toggle with base-ref picker, templated default path (`{repo_parent}/{repo_name}-{branch}`)
+- **Two-stage remove** — confirm, then a force prompt if the worktree is dirty or locked
+- `Git → Worktrees…` opens the manage dialog with all worktrees and their lock state
+- Branches that own a worktree show a `+` badge in the sidebar branch tree and Branches dialog; "Checkout in New Worktree…" is offered in the branch context menus (sidebar, graph, dialog)
+
 ### Theming
-- Light and dark themes selectable from **`View → Appearance...`**
-- Custom typography scale (snaps to 10% steps) for the entire UI
+- Light and dark themes selectable from **`View → Appearance...`** — Light uses a softer primary-tinted surface palette; Dark stays on the deeper Material 3 baseline.
+- **Inspection mode** — open the Theme dialog and click the Custom radio in any mode to expand each section (Brand, Surface, Diff, etc.) and read every token's hex code. Individual swatch clicks are no-ops outside Custom; toggling the radio between Light / Dark / System refreshes the swatches live.
+- **Custom typography scale** (snaps to 10% steps) — drag the slider in any mode, click Apply, and the new scale persists across restarts via `settings.typography_scale`. Works in System / Light / Dark / Custom.
 - Live preview, no restart needed
 
+### Reflog & Undo
+- **Undo in the operations log** — after a reset, rebase, merge, cherry-pick, revert or branch reset, that operation's log line carries an **Undo** link returning HEAD to where it was. The state is captured *before* the operation, so the link always names what that line reports even if something else moved HEAD afterwards. It runs through the same reset dialog as any other reset — an undo is as destructive as what it undoes.
+- **Reflog button** in the commit-list toolbar, beside Reload and Push, as well as **`Git → Reflog...`** — where HEAD has been, and how to get back there. Opens in the commit list's column beside the diff pane, one dense line per movement with the operation as a colour-coded chip, so a `reset` or `rebase` is findable at a glance among the checkouts.
+- Picking a row shows that state in the diff pane — including **commits nothing references any more**, which the commit list cannot show at all. After a bad rebase or reset, this is the only place they exist.
+- Entries where the ref **ended up where it started** are folded away by default — restoring to one would put the ref where it already is. A *Show every movement* toggle brings them back, and the `@{n}` positions keep git's own numbering so they still match the command line. On this repository that hides a third of the list.
+- Those entries are **marked with a red stripe and a wash**, since they are the ones the pane exists for: nothing else can reach them, and gc collects them once the reflog entry expires. Hovering says so.
+- Right-click → *Restore &lt;ref&gt; to the state before this* runs through the same reset dialog as any other reset, with its dirty-file preview: restoring is exactly as destructive as the operation it undoes. The entry that created the ref has nothing before it, so the action is disabled there.
+
 ### Insights
-- Per-author commit stats over a configurable date range
+- Per-author commit stats over a configurable date range (This Week / This Month / This Year / All / Custom)
+- **Streaming + cancellable** — `git log --numstat` runs in a worker thread; the loading label updates every ~250 ms (`Processed N commits, T s…`) and closing the dialog terminates the subprocess, so even "All" on a long-lived repo is workable
 - Useful for retrospectives and contribution overviews
 
 ### Keyboard Shortcuts
@@ -110,18 +160,34 @@ git_gui/
 │                     #        list_local_branches_with_upstream, ...
 │
 ├── infrastructure/   # Adapters
-│   ├── pygit2_repo.py    # Implements Reader & Writer via pygit2
-│   ├── submodule_cli.py  # `git submodule` subprocess wrapper
-│   ├── repo_store.py     # JSON-based repository persistence
-│   └── git_clone.py      # Clone helper (recursive)
+│   ├── pygit2/           # Pygit2Repository — composite of eleven mixin modules
+│   │   ├── repository.py     # Composite class (Pygit2Repository)
+│   │   ├── branch_ops.py     # Branch read/write
+│   │   ├── commit_ops.py     # Commit read/write + cherry-pick/revert/reset
+│   │   ├── diff_ops.py       # Diff / hunk / file status
+│   │   ├── stage_ops.py      # Stage / unstage / hunk stage / discard
+│   │   ├── tag_ops.py        # Tag read/write
+│   │   ├── stash_ops.py      # Stash list/create/pop/apply/drop
+│   │   ├── merge_rebase_ops.py  # Merge / rebase / interactive / abort / continue
+│   │   ├── remote_ops.py     # Remote list/add/remove/rename + push/pull/fetch
+│   │   ├── submodule_ops.py  # Submodule operations + gitdir helpers
+│   │   ├── worktree_ops.py   # Worktree list/add/lock/unlock
+│   │   ├── repo_state_ops.py # HEAD / state / conflicts / _git_env
+│   │   └── _helpers.py       # Pure functions (status map, entity conversion, synthesis)
+│   ├── commit_ops_cli.py  # `git cherry-pick` / `git revert` subprocess wrapper
+│   ├── submodule_cli.py   # `git submodule` subprocess wrapper
+│   ├── worktree_cli.py    # `git worktree remove` subprocess wrapper
+│   ├── repo_store.py      # JSON-based repository persistence
+│   ├── remote_tag_cache.py  # Remote tag SHA→name cache
+│   └── git_clone.py       # Clone helper (recursive)
 │
 └── presentation/     # Qt UI layer
     ├── main_window.py        # Signal orchestration between widgets
     ├── bus.py                # Command / Query bus (DI containers)
     ├── menus/                # Menubar installers (View, Git)
     ├── dialogs/              # Branches, Remotes, Submodules, Theme,
-    │                         #   Insight, Clone, CreateTag, Merge,
-    │                         #   InteractiveRebase
+    │                         #   Merge, InteractiveRebase, Reset
+    │                         #   (Insight, Clone, CreateTag live in widgets/)
     ├── theme/                # Theme manager + tokens
     ├── models/               # QAbstractTableModel / QAbstractListModel
     └── widgets/              # Graph, Sidebar, Diff, WorkingTree, LogPanel, ...
@@ -158,7 +224,15 @@ uv run python main.py
 
 ```bash
 uv run pytest -v
+
+# Just the end-to-end journeys (real repo, real buses, real window)
+uv run pytest tests/e2e -v
 ```
+
+`tests/e2e` opens a `MainWindow` over a temporary git repository with the same
+session factory `main.py` uses — no mocked buses — and asserts on both what the
+window renders and what the repository on disk ends up containing. On Linux it
+needs an offscreen platform: `QT_QPA_PLATFORM=offscreen uv run pytest tests/e2e`.
 
 ## License
 

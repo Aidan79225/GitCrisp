@@ -1,5 +1,7 @@
 """Tests for repo_list helpers."""
+
 from __future__ import annotations
+
 from pathlib import Path
 
 from git_gui.presentation.widgets.repo_list import _display_path

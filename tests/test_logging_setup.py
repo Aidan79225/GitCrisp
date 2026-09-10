@@ -1,5 +1,8 @@
 """Tests for the logging_setup module."""
+
 from __future__ import annotations
+
+import faulthandler
 import logging
 import logging.handlers
 import sys
@@ -23,6 +26,7 @@ def _reset_root_logger():
     original_level = root.level
     original_sys_hook = sys.excepthook
     original_thread_hook = threading.excepthook
+    original_fault_enabled = faulthandler.is_enabled()
     yield
     # Remove any handlers added during the test
     for handler in list(root.handlers):
@@ -32,14 +36,24 @@ def _reset_root_logger():
     root.setLevel(original_level)
     sys.excepthook = original_sys_hook
     threading.excepthook = original_thread_hook
+    # Disable faulthandler if the test enabled it; close the fp so the next
+    # test gets a fresh open() against its own monkey-patched _FAULT_FILE.
+    if logging_setup._fault_fp is not None:
+        faulthandler.disable()
+        logging_setup._fault_fp.close()
+        logging_setup._fault_fp = None
+    if original_fault_enabled and not faulthandler.is_enabled():
+        faulthandler.enable()
 
 
 def _point_log_dir_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect logging_setup's log file into tmp_path for isolation."""
     log_dir = tmp_path / "logs"
     log_file = log_dir / "gitcrisp.log"
+    fault_file = log_dir / "faulthandler.log"
     monkeypatch.setattr(logging_setup, "_LOG_DIR", log_dir)
     monkeypatch.setattr(logging_setup, "_LOG_FILE", log_file)
+    monkeypatch.setattr(logging_setup, "_FAULT_FILE", fault_file)
     return log_file
 
 
@@ -69,8 +83,7 @@ def test_setup_logging_is_idempotent(tmp_path, monkeypatch):
 
     root = logging.getLogger()
     rotating_handlers = [
-        h for h in root.handlers
-        if isinstance(h, logging.handlers.RotatingFileHandler)
+        h for h in root.handlers if isinstance(h, logging.handlers.RotatingFileHandler)
     ]
     assert len(rotating_handlers) == 1
 
@@ -145,6 +158,29 @@ def test_keyboard_interrupt_is_not_logged(tmp_path, monkeypatch, capsys):
         handler.flush()
     content = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
     assert "KeyboardInterrupt" not in content
+
+
+def test_setup_logging_enables_faulthandler(tmp_path, monkeypatch):
+    _point_log_dir_at(tmp_path, monkeypatch)
+
+    logging_setup.setup_logging()
+
+    assert faulthandler.is_enabled()
+    assert logging_setup._fault_fp is not None
+    assert (tmp_path / "logs" / "faulthandler.log").exists()
+
+
+def test_setup_logging_faulthandler_idempotent(tmp_path, monkeypatch):
+    _point_log_dir_at(tmp_path, monkeypatch)
+
+    logging_setup.setup_logging()
+    first_fp = logging_setup._fault_fp
+    logging_setup.setup_logging()
+    logging_setup.setup_logging()
+
+    # Same fp object across calls — file is opened exactly once.
+    assert logging_setup._fault_fp is first_fp
+    assert faulthandler.is_enabled()
 
 
 def test_thread_uncaught_exception_is_logged(tmp_path, monkeypatch):

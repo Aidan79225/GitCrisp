@@ -1,12 +1,24 @@
-from unittest.mock import MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock
+
+from git_gui.application.commands import (
+    AmendCommit,
+    Checkout,
+    CreateBranch,
+    CreateCommit,
+    DeleteBranch,
+    Fetch,
+    Merge,
+    PopStash,
+    Pull,
+    Push,
+    Rebase,
+    StageFiles,
+    Stash,
+    UnstageFiles,
+)
 from git_gui.domain.entities import Branch, Commit
 from git_gui.domain.ports import IRepositoryWriter
-from git_gui.application.commands import (
-    StageFiles, UnstageFiles, CreateCommit,
-    Checkout, CreateBranch, DeleteBranch,
-    Merge, Rebase, Push, Pull, Fetch, Stash, PopStash,
-)
 
 
 def _writer():
@@ -37,6 +49,14 @@ def test_create_commit():
     assert result.oid == "abc"
 
 
+def test_amend_commit():
+    w = _writer()
+    w.amend_commit.return_value = _make_commit()
+    result = AmendCommit(w).execute("fix: reworded subject")
+    w.amend_commit.assert_called_once_with("fix: reworded subject")
+    assert result.oid == "abc"
+
+
 def test_checkout():
     w = _writer()
     Checkout(w).execute("feature/x")
@@ -61,6 +81,7 @@ def test_merge():
     w = _writer()
     Merge(w).execute("feature/x")
     from git_gui.domain.entities import MergeStrategy
+
     w.merge.assert_called_once_with("feature/x", MergeStrategy.ALLOW_FF, None)
 
 
@@ -107,8 +128,10 @@ class _FakeMergeCommitWriter:
     def __init__(self):
         self.merge_commit_called = None
         self.rebase_onto_commit_called = None
+
     def merge_commit(self, oid, strategy=None, message=None):
         self.merge_commit_called = oid
+
     def rebase_onto_commit(self, oid):
         self.rebase_onto_commit_called = oid
 
@@ -127,19 +150,24 @@ def test_rebase_onto_commit_passes_oid():
 
 from git_gui.domain.entities import MergeStrategy
 
+
 class _FakeStrategyWriter:
     def __init__(self):
         self.merge_args = None
         self.merge_commit_args = None
+
     def merge(self, branch, strategy=None, message=None):
         self.merge_args = (branch, strategy, message)
+
     def merge_commit(self, oid, strategy=None, message=None):
         self.merge_commit_args = (oid, strategy, message)
+
 
 def test_merge_passes_strategy_and_message():
     w = _FakeStrategyWriter()
     Merge(w).execute("feature", strategy=MergeStrategy.NO_FF, message="custom")
     assert w.merge_args == ("feature", MergeStrategy.NO_FF, "custom")
+
 
 def test_merge_commit_passes_strategy_and_message():
     w = _FakeStrategyWriter()
@@ -149,27 +177,34 @@ def test_merge_commit_passes_strategy_and_message():
 
 from git_gui.application.commands import MergeAbort, RebaseAbort, RebaseContinue
 
+
 class _FakeAbortWriter:
     def __init__(self):
         self.merge_abort_called = False
         self.rebase_abort_called = False
         self.rebase_continue_called = False
+
     def merge_abort(self):
         self.merge_abort_called = True
+
     def rebase_abort(self):
         self.rebase_abort_called = True
+
     def rebase_continue(self, message=""):
         self.rebase_continue_called = True
+
 
 def test_merge_abort_delegates():
     w = _FakeAbortWriter()
     MergeAbort(w).execute()
     assert w.merge_abort_called
 
+
 def test_rebase_abort_delegates():
     w = _FakeAbortWriter()
     RebaseAbort(w).execute()
     assert w.rebase_abort_called
+
 
 def test_rebase_continue_delegates():
     w = _FakeAbortWriter()
@@ -183,6 +218,7 @@ from git_gui.application.commands import InteractiveRebase
 class _FakeInteractiveRebaseWriter:
     def __init__(self):
         self.called_with = None
+
     def interactive_rebase(self, target_oid, entries):
         self.called_with = (target_oid, entries)
 
@@ -192,3 +228,16 @@ def test_interactive_rebase_delegates():
     entries = [("pick", "abc"), ("squash", "def")]
     InteractiveRebase(w).execute("target123", entries)
     assert w.called_with == ("target123", entries)
+
+
+def test_delete_remote_branches_delegates():
+    from unittest.mock import MagicMock
+
+    from git_gui.application.commands import DeleteRemoteBranches
+
+    w = MagicMock()
+    w.delete_remote_branches.return_value = ["result"]
+    cmd = DeleteRemoteBranches(w)
+    out = cmd.execute("origin", ["a", "b"])
+    w.delete_remote_branches.assert_called_once_with("origin", ["a", "b"])
+    assert out == ["result"]

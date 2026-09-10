@@ -1,6 +1,8 @@
 from pathlib import Path
+
 import pygit2
-from git_gui.infrastructure.pygit2_repo import Pygit2Repository
+
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 def _seed(repo_path: Path) -> Pygit2Repository:
@@ -65,6 +67,7 @@ def test_discard_hunk_reverts_only_that_hunk(repo_path):
     (repo_path / "multi.txt").write_text("".join(lines))
 
     from git_gui.domain.entities import WORKING_TREE_OID
+
     hunks = impl.get_file_diff(WORKING_TREE_OID, "multi.txt")
     assert len(hunks) == 2
 

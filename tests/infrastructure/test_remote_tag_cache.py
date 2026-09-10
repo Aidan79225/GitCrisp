@@ -1,6 +1,5 @@
-import json
 import pytest
-from pathlib import Path
+
 from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 
 

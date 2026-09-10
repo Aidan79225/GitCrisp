@@ -1,11 +1,19 @@
-from unittest.mock import MagicMock
 from datetime import datetime
-from git_gui.domain.entities import Commit, Branch, FileStatus, Hunk, Stash
-from git_gui.domain.ports import IRepositoryReader
+from unittest.mock import MagicMock
+
 from git_gui.application.queries import (
-    GetCommitGraph, GetBranches, GetCommitFiles,
-    GetFileDiff, GetWorkingTree, GetStashes,
+    GetBlame,
+    GetBranches,
+    GetCommitFiles,
+    GetCommitGraph,
+    GetFileDiff,
+    GetMergeBase,
+    GetReflog,
+    GetStashes,
+    GetWorkingTree,
 )
+from git_gui.domain.entities import Branch, Commit, FileStatus, Hunk, Stash
+from git_gui.domain.ports import IRepositoryReader
 
 
 def _make_commit(oid="abc"):
@@ -20,7 +28,9 @@ def test_get_commit_graph_delegates_to_reader():
     reader = _reader()
     reader.get_commits.return_value = [_make_commit()]
     result = GetCommitGraph(reader).execute(limit=50)
-    reader.get_commits.assert_called_once_with(50, 0, extra_tips=None)
+    reader.get_commits.assert_called_once_with(
+        50, 0, extra_tips=None, first_parent=False, pin_unreachable=False
+    )
     assert len(result) == 1
 
 
@@ -28,7 +38,9 @@ def test_get_commit_graph_default_limit():
     reader = _reader()
     reader.get_commits.return_value = []
     GetCommitGraph(reader).execute()
-    reader.get_commits.assert_called_once_with(200, 0, extra_tips=None)
+    reader.get_commits.assert_called_once_with(
+        200, 0, extra_tips=None, first_parent=False, pin_unreachable=False
+    )
 
 
 def test_get_branches_delegates_to_reader():
@@ -37,6 +49,34 @@ def test_get_branches_delegates_to_reader():
     result = GetBranches(reader).execute()
     reader.get_branches.assert_called_once()
     assert result[0].name == "main"
+
+
+def test_get_reflog_defaults_to_head():
+    reader = MagicMock(spec=IRepositoryReader)
+    reader.get_reflog.return_value = []
+    assert GetReflog(reader).execute() == []
+    reader.get_reflog.assert_called_once_with("HEAD", 100)
+
+
+def test_get_reflog_passes_ref_and_limit_through():
+    reader = MagicMock(spec=IRepositoryReader)
+    reader.get_reflog.return_value = []
+    GetReflog(reader).execute("refs/heads/main", 5)
+    reader.get_reflog.assert_called_once_with("refs/heads/main", 5)
+
+
+def test_get_blame_delegates_to_reader():
+    reader = MagicMock(spec=IRepositoryReader)
+    reader.get_blame.return_value = []
+    assert GetBlame(reader).execute("a.py") == []
+    reader.get_blame.assert_called_once_with("a.py", at_oid=None)
+
+
+def test_get_blame_passes_the_revision_through():
+    reader = MagicMock(spec=IRepositoryReader)
+    reader.get_blame.return_value = []
+    GetBlame(reader).execute("a.py", at_oid="deadbeef")
+    reader.get_blame.assert_called_once_with("a.py", at_oid="deadbeef")
 
 
 def test_get_commit_files_delegates_to_reader():
@@ -75,6 +115,7 @@ def test_get_staged_diff_delegates_to_reader():
     reader = _reader()
     reader.get_staged_diff.return_value = [Hunk("@@ -1,1 +1,2 @@", [("+", "line\n")])]
     from git_gui.application.queries import GetStagedDiff
+
     result = GetStagedDiff(reader).execute("a.py")
     reader.get_staged_diff.assert_called_once_with("a.py")
     assert len(result) == 1
@@ -87,6 +128,7 @@ from git_gui.domain.entities import RepoState, RepoStateInfo
 class _FakeReader:
     def __init__(self, info):
         self._info = info
+
     def repo_state(self):
         return self._info
 
@@ -114,9 +156,11 @@ def test_is_ancestor_query_passthrough():
 from git_gui.application.queries import GetMergeAnalysis
 from git_gui.domain.entities import MergeAnalysisResult
 
+
 class _FakeMergeAnalysisReader:
     def merge_analysis(self, oid):
         return MergeAnalysisResult(can_ff=True, is_up_to_date=False)
+
 
 def test_get_merge_analysis_passthrough():
     q = GetMergeAnalysis(_FakeMergeAnalysisReader())
@@ -127,25 +171,32 @@ def test_get_merge_analysis_passthrough():
 
 from git_gui.application.queries import GetMergeHead, GetMergeMsg, HasUnresolvedConflicts
 
+
 class _FakeMergeHeadReader:
     def get_merge_head(self):
         return "abc123"
+
 
 class _FakeMergeMsgReader:
     def get_merge_msg(self):
         return "Merge branch 'feature'"
 
+
 class _FakeConflictReader:
     def __init__(self, val):
         self._val = val
+
     def has_unresolved_conflicts(self):
         return self._val
+
 
 def test_get_merge_head_passthrough():
     assert GetMergeHead(_FakeMergeHeadReader()).execute() == "abc123"
 
+
 def test_get_merge_msg_passthrough():
     assert GetMergeMsg(_FakeMergeMsgReader()).execute() == "Merge branch 'feature'"
+
 
 def test_has_unresolved_conflicts_passthrough():
     assert HasUnresolvedConflicts(_FakeConflictReader(True)).execute() is True
@@ -159,7 +210,7 @@ class _FakeDiffMapReader:
     def get_commit_diff_map(self, oid):
         return {"a.txt": ["hunk1"]}
 
-    def get_working_tree_diff_map(self):
+    def get_working_tree_diff_map(self, paths=None):
         return {"b.txt": {"staged": ["h1"], "unstaged": []}}
 
 
@@ -184,3 +235,30 @@ class _FakeCommitRangeReader:
 def test_get_commit_range_passthrough():
     q = GetCommitRange(_FakeCommitRangeReader())
     assert q.execute("head", "base") == ["commit_head_base"]
+
+
+def test_get_merge_base_delegates_to_reader():
+    reader = _reader()
+    reader.merge_base.return_value = "deadbeef"
+    result = GetMergeBase(reader).execute("aaa", "bbb")
+    reader.merge_base.assert_called_once_with("aaa", "bbb")
+    assert result == "deadbeef"
+
+
+def test_get_merge_base_returns_none_when_reader_returns_none():
+    reader = _reader()
+    reader.merge_base.return_value = None
+    result = GetMergeBase(reader).execute("aaa", "bbb")
+    assert result is None
+
+
+def test_remote_default_branches_delegates():
+    from unittest.mock import MagicMock
+
+    from git_gui.application.queries import RemoteDefaultBranches
+
+    r = MagicMock()
+    r.remote_default_branches.return_value = {"origin": "origin/main"}
+    q = RemoteDefaultBranches(r)
+    assert q.execute() == {"origin": "origin/main"}
+    r.remote_default_branches.assert_called_once_with()

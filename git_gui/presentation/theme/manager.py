@@ -1,12 +1,14 @@
 from __future__ import annotations
+
 import logging
-from typing import Optional
-from PySide6.QtCore import QObject, Signal, Qt
+
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPalette
 from PySide6.QtWidgets import QApplication
-from .loader import load_builtin, load_theme, ThemeValidationError
+
+from .loader import ThemeValidationError, load_builtin, load_theme
 from .qss_template import render
-from .settings import load_settings, save_settings, custom_theme_path
+from .settings import load_settings, save_settings
 from .tokens import Theme
 
 _log = logging.getLogger(__name__)
@@ -17,7 +19,7 @@ _VALID_MODES = ("system", "light", "dark", "custom")
 class ThemeManager(QObject):
     theme_changed = Signal(object)  # Theme
 
-    def __init__(self, app: QApplication, parent: Optional[QObject] = None) -> None:
+    def __init__(self, app: QApplication, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._app = app
         self._mode: str = load_settings().get("theme_mode", "system")
@@ -26,9 +28,11 @@ class ThemeManager(QObject):
         self._current: Theme = self._resolve_theme()
         self._apply()
 
-        hints = QGuiApplication.styleHints()
-        if hasattr(hints, "colorSchemeChanged"):
-            hints.colorSchemeChanged.connect(self._on_system_scheme_changed)
+        # QStyleHints.colorScheme/colorSchemeChanged have existed since Qt 6.5
+        # and the project pins PySide6 >= 6.11, so these are read directly. A
+        # hasattr guard here would turn a rename into "system theme following
+        # quietly stopped working" rather than a crash that says what broke.
+        QGuiApplication.styleHints().colorSchemeChanged.connect(self._on_system_scheme_changed)
 
     @property
     def current(self) -> Theme:
@@ -44,7 +48,9 @@ class ThemeManager(QObject):
         if mode == self._mode and not force:
             return
         self._mode = mode
-        save_settings({"theme_mode": mode})
+        data = load_settings()
+        data["theme_mode"] = mode
+        save_settings(data)
         self._refresh(force=force)
 
     def _refresh(self, force: bool = False) -> None:
@@ -62,22 +68,26 @@ class ThemeManager(QObject):
         # Apply theme typography to the app default font so the scale
         # slider in the theme dialog actually affects rendered text.
         from PySide6.QtGui import QFont
+
         body = self._current.typography.body_medium
         font = QFont(self._app.font())
         if body.family:
             font.setFamily(body.family)
         if body.size > 0:
             import sys
-            size = body.size
+
+            scale = float(load_settings().get("typography_scale", 1.0))
+            size = max(1, round(body.size * scale))
             if sys.platform == "darwin":
                 from PySide6.QtGui import QFontDatabase
+
                 native_pt = QFontDatabase.systemFont(
                     QFontDatabase.SystemFont.GeneralFont
                 ).pointSize()
                 # Theme sizes are calibrated for Windows (~9 pt body).
                 # Scale up proportionally for macOS (~13 pt native body).
                 if native_pt > 0:
-                    size = round(body.size * native_pt / 9)
+                    size = round(size * native_pt / 9)
             font.setPointSize(size)
         if body.weight:
             font.setWeight(QFont.Weight(body.weight))
@@ -89,6 +99,7 @@ class ThemeManager(QObject):
         # views, where update() on the view itself doesn't repaint
         # items).
         from PySide6.QtWidgets import QAbstractScrollArea
+
         style = self._app.style()
         for w in self._app.allWidgets():
             w.setPalette(palette)
@@ -103,17 +114,24 @@ class ThemeManager(QObject):
                 w.viewport().update()
             w.update()
 
-    def _resolve_theme(self) -> Theme:
-        if self._mode == "light":
+    def theme_for_mode(self, mode: str) -> Theme:
+        """Resolve a mode name to a Theme without changing the active mode."""
+        if mode not in _VALID_MODES:
+            raise ValueError(f"Invalid theme mode: {mode}")
+        if mode == "light":
             return load_builtin("light")
-        if self._mode == "dark":
+        if mode == "dark":
             return load_builtin("dark")
-        if self._mode == "custom":
+        if mode == "custom":
             return self._load_custom_or_fallback()
         return self._system_theme()
 
+    def _resolve_theme(self) -> Theme:
+        return self.theme_for_mode(self._mode)
+
     def _load_custom_or_fallback(self) -> Theme:
         from . import settings as _settings
+
         path = _settings.custom_theme_path()
         if not path.exists():
             _log.warning("Custom theme file not found at %s; falling back to dark", path)
@@ -125,8 +143,7 @@ class ThemeManager(QObject):
             return load_builtin("dark")
 
     def _system_theme(self) -> Theme:
-        hints = QGuiApplication.styleHints()
-        scheme = getattr(hints, "colorScheme", lambda: Qt.ColorScheme.Light)()
+        scheme = QGuiApplication.styleHints().colorScheme()
         if scheme == Qt.ColorScheme.Dark:
             return load_builtin("dark")
         return load_builtin("light")
@@ -144,41 +161,41 @@ def _build_palette(theme: Theme) -> QPalette:
     c = theme.colors
     p = QPalette()
 
-    bg          = QColor(c.background)
-    on_bg       = QColor(c.on_background)
-    surface     = QColor(c.surface)
-    on_surface  = QColor(c.on_surface)
-    surf_var    = QColor(c.surface_variant)
+    bg = QColor(c.background)
+    on_bg = QColor(c.on_background)
+    surface = QColor(c.surface)
+    on_surface = QColor(c.on_surface)
+    surf_var = QColor(c.surface_variant)
     on_surf_var = QColor(c.on_surface_variant)
-    surf_cont   = QColor(c.surface_container)
-    surf_high   = QColor(c.surface_container_high)
-    primary     = QColor(c.primary)
-    on_primary  = QColor(c.on_primary)
-    error       = QColor(c.error)
+    surf_cont = QColor(c.surface_container)
+    surf_high = QColor(c.surface_container_high)
+    primary = QColor(c.primary)
+    on_primary = QColor(c.on_primary)
+    error = QColor(c.error)
 
     # Window / view backgrounds
-    p.setColor(QPalette.Window,          bg)
-    p.setColor(QPalette.WindowText,      on_bg)
-    p.setColor(QPalette.Base,            surface)
-    p.setColor(QPalette.AlternateBase,   surf_cont)
-    p.setColor(QPalette.Text,            on_surface)
+    p.setColor(QPalette.Window, bg)
+    p.setColor(QPalette.WindowText, on_bg)
+    p.setColor(QPalette.Base, surface)
+    p.setColor(QPalette.AlternateBase, surf_cont)
+    p.setColor(QPalette.Text, on_surface)
     p.setColor(QPalette.PlaceholderText, on_surf_var)
 
     # Buttons
-    p.setColor(QPalette.Button,     surf_var)
+    p.setColor(QPalette.Button, surf_var)
     p.setColor(QPalette.ButtonText, on_surface)
     p.setColor(QPalette.BrightText, error)
 
     # Selection / highlight
-    p.setColor(QPalette.Highlight,         primary)
-    p.setColor(QPalette.HighlightedText,   on_primary)
+    p.setColor(QPalette.Highlight, primary)
+    p.setColor(QPalette.HighlightedText, on_primary)
 
     # Tooltips
     p.setColor(QPalette.ToolTipBase, surf_high)
     p.setColor(QPalette.ToolTipText, on_surface)
 
     # Links
-    p.setColor(QPalette.Link,        primary)
+    p.setColor(QPalette.Link, primary)
     p.setColor(QPalette.LinkVisited, primary)
 
     # NOTE: Light / Midlight / Mid / Dark / Shadow are intentionally NOT
@@ -197,7 +214,7 @@ def _build_palette(theme: Theme) -> QPalette:
     return p
 
 
-_INSTANCE: Optional[ThemeManager] = None
+_INSTANCE: ThemeManager | None = None
 
 
 def get_theme_manager() -> ThemeManager:

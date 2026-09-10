@@ -1,11 +1,14 @@
 """Install a `Git` menu with `Remotes...` and `Submodules...` items."""
+
 from __future__ import annotations
-from typing import Callable
+
+from collections.abc import Callable
 
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMainWindow, QMenu
 
 from git_gui.presentation.dialogs.branches_dialog import BranchesDialog
+from git_gui.presentation.dialogs.remote_branches_dialog import RemoteBranchesDialog
 from git_gui.presentation.dialogs.remote_dialog import RemoteDialog
 from git_gui.presentation.dialogs.submodule_dialog import SubmoduleDialog
 
@@ -16,6 +19,8 @@ def install_git_menu(
     commands,
     repo_workdir: str | None,
     on_open_submodule: Callable[[str], None],
+    on_open_worktrees_dialog: Callable[[], None] | None = None,
+    on_open_reflog: Callable[[], None] | None = None,
 ) -> None:
     """Add a `Git` menu with `Remotes...` and `Submodules...` actions.
 
@@ -40,9 +45,25 @@ def install_git_menu(
     def _open_branches() -> None:
         if queries is None or commands is None:
             return
-        BranchesDialog(queries, commands, window).exec()
+        dlg = BranchesDialog(queries, commands, window)
+        dlg.set_worktree_paths(window._worktree_paths_by_branch)
+        dlg.checkout_in_new_worktree_requested.connect(
+            lambda branch: window._open_add_worktree_dialog(
+                preselect_branch=branch, default_create=False
+            )
+        )
+        dlg.exec()
 
     branches_action.triggered.connect(_open_branches)
+
+    remote_branches_action = QAction("Remote &Branches...", window)
+
+    def _open_remote_branches() -> None:
+        if queries is None or commands is None:
+            return
+        RemoteBranchesDialog(queries, commands, window).exec()
+
+    remote_branches_action.triggered.connect(_open_remote_branches)
 
     submodule_action = QAction("&Submodules...", window)
 
@@ -57,9 +78,34 @@ def install_git_menu(
 
     git_menu.addAction(remote_action)
     git_menu.addAction(branches_action)
+    git_menu.addAction(remote_branches_action)
     git_menu.addAction(submodule_action)
+
+    reflog_action = QAction("Ref&log...", window)
+    reflog_action.setStatusTip("Where HEAD has been — and how to get back there")
+
+    def _open_reflog() -> None:
+        if queries is None or on_open_reflog is None:
+            return
+        on_open_reflog()
+
+    reflog_action.triggered.connect(_open_reflog)
+
+    worktrees_action = QAction("&Worktrees...", window)
+
+    def _open_worktrees() -> None:
+        if queries is None or commands is None or on_open_worktrees_dialog is None:
+            return
+        on_open_worktrees_dialog()
+
+    worktrees_action.triggered.connect(_open_worktrees)
+    git_menu.addAction(worktrees_action)
+    git_menu.addSeparator()
+    git_menu.addAction(reflog_action)
 
     window._git_menu = git_menu  # type: ignore[attr-defined]
     window._git_remote_action = remote_action  # type: ignore[attr-defined]
     window._git_branches_action = branches_action  # type: ignore[attr-defined]
+    window._git_remote_branches_action = remote_branches_action  # type: ignore[attr-defined]
     window._git_submodule_action = submodule_action  # type: ignore[attr-defined]
+    window._git_worktrees_action = worktrees_action  # type: ignore[attr-defined]

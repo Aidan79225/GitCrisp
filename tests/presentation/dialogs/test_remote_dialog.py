@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
@@ -42,8 +43,10 @@ def test_error_shows_messagebox(qtbot, buses):
     d = RemoteDialog(queries, commands)
     qtbot.addWidget(d)
     d._table.selectRow(0)
-    with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes), \
-         patch.object(QMessageBox, "warning") as warn:
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+        patch.object(QMessageBox, "warning") as warn,
+    ):
         d._on_remove()
     warn.assert_called_once()
     assert "boom" in warn.call_args[0][2]

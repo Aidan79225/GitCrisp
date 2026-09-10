@@ -1,10 +1,19 @@
 # git_gui/presentation/models/graph_model.py
 from __future__ import annotations
+
 from dataclasses import dataclass, field
+
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+
 from git_gui.domain.entities import Commit
 
-COLUMNS = ["graph", "info"]
+# One column per commit: the lane graph and the commit info share a cell so the
+# info can be indented per row rather than by the widest row in the history.
+COLUMNS = ["commit"]
+
+OID_ROLE = Qt.UserRole  # str — the commit OID
+LANE_ROLE = Qt.UserRole + 1  # LaneData — graph drawing instructions for the row
+INFO_ROLE = Qt.UserRole + 2  # CommitInfo — author/badges/message for the row
 
 LANE_COLORS = [
     "#4fc1ff",  # blue
@@ -20,9 +29,9 @@ LANE_COLORS = [
 
 @dataclass
 class LaneData:
-    lane: int                                    # which lane the commit node sits in
-    color_idx: int                               # index into LANE_COLORS for this lane
-    n_lanes: int                                 # total lane count (used to size column)
+    lane: int  # which lane the commit node sits in
+    color_idx: int  # index into LANE_COLORS for this lane
+    n_lanes: int  # total lane count (used to size column)
     lines: list[tuple[int, int, int]] = field(default_factory=list)
     # (top_lane, bot_lane, color_idx) — pass-through lines spanning full row height
     edges_in: list[tuple[int, int, int]] = field(default_factory=list)
@@ -36,23 +45,28 @@ class LaneData:
 @dataclass
 class CommitInfo:
     author: str
-    timestamp: str       # pre-formatted "YYYY-MM-DD HH:MM"
-    short_oid: str       # commit.oid[:8]
+    timestamp: str  # pre-formatted "YYYY-MM-DD HH:MM"
+    short_oid: str  # commit.oid[:8]
     branch_names: list[str]
     head_branch: str | None  # name of the HEAD branch (green badge), None if detached
-    message: str         # first line of commit message only
+    message: str  # first line of commit message only
 
 
-def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
-    """Assign each commit a lane and compute drawing instructions for the graph column."""
-    active: list[str | None] = []   # active[i] = OID whose line occupies lane i, or None
-    colors: list[int] = []          # colors[i] = color_idx for lane i
+def _compute_lanes(commits: list[Commit], first_parent: bool = False) -> list[LaneData]:
+    """Assign each commit a lane and compute drawing instructions for the graph column.
+
+    With first_parent=True, only parents[0] is considered for each commit. Merge
+    commits' side parents are ignored so no lanes are opened for commits that
+    were filtered out of the listing — the result is a single mainline column.
+    """
+    active: list[str | None] = []  # active[i] = OID whose line occupies lane i, or None
+    colors: list[int] = []  # colors[i] = color_idx for lane i
     next_color = 0
     result: list[LaneData] = []
 
     for commit in commits:
         oid = commit.oid
-        parents = commit.parents
+        parents = commit.parents[:1] if first_parent else commit.parents
 
         # ── 1. Find or open this commit's lane ──────────────────────────────
         edges_in: list[tuple[int, int, int]] = []
@@ -120,11 +134,15 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
             lines.append((i, new_i, colors[i]))
 
         # ── 4. Outgoing edges from the commit node ──────────────────────────
+        # Each edge takes the colour of the lane it feeds, not the commit's own
+        # lane, so it matches the parent's line continuing below this row. For
+        # the first parent those are the same lane; for a merge diagonal they
+        # differ, and colouring by the source would break the line in two.
         edges_out: list[tuple[int, int, int]] = []
         if parents:
-            edges_out.append((my_lane, my_lane, color_idx))   # first parent straight down
+            edges_out.append((my_lane, my_lane, new_colors[my_lane]))  # first parent
         for target_lane in extra_parent_lanes:
-            edges_out.append((my_lane, target_lane, color_idx))  # merge diagonals
+            edges_out.append((my_lane, target_lane, new_colors[target_lane]))  # merge diagonal
 
         # ── 5. Trim trailing Nones ───────────────────────────────────────────
         while new_active and new_active[-1] is None:
@@ -132,15 +150,17 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
             new_colors.pop()
 
         n_lanes = max(len(new_active), my_lane + 1, 1)
-        result.append(LaneData(
-            lane=my_lane,
-            color_idx=color_idx,
-            n_lanes=n_lanes,
-            lines=lines,
-            edges_in=edges_in,
-            edges_out=edges_out,
-            has_incoming=has_incoming,
-        ))
+        result.append(
+            LaneData(
+                lane=my_lane,
+                color_idx=color_idx,
+                n_lanes=n_lanes,
+                lines=lines,
+                edges_in=edges_in,
+                edges_out=edges_out,
+                has_incoming=has_incoming,
+            )
+        )
         active = new_active
         colors = new_colors
 
@@ -148,41 +168,58 @@ def _compute_lanes(commits: list[Commit]) -> list[LaneData]:
 
 
 class GraphModel(QAbstractTableModel):
-    def __init__(self, commits: list[Commit], refs: dict[str, list[str]],
-                 head_branch: str | None = None, parent=None) -> None:
+    def __init__(
+        self,
+        commits: list[Commit],
+        refs: dict[str, list[str]],
+        head_branch: str | None = None,
+        parent=None,
+        *,
+        first_parent: bool = False,
+        show_graph: bool = True,
+    ) -> None:
         super().__init__(parent)
         self._commits = commits
         self._refs = refs
         self._head_branch = head_branch
-        self._lane_data: list[LaneData] = _compute_lanes(commits)
+        self._first_parent = first_parent
+        self._show_graph = show_graph
+        self._lane_data: list[LaneData] = _compute_lanes(commits, first_parent)
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self._commits)
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return len(COLUMNS)  # 2: graph, info
+        return len(COLUMNS)
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
-        if not index.isValid() or index.row() >= len(self._commits) or index.column() >= len(COLUMNS):
+        if (
+            not index.isValid()
+            or index.row() >= len(self._commits)
+            or index.column() >= len(COLUMNS)
+        ):
             return None
         commit = self._commits[index.row()]
-        col = index.column()
         if role == Qt.DisplayRole:
-            return ""  # both columns fully painted by delegates
-        if role == Qt.UserRole:
+            return ""  # the row is fully painted by CommitRowDelegate
+        if role == OID_ROLE:
             return commit.oid
-        if role == Qt.UserRole + 1:
-            if col == 0:
-                return self._lane_data[index.row()]
-            if col == 1:
-                return CommitInfo(
-                    author=commit.author,
-                    timestamp=commit.timestamp.strftime("%Y-%m-%d"),
-                    short_oid=commit.oid[:8],
-                    branch_names=self._refs.get(commit.oid, []),
-                    head_branch=self._head_branch,
-                    message=commit.message.split("\n")[0],
-                )
+        if role == LANE_ROLE:
+            # A path-filtered listing is a sparse subset of history: consecutive
+            # rows are not parent and child, so lanes would draw a staircase of
+            # disconnected dots. Suppress the graph rather than lie about it.
+            if not self._show_graph:
+                return None
+            return self._lane_data[index.row()]
+        if role == INFO_ROLE:
+            return CommitInfo(
+                author=commit.author,
+                timestamp=commit.timestamp.strftime("%Y-%m-%d"),
+                short_oid=commit.oid[:8],
+                branch_names=self._refs.get(commit.oid, []),
+                head_branch=self._head_branch,
+                message=commit.message.split("\n")[0],
+            )
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):
@@ -190,21 +227,37 @@ class GraphModel(QAbstractTableModel):
             return COLUMNS[section].capitalize()
         return None
 
-    def reload(self, commits: list[Commit], refs: dict[str, list[str]],
-               head_branch: str | None = None) -> None:
+    def reload(
+        self,
+        commits: list[Commit],
+        refs: dict[str, list[str]],
+        head_branch: str | None = None,
+        *,
+        first_parent: bool = False,
+        show_graph: bool = True,
+    ) -> None:
         self.beginResetModel()
         self._commits = commits
         self._refs = refs
         self._head_branch = head_branch
-        self._lane_data = _compute_lanes(commits)
+        self._first_parent = first_parent
+        self._show_graph = show_graph
+        self._lane_data = _compute_lanes(commits, first_parent)
         self.endResetModel()
 
     def append(self, commits: list[Commit], refs: dict[str, list[str]]) -> None:
+        # A tip pinned onto the first page (see get_commits' pin_unreachable)
+        # sits in the list already, and the walk reaches it again several
+        # pages later. Appending it twice would draw the same commit on two
+        # rows, each with its own lane.
+        if commits:
+            known = {c.oid for c in self._commits}
+            commits = [c for c in commits if c.oid not in known]
         if not commits:
             return
         start = len(self._commits)
         self.beginInsertRows(QModelIndex(), start, start + len(commits) - 1)
         self._commits.extend(commits)
         self._refs.update(refs)
-        self._lane_data = _compute_lanes(self._commits)
+        self._lane_data = _compute_lanes(self._commits, self._first_parent)
         self.endInsertRows()

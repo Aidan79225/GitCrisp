@@ -1,9 +1,8 @@
 """Tests for ViewportBlockLoader."""
+
 from __future__ import annotations
-from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
 
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
