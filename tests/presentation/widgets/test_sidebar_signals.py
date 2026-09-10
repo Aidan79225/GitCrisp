@@ -16,18 +16,23 @@ from PySide6.QtWidgets import QMenu
 from git_gui.presentation.widgets.sidebar import (
     _IS_HEAD_ROLE,
     _TARGET_OID_ROLE,
+    _UPSTREAM_OID_ROLE,
     SidebarWidget,
 )
 
 # -- Helpers ---------------------------------------------------------------
 
 
-def _branch_item(name: str, oid: str, *, is_head: bool = False) -> QStandardItem:
+def _branch_item(
+    name: str, oid: str, *, is_head: bool = False, upstream_oid: str | None = None
+) -> QStandardItem:
     child = QStandardItem(name)
     child.setEditable(False)
     child.setData(name, Qt.UserRole)
     child.setData("branch", Qt.UserRole + 1)
     child.setData(oid, _TARGET_OID_ROLE)
+    if upstream_oid:
+        child.setData(upstream_oid, _UPSTREAM_OID_ROLE)
     if is_head:
         child.setData(True, _IS_HEAD_ROLE)
     return child
@@ -143,7 +148,21 @@ def test_single_click_local_branch_emits_branch_clicked_with_oid(sidebar, qtbot)
 
     with qtbot.waitSignal(w.branch_clicked, timeout=1000) as blocker:
         w._on_click(idx)
-    assert blocker.args == ["abc123"]
+    assert blocker.args == ["abc123", []]
+
+
+def test_single_click_local_branch_carries_its_upstream_tip(sidebar, qtbot):
+    """A branch that is behind its remote has to bring the remote tip along,
+    or the graph stops at the local tip and the commits the remote is holding
+    ahead of it are nowhere on screen."""
+    w, _, _ = sidebar
+    item = _branch_item("feature", "abc123", upstream_oid="remote99")
+    _add_section(w, "LOCAL BRANCHES", [item])
+    idx = w._model.indexFromItem(item)
+
+    with qtbot.waitSignal(w.branch_clicked, timeout=1000) as blocker:
+        w._on_click(idx)
+    assert blocker.args == ["abc123", ["remote99"]]
 
 
 def test_single_click_tag_emits_tag_clicked_with_target_oid(sidebar, qtbot):

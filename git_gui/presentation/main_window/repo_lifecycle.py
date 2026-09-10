@@ -79,6 +79,23 @@ class RepoLifecycleMixin:
             on_open_reflog=self.open_reflog,
         )
 
+    def _start_change_detector(self, path: str) -> None:
+        """Watch *path* for changes made outside GitCrisp, replacing any
+        previous watch.
+
+        Called from MainWindow's __init__ as well as from a repo switch. It
+        used to be inline in the switch handler alone, which meant a window
+        opened straight onto a repo — the ordinary way to start the app — had
+        no detector at all, and noticed nothing until the user happened to
+        switch repos.
+        """
+        self._stop_change_detector()
+        self._change_detector = RepoChangeDetector(
+            repo_path=path,
+            on_reload=self._reload,
+            parent=self,
+        )
+
     def _stop_change_detector(self) -> None:
         """Stop and release the current change detector, if any."""
         if self._change_detector is not None:
@@ -124,13 +141,7 @@ class RepoLifecycleMixin:
         self._install_git_menu()
         self._right_stack.setCurrentIndex(0)
 
-        # Replace any previous detector and start watching this repo.
-        self._stop_change_detector()
-        self._change_detector = RepoChangeDetector(
-            repo_path=path,
-            on_reload=self._reload,
-            parent=self,
-        )
+        self._start_change_detector(path)
 
         # (Re)build SmartCheckout bound to the freshly created buses.
         from git_gui.presentation.services.smart_checkout import SmartCheckout
