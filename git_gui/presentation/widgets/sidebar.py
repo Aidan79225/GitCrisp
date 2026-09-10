@@ -40,6 +40,10 @@ def _hover_bg() -> QColor:
 _ROW_HEIGHT = 28
 _IS_HEAD_ROLE = Qt.UserRole + 2
 _TARGET_OID_ROLE = Qt.UserRole + 3
+# Tip of the branch's upstream, when it has one and it sits elsewhere than the
+# local tip. Clicking the branch pushes it into the walk too, so a local branch
+# that is behind still shows what its remote is holding ahead of it.
+_UPSTREAM_OID_ROLE = Qt.UserRole + 4
 
 
 def _get_cloud_icon() -> QIcon:
@@ -113,7 +117,8 @@ class _SidebarTree(QTreeView):
 
 
 class _LoadSignals(QObject):
-    done = Signal(list, list, list, set)  # branches, stashes, tags, remote_tag_names
+    # branches, stashes, tags, remote_tag_names, {local branch: upstream shorthand}
+    done = Signal(list, list, list, set, dict)
 
 
 class SidebarWidget(QWidget):
@@ -123,7 +128,7 @@ class SidebarWidget(QWidget):
     branch_delete_requested = Signal(str)
     branch_push_requested = Signal(str)
     fetch_requested = Signal(str)  # remote name
-    branch_clicked = Signal(str)  # target oid
+    branch_clicked = Signal(str, list)  # target oid, extra tips (its upstream)
     stash_pop_requested = Signal(int)
     stash_apply_requested = Signal(int)
     stash_drop_requested = Signal(int)
@@ -197,12 +202,17 @@ class SidebarWidget(QWidget):
             branches = queries.get_branches.execute()
             stashes = queries.get_stashes.execute()
             tags = queries.get_tags.execute()
+            upstreams = {
+                info.name: info.upstream
+                for info in queries.list_local_branches_with_upstream.execute()
+                if info.upstream
+            }
             remote_tag_names: set[str] = set()
             if cache and repo_path:
                 data = cache.load(repo_path)
                 for names in data.values():
                     remote_tag_names.update(names)
-            signals.done.emit(branches, stashes, tags, remote_tag_names)
+            signals.done.emit(branches, stashes, tags, remote_tag_names, upstreams)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -212,6 +222,7 @@ class SidebarWidget(QWidget):
         stashes: list[Stash],
         tags: list[Tag],
         remote_tag_names: set[str],
+        upstreams: dict[str, str],
     ) -> None:
         if self._queries is None:
             return
@@ -220,6 +231,7 @@ class SidebarWidget(QWidget):
 
         local = [b for b in branches if not b.is_remote]
         remote = [b for b in branches if b.is_remote]
+        remote_oids = {b.name: b.target_oid for b in remote}
 
         # Local branches — highlight HEAD
         local_header = QStandardItem("LOCAL BRANCHES")
@@ -232,6 +244,9 @@ class SidebarWidget(QWidget):
             child.setData(b.name, Qt.UserRole)
             child.setData("branch", Qt.UserRole + 1)
             child.setData(b.target_oid, _TARGET_OID_ROLE)
+            upstream_oid = remote_oids.get(upstreams.get(b.name, ""))
+            if upstream_oid and upstream_oid != b.target_oid:
+                child.setData(upstream_oid, _UPSTREAM_OID_ROLE)
             child.setSizeHint(QSize(0, _ROW_HEIGHT))
             if b.is_head:
                 child.setData(True, _IS_HEAD_ROLE)
@@ -303,7 +318,8 @@ class SidebarWidget(QWidget):
         elif kind == "tag" and oid:
             self.tag_clicked.emit(oid)
         elif oid:
-            self.branch_clicked.emit(oid)
+            upstream_oid = index.data(_UPSTREAM_OID_ROLE)
+            self.branch_clicked.emit(oid, [upstream_oid] if upstream_oid else [])
 
     def _on_double_click(self, index) -> None:
         kind = index.data(Qt.UserRole + 1)

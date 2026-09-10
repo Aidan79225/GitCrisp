@@ -543,18 +543,28 @@ class GraphWidget(QWidget):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def reload_with_extra_tip(self, oid: str) -> None:
+    def reload_with_extra_tip(self, oid: str, extra_tips: list[str] | None = None) -> None:
         """Reload graph including the given oid as an extra walker tip, then
         scroll to it and select it (highlighting the branch's tip row and
         loading its commit into the diff pane). For diverged tips, also load
         down to the merge base with HEAD so the lane converges into HEAD's
-        mainline visually."""
-        # If oid is already in the current commit list, just scroll and select
-        for row in range(self._model.rowCount()):
-            row_oid = self._model.data(self._model.index(row, 0), OID_ROLE)
-            if row_oid == oid:
-                self.scroll_to_oid(oid, select=True)
-                return
+        mainline visually.
+
+        `extra_tips` are pushed alongside `oid` but not scrolled to — a
+        clicked local branch passes its upstream here, so a branch that is
+        behind still draws the commits its remote is holding ahead of it
+        instead of ending at a tip with nothing above it.
+        """
+        tips = [oid, *(t for t in extra_tips or [] if t != oid)]
+
+        # Nothing to fetch when every tip is already drawn — just scroll and select.
+        loaded = {
+            self._model.data(self._model.index(row, 0), OID_ROLE)
+            for row in range(self._model.rowCount())
+        }
+        if loaded.issuperset(tips):
+            self.scroll_to_oid(oid, select=True)
+            return
 
         # Compute merge base with HEAD so the doubling retry knows when to stop.
         merge_base: str | None = None
@@ -568,7 +578,7 @@ class GraphWidget(QWidget):
 
         self._pending_scroll_oid = oid
         self._pending_merge_base = merge_base
-        self.reload(extra_tips=[oid])
+        self.reload(extra_tips=tips)
 
     def _on_reload_done(
         self,
