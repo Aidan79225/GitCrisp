@@ -5,6 +5,33 @@ import pytest
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _isolated_gitcrisp_home(tmp_path_factory):
+    """Keep the suite out of the developer's real ``~/.gitcrisp``.
+
+    ``JsonRepoStore``, ``JsonRemoteTagCache`` and the avatar cache all default
+    to a path under ``Path.home()``, and a handful of tests construct them with
+    no argument to get that default. Those stores are then *saved* — by a repo
+    switch, or by MainWindow's own teardown — so running the suite overwrote
+    the developer's open/recent repo list with whatever the test had, which is
+    nothing. Recovering it afterwards means guessing at paths from cache
+    filenames, so the fix belongs here: nothing the suite does may land in the
+    real home.
+
+    Only ``Path.home()`` is redirected, not ``HOME``/``USERPROFILE``: the
+    subprocess ``git`` calls in the suite still need the real environment to
+    find a usable git config.
+    """
+    fake_home = tmp_path_factory.mktemp("home")
+    (fake_home / ".gitcrisp").mkdir()
+    original = Path.home
+    Path.home = classmethod(lambda cls: fake_home)  # type: ignore[method-assign]
+    try:
+        yield fake_home
+    finally:
+        Path.home = original  # type: ignore[method-assign]
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _isolated_settings(tmp_path_factory):
     """Keep the suite out of the developer's real config.
 
