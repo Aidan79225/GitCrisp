@@ -2,10 +2,50 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
-from typing import Literal
+from enum import StrEnum
 
 WORKING_TREE_OID = "WORKING_TREE"
+
+
+class StagingState(StrEnum):
+    """Where a changed file currently sits relative to the index."""
+
+    STAGED = "staged"
+    UNSTAGED = "unstaged"
+    UNTRACKED = "untracked"
+    CONFLICTED = "conflicted"
+
+
+class FileDelta(StrEnum):
+    """What happened to a file, independent of whether it is staged."""
+
+    ADDED = "added"
+    MODIFIED = "modified"
+    DELETED = "deleted"
+    RENAMED = "renamed"
+    UNKNOWN = "unknown"
+
+
+class LineKind(StrEnum):
+    """A diff line's leading character, as libgit2 reports it.
+
+    The three EOFNL members are libgit2's "no newline at end of file" markers.
+    They are listed so an origin round-trips unchanged rather than raising, and
+    every renderer treats them the way it always has: anything that is not
+    ADDED or REMOVED draws as context.
+    """
+
+    ADDED = "+"
+    REMOVED = "-"
+    CONTEXT = " "
+    ADDED_EOFNL = ">"
+    REMOVED_EOFNL = "<"
+    CONTEXT_EOFNL = "="
+
+    @classmethod
+    def _missing_(cls, value: object) -> LineKind:
+        # A diff that cannot be rendered is worse than one rendered as context.
+        return cls.CONTEXT
 
 
 @dataclass
@@ -68,14 +108,14 @@ class CommitStat:
 @dataclass
 class FileStatus:
     path: str
-    status: Literal["staged", "unstaged", "untracked", "conflicted"]
-    delta: Literal["added", "modified", "deleted", "renamed", "unknown"]
+    status: StagingState
+    delta: FileDelta
 
 
 @dataclass
 class Hunk:
     header: str
-    lines: list[tuple[Literal["+", "-", " "], str]]
+    lines: list[tuple[LineKind, str]]
 
 
 @dataclass
@@ -140,7 +180,7 @@ class LocalBranchInfo:
     last_commit_message: str
 
 
-class RepoState(str, Enum):
+class RepoState(StrEnum):
     CLEAN = "CLEAN"
     MERGING = "MERGING"
     REBASING = "REBASING"
@@ -155,13 +195,13 @@ class RepoStateInfo:
     head_branch: str | None
 
 
-class MergeStrategy(str, Enum):
+class MergeStrategy(StrEnum):
     NO_FF = "NO_FF"
     FF_ONLY = "FF_ONLY"
     ALLOW_FF = "ALLOW_FF"
 
 
-class ResetMode(str, Enum):
+class ResetMode(StrEnum):
     SOFT = "SOFT"
     MIXED = "MIXED"
     HARD = "HARD"

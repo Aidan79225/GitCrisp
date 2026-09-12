@@ -7,10 +7,26 @@ from datetime import datetime
 
 import pygit2
 
-from git_gui.domain.entities import Commit, CommitStat, FileStat, FileStatus, Hunk, ResetMode
+from git_gui.domain.entities import (
+    Commit,
+    CommitStat,
+    FileDelta,
+    FileStat,
+    FileStatus,
+    Hunk,
+    ResetMode,
+    StagingState,
+)
 from git_gui.infrastructure.file_history_cli import FileHistoryCli
 from git_gui.infrastructure.pygit2._helpers import _commit_to_entity, _diff_to_hunks
 from git_gui.resources import subprocess_kwargs
+
+_COMMIT_DELTA_MAP = {
+    pygit2.GIT_DELTA_ADDED: FileDelta.ADDED,
+    pygit2.GIT_DELTA_DELETED: FileDelta.DELETED,
+    pygit2.GIT_DELTA_MODIFIED: FileDelta.MODIFIED,
+    pygit2.GIT_DELTA_RENAMED: FileDelta.RENAMED,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -192,13 +208,8 @@ class CommitOps:
         for patch in diff:
             delta = patch.delta
             path = delta.new_file.path or delta.old_file.path
-            delta_type = {
-                pygit2.GIT_DELTA_ADDED: "added",
-                pygit2.GIT_DELTA_DELETED: "deleted",
-                pygit2.GIT_DELTA_MODIFIED: "modified",
-                pygit2.GIT_DELTA_RENAMED: "renamed",
-            }.get(delta.status, "unknown")
-            files.append(FileStatus(path=path, status="staged", delta=delta_type))
+            delta_type = _COMMIT_DELTA_MAP.get(delta.status, FileDelta.UNKNOWN)
+            files.append(FileStatus(path=path, status=StagingState.STAGED, delta=delta_type))
         return files
 
     def get_commit_diff_map(self, oid: str) -> dict[str, list[Hunk]]:
