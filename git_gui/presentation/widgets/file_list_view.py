@@ -7,6 +7,7 @@ from PySide6.QtCore import QModelIndex, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QPainter
 from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
+from git_gui.domain.entities import FileDelta, FileStatus, StagingState
 from git_gui.presentation.theme import get_theme_manager
 
 
@@ -105,16 +106,34 @@ class FileListView(QListView):
 # Lifted here from diff.py so a future FileNavigatorWidget can import it
 # alongside FileListView.
 
-DELTA_LABEL = {
-    "modified": "M",
-    "added": "A",
-    "deleted": "D",
-    "renamed": "R",
-    "unknown": "?",
+UNKNOWN_LABEL = "?"
+
+BADGE_LABEL: dict[FileDelta | StagingState, str] = {
+    FileDelta.MODIFIED: "M",
+    FileDelta.ADDED: "A",
+    FileDelta.DELETED: "D",
+    FileDelta.RENAMED: "R",
+    FileDelta.UNKNOWN: "?",
+    StagingState.CONFLICTED: "C",
 }
 
 BADGE_SIZE = 20
 BADGE_GAP = 6
+
+
+def badge_kind(file_status: FileStatus | None) -> FileDelta | StagingState:
+    """What a row's badge stands for — the delta, unless the file is conflicted.
+
+    A conflict outranks whatever the delta says, because it is the thing the
+    user has to act on. The theme names its colours after these same values
+    (`status_modified`, `status_conflicted`, …), so one key drives both the
+    letter and the colour.
+    """
+    if file_status is None:
+        return FileDelta.UNKNOWN
+    if file_status.status == StagingState.CONFLICTED:
+        return StagingState.CONFLICTED
+    return file_status.delta
 
 
 class FileDeltaDelegate(QStyledItemDelegate):
@@ -129,14 +148,14 @@ class FileDeltaDelegate(QStyledItemDelegate):
         if option.state & QStyle.State_Selected:
             painter.fillRect(rect, get_theme_manager().current.colors.as_qcolor("primary"))
 
-        fs = index.data(Qt.UserRole)
-        delta = fs.delta if fs else "unknown"
-        label = DELTA_LABEL.get(delta, "?")
+        kind = badge_kind(index.data(Qt.UserRole))
+        # A paint() that raises takes the whole view down with it.
+        label = BADGE_LABEL.get(kind, UNKNOWN_LABEL)
 
         badge_x = rect.left() + 4
         badge_y = rect.top() + (rect.height() - BADGE_SIZE) // 2
         badge_rect = QRect(badge_x, badge_y, BADGE_SIZE, BADGE_SIZE)
-        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(delta)))
+        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(kind)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
 

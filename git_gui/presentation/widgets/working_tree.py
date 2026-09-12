@@ -22,22 +22,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.domain.entities import FileStatus
+from git_gui.domain.entities import FileStatus, StagingState
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.widgets.file_list_view import (
+    BADGE_LABEL,
+    UNKNOWN_LABEL,
+    badge_kind,
+)
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 
-# (label only — color comes from theme.colors.status_color(kind) at paint time)
-_DELTA_LABEL = {
-    "modified": "M",
-    "added": "A",
-    "deleted": "D",
-    "renamed": "R",
-    "unknown": "?",
-    "conflicted": "C",
-}
 _BADGE_SIZE = 20
 _BADGE_GAP = 6
 
@@ -65,17 +61,15 @@ class _FileDelegate(QStyledItemDelegate):
         painter.setRenderHint(QPainter.Antialiasing)
 
         rect = option.rect
-        fs = index.data(Qt.UserRole)
-        kind = fs.status if fs else "unknown"
-        delta = fs.delta if fs else "unknown"
-        badge_key = kind if kind == "conflicted" else delta
-        label = _DELTA_LABEL.get(badge_key, "?")
+        kind = badge_kind(index.data(Qt.UserRole))
+        # A paint() that raises takes the whole view down with it.
+        label = BADGE_LABEL.get(kind, UNKNOWN_LABEL)
 
         # Position badge after the checkbox area (~30px from left)
         badge_x = rect.left() + 30
         badge_y = rect.top() + (rect.height() - _BADGE_SIZE) // 2
         badge_rect = QRect(badge_x, badge_y, _BADGE_SIZE, _BADGE_SIZE)
-        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(badge_key)))
+        painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(kind)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
         painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
@@ -237,7 +231,9 @@ class WorkingTreeWidget(QWidget):
     def _on_reload_done(self, files: list[FileStatus], partial: set[str]) -> None:
         if self._queries is None:
             return
-        sorted_files = sorted(files, key=lambda f: (0 if f.status == "conflicted" else 1, f.path))
+        sorted_files = sorted(
+            files, key=lambda f: (0 if f.status == StagingState.CONFLICTED else 1, f.path)
+        )
         self._file_model.reload(sorted_files, partial)
         if not files:
             self._hunk_diff.clear()
@@ -324,7 +320,7 @@ class WorkingTreeWidget(QWidget):
     def _on_stage_all(self) -> None:
         raw_files = self._queries.get_working_tree.execute()
         files, partial = _deduplicate(raw_files)
-        paths = list({f.path for f in files if f.status != "staged"} | partial)
+        paths = list({f.path for f in files if f.status != StagingState.STAGED} | partial)
         if paths:
             self._commands.stage_files.execute(paths)
             self._on_files_changed()
@@ -332,7 +328,7 @@ class WorkingTreeWidget(QWidget):
     def _on_unstage_all(self) -> None:
         raw_files = self._queries.get_working_tree.execute()
         files, partial = _deduplicate(raw_files)
-        paths = list({f.path for f in files if f.status == "staged"} | partial)
+        paths = list({f.path for f in files if f.status == StagingState.STAGED} | partial)
         if paths:
             self._commands.unstage_files.execute(paths)
             self._on_files_changed()
@@ -580,7 +576,7 @@ def _deduplicate(files: list[FileStatus]) -> tuple[list[FileStatus], set[str]]:
     # First pass: add staged entries (preferred for partial files)
     for f in files:
         if f.path in partial:
-            if f.status == "staged" and f.path not in added:
+            if f.status == StagingState.STAGED and f.path not in added:
                 deduped.append(f)
                 added.add(f.path)
         elif f.path not in added:

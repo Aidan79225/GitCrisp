@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from PySide6.QtGui import QColor, QFont
 
+from git_gui.domain.entities import FileDelta, StagingState
+
 
 @dataclass(frozen=True)
 class Colors:
@@ -71,11 +73,8 @@ class Colors:
             raise KeyError(f"Token {name} is not a single color")
         return QColor(value)
 
-    def status_color(self, kind: str) -> QColor:
-        """Return the badge color for a working-tree delta kind.
-
-        Falls back to status_unknown if the kind is not recognized.
-        """
+    def status_color(self, kind: FileDelta | StagingState) -> QColor:
+        """The badge colour for a delta — or for a conflict, which outranks it."""
         name = f"status_{kind}"
         if hasattr(self, name):
             return self.as_qcolor(name)

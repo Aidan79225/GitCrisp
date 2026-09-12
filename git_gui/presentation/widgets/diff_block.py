@@ -35,7 +35,7 @@ class _ClickableLabel(QLabel):
         super().mousePressEvent(ev)
 
 
-from git_gui.domain.entities import Hunk
+from git_gui.domain.entities import Hunk, LineKind
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
 from git_gui.presentation.widgets.side_by_side import parse_hunk_header
@@ -287,7 +287,7 @@ def _build_pair_index(lines: list[tuple[str, str]]) -> dict[int, tuple[str, str]
     i = 0
     n = len(lines)
     while i < n - 1:
-        if lines[i][0] == "-" and lines[i + 1][0] == "+":
+        if lines[i][0] == LineKind.REMOVED and lines[i + 1][0] == LineKind.ADDED:
             old = lines[i][1].rstrip("\n")
             new = lines[i + 1][1].rstrip("\n")
             pairs[i] = (old, new)
@@ -361,9 +361,9 @@ def _render_lines_range(
 
     old_line, new_line = parse_hunk_header(hunk.header)
     for origin, _ in hunk.lines[:start]:
-        if origin == "+":
+        if origin == LineKind.ADDED:
             new_line += 1
-        elif origin == "-":
+        elif origin == LineKind.REMOVED:
             old_line += 1
         else:
             old_line += 1
@@ -374,12 +374,12 @@ def _render_lines_range(
 
     for idx in range(start, end):
         origin, content = hunk.lines[idx]
-        if origin == "+":
+        if origin == LineKind.ADDED:
             cursor.setBlockFormat(formats.blk_added)
             cursor.setCharFormat(formats.fmt_added)
             prefix = f"     {new_line:>4}  "
             new_line += 1
-        elif origin == "-":
+        elif origin == LineKind.REMOVED:
             cursor.setBlockFormat(formats.blk_removed)
             cursor.setCharFormat(formats.fmt_removed)
             prefix = f"{old_line:>4}       "
@@ -409,13 +409,13 @@ def _render_lines_range(
         )
 
         # Pass 3 — word-level overlay (only for paired -/+)
-        if idx not in pair_index or origin == " ":
+        if idx not in pair_index or origin == LineKind.CONTEXT:
             continue
         old_text, new_text = pair_index[idx]
         old_spans, new_spans = pair_diff(old_text, new_text)
         spans, overlay = (
             (old_spans, syntax_formats.removed_word_overlay)
-            if origin == "-"
+            if origin == LineKind.REMOVED
             else (new_spans, syntax_formats.added_word_overlay)
         )
         apply_word_overlay(cursor.document(), content_doc_start, spans, overlay)

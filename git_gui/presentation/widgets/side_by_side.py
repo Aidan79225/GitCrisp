@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from git_gui.domain.entities import Hunk
+from git_gui.domain.entities import Hunk, LineKind
 
 
 @dataclass(frozen=True)
@@ -78,10 +78,10 @@ def align_hunk(hunk: Hunk) -> list[Row]:
 
     for origin, content in hunk.lines:
         text = content.rstrip("\n")
-        if origin == "-":
+        if origin == LineKind.REMOVED:
             removed.append(Cell(number=old_number, text=text, changed=True))
             old_number += 1
-        elif origin == "+":
+        elif origin == LineKind.ADDED:
             added.append(Cell(number=new_number, text=text, changed=True))
             new_number += 1
         else:
