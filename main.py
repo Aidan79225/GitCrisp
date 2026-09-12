@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 import pygit2
-from PySide6.QtCore import qInstallMessageHandler
+from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -70,12 +70,34 @@ _SUPPRESSED_FRAGMENTS = (
 )
 
 
+_QT_LOG_LEVELS = {
+    QtMsgType.QtDebugMsg: logging.DEBUG,
+    QtMsgType.QtInfoMsg: logging.INFO,
+    QtMsgType.QtWarningMsg: logging.WARNING,
+    QtMsgType.QtCriticalMsg: logging.ERROR,
+    QtMsgType.QtFatalMsg: logging.CRITICAL,
+}
+
+
 def _qt_message_filter(mode, context, message):
-    """Filter out known-noisy Qt platform warnings (Windows QPA bugs)."""
+    """Filter out known-noisy Qt platform warnings (Windows QPA bugs).
+
+    Qt calls this from inside whatever code provoked the message, so anything
+    raised here surfaces there instead — a Qt warning becomes an exception in
+    an unrelated widget. A released GitCrisp is a windowed build (PyInstaller
+    ``--windowed``, like ``pythonw``), which has no stderr at all, so writing
+    to it unguarded did exactly that: a missing-icon warning while a hunk block
+    was being built came back as an ``AttributeError`` and stopped the
+    working-tree diff rendering.
+
+    The log is therefore the sink that has to work, and stderr is the extra.
+    """
     if any(fragment in message for fragment in _SUPPRESSED_FRAGMENTS):
         logging.debug("Suppressed Qt warning: %s", message)
         return
-    sys.stderr.write(f"Qt {mode.name}: {message}\n")
+    logging.log(_QT_LOG_LEVELS.get(mode, logging.WARNING), "Qt %s: %s", mode.name, message)
+    if sys.stderr is not None:
+        sys.stderr.write(f"Qt {mode.name}: {message}\n")
 
 
 def main() -> None:
