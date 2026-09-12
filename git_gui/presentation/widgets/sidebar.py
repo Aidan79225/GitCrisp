@@ -403,7 +403,6 @@ class SidebarWidget(QWidget):
         self._smart_checkout = sc
 
     def trigger_branch_action(self, action: str, branch: str) -> None:
-        """Emit the appropriate signal for the chosen branch action."""
         if action == "checkout":
             # Route through SmartCheckout if MainWindow has set one;
             # otherwise emit the standard checkout signal for MainWindow

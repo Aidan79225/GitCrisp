@@ -182,7 +182,6 @@ class MergeRebaseOps:
         except Exception:
             rebase_target = target_oid
 
-        # Build the todo file content
         todo_lines = [f"{action} {oid}" for action, oid in entries]
         todo_content = "\n".join(todo_lines) + "\n"
 
@@ -232,6 +231,5 @@ class MergeRebaseOps:
                 pass
 
     def _rebase_onto(self, target_oid) -> None:
-        # Convert Oid to hex string if needed
         target_hex = str(target_oid)
         self._run_git("rebase", target_hex)

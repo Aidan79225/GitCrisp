@@ -147,7 +147,6 @@ class BranchOps:
         parts = remote_branch.split("/", 1)
         local_name = parts[1] if len(parts) > 1 else remote_branch
         remote_ref = self._repo.branches.remote[remote_branch]
-        # Create local branch at the same commit
         local_ref = self._repo.branches.local.create(local_name, self._repo.get(remote_ref.target))
         local_ref.upstream = remote_ref
         self._repo.checkout(local_ref)

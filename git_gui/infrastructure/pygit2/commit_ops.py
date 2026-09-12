@@ -95,7 +95,6 @@ class CommitOps:
         if first_parent:
             walker.simplify_first_parent()
 
-        # Skip first N commits
         for _ in range(skip):
             try:
                 next(walker)

@@ -248,7 +248,6 @@ class HunkDiffWidget(QWidget):
             self._submodule_paths = set()
 
     def _make_file_block(self, path: str):
-        """Return a bordered QFrame file block and its inner layout."""
         on_click = (
             (lambda p=path: self.submodule_open_requested.emit(p))
             if path in self._submodule_paths

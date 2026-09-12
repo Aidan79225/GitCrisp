@@ -1,11 +1,11 @@
-"""Reusable viewport-driven lazy block loader.
+"""Realises a file's diff block only once it scrolls into view.
 
-Manages the state machine for skeleton-block realization: tracks which
-file blocks exist, which have been realized, debounces scroll events,
-and realizes one block per event-loop tick when it enters the viewport.
+Building every block up front is what made a large commit — or a working tree
+holding thousands of changes — freeze the window, so blocks start as skeletons
+and only the ones the user can actually see are ever built.
 
-Used by both DiffWidget (commit view) and HunkDiffWidget (working tree)
-to avoid duplicating the viewport-intersection + stale-frame logic.
+Shared by the commit view and the working-tree view, which differ in what a
+realised block contains and in nothing else.
 """
 
 from __future__ import annotations
@@ -20,15 +20,8 @@ from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
 class ViewportBlockLoader:
     """Lazy block loader driven by scroll-area viewport intersection.
 
-    Parameters
-    ----------
-    scroll_area:
-        The QScrollArea whose viewport is used for intersection checks.
-    realize_fn:
-        ``realize_fn(path, inner_layout, skeleton_or_none, diff_entry)``
-        is called when a block enters the viewport and needs to be
-        realized. The widget provides this callback to do domain-specific
-        hunk rendering.
+    `realize_fn` is what a block actually becomes — the one thing the two
+    callers do differently.
     """
 
     def __init__(
@@ -50,7 +43,6 @@ class ViewportBlockLoader:
         scroll_area.verticalScrollBar().valueChanged.connect(lambda _: self._scroll_timer.start())
 
     def set_blocks(self, block_refs: list[tuple[str, QFrame, QVBoxLayout, QWidget | None]]) -> None:
-        """Register skeleton blocks. Resets loaded-paths and diff map."""
         self._block_refs = list(block_refs)
         self._loaded_paths = set()
         self._diff_map = {}
@@ -74,7 +66,6 @@ class ViewportBlockLoader:
         self._scroll_timer.start()
 
     def clear(self) -> None:
-        """Reset all state. Call from the widget's layout-clear method."""
         self._block_refs = []
         self._loaded_paths = set()
         self._diff_map = {}
@@ -84,12 +75,12 @@ class ViewportBlockLoader:
     def _check_viewport(self) -> None:
         """Realize the first visible unloaded block, then reschedule.
 
-        Only one block per call — after realization the layout shifts,
-        so we reschedule via ``QTimer.singleShot(0, ...)`` to let Qt
-        process the growth before re-checking.
+        One block per call: realising it grows the layout and moves everything
+        below, so which block is visible next cannot be known until Qt has laid
+        this one out.
 
-        Wraps frame access in ``try/except RuntimeError`` to handle
-        stale C++ references from frames deleted by a newer load.
+        RuntimeError is a frame a newer load already deleted — the Python
+        wrapper outlives the C++ widget, and touching it raises.
         """
         if not self._block_refs or not self._diff_map:
             return

@@ -32,8 +32,7 @@ def _node_fill_color() -> QColor:
     return get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE)
 
 
-def _lx(rect_left: int, lane: int) -> int:
-    """X coordinate for the center of a lane."""
+def _lane_center_x(rect_left: int, lane: int) -> int:
     return rect_left + lane * LANE_W + LANE_W // 2
 
 
@@ -93,28 +92,28 @@ def paint_lanes(painter: QPainter, rect: QRect, lane_data: LaneData, *, selected
     # 1. Pass-through lines (full row height, diagonal if lane changes)
     for top_lane, bot_lane, ci in lane_data.lines:
         painter.setPen(QPen(QColor(lane_colors[ci % n_colors]), 2))
-        painter.drawLine(_lx(left, top_lane), top, _lx(left, bot_lane), bot)
+        painter.drawLine(_lane_center_x(left, top_lane), top, _lane_center_x(left, bot_lane), bot)
 
     # 2. Incoming line (top of cell → commit node, only if lane was active above)
     if lane_data.has_incoming:
         painter.setPen(QPen(QColor(lane_colors[lane_data.color_idx % n_colors]), 2))
-        lx = _lx(left, lane_data.lane)
+        lx = _lane_center_x(left, lane_data.lane)
         painter.drawLine(lx, top, lx, mid)
 
     # 2b. Incoming edges from converging lanes (top of cell → commit node, diagonal)
     for from_lane, to_lane, ci in lane_data.edges_in:
         painter.setPen(QPen(QColor(lane_colors[ci % n_colors]), 2))
-        painter.drawLine(_lx(left, from_lane), top, _lx(left, to_lane), mid)
+        painter.drawLine(_lane_center_x(left, from_lane), top, _lane_center_x(left, to_lane), mid)
 
     # 3. Outgoing edges (commit node → bottom of cell, straight or diagonal)
     for from_lane, to_lane, ci in lane_data.edges_out:
         painter.setPen(QPen(QColor(lane_colors[ci % n_colors]), 2))
-        painter.drawLine(_lx(left, from_lane), mid, _lx(left, to_lane), bot)
+        painter.drawLine(_lane_center_x(left, from_lane), mid, _lane_center_x(left, to_lane), bot)
 
     # 4. Commit node — hollow circle drawn last so it sits on top of the lines.
     #    The fill matches the row background so lines passing under the node are
     #    masked out rather than showing through the middle.
-    lx = _lx(left, lane_data.lane)
+    lx = _lane_center_x(left, lane_data.lane)
     node_color = QColor(lane_colors[lane_data.color_idx % n_colors])
     painter.setBrush(_selection_color() if selected else _node_fill_color())
     painter.setPen(QPen(node_color, NODE_STROKE_W))

@@ -35,6 +35,10 @@ from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 
 _BADGE_SIZE = 20
 _BADGE_GAP = 6
+# Qt knows nothing about the badge, so the row's text is padded to leave a gap
+# the badge is then painted into, clear of the check indicator.
+_BADGE_TEXT_RESERVATION = "          "
+_BADGE_LEFT_INSET = 30
 
 
 class _FileDelegate(QStyledItemDelegate):
@@ -42,22 +46,17 @@ class _FileDelegate(QStyledItemDelegate):
 
     def initStyleOption(self, option: QStyleOptionViewItem, index) -> None:
         super().initStyleOption(option, index)
-        # Prefix badge letter to display text so Qt reserves space;
-        # we'll paint the badge over this prefix area
-        # Add padding spaces to make room for the badge we'll paint
-        option.text = "          " + (option.text or "")
+        option.text = _BADGE_TEXT_RESERVATION + (option.text or "")
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        # Fill selection background explicitly before Qt draws over it
+        # Before super(), which draws over whatever is already there.
         if option.state & QStyle.State_Selected:
             painter.fillRect(
                 option.rect, get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
             )
 
-        # Let Qt draw checkbox + text normally
         super().paint(painter, option, index)
 
-        # Now paint the delta badge in the gap we reserved
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -66,8 +65,7 @@ class _FileDelegate(QStyledItemDelegate):
         # A paint() that raises takes the whole view down with it.
         label = BADGE_LABEL.get(kind, UNKNOWN_LABEL)
 
-        # Position badge after the checkbox area (~30px from left)
-        badge_x = rect.left() + 30
+        badge_x = rect.left() + _BADGE_LEFT_INSET
         badge_y = rect.top() + (rect.height() - _BADGE_SIZE) // 2
         badge_rect = QRect(badge_x, badge_y, _BADGE_SIZE, _BADGE_SIZE)
         painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(kind)))
@@ -212,7 +210,6 @@ class WorkingTreeWidget(QWidget):
         self._repo_path = path
 
     def refresh_diff_view(self) -> None:
-        """Redraw the working-tree diff after the diff-view choice changed."""
         self._hunk_diff.refresh_view()
 
     def reload(self) -> None:
@@ -510,7 +507,6 @@ class WorkingTreeWidget(QWidget):
         self._hunk_diff.load_all_files([f.path for f in files])
 
     def update_conflict_banner(self, state_name: str, merge_msg: str | None = None) -> None:
-        """Show or hide the conflict banner based on repo state."""
         self._current_state = state_name
         if state_name == "MERGING":
             self._banner_label.setText("\u26a0 Merge in progress")

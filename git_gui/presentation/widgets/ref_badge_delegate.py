@@ -87,7 +87,6 @@ class RefBadgeDelegate(QStyledItemDelegate):
 
             x += badge_w + BADGE_GAP
 
-        # Draw commit message text after the badges
         text_rect = QRect(x, rect.top(), max(0, rect.right() - x), rect.height())
         painter.setPen(option.palette.text().color())
         painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, message)
