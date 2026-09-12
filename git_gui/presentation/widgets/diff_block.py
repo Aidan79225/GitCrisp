@@ -36,7 +36,7 @@ class _ClickableLabel(QLabel):
 
 
 from git_gui.domain.entities import Hunk, LineKind
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
 from git_gui.presentation.widgets.side_by_side import parse_hunk_header
 
@@ -185,7 +185,7 @@ def make_file_block(
 def make_diff_formats() -> DiffFormats:
     """Return a DiffFormats dataclass with all QTextCharFormat / QTextBlockFormat objects."""
     c = get_theme_manager().current.colors
-    on_surface = c.as_qcolor("on_surface")
+    on_surface = c.as_qcolor(ColorRole.ON_SURFACE)
 
     fmt_added = QTextCharFormat()
     fmt_added.setForeground(on_surface)
@@ -200,10 +200,10 @@ def make_diff_formats() -> DiffFormats:
     fmt_default.setForeground(on_surface)
 
     blk_added = QTextBlockFormat()
-    blk_added.setBackground(c.as_qcolor("diff_added_overlay"))
+    blk_added.setBackground(c.as_qcolor(ColorRole.DIFF_ADDED_OVERLAY))
 
     blk_removed = QTextBlockFormat()
-    blk_removed.setBackground(c.as_qcolor("diff_removed_overlay"))
+    blk_removed.setBackground(c.as_qcolor(ColorRole.DIFF_REMOVED_OVERLAY))
 
     blk_default = QTextBlockFormat()
 

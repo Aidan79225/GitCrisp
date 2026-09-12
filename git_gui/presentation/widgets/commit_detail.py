@@ -6,7 +6,7 @@ from PySide6.QtGui import QBrush, QColor, QFont, QPainter
 from PySide6.QtWidgets import QWidget
 
 from git_gui.domain.entities import Commit
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.author_avatar import paint_avatar
 from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
 from git_gui.presentation.widgets.ref_badge_delegate import (
@@ -21,7 +21,7 @@ from git_gui.presentation.widgets.ref_badge_delegate import (
 
 
 def _muted() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("on_surface_variant")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE_VARIANT)
 
 
 PAD = 12
@@ -79,8 +79,8 @@ class CommitDetailWidget(QWidget):
         line_h = fm.height()
         w = self.width()
         c = self._commit
-        on_surface = get_theme_manager().current.colors.as_qcolor("on_surface")
-        on_badge = get_theme_manager().current.colors.as_qcolor("on_badge")
+        on_surface = get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE)
+        on_badge = get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE)
 
         # ── Avatar (left, vertically centered) ───────────────────────────────
         avatar_y = (self.height() - AVATAR_SIZE) // 2

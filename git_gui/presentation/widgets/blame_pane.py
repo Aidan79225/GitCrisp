@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from git_gui.domain.entities import BlameLine
 from git_gui.presentation.bus import QueryBus
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.diff_block import (
     _KIND_TO_ATTR,
     make_diff_editor,
@@ -255,11 +255,11 @@ class _BlameEditor(QPlainTextEdit):
     def paint_gutter(self, event) -> None:
         colors = get_theme_manager().current.colors
         painter = QPainter(self._gutter)
-        painter.fillRect(event.rect(), colors.as_qcolor("surface_container"))
+        painter.fillRect(event.rect(), colors.as_qcolor(ColorRole.SURFACE_CONTAINER))
 
-        muted = colors.as_qcolor("on_surface_variant")
-        strong = colors.as_qcolor("on_surface")
-        divider = colors.as_qcolor("outline_variant")
+        muted = colors.as_qcolor(ColorRole.ON_SURFACE_VARIANT)
+        strong = colors.as_qcolor(ColorRole.ON_SURFACE)
+        divider = colors.as_qcolor(ColorRole.OUTLINE_VARIANT)
         width = self._gutter.width()
 
         block = self.firstVisibleBlock()

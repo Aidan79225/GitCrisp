@@ -26,7 +26,7 @@ from PySide6.QtGui import QTextBlockFormat
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from git_gui.domain.entities import Hunk
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.diff_block import (
     DiffFormats,
     SyntaxFormats,
@@ -60,7 +60,7 @@ def make_filler_format() -> QTextBlockFormat:
     added on the other side.
     """
     fmt = QTextBlockFormat()
-    fmt.setBackground(get_theme_manager().current.colors.as_qcolor("surface_variant"))
+    fmt.setBackground(get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE_VARIANT))
     return fmt
 
 

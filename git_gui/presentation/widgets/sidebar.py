@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.resources import get_resource_path
 
 
@@ -30,11 +30,11 @@ def _tag_sort_key(name: str) -> tuple[bool, list[int] | str]:
 
 
 def _head_bg() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("primary")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
 
 
 def _hover_bg() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("surface_variant")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE_VARIANT)
 
 
 _ROW_HEIGHT = 28
@@ -53,7 +53,7 @@ def _get_cloud_icon() -> QIcon:
     src = QIcon(path).pixmap(16, 16)
     if src.isNull():
         return QIcon(path)
-    color = get_theme_manager().current.colors.as_qcolor("on_background")
+    color = get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BACKGROUND)
     tinted = QPixmap(src.size())
     tinted.setDevicePixelRatio(src.devicePixelRatio())
     tinted.fill(Qt.transparent)
@@ -98,7 +98,7 @@ class _SidebarTree(QTreeView):
         elif self._hover_idx.isValid() and index == self._hover_idx:
             painter.fillRect(
                 rect,
-                get_theme_manager().current.colors.as_qcolor("surface_container_high"),
+                get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE_CONTAINER_HIGH),
             )
         super().drawBranches(painter, rect, index)
 
@@ -110,7 +110,9 @@ class _SidebarTree(QTreeView):
             painter.restore()
         elif self._hover_idx.isValid() and index == self._hover_idx:
             painter.save()
-            hover_color = get_theme_manager().current.colors.as_qcolor("surface_container_high")
+            hover_color = get_theme_manager().current.colors.as_qcolor(
+                ColorRole.SURFACE_CONTAINER_HIGH
+            )
             painter.fillRect(option.rect, hover_color)
             painter.restore()
         super().drawRow(painter, option, index)

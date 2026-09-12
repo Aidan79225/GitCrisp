@@ -23,7 +23,7 @@ from git_gui.domain.entities import WORKING_TREE_OID, Branch, Commit, ResetMode,
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE, GraphModel
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.commit_row_delegate import CommitRowDelegate
 from git_gui.resources import get_resource_path
 
@@ -399,7 +399,7 @@ class GraphWidget(QWidget):
         style = _btn_style()
         for btn in self._styled_buttons:
             btn.setStyleSheet(style)
-        on_bg = get_theme_manager().current.colors.as_qcolor("on_background")
+        on_bg = get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BACKGROUND)
         for btn, icon_name in self._tinted_button_icons:
             btn.setIcon(_tinted_icon(str(_ARTS / f"{icon_name}.svg"), on_bg))
 

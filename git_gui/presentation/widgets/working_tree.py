@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from git_gui.domain.entities import FileStatus, StagingState
 from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.file_list_view import (
     BADGE_LABEL,
     UNKNOWN_LABEL,
@@ -51,7 +51,9 @@ class _FileDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         # Fill selection background explicitly before Qt draws over it
         if option.state & QStyle.State_Selected:
-            painter.fillRect(option.rect, get_theme_manager().current.colors.as_qcolor("primary"))
+            painter.fillRect(
+                option.rect, get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
+            )
 
         # Let Qt draw checkbox + text normally
         super().paint(painter, option, index)
@@ -72,7 +74,7 @@ class _FileDelegate(QStyledItemDelegate):
         painter.setBrush(QBrush(get_theme_manager().current.colors.status_color(kind)))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
-        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE))
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 
         painter.restore()
