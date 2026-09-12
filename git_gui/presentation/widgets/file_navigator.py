@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from git_gui.domain.entities import FileDelta
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 from git_gui.presentation.widgets.file_list_view import FileDeltaDelegate, FileListView
@@ -54,8 +55,7 @@ class NavMode(Enum):
     PILL = 1
 
 
-def _delta_dot_icon(delta: str, diameter: int = 8) -> QIcon:
-    """Generate a circle-icon pixmap colored by the file's delta status."""
+def _delta_dot_icon(delta: FileDelta, diameter: int = 8) -> QIcon:
     pix = QPixmap(diameter, diameter)
     pix.fill(QColor(0, 0, 0, 0))  # transparent
     painter = QPainter(pix)

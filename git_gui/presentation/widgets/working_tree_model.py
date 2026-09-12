@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, Signal
 
-from git_gui.domain.entities import FileStatus
+from git_gui.domain.entities import FileStatus, StagingState
 from git_gui.presentation.bus import CommandBus
 
 
@@ -37,7 +37,11 @@ class WorkingTreeModel(QAbstractListModel):
         if role == Qt.CheckStateRole:
             if fs.path in self._partial:
                 return Qt.CheckState.PartiallyChecked
-            return Qt.CheckState.Checked if fs.status == "staged" else Qt.CheckState.Unchecked
+            return (
+                Qt.CheckState.Checked
+                if fs.status == StagingState.STAGED
+                else Qt.CheckState.Unchecked
+            )
         if role == Qt.UserRole:
             return fs
         return None

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.domain.entities import WORKING_TREE_OID, Hunk
+from git_gui.domain.entities import WORKING_TREE_OID, Hunk, StagingState
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import connect_widget
 from git_gui.presentation.widgets.diff_block import (
@@ -280,8 +280,8 @@ class HunkDiffWidget(QWidget):
 
     def _realize_block_from_loader(self, path: str, inner, skeleton, entry) -> None:
         """Callback for ViewportBlockLoader — replace skeleton with staged/unstaged hunks."""
-        staged_hunks = entry.get("staged", [])
-        unstaged_hunks = entry.get("unstaged", [])
+        staged_hunks = entry.get(StagingState.STAGED, [])
+        unstaged_hunks = entry.get(StagingState.UNSTAGED, [])
         is_untracked = (
             not staged_hunks
             and bool(unstaged_hunks)
