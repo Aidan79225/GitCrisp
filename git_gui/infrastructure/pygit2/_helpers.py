@@ -7,38 +7,30 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
-from typing import Literal
 
 import pygit2
 
-from git_gui.domain.entities import Commit, Hunk
+from git_gui.domain.entities import Commit, FileDelta, Hunk, LineKind, StagingState
 
-_STATUS_MAP: dict[
-    int,
-    tuple[
-        Literal["staged", "unstaged", "untracked", "conflicted"],
-        Literal["added", "modified", "deleted", "renamed", "unknown"],
-    ],
-] = {
-    pygit2.GIT_STATUS_INDEX_NEW: ("staged", "added"),
-    pygit2.GIT_STATUS_INDEX_MODIFIED: ("staged", "modified"),
-    pygit2.GIT_STATUS_INDEX_DELETED: ("staged", "deleted"),
-    pygit2.GIT_STATUS_INDEX_RENAMED: ("staged", "renamed"),
-    pygit2.GIT_STATUS_WT_NEW: ("untracked", "added"),
-    pygit2.GIT_STATUS_WT_MODIFIED: ("unstaged", "modified"),
-    pygit2.GIT_STATUS_WT_DELETED: ("unstaged", "deleted"),
-    pygit2.GIT_STATUS_WT_RENAMED: ("unstaged", "renamed"),
-    pygit2.GIT_STATUS_CONFLICTED: ("conflicted", "unknown"),
+_STATUS_MAP: dict[int, tuple[StagingState, FileDelta]] = {
+    pygit2.GIT_STATUS_INDEX_NEW: (StagingState.STAGED, FileDelta.ADDED),
+    pygit2.GIT_STATUS_INDEX_MODIFIED: (StagingState.STAGED, FileDelta.MODIFIED),
+    pygit2.GIT_STATUS_INDEX_DELETED: (StagingState.STAGED, FileDelta.DELETED),
+    pygit2.GIT_STATUS_INDEX_RENAMED: (StagingState.STAGED, FileDelta.RENAMED),
+    pygit2.GIT_STATUS_WT_NEW: (StagingState.UNTRACKED, FileDelta.ADDED),
+    pygit2.GIT_STATUS_WT_MODIFIED: (StagingState.UNSTAGED, FileDelta.MODIFIED),
+    pygit2.GIT_STATUS_WT_DELETED: (StagingState.UNSTAGED, FileDelta.DELETED),
+    pygit2.GIT_STATUS_WT_RENAMED: (StagingState.UNSTAGED, FileDelta.RENAMED),
+    pygit2.GIT_STATUS_CONFLICTED: (StagingState.CONFLICTED, FileDelta.UNKNOWN),
 }
 
+_UNRECOGNISED_STATUS = (StagingState.UNSTAGED, FileDelta.UNKNOWN)
 
-def _map_statuses(flags: int) -> list[tuple[str, str]]:
-    """Return all matching statuses for the given flags (can be multiple for partial staging)."""
-    results = []
-    for flag, mapping in _STATUS_MAP.items():
-        if flags & flag:
-            results.append(mapping)
-    return results or [("unstaged", "unknown")]
+
+def _map_statuses(flags: int) -> list[tuple[StagingState, FileDelta]]:
+    """Partial staging sets several flags at once, so one file can be both."""
+    matched = [mapping for flag, mapping in _STATUS_MAP.items() if flags & flag]
+    return matched or [_UNRECOGNISED_STATUS]
 
 
 def _commit_to_entity(c: pygit2.Commit) -> Commit:
@@ -55,7 +47,7 @@ def _commit_to_entity(c: pygit2.Commit) -> Commit:
 def _diff_to_hunks(patch: pygit2.Patch) -> list[Hunk]:
     result = []
     for hunk in patch.hunks:
-        lines = [(line.origin, line.content) for line in hunk.lines]
+        lines = [(LineKind(line.origin), line.content) for line in hunk.lines]
         result.append(Hunk(header=hunk.header, lines=lines))
     return result
 
@@ -72,9 +64,14 @@ def _synthesise_untracked_hunk(workdir: str, path: str) -> list[Hunk]:
             head = f.read(8192)
         is_binary = b"\x00" in head
         if is_binary:
-            return [Hunk(header="@@ -0,0 +1,1 @@", lines=[("+", "Binary file\n")])]
+            return [Hunk(header="@@ -0,0 +1,1 @@", lines=[(LineKind.ADDED, "Binary file\n")])]
         if size > _UNTRACKED_MAX_BYTES:
-            return [Hunk(header="@@ -0,0 +1,1 @@", lines=[("+", f"Large file ({size} bytes)\n")])]
+            return [
+                Hunk(
+                    header="@@ -0,0 +1,1 @@",
+                    lines=[(LineKind.ADDED, f"Large file ({size} bytes)\n")],
+                )
+            ]
         with open(full, encoding="utf-8", errors="replace") as f:
             text = f.read()
         lines = text.splitlines(keepends=True)
@@ -82,7 +79,7 @@ def _synthesise_untracked_hunk(workdir: str, path: str) -> list[Hunk]:
             return [
                 Hunk(
                     header="@@ -0,0 +1,1 @@",
-                    lines=[("+", f"Large file ({len(lines)} lines, {size} bytes)\n")],
+                    lines=[(LineKind.ADDED, f"Large file ({len(lines)} lines, {size} bytes)\n")],
                 )
             ]
         if not lines:
@@ -90,7 +87,9 @@ def _synthesise_untracked_hunk(workdir: str, path: str) -> list[Hunk]:
         return [
             Hunk(
                 header=f"@@ -0,0 +1,{len(lines)} @@",
-                lines=[("+", line if line.endswith("\n") else line + "\n") for line in lines],
+                lines=[
+                    (LineKind.ADDED, line if line.endswith("\n") else line + "\n") for line in lines
+                ],
             )
         ]
     except OSError:
@@ -109,7 +108,7 @@ def _synthesise_conflict_hunk(workdir: str, path: str) -> list[Hunk]:
         return []
 
     hunks: list[Hunk] = []
-    block: list[tuple[str, str]] = []
+    block: list[tuple[LineKind, str]] = []
     block_start = 0
     in_conflict = False
     in_ours = False
@@ -120,12 +119,12 @@ def _synthesise_conflict_hunk(workdir: str, path: str) -> list[Hunk]:
             in_conflict = True
             in_ours = True
             block_start = i + 1  # 1-based
-            block.append((" ", line))
+            block.append((LineKind.CONTEXT, line))
         elif line.startswith("=======") and in_conflict:
             in_ours = False
-            block.append((" ", line))
+            block.append((LineKind.CONTEXT, line))
         elif line.startswith(">>>>>>>") and in_conflict:
-            block.append((" ", line))
+            block.append((LineKind.CONTEXT, line))
             n = len(block)
             hunks.append(
                 Hunk(
@@ -137,9 +136,9 @@ def _synthesise_conflict_hunk(workdir: str, path: str) -> list[Hunk]:
             in_conflict = False
         elif in_conflict:
             if in_ours:
-                block.append(("-", line))
+                block.append((LineKind.REMOVED, line))
             else:
-                block.append(("+", line))
+                block.append((LineKind.ADDED, line))
 
     return hunks
 
@@ -259,7 +258,7 @@ def _submodule_diff_hunk(old_oid: str, new_oid: str) -> Hunk:
     return Hunk(
         header="@@ -1,1 +1,1 @@",
         lines=[
-            ("-", f"Subproject commit {old_oid}\n"),
-            ("+", f"Subproject commit {new_oid}\n"),
+            (LineKind.REMOVED, f"Subproject commit {old_oid}\n"),
+            (LineKind.ADDED, f"Subproject commit {new_oid}\n"),
         ],
     )

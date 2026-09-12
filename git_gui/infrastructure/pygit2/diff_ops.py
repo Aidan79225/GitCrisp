@@ -6,7 +6,13 @@ import subprocess
 
 import pygit2
 
-from git_gui.domain.entities import WORKING_TREE_OID, FileStatus, Hunk
+from git_gui.domain.entities import (
+    WORKING_TREE_OID,
+    FileDelta,
+    FileStatus,
+    Hunk,
+    StagingState,
+)
 from git_gui.infrastructure.pygit2._helpers import (
     _diff_to_hunks,
     _map_statuses,
@@ -67,7 +73,7 @@ class DiffOps:
 
     def get_working_tree_diff_map(
         self, paths: list[str] | None = None
-    ) -> dict[str, dict[str, list[Hunk]]]:
+    ) -> dict[str, dict[StagingState, list[Hunk]]]:
         """Return {path: {"staged": [...], "unstaged": [...]}} for changed files.
 
         Computes the full staged diff and unstaged diff exactly once each.
@@ -78,7 +84,7 @@ class DiffOps:
         but only a bounded subset is actually displayed.
         """
         wanted = set(paths) if paths is not None else None
-        result: dict[str, dict[str, list[Hunk]]] = {}
+        result: dict[str, dict[StagingState, list[Hunk]]] = {}
 
         # Staged: index vs HEAD
         try:
@@ -95,8 +101,8 @@ class DiffOps:
                     continue
                 if wanted is not None and path not in wanted:
                     continue
-                result.setdefault(path, {"staged": [], "unstaged": []})
-                result[path]["staged"] = _diff_to_hunks(patch)
+                result.setdefault(path, {StagingState.STAGED: [], StagingState.UNSTAGED: []})
+                result[path][StagingState.STAGED] = _diff_to_hunks(patch)
         except Exception as e:
             logger.warning("Failed to compute staged diff map: %s", e)
 
@@ -109,7 +115,7 @@ class DiffOps:
                     continue
                 if wanted is not None and path not in wanted:
                     continue
-                result.setdefault(path, {"staged": [], "unstaged": []})
+                result.setdefault(path, {StagingState.STAGED: [], StagingState.UNSTAGED: []})
                 hunks = _diff_to_hunks(patch)
                 if not hunks:
                     try:
@@ -122,7 +128,7 @@ class DiffOps:
                             hunks = conflict_hunks
                         else:
                             hunks = self._diff_workfile_against_head(path)
-                result[path]["unstaged"] = hunks
+                result[path][StagingState.UNSTAGED] = hunks
         except Exception as e:
             logger.warning("Failed to compute unstaged diff map: %s", e)
 
@@ -132,8 +138,10 @@ class DiffOps:
                 if status & pygit2.GIT_STATUS_WT_NEW:
                     if wanted is not None and path not in wanted:
                         continue
-                    result.setdefault(path, {"staged": [], "unstaged": []})
-                    result[path]["unstaged"] = _synthesise_untracked_hunk(self._repo.workdir, path)
+                    result.setdefault(path, {StagingState.STAGED: [], StagingState.UNSTAGED: []})
+                    result[path][StagingState.UNSTAGED] = _synthesise_untracked_hunk(
+                        self._repo.workdir, path
+                    )
         except Exception as e:
             logger.warning("Failed to enumerate untracked files for diff map: %s", e)
 
@@ -143,11 +151,13 @@ class DiffOps:
         for sub_path, tree_oid, index_oid, actual_oid in self._detect_diverged_submodules():
             if wanted is not None and sub_path not in wanted:
                 continue
-            entry = result.setdefault(sub_path, {"staged": [], "unstaged": []})
+            entry = result.setdefault(
+                sub_path, {StagingState.STAGED: [], StagingState.UNSTAGED: []}
+            )
             if index_oid != tree_oid:
-                entry["staged"] = [_submodule_diff_hunk(tree_oid, index_oid)]
+                entry[StagingState.STAGED] = [_submodule_diff_hunk(tree_oid, index_oid)]
             if actual_oid != index_oid:
-                entry["unstaged"] = [_submodule_diff_hunk(index_oid, actual_oid)]
+                entry[StagingState.UNSTAGED] = [_submodule_diff_hunk(index_oid, actual_oid)]
 
         return result
 
@@ -197,9 +207,15 @@ class DiffOps:
             if sub_path in seen:
                 continue
             if index_oid != tree_oid:
-                files.append(FileStatus(path=sub_path, status="staged", delta="modified"))
+                files.append(
+                    FileStatus(path=sub_path, status=StagingState.STAGED, delta=FileDelta.MODIFIED)
+                )
             if actual_oid != index_oid:
-                files.append(FileStatus(path=sub_path, status="unstaged", delta="modified"))
+                files.append(
+                    FileStatus(
+                        path=sub_path, status=StagingState.UNSTAGED, delta=FileDelta.MODIFIED
+                    )
+                )
 
         return files
 
