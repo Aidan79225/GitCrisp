@@ -29,6 +29,16 @@ from git_gui.presentation.widgets.diff_block import (
 from git_gui.presentation.widgets.hunk_view import add_hunk_view
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
+from git_gui.resources import get_resource_path
+
+# Resolved once, against the project root or the PyInstaller bundle rather than
+# the working directory: a packaged GitCrisp starts wherever the user launched
+# it from, and a relative path finds nothing there. The cost of getting that
+# wrong is not a missing icon — Qt's "Cannot open file" warning reaches the
+# message handler from inside the hunk block being built, and in a windowed
+# build that handler had no stderr to write to, so the warning came back as an
+# exception that aborted the diff render.
+_CLOSE_ICON_PATH = str(get_resource_path("arts") / "ic_close.svg")
 
 # Cap on how many file blocks the aggregate ("all files") diff view builds at
 # once. Each block is a full QFrame subtree registered with the theme manager,
@@ -359,7 +369,7 @@ class HunkDiffWidget(QWidget):
             # in a confusing state.
             is_whole_file = header.startswith("@@ -0,0") or "+0,0 @@" in header
             x_btn = QToolButton()
-            x_btn.setIcon(QIcon("arts/ic_close.svg"))
+            x_btn.setIcon(QIcon(_CLOSE_ICON_PATH))
             x_btn.setIconSize(QSize(16, 16))
             x_btn.setFixedSize(22, 22)
             x_btn.setToolTip("Discard this file" if is_whole_file else "Discard this hunk")
