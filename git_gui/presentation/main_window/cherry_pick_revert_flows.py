@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/cherry_pick_revert_flows.py
 from __future__ import annotations
 
 

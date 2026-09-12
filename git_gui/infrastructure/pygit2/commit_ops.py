@@ -42,8 +42,6 @@ class CommitOps:
     _repo: pygit2.Repository  # provided by the composite
     _file_history: FileHistoryCli  # provided by the composite
 
-    # ── METHODS COPIED VERBATIM from Pygit2Repository ─────────────────
-
     def get_commits(
         self,
         limit: int,
@@ -97,7 +95,6 @@ class CommitOps:
         if first_parent:
             walker.simplify_first_parent()
 
-        # Skip first N commits
         for _ in range(skip):
             try:
                 next(walker)

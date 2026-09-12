@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/blame_pane.py
 """Blame view — a file's lines beside the commit that last touched each one.
 
 Blame is an index, not an answer: you read a line, and what you actually want

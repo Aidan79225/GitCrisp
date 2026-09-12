@@ -1,4 +1,3 @@
-# git_gui/presentation/services/repo_change_detector.py
 """Auto change detection for the active git repository.
 
 Watches the repository's git directories for external git-state writes and

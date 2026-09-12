@@ -139,7 +139,6 @@ class FileNavigatorWidget(QWidget):
         connect_widget(self, rebuild=self._restyle_pills)
         self._restyle_pills()
 
-        # Wire signal forwarding.
         self._list_view.selectionModel().currentChanged.connect(self.currentChanged.emit)
         self._list_view.deselected.connect(self.deselected.emit)
 

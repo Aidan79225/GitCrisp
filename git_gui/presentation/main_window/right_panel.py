@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/right_panel.py
 from __future__ import annotations
 
 from git_gui.domain.entities import WORKING_TREE_OID

@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/main_window.py
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -99,7 +98,6 @@ class MainWindow(
         # Load any persisted graph view mode for the initial repo.
         self._graph.set_repo_path(self._repo_path)
 
-        # Wire cross-widget signals
         self._working_tree.commit_completed.connect(
             lambda msg: self._log_panel.log(f'Commit: "{msg}"')
         )

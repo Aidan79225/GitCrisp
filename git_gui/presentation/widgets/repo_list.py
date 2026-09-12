@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/repo_list.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -92,7 +91,6 @@ class _RepoTree(QTreeView):
 
     def dragMoveEvent(self, event) -> None:
         if event.mimeData().hasText():
-            # Compute drop indicator position
             pos = event.position().toPoint()
             idx = self.indexAt(pos)
             if idx.isValid() and idx.data(Qt.UserRole + 1) == "open":
@@ -458,7 +456,6 @@ class RepoListWidget(QWidget):
         return item
 
     def _on_repo_reorder(self, path: str, target_row: int) -> None:
-        """Move *path* to *target_row* within the open repos list and reload."""
         current = self._store.get_open_repos()
         if path not in current:
             return

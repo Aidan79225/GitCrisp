@@ -111,7 +111,6 @@ class RemoteOps:
 
     _repo: pygit2.Repository  # provided by the composite
 
-    # ── METHODS COPIED VERBATIM from Pygit2Repository ─────────────────
     def push(self, remote: str, branch: str) -> None:
         self._run_git("push", remote, branch)
 

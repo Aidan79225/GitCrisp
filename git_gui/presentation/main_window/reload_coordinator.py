@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/reload_coordinator.py
 from __future__ import annotations
 
 

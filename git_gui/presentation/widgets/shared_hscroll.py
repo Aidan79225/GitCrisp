@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/shared_hscroll.py
 """One horizontal scrollbar for a pane made of many hunk editors.
 
 Every hunk is its own fixed-height QPlainTextEdit with both scrollbars hidden.

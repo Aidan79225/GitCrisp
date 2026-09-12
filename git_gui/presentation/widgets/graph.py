@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/graph.py
 from __future__ import annotations
 
 import threading
@@ -347,7 +346,6 @@ class GraphWidget(QWidget):
             self._styled_buttons.append(btn)
             self._tinted_button_icons.append((btn, icon_name))
 
-        # First-parent view toggle (checkable)
         self._first_parent_btn = QPushButton()
         self._first_parent_btn.setFixedSize(QSize(36, 36))
         self._first_parent_btn.setIconSize(QSize(28, 28))
@@ -464,7 +462,6 @@ class GraphWidget(QWidget):
             self.reload()
 
     def clear_path_filter(self) -> None:
-        """Go back to the full commit graph."""
         if self._path_filter is None:
             return
         self._path_filter = None
@@ -943,7 +940,6 @@ class GraphWidget(QWidget):
         elif state_name != "CLEAN":
             global_disable_reason = f"Repository is in {state_name} — resolve or abort first"
 
-        # Compute candidate actions
         branch_targets = [b for b in branches_on_commit if b != head_branch]
 
         try:
@@ -1132,7 +1128,6 @@ class GraphWidget(QWidget):
                     )
 
     def reload_and_scroll_to(self, oid: str) -> None:
-        """Reload and scroll to the given oid after load completes."""
         self._pending_scroll_oid = oid
         self.reload()
 
@@ -1156,7 +1151,6 @@ class GraphWidget(QWidget):
 
     # ── Search ───────────────────────────────────────────────────────────
     def open_search(self) -> None:
-        """Show the search bar and focus its input."""
         self._search_bar.open()
 
     def _close_search(self) -> None:
@@ -1184,7 +1178,6 @@ class GraphWidget(QWidget):
         self._run_search(needle)
 
     def _run_search(self, needle: str) -> None:
-        """Search through all loaded commits for the given needle."""
         self._search_matches.clear()
         self._search_idx = -1
         for row in range(self._model.rowCount()):

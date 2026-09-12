@@ -1,4 +1,3 @@
-# git_gui/infrastructure/pygit2/repository.py
 from __future__ import annotations
 
 import subprocess

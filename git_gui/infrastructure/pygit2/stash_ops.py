@@ -19,7 +19,6 @@ class StashOps:
 
     _repo: pygit2.Repository  # provided by the composite
 
-    # ── METHODS COPIED VERBATIM from Pygit2Repository ─────────────────
     def get_stashes(self) -> list[Stash]:
         result = []
         for i, stash in enumerate(self._repo.listall_stashes()):

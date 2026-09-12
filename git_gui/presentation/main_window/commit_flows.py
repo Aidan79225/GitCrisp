@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/commit_flows.py
 from __future__ import annotations
 
 from PySide6.QtGui import QGuiApplication

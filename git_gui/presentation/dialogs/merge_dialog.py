@@ -82,7 +82,6 @@ class MergeDialog(QDialog):
         self._buttons.rejected.connect(self.reject)
         layout.addWidget(self._buttons)
 
-        # Apply initial state
         self._on_strategy_changed()
 
     def _will_create_merge_commit(self) -> bool:

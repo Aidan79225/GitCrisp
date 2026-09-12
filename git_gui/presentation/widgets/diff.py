@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/diff.py
 from __future__ import annotations
 
 import logging
@@ -311,7 +310,6 @@ class DiffWidget(QWidget):
         self._restyle_themed_panels()
         connect_widget(self, rebuild=self._on_theme_changed)
 
-        # Start in empty state — nothing to show until a commit is loaded.
         self._set_empty_state(True)
 
     def _set_empty_state(self, empty: bool) -> None:
