@@ -42,8 +42,6 @@ class CommitOps:
     _repo: pygit2.Repository  # provided by the composite
     _file_history: FileHistoryCli  # provided by the composite
 
-    # ── METHODS COPIED VERBATIM from Pygit2Repository ─────────────────
-
     def get_commits(
         self,
         limit: int,

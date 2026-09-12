@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/remote_op_queue.py
 from __future__ import annotations
 
 import threading

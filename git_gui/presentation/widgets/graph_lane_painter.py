@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/graph_lane_painter.py
 """Painting primitives for the lane graph drawn at the left of each commit row.
 
 This module owns the geometry of the graph only. The row delegate

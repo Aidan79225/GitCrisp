@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/side_by_side_block.py
 """One hunk drawn as two panes instead of one column.
 
 The unified block interleaves both versions of a change, so reading it means

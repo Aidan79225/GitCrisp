@@ -26,7 +26,6 @@ class SubmoduleOps:
 
     _repo: pygit2.Repository  # provided by the composite
 
-    # ── METHODS COPIED VERBATIM from Pygit2Repository ─────────────────
     def _detect_diverged_submodules(self) -> list[tuple[str, str, str, str]]:
         """Return ``(path, tree_oid, index_oid, actual_oid)`` for each submodule
         where at least one of the three oids differs.

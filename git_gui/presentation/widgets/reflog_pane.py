@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/reflog_pane.py
 """Reflog view — where HEAD has been, and what moved it there.
 
 Like blame, this is an index rather than an answer: you scan it for a state

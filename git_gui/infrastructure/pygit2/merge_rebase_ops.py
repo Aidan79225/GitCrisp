@@ -1,4 +1,3 @@
-# git_gui/infrastructure/pygit2/merge_rebase_ops.py
 from __future__ import annotations
 
 import os

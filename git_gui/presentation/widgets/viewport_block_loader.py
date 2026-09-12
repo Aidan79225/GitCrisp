@@ -79,9 +79,7 @@ class ViewportBlockLoader:
         self._loaded_paths = set()
         self._diff_map = {}
 
-    # ------------------------------------------------------------------
     # Private
-    # ------------------------------------------------------------------
 
     def _check_viewport(self) -> None:
         """Realize the first visible unloaded block, then reschedule.

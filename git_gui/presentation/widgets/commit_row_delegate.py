@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/commit_row_delegate.py
 """Delegate for a whole commit row: lane graph on the left, commit info right.
 
 Both halves share one cell so the info can start at a per-row indent — just

@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/repo_lifecycle.py
 from __future__ import annotations
 
 import threading

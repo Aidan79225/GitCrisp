@@ -1,4 +1,3 @@
-# git_gui/infrastructure/pygit2/_helpers.py
 """Pure helpers for the pygit2 adapter family. No pygit2.Repository instance
 state, no shared mutable state — these are free functions that the mixins
 call during diff synthesis, submodule detection, and entity conversion."""

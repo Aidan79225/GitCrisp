@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/hunk_diff.py
 from __future__ import annotations
 
 import threading

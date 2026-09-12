@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/working_tree.py
 from __future__ import annotations
 
 import threading

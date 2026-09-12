@@ -1,4 +1,3 @@
-# git_gui/infrastructure/pygit2/blame_ops.py
 from __future__ import annotations
 
 from datetime import datetime

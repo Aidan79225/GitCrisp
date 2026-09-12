@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/window_state.py
 """How the user arranged the window — kept across panes and across launches.
 
 The layout was previously a set of constants the app reasserted whenever it

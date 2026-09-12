@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/file_list_view.py
 """Shared QListView subclass with click-to-deselect and checkbox-without-select."""
 
 from __future__ import annotations

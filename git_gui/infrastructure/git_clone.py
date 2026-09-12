@@ -1,4 +1,3 @@
-# git_gui/infrastructure/git_clone.py
 from __future__ import annotations
 
 import re

@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/working_tree_model.py
 from __future__ import annotations
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, Signal

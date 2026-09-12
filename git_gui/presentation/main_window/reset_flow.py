@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/reset_flow.py
 from __future__ import annotations
 
 from git_gui.domain.entities import ResetMode

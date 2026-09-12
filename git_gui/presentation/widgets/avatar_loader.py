@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/avatar_loader.py
 """Async avatar loader. Resolves an author string to a Gravatar QPixmap.
 
 Two-tier cache:

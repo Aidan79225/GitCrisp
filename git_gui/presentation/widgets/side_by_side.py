@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/side_by_side.py
 """Turn a unified hunk into the rows a two-pane diff draws.
 
 A unified hunk is one column: every deletion of a change, then every addition,

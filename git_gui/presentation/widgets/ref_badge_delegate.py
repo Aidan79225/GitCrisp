@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/ref_badge_delegate.py
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, Qt

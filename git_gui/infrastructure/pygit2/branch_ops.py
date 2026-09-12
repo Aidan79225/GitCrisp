@@ -18,7 +18,6 @@ class BranchOps:
 
     _repo: pygit2.Repository  # provided by the composite
 
-    # ── METHODS COPIED VERBATIM from Pygit2Repository ─────────────────
     def get_branches(self) -> list[Branch]:
         branches: list[Branch] = []
         # Compare HEAD's ref name (e.g. "refs/heads/main"), not target oid,

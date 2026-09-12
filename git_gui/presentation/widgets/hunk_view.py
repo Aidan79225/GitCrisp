@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/hunk_view.py
 """One place that decides how a hunk is drawn.
 
 Both diff panes ask for a hunk the same way and neither knows which view the

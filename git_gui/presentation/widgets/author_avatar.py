@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/author_avatar.py
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QRectF, Qt

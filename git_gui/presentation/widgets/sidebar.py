@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/sidebar.py
 from __future__ import annotations
 
 import threading

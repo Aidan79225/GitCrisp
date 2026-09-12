@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/diff_block.py
 """Shared helpers for rendering diff hunks in both commit-detail and working-tree views."""
 
 from __future__ import annotations
@@ -40,9 +39,7 @@ from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_mana
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
 from git_gui.presentation.widgets.side_by_side import parse_hunk_header
 
-# ---------------------------------------------------------------------------
 # Style constants
-# ---------------------------------------------------------------------------
 
 
 def _file_block_style() -> str:
@@ -68,9 +65,7 @@ HEADER_ROW_VPAD = 3  # top/bottom padding inside the header row
 _LONG_LINE_LIMIT = 2000
 
 
-# ---------------------------------------------------------------------------
 # Diff format dataclass
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -112,9 +107,7 @@ _KIND_TO_ATTR = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Factories
-# ---------------------------------------------------------------------------
 
 
 def make_file_block(
@@ -261,9 +254,7 @@ def make_diff_editor() -> QPlainTextEdit:
     return editor
 
 
-# ---------------------------------------------------------------------------
 # Hunk rendering helpers
-# ---------------------------------------------------------------------------
 
 
 def render_hunk_header_line(cursor, hunk: Hunk, formats: DiffFormats) -> None:
@@ -512,9 +503,7 @@ def render_hunk_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
     return 1 + content_count
 
 
-# ---------------------------------------------------------------------------
 # Shared per-hunk widget builder
-# ---------------------------------------------------------------------------
 
 
 def make_hunk_header_row(

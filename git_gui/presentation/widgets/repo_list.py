@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/repo_list.py
 from __future__ import annotations
 
 from pathlib import Path

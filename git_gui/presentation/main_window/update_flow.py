@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/update_flow.py
 from __future__ import annotations
 
 import logging

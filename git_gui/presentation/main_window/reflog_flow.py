@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/reflog_flow.py
 """Reflog flow — opening the pane, and restoring a ref to an earlier state.
 
 Mixin — not instantiable on its own. Relies on composite-provided attributes

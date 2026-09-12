@@ -1,4 +1,3 @@
-# git_gui/presentation/widgets/log_panel.py
 from __future__ import annotations
 
 from datetime import datetime

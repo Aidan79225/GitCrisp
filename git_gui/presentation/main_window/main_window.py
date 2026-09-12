@@ -1,4 +1,3 @@
-# git_gui/presentation/main_window/main_window.py
 from __future__ import annotations
 
 from collections.abc import Callable

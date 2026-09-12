@@ -21,7 +21,6 @@ class TagOps:
 
     _repo: pygit2.Repository  # provided by the composite
 
-    # ── METHODS COPIED VERBATIM from Pygit2Repository ─────────────────
     def get_tags(self) -> list[Tag]:
         tags: list[Tag] = []
         for ref_name in self._repo.references:
