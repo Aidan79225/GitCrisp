@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 
 from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.bus import QueryBus
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 
 ENTRY_ROLE = Qt.UserRole + 1  # ReflogEntry for the row
 OID_ROLE = Qt.UserRole  # the commit the ref moved to
@@ -211,13 +211,19 @@ class ReflogDelegate(QStyledItemDelegate):
         rect = option.rect
         selected = bool(option.state & QStyle.State_Selected)
         if selected:
-            painter.fillRect(rect, colors.as_qcolor("primary"))
+            painter.fillRect(rect, colors.as_qcolor(ColorRole.PRIMARY))
 
         fm = option.fontMetrics
         muted = (
-            colors.as_qcolor("on_primary") if selected else colors.as_qcolor("on_surface_variant")
+            colors.as_qcolor(ColorRole.ON_PRIMARY)
+            if selected
+            else colors.as_qcolor(ColorRole.ON_SURFACE_VARIANT)
         )
-        strong = colors.as_qcolor("on_primary") if selected else colors.as_qcolor("on_surface")
+        strong = (
+            colors.as_qcolor(ColorRole.ON_PRIMARY)
+            if selected
+            else colors.as_qcolor(ColorRole.ON_SURFACE)
+        )
         meta_fm = QFontMetrics(_meta_font(option.font))
         # Line 1 holds the chip and the summary; line 2 the position, sha and
         # date. Both are laid out from the row's top rather than centred, so a
@@ -233,7 +239,7 @@ class ReflogDelegate(QStyledItemDelegate):
         # entry expires. A stripe alone was too quiet to find in a scan, so the
         # row carries a wash of the same colour too.
         if entry.is_orphaned and not selected:
-            tint = QColor(colors.as_qcolor("status_deleted"))
+            tint = QColor(colors.as_qcolor(ColorRole.STATUS_DELETED))
             tint.setAlpha(ORPHAN_TINT_ALPHA)
             painter.fillRect(rect, tint)
         if entry.is_orphaned:
@@ -243,7 +249,7 @@ class ReflogDelegate(QStyledItemDelegate):
                 rect.top(),
                 ORPHAN_STRIPE_W,
                 rect.height(),
-                colors.as_qcolor("status_deleted"),
+                colors.as_qcolor(ColorRole.STATUS_DELETED),
             )
 
         # Operation chip — coloured so a scan finds resets and rebases fast.
@@ -256,7 +262,7 @@ class ReflogDelegate(QStyledItemDelegate):
         painter.setBrush(_operation_color(entry.operation))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(x, chip_y, chip_w, chip_h, CHIP_RADIUS, CHIP_RADIUS)
-        painter.setPen(colors.as_qcolor("on_badge"))
+        painter.setPen(colors.as_qcolor(ColorRole.ON_BADGE))
         painter.drawText(x, chip_y, chip_w, chip_h, Qt.AlignCenter, label)
 
         model = index.model()
@@ -290,7 +296,7 @@ class ReflogDelegate(QStyledItemDelegate):
             meta_x += meta_fm.horizontalAdvance(text) + COL_GAP
         painter.setFont(option.font)
 
-        painter.setPen(colors.as_qcolor("outline_variant"))
+        painter.setPen(colors.as_qcolor(ColorRole.OUTLINE_VARIANT))
         painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
         painter.restore()
 

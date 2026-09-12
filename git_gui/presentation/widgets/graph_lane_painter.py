@@ -12,7 +12,7 @@ from PySide6.QtCore import QPointF, QRect
 from PySide6.QtGui import QColor, QPainter, QPen
 
 from git_gui.presentation.models.graph_model import LaneData
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import ColorRole, get_theme_manager
 
 LANE_W = 16  # pixels per lane column
 NODE_R = 5  # commit node circle radius (outline centre)
@@ -26,11 +26,11 @@ def _lane_colors() -> list[str]:
 
 
 def _selection_color() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("primary")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
 
 
 def _node_fill_color() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("surface")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE)
 
 
 def _lx(rect_left: int, lane: int) -> int:

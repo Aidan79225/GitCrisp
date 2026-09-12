@@ -23,11 +23,11 @@ from PySide6.QtWidgets import (
 
 from git_gui.domain.entities import Worktree
 from git_gui.domain.ports import IRepoStore
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 
 
 def _active_bg() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("primary")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
 
 
 def _display_path(path: str) -> str:
@@ -146,7 +146,7 @@ class _RepoTree(QTreeView):
             from PySide6.QtGui import QPainter, QPen
 
             painter = QPainter(self.viewport())
-            pen = QPen(get_theme_manager().current.colors.as_qcolor("primary"), 2)
+            pen = QPen(get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY), 2)
             painter.setPen(pen)
             y = self._drop_indicator_y
             painter.drawLine(0, y, self.viewport().width(), y)
@@ -176,7 +176,7 @@ class _RepoTree(QTreeView):
         elif self._hover_idx.isValid() and index == self._hover_idx:
             painter.fillRect(
                 rect,
-                get_theme_manager().current.colors.as_qcolor("surface_container_high"),
+                get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE_CONTAINER_HIGH),
             )
         super().drawBranches(painter, rect, index)
 
@@ -189,7 +189,7 @@ class _RepoTree(QTreeView):
             painter.save()
             painter.fillRect(
                 option.rect,
-                get_theme_manager().current.colors.as_qcolor("surface_container_high"),
+                get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE_CONTAINER_HIGH),
             )
             painter.restore()
         super().drawRow(painter, option, index)
@@ -229,8 +229,12 @@ class _RepoItemDelegate(QStyledItemDelegate):
         is_active = bool(index.data(_IS_ACTIVE_ROLE))
 
         colors = get_theme_manager().current.colors
-        name_color = colors.as_qcolor("on_primary") if is_active else colors.as_qcolor("on_surface")
-        path_color = colors.as_qcolor("on_surface_variant")
+        name_color = (
+            colors.as_qcolor(ColorRole.ON_PRIMARY)
+            if is_active
+            else colors.as_qcolor(ColorRole.ON_SURFACE)
+        )
+        path_color = colors.as_qcolor(ColorRole.ON_SURFACE_VARIANT)
 
         rect = option.rect
         text_left = rect.left() + _ROW_H_PADDING

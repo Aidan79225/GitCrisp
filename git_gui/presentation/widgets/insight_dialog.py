@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from git_gui.presentation.bus import QueryBus
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,7 @@ class _AuthorRow(QWidget):
         # Name
         painter.setFont(_scaled_font(11, bold=True))
         name_fm = painter.fontMetrics()
-        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
         # Strip email from "Name <email>"
         display_name = self._name.split("<")[0].strip() if "<" in self._name else self._name
         painter.drawText(
@@ -222,7 +222,7 @@ class _FileRow(QWidget):
 
         painter.setFont(_scaled_font(10))
         path_fm = painter.fontMetrics()
-        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
         # Elide long paths
         elided = path_fm.elidedText(self._path, Qt.ElideMiddle, rect.width() - 200)
         painter.drawText(

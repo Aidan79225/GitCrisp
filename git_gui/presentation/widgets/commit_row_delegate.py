@@ -13,21 +13,21 @@ from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, CommitInfo
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.graph_lane_painter import paint_lanes, row_graph_width
 from git_gui.presentation.widgets.ref_badge_delegate import _badge_color, _badge_display_name
 
 
 def _selection_color() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("primary")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
 
 
 def _divider_color() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("outline")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.OUTLINE)
 
 
 def _muted_color() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("on_surface_variant")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE_VARIANT)
 
 
 BADGE_RADIUS = 4
@@ -120,7 +120,7 @@ class CommitRowDelegate(QStyledItemDelegate):
         r1 = QRect(rect.left() + CELL_PAD, rect.top(), rect.width() - CELL_PAD * 2, header_h)
         # Strip email from author: "Alice <a@a.com>" → "Alice"
         author_name = info.author.split("<")[0].strip() if "<" in info.author else info.author
-        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
         painter.drawText(r1, Qt.AlignVCenter | Qt.AlignLeft, author_name)
         painter.setPen(_muted_color())
         painter.drawText(r1, Qt.AlignVCenter | Qt.AlignRight, info.timestamp)
@@ -149,13 +149,13 @@ class CommitRowDelegate(QStyledItemDelegate):
             painter.setBrush(QBrush(_badge_color(name, info.head_branch)))
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
-            painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
+            painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE))
             painter.drawText(badge_rect, Qt.AlignCenter, display)
             x += badge_w + BADGE_GAP
 
         # Hash right-aligned on first badge line
         r2_first = QRect(rect.left() + CELL_PAD, r2_top, cell_w, header_h)
-        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_surface"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
         painter.drawText(r2_first, Qt.AlignVCenter | Qt.AlignRight, info.short_oid)
 
         # Total badge lines for message offset

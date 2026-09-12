@@ -8,7 +8,7 @@ from PySide6.QtGui import QBrush, QPainter
 from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from git_gui.domain.entities import FileDelta, FileStatus, StagingState
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import ColorRole, get_theme_manager
 
 
 class FileListView(QListView):
@@ -146,7 +146,7 @@ class FileDeltaDelegate(QStyledItemDelegate):
         rect = option.rect
 
         if option.state & QStyle.State_Selected:
-            painter.fillRect(rect, get_theme_manager().current.colors.as_qcolor("primary"))
+            painter.fillRect(rect, get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY))
 
         kind = badge_kind(index.data(Qt.UserRole))
         # A paint() that raises takes the whole view down with it.
@@ -159,7 +159,7 @@ class FileDeltaDelegate(QStyledItemDelegate):
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(badge_rect, 3, 3)
 
-        painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
+        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE))
         painter.drawText(badge_rect, Qt.AlignCenter, label)
 
         text_x = badge_x + BADGE_SIZE + BADGE_GAP

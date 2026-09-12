@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDesktopServices, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QLabel, QTextBrowser, QVBoxLayout, QWidget
 
-from git_gui.presentation.theme import connect_widget, get_theme_manager
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 
 # Links in the log are either a real URL (the update check posts one) or an
 # action for the app to run. A scheme tells them apart, since QTextBrowser hands
@@ -42,9 +42,9 @@ class LogPanel(QWidget):
         self._body.setVisible(False)
 
         self._fmt_default = QTextCharFormat()
-        self._fmt_default.setForeground(c.as_qcolor("on_surface"))
+        self._fmt_default.setForeground(c.as_qcolor(ColorRole.ON_SURFACE))
         self._fmt_error = QTextCharFormat()
-        self._fmt_error.setForeground(c.as_qcolor("error"))
+        self._fmt_error.setForeground(c.as_qcolor(ColorRole.ERROR))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -61,9 +61,9 @@ class LogPanel(QWidget):
             f"padding: 4px 8px; background: {c.surface_container}; color: {c.on_surface}; font-weight: bold;"
         )
         self._fmt_default = QTextCharFormat()
-        self._fmt_default.setForeground(c.as_qcolor("on_surface"))
+        self._fmt_default.setForeground(c.as_qcolor(ColorRole.ON_SURFACE))
         self._fmt_error = QTextCharFormat()
-        self._fmt_error.setForeground(c.as_qcolor("error"))
+        self._fmt_error.setForeground(c.as_qcolor(ColorRole.ERROR))
         # Recolor existing log lines by reapplying the default format to
         # everything that isn't an error line. We can't tell which is
         # which after the fact, so just normalize the whole document
@@ -95,8 +95,8 @@ class LogPanel(QWidget):
         safe_msg = escape(message)
         safe_url = escape(url, quote=True)
         c = get_theme_manager().current.colors
-        link_color = c.as_qcolor("primary").name()
-        on_surface = c.as_qcolor("on_surface").name()
+        link_color = c.as_qcolor(ColorRole.PRIMARY).name()
+        on_surface = c.as_qcolor(ColorRole.ON_SURFACE).name()
         cursor = self._body.textCursor()
         cursor.movePosition(QTextCursor.End)
         if self._body.document().characterCount() > 1:
@@ -125,8 +125,8 @@ class LogPanel(QWidget):
 
         ts = datetime.now().strftime("%H:%M:%S")
         c = get_theme_manager().current.colors
-        link_color = c.as_qcolor("primary").name()
-        on_surface = c.as_qcolor("on_surface").name()
+        link_color = c.as_qcolor(ColorRole.PRIMARY).name()
+        on_surface = c.as_qcolor(ColorRole.ON_SURFACE).name()
         href = escape(f"{ACTION_SCHEME}:/{action_id}", quote=True)
         cursor = self._body.textCursor()
         cursor.movePosition(QTextCursor.End)

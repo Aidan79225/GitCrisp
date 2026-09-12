@@ -5,7 +5,7 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
 
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import ColorRole, get_theme_manager
 
 BADGE_RADIUS = 4  # rounded corner radius
 BADGE_H_PAD = 4  # horizontal padding inside badge
@@ -14,19 +14,19 @@ BADGE_GAP = 4  # gap between consecutive badges, and after last badge
 
 
 def _color_head() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("branch_head_bg")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.BRANCH_HEAD_BG)
 
 
 def _color_local() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("ref_badge_branch_bg")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.REF_BADGE_BRANCH_BG)
 
 
 def _color_remote() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("ref_badge_remote_bg")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.REF_BADGE_REMOTE_BG)
 
 
 def _color_tag() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor("ref_badge_tag_bg")
+    return get_theme_manager().current.colors.as_qcolor(ColorRole.REF_BADGE_TAG_BG)
 
 
 def _badge_color(name: str, head_branch: str | None = None) -> QColor:
@@ -83,7 +83,7 @@ class RefBadgeDelegate(QStyledItemDelegate):
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
 
-            painter.setPen(get_theme_manager().current.colors.as_qcolor("on_badge"))
+            painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE))
             painter.drawText(badge_rect, Qt.AlignCenter, display)
 
             x += badge_w + BADGE_GAP
