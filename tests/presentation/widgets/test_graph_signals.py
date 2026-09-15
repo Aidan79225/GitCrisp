@@ -39,6 +39,7 @@ def _make_widget(qtbot, commits: list[Commit] | None = None) -> GraphWidget:
     w._queries = MagicMock()
     w._model = GraphModel(commits or [], {})
     w._loading = False
+    w._load_generation = 0
     w._loaded_count = len(commits or [])
     w._has_more = False
     w._reload_limit = 50

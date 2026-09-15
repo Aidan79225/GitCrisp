@@ -34,6 +34,7 @@ def _make_widget(qtbot) -> GraphWidget:
     w._queries = object()  # truthy sentinel; _on_reload_done just checks `is None`
     w._model = GraphModel([], {})
     w._loading = False
+    w._load_generation = 0
     w._loaded_count = 0
     w._has_more = True
     w._reload_limit = 50

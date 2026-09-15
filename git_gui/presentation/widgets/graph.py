@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from datetime import datetime
 
@@ -68,13 +69,17 @@ class _GraphTableView(QTableView):
         super().paintEvent(event)
 
 
+logger = logging.getLogger(__name__)
+
+
 class _LoadSignals(QObject):
     # commits, branches, tags, is_dirty, head_oid, repo_state, merge_head,
-    # first_parent, path_filter
-    reload_done = Signal(list, list, list, bool, str, object, object, bool, object)
-    # more_commits, branches, tags, first_parent
-    # more, branches, tags, first_parent, path_filter
-    append_done = Signal(list, list, list, bool, object)
+    # first_parent, path_filter, generation
+    reload_done = Signal(list, list, list, bool, str, object, object, bool, object, int)
+    # more, branches, tags, first_parent, path_filter, generation
+    append_done = Signal(list, list, list, bool, object, int)
+    # generation — the worker raised instead of producing a result
+    load_failed = Signal(int)
 
 
 _ARTS = get_resource_path("arts")
@@ -271,6 +276,10 @@ class GraphWidget(QWidget):
         self._loaded_count = 0  # how many commits loaded (excluding synthetic)
         self._has_more = True
         self._loading = False
+        # Bumped on every repo switch. A load hands its generation back with
+        # its result, so one that finishes after the switch is recognised as
+        # the previous repo's and dropped.
+        self._load_generation = 0
         self._reload_limit = PAGE_SIZE
         self._pending_scroll_oid: str | None = None
         self._pending_merge_base: str | None = None
@@ -403,6 +412,11 @@ class GraphWidget(QWidget):
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
+        # Whatever the previous repo still has in flight is no longer wanted,
+        # and may never answer at all: a repo deleted from under us fails its
+        # load. Waiting on it kept the new repo from loading.
+        self._load_generation += 1
+        self._loading = False
         # Reset per-click state — the previous repo's selection is meaningless
         # in the new repo. Reset _reload_limit too so the new repo starts at
         # PAGE_SIZE; otherwise a previously-doubled limit (e.g. 2000 for a
@@ -508,7 +522,9 @@ class GraphWidget(QWidget):
 
         signals = _LoadSignals()
         signals.reload_done.connect(self._on_reload_done)
+        signals.load_failed.connect(self._on_load_failed)
         self._load_signals = signals  # prevent GC
+        generation = self._load_generation
 
         # Pinning an out-of-page tip draws it with no descendants — a merged
         # branch rendered as a lane that never merges. So ask for it only once
@@ -517,25 +533,39 @@ class GraphWidget(QWidget):
         pin = effective_limit >= MAX_RELOAD_LIMIT
 
         def _worker():
-            if path is None:
-                commits = queries.get_commit_graph.execute(
-                    limit=effective_limit,
-                    extra_tips=effective_tips,
-                    first_parent=fp,
-                    pin_unreachable=pin,
-                )
-            else:
-                commits = queries.get_file_history.execute(
-                    path, limit=effective_limit, follow=follow
-                )
-            branches = queries.get_branches.execute()
-            tags = queries.get_tags.execute()
-            dirty = queries.is_dirty.execute()
-            head_oid = queries.get_head_oid.execute() or ""
-            repo_state = queries.get_repo_state.execute()
-            merge_head = queries.get_merge_head.execute()
+            try:
+                if path is None:
+                    commits = queries.get_commit_graph.execute(
+                        limit=effective_limit,
+                        extra_tips=effective_tips,
+                        first_parent=fp,
+                        pin_unreachable=pin,
+                    )
+                else:
+                    commits = queries.get_file_history.execute(
+                        path, limit=effective_limit, follow=follow
+                    )
+                branches = queries.get_branches.execute()
+                tags = queries.get_tags.execute()
+                dirty = queries.is_dirty.execute()
+                head_oid = queries.get_head_oid.execute() or ""
+                repo_state = queries.get_repo_state.execute()
+                merge_head = queries.get_merge_head.execute()
+            except Exception as e:
+                logger.warning("Graph reload failed: %s", e)
+                signals.load_failed.emit(generation)
+                return
             signals.reload_done.emit(
-                commits, branches, tags, dirty, head_oid, repo_state, merge_head, fp, path
+                commits,
+                branches,
+                tags,
+                dirty,
+                head_oid,
+                repo_state,
+                merge_head,
+                fp,
+                path,
+                generation,
             )
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -588,7 +618,10 @@ class GraphWidget(QWidget):
         merge_head: str | None,
         first_parent: bool,
         path_filter: str | None = None,
+        generation: int | None = None,
     ) -> None:
+        if generation is not None and generation != self._load_generation:
+            return  # the previous repo's load, finishing after a switch
         self._loading = False
         self._stash_btn.setVisible(is_dirty)
         if self._queries is None:
@@ -706,6 +739,16 @@ class GraphWidget(QWidget):
             self._pending_search = None
             self._run_search(needle)
 
+    def _on_load_failed(self, generation: int) -> None:
+        """A load raised instead of producing a result.
+
+        Only the guard needs clearing. Left set, it turns away every reload
+        after this one — which is how deleting the repo on screen froze the
+        graph, on that repo and on every repo switched to afterwards.
+        """
+        if generation == self._load_generation:
+            self._loading = False
+
     def _capture_scroll_anchor(self) -> None:
         """Remember the OID of the row at the top of the visible viewport so
         we can restore the scroll position after a reload. Called from
@@ -764,20 +807,27 @@ class GraphWidget(QWidget):
 
         signals = _LoadSignals()
         signals.append_done.connect(self._on_append_done)
+        signals.load_failed.connect(self._on_load_failed)
         self._load_signals = signals  # prevent GC
+        generation = self._load_generation
 
         def _worker():
-            if path is None:
-                more = queries.get_commit_graph.execute(
-                    limit=PAGE_SIZE, skip=skip, extra_tips=self._extra_tips, first_parent=fp
-                )
-            else:
-                more = queries.get_file_history.execute(
-                    path, limit=PAGE_SIZE, skip=skip, follow=follow
-                )
-            branches = queries.get_branches.execute()
-            tags = queries.get_tags.execute()
-            signals.append_done.emit(more, branches, tags, fp, path)
+            try:
+                if path is None:
+                    more = queries.get_commit_graph.execute(
+                        limit=PAGE_SIZE, skip=skip, extra_tips=self._extra_tips, first_parent=fp
+                    )
+                else:
+                    more = queries.get_file_history.execute(
+                        path, limit=PAGE_SIZE, skip=skip, follow=follow
+                    )
+                branches = queries.get_branches.execute()
+                tags = queries.get_tags.execute()
+            except Exception as e:
+                logger.warning("Graph page load failed: %s", e)
+                signals.load_failed.emit(generation)
+                return
+            signals.append_done.emit(more, branches, tags, fp, path, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -788,7 +838,10 @@ class GraphWidget(QWidget):
         tags: list[Tag],
         first_parent: bool,
         path_filter: str | None = None,
+        generation: int | None = None,
     ) -> None:
+        if generation is not None and generation != self._load_generation:
+            return  # the previous repo's page, finishing after a switch
         self._loading = False
         if self._queries is None:
             return
