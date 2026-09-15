@@ -59,6 +59,51 @@ def test_list_worktrees_includes_added_worktree(fresh_repo, tmp_path):
     assert Path(feat.path) == wt_path.resolve()
 
 
+@pytest.fixture
+def linked_worktree(fresh_repo, tmp_path):
+    """A linked worktree of fresh_repo on branch feat."""
+    repo = pygit2.Repository(str(fresh_repo))
+    repo.references.create("refs/heads/feat", repo.head.target)
+    wt_path = tmp_path / "wt-feat"
+    subprocess.run(
+        ["git", "-C", str(fresh_repo), "worktree", "add", str(wt_path), "feat"],
+        check=True,
+        capture_output=True,
+    )
+    return wt_path
+
+
+def test_list_worktrees_from_a_linked_worktree_names_the_real_main(fresh_repo, linked_worktree):
+    """A session opened on a linked worktree lists the same worktrees as the
+    main repo's session.
+
+    It used to take its own directory for the main worktree, so the real main
+    repo went missing and the linked worktree was listed twice — once as main
+    and once as itself — leaving the repo list nothing to nest it under.
+    """
+    from_main = Pygit2Repository(str(fresh_repo)).list_worktrees()
+    from_linked = Pygit2Repository(str(linked_worktree)).list_worktrees()
+
+    assert [(wt.path, wt.is_main) for wt in from_linked] == [
+        (wt.path, wt.is_main) for wt in from_main
+    ]
+    main = next(wt for wt in from_linked if wt.is_main)
+    assert Path(main.path) == fresh_repo.resolve()
+    assert main.branch == "master"
+
+
+def test_lock_state_is_read_from_a_linked_worktree_session(fresh_repo, linked_worktree):
+    """The lock sentinel lives under the common git dir, not the linked
+    worktree's own git dir."""
+    Pygit2Repository(str(fresh_repo)).lock_worktree(str(linked_worktree), reason="testing")
+
+    wts = Pygit2Repository(str(linked_worktree)).list_worktrees()
+
+    feat = next(wt for wt in wts if not wt.is_main)
+    assert feat.is_locked is True
+    assert feat.lock_reason == "testing"
+
+
 def test_add_worktree_creates_new_branch_and_directory(fresh_repo, tmp_path):
     impl = Pygit2Repository(str(fresh_repo))
     target = tmp_path / "wt-new"
