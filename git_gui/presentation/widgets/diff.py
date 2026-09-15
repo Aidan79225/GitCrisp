@@ -26,131 +26,12 @@ from git_gui.presentation.widgets.diff_block import (
     make_file_block,
     make_syntax_formats,
 )
-from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget, NavMode
+from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
 from git_gui.presentation.widgets.hunk_view import add_hunk_view
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
 logger = logging.getLogger(__name__)
-
-
-class _StickyPinController:
-    """Owns the pin/unpin state machine and threshold computation for DiffWidget."""
-
-    HYSTERESIS_PX = 32
-
-    def __init__(self, owner: DiffWidget) -> None:
-        self._owner = owner
-        self._threshold = 0
-        self._pinned = False
-        self._transitioning = False  # suppress re-entrant resize during reparent
-
-    def attach(self) -> None:
-        sb = self._owner._scroll_area.verticalScrollBar()
-        sb.valueChanged.connect(self._on_scroll)
-        self._owner._diff_model.modelReset.connect(self.recompute_threshold)
-
-    def recompute_threshold(self) -> None:
-        self._threshold = self._owner._flow_slot.geometry().top()
-
-    def force_unpin(self) -> None:
-        if self._pinned:
-            self._unpin()
-
-    def on_owner_resize(self) -> None:
-        if self._transitioning:
-            return
-        old_pinned = self._pinned
-        self.recompute_threshold()
-        sb_value = self._owner._scroll_area.verticalScrollBar().value()
-        if old_pinned and sb_value < self._threshold - self.HYSTERESIS_PX:
-            self._unpin()
-        elif not old_pinned and sb_value >= self._threshold:
-            self._pin()
-
-    def _on_scroll(self, value: int) -> None:
-        if self._transitioning:
-            return
-        if not self._pinned and value >= self._threshold:
-            self._pin()
-        elif self._pinned and value < self._threshold - self.HYSTERESIS_PX:
-            self._unpin()
-
-        # Auto-highlight pill on scroll (All mode only, while pinned).
-        if self._pinned and not self._owner._file_navigator.selection_model.hasSelection():
-            active_path = self._find_active_file_block(value)
-            if active_path is not None:
-                self._owner._file_navigator.set_active_file(active_path)
-
-    def _find_active_file_block(self, scroll_value: int) -> str | None:
-        """Return the path of the file block whose top is at or just above the
-        viewport's visible top. Linear scan — fine for ≤~50 files per commit.
-
-        Coordinate math: frame.geometry() is relative to its parent
-        (_diff_container). _diff_container's geometry().top() is relative to
-        _scroll_content. The unified scroll value is in _scroll_content
-        coords, so the frame's absolute top = container.top() + frame.top().
-        """
-        viewport_top = scroll_value
-        container_top = self._owner._diff_container.geometry().top()
-        diff_layout = self._owner._diff_layout
-        for i in range(diff_layout.count()):
-            item = diff_layout.itemAt(i)
-            w = item.widget()
-            if w is None:
-                continue
-            path = w.property("file_path")
-            if not isinstance(path, str):
-                continue
-            top = container_top + w.geometry().top()
-            bottom = top + w.geometry().height()
-            if top <= viewport_top < bottom:
-                return path
-        return None
-
-    def _pin(self) -> None:
-        nav = self._owner._file_navigator
-        self._transitioning = True
-        self._owner.setUpdatesEnabled(False)
-        try:
-            self._owner._flow_slot.layout().removeWidget(nav)
-            nav.setParent(None)
-            self._owner._pin_slot.layout().addWidget(nav)
-            self._owner._pin_slot.setVisible(True)
-            nav.set_mode(NavMode.PILL)
-            nav.show()
-            self._pinned = True
-        finally:
-            self._owner.setUpdatesEnabled(True)
-            # Clear _transitioning on the NEXT event-loop tick so any
-            # deferred layout-flush valueChanged signals (which fire after
-            # setUpdatesEnabled(True) but before the tick boundary) are
-            # still gated by the guard. Without this, slow scrollbar drags
-            # near the threshold flicker because the deferred valueChanged
-            # races past _transitioning = False and re-enters _on_scroll
-            # mid-transition.
-            QTimer.singleShot(0, self._clear_transitioning)
-
-    def _unpin(self) -> None:
-        nav = self._owner._file_navigator
-        self._transitioning = True
-        self._owner.setUpdatesEnabled(False)
-        try:
-            self._owner._pin_slot.layout().removeWidget(nav)
-            nav.setParent(None)
-            self._owner._flow_slot.layout().addWidget(nav)
-            self._owner._pin_slot.setVisible(False)
-            nav.set_mode(NavMode.LIST)
-            nav.show()
-            self._pinned = False
-        finally:
-            self._owner.setUpdatesEnabled(True)
-            QTimer.singleShot(0, self._clear_transitioning)
-
-    def _clear_transitioning(self) -> None:
-        """Clear the re-entrance guard. Called via QTimer.singleShot from
-        _pin / _unpin so deferred Qt layout events emit while still guarded."""
-        self._transitioning = False
 
 
 class DiffWidget(QWidget):
@@ -250,31 +131,14 @@ class DiffWidget(QWidget):
         self._file_navigator.currentChanged.connect(self._on_file_selected)
         self._file_navigator.deselected.connect(self._on_file_deselected)
 
-        # ── Unified scroll area + slots ──────────────────────────────────────
-        # _flow_slot: receives _file_navigator while unpinned (in flow inside
-        #   the scroll content, between the message and the diff blocks).
-        # _pin_slot:  receives _file_navigator while pinned (out of scroll, in
-        #   the outer layout above _scroll_area).
-        # Only one slot holds the navigator at any time.
-        self._flow_slot = QWidget()
-        flow_slot_layout = QVBoxLayout(self._flow_slot)
-        flow_slot_layout.setContentsMargins(0, 0, 0, 0)
-        flow_slot_layout.setSpacing(0)
-        flow_slot_layout.addWidget(self._file_navigator)
-
-        self._pin_slot = QWidget()
-        pin_slot_layout = QVBoxLayout(self._pin_slot)
-        pin_slot_layout.setContentsMargins(0, 0, 0, 0)
-        pin_slot_layout.setSpacing(0)
-        self._pin_slot.setVisible(False)
-
+        # ── Unified scroll area ──────────────────────────────────────────────
         self._scroll_content = QWidget()
         scroll_content_layout = QVBoxLayout(self._scroll_content)
         scroll_content_layout.setContentsMargins(0, 0, 0, 0)
         scroll_content_layout.setSpacing(8)
         scroll_content_layout.addWidget(self._detail)
         scroll_content_layout.addWidget(self._msg_panel)
-        scroll_content_layout.addWidget(self._flow_slot)
+        scroll_content_layout.addWidget(self._file_navigator)
         scroll_content_layout.addWidget(self._diff_container)
         scroll_content_layout.addStretch(1)
 
@@ -286,10 +150,6 @@ class DiffWidget(QWidget):
         # Re-point the lazy diff loader at the unified scroll area.
         self._loader = ViewportBlockLoader(self._scroll_area, self._realize_block)
 
-        # ── Sticky pin controller ────────────────────────────────────────────
-        self._sticky_controller = _StickyPinController(self)
-        self._sticky_controller.attach()
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
@@ -299,7 +159,6 @@ class DiffWidget(QWidget):
         self._hscroll_sync = SharedHScroll(self._hscroll, self._diff_container, self)
 
         layout.addWidget(self._state_banner, 0)
-        layout.addWidget(self._pin_slot, 0)
         layout.addWidget(self._scroll_area, 1)
         layout.addWidget(self._hscroll, 0)
 
@@ -409,8 +268,6 @@ class DiffWidget(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if hasattr(self, "_sticky_controller"):
-            self._sticky_controller.on_owner_resize()
         # A wider pane means less of the content is out of reach.
         self._hscroll_sync.refresh()
 
@@ -432,7 +289,6 @@ class DiffWidget(QWidget):
             self._diff_model.reload([])
             self._clear_blocks()
             self._set_empty_state(True)
-            self._sticky_controller.force_unpin()
             return
         self._set_empty_state(False)
         branches = self._queries.get_branches.execute()
@@ -462,11 +318,6 @@ class DiffWidget(QWidget):
         files = self._queries.get_commit_files.execute(oid)
         self._diff_model.reload(self._apply_path_filter(files))
         self._render_all_files(oid)
-
-        # Threshold depends on _msg_view height + flow_slot natural height,
-        # both of which have settled by now (synchronous).
-        self._sticky_controller.recompute_threshold()
-        self._sticky_controller.force_unpin()
 
     def refresh_view(self) -> None:
         """Redraw the current commit after the unified/side-by-side choice changed.
@@ -650,9 +501,6 @@ class DiffWidget(QWidget):
         self._diff_layout.addWidget(block)
         self._diff_layout.addStretch()
         self._sync_hscroll()
-        if self._sticky_controller._pinned:
-            self._scroll_area.verticalScrollBar().setValue(self._diff_container.geometry().top())
-        # (else: leave scroll position alone — user is in unpinned, full-context view)
 
     def _render_all_files(self, oid: str) -> None:
         """Render all file blocks as skeletons immediately, then fetch diffs in background."""
@@ -677,8 +525,6 @@ class DiffWidget(QWidget):
             block_refs.append((path, frame, inner, skeleton))
 
         self._diff_layout.addStretch()
-        if self._sticky_controller._pinned:
-            self._scroll_area.verticalScrollBar().setValue(self._diff_container.geometry().top())
 
         self._loader.set_blocks(block_refs)
 
