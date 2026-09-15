@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import pygit2
@@ -39,9 +40,13 @@ class WorktreeOps:
 
     def list_worktrees(self) -> list[Worktree]:
         result: list[Worktree] = []
+        common_dir = self._common_dir()
 
-        # Main worktree.
-        main_workdir = self._repo.workdir or ""
+        # Main worktree — read from the common git dir, not from this session:
+        # a session opened on a linked worktree has that worktree as its own
+        # workdir, and taking it for the main one loses the real main repo.
+        common = pygit2.Repository(str(common_dir))
+        main_workdir = common.workdir or ""
         if main_workdir:
             main_branch, main_sha = _read_head_branch(main_workdir)
             result.append(
@@ -51,7 +56,7 @@ class WorktreeOps:
                     head_sha=main_sha,
                     is_locked=False,
                     lock_reason=None,
-                    is_bare=self._repo.is_bare,
+                    is_bare=common.is_bare,
                     is_main=True,
                 )
             )
@@ -79,10 +84,10 @@ class WorktreeOps:
             try:
                 is_locked = wt.is_locked
             except AttributeError:
-                is_locked = (Path(self._repo.path) / "worktrees" / name / "locked").exists()
+                is_locked = (common_dir / "worktrees" / name / "locked").exists()
             lock_reason = None
             if is_locked:
-                locked_file = Path(self._repo.path) / "worktrees" / name / "locked"
+                locked_file = common_dir / "worktrees" / name / "locked"
                 try:
                     lock_reason = locked_file.read_text().strip() or None
                 except OSError:
@@ -162,13 +167,14 @@ class WorktreeOps:
         # `locked` file directly. The reason write below is idempotent in
         # either case — when the API exists it overwrites with the same
         # content; otherwise it provides the persistence.
+        locked_file = self._common_dir() / "worktrees" / name / "locked"
         try:
             wt.lock(reason or "")
         except (AttributeError, TypeError):
-            (Path(self._repo.path) / "worktrees" / name / "locked").touch()
+            locked_file.touch()
         if reason is not None:
             try:
-                (Path(self._repo.path) / "worktrees" / name / "locked").write_text(reason)
+                locked_file.write_text(reason)
             except OSError as e:
                 logger.warning("Failed to write lock reason for worktree %r: %s", name, e)
 
@@ -179,11 +185,26 @@ class WorktreeOps:
         try:
             wt.unlock()
         except (AttributeError, TypeError):
-            locked = Path(self._repo.path) / "worktrees" / name / "locked"
+            locked = self._common_dir() / "worktrees" / name / "locked"
             if locked.exists():
                 locked.unlink()
 
     # ── Internals ────────────────────────────────────────────────────────
+
+    def _common_dir(self) -> Path:
+        """The git dir every worktree of this repository shares.
+
+        In the main worktree that is the session's own git dir. A session opened
+        on a linked worktree has a per-worktree git dir instead, whose
+        `commondir` file names the shared one — where `worktrees/` and the lock
+        sentinels live.
+        """
+        git_dir = Path(self._repo.path)
+        commondir = git_dir / "commondir"
+        if not commondir.is_file():
+            return git_dir
+        raw = commondir.read_text(encoding="utf-8").strip()
+        return Path(os.path.normpath(git_dir / raw)) if raw else git_dir
 
     def _worktree_name_for(self, target: Path) -> str:
         for name in self._repo.list_worktrees():
