@@ -44,3 +44,13 @@ def test_log_panel_body_is_qtextbrowser(qtbot):
     panel = LogPanel()
     qtbot.addWidget(panel)
     assert isinstance(panel._body, QTextBrowser)
+
+
+def test_log_link_uses_the_accent_color(qtbot):
+    from git_gui.presentation.theme import get_theme_manager
+
+    panel = LogPanel()
+    qtbot.addWidget(panel)
+    panel.log_link("New version available: v0.16.0", "https://example.com/r/v0.16.0")
+    accent = get_theme_manager().current.colors.on_primary_container
+    assert accent.lower() in panel._body.toHtml().lower()

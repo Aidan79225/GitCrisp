@@ -86,7 +86,7 @@ class LogPanel(QWidget):
 
         Both the message text and the URL are HTML-escaped so they cannot
         inject markup. The row uses the timestamp prefix and the theme's
-        primary color for the link.
+        on_primary_container color for the link.
         """
         from html import escape
 
@@ -94,7 +94,7 @@ class LogPanel(QWidget):
         safe_msg = escape(message)
         safe_url = escape(url, quote=True)
         c = get_theme_manager().current.colors
-        link_color = c.as_qcolor(ColorRole.PRIMARY).name()
+        link_color = c.as_qcolor(ColorRole.ON_PRIMARY_CONTAINER).name()
         on_surface = c.as_qcolor(ColorRole.ON_SURFACE).name()
         cursor = self._body.textCursor()
         cursor.movePosition(QTextCursor.End)
@@ -124,7 +124,7 @@ class LogPanel(QWidget):
 
         ts = datetime.now().strftime("%H:%M:%S")
         c = get_theme_manager().current.colors
-        link_color = c.as_qcolor(ColorRole.PRIMARY).name()
+        link_color = c.as_qcolor(ColorRole.ON_PRIMARY_CONTAINER).name()
         on_surface = c.as_qcolor(ColorRole.ON_SURFACE).name()
         href = escape(f"{ACTION_SCHEME}:/{action_id}", quote=True)
         cursor = self._body.textCursor()
