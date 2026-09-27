@@ -194,9 +194,11 @@ def _build_palette(theme: Theme) -> QPalette:
     p.setColor(QPalette.ToolTipBase, surf_high)
     p.setColor(QPalette.ToolTipText, on_surface)
 
-    # Links
-    p.setColor(QPalette.Link, primary)
-    p.setColor(QPalette.LinkVisited, primary)
+    # Links. Not primary: that is a fill under on_primary text, and the dark
+    # theme's primary is too dark to read as text on its surfaces.
+    link = QColor(c.on_primary_container)
+    p.setColor(QPalette.Link, link)
+    p.setColor(QPalette.LinkVisited, link)
 
     # NOTE: Light / Midlight / Mid / Dark / Shadow are intentionally NOT
     # set. Qt expects Light > Window > Dark in luminance and uses these
