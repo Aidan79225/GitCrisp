@@ -87,3 +87,22 @@ def get_side_by_side_diff() -> bool:
 def set_side_by_side_diff(value: bool) -> None:
     """Persist the diff-view preference."""
     QSettings().setValue(_KEY_SIDE_BY_SIDE, value)
+
+
+_KEY_PUSH_NEW_TAGS = "tags/push_on_create"
+
+
+def get_push_new_tags() -> bool:
+    """Whether the Create Tag dialog starts with "Push to origin" ticked.
+
+    Off by default: a pushed tag is shared with everyone on the remote and
+    is awkward to take back, so publishing one is opted into, not out of.
+    The dialog remembers the last choice so a user who always pushes only
+    ticks it once.
+    """
+    return QSettings().value(_KEY_PUSH_NEW_TAGS, False, type=bool)
+
+
+def set_push_new_tags(value: bool) -> None:
+    """Persist the Create Tag dialog's push choice."""
+    QSettings().setValue(_KEY_PUSH_NEW_TAGS, value)
