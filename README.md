@@ -70,7 +70,7 @@ Every feature below is one of three things:
 - Resolved files diff against HEAD when conflict markers are removed
 
 ### Tags
-- Create lightweight or annotated tags from any commit
+- Create lightweight or annotated tags from any commit — tick *Push to origin* in the dialog to publish the tag in the same step (the choice is remembered)
 - Delete tags
 - Push individual tags to a remote
 - Tag refs shown in the sidebar and on the graph
