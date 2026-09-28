@@ -165,8 +165,9 @@ git_gui/
 │                     #        list_local_branches_with_upstream, ...
 │
 ├── infrastructure/   # Adapters
-│   ├── pygit2/           # Pygit2Repository — composite of eleven mixin modules
+│   ├── pygit2/           # Pygit2Repository — composite of thirteen mixin modules
 │   │   ├── repository.py     # Composite class (Pygit2Repository)
+│   │   ├── blame_ops.py      # Per-line blame
 │   │   ├── branch_ops.py     # Branch read/write
 │   │   ├── commit_ops.py     # Commit read/write + cherry-pick/revert/reset
 │   │   ├── diff_ops.py       # Diff / hunk / file status
@@ -174,6 +175,7 @@ git_gui/
 │   │   ├── tag_ops.py        # Tag read/write
 │   │   ├── stash_ops.py      # Stash list/create/pop/apply/drop
 │   │   ├── merge_rebase_ops.py  # Merge / rebase / interactive / abort / continue
+│   │   ├── reflog_ops.py     # Reflog entries
 │   │   ├── remote_ops.py     # Remote list/add/remove/rename + push/pull/fetch
 │   │   ├── submodule_ops.py  # Submodule operations + gitdir helpers
 │   │   ├── worktree_ops.py   # Worktree list/add/lock/unlock
@@ -182,17 +184,22 @@ git_gui/
 │   ├── commit_ops_cli.py  # `git cherry-pick` / `git revert` subprocess wrapper
 │   ├── submodule_cli.py   # `git submodule` subprocess wrapper
 │   ├── worktree_cli.py    # `git worktree remove` subprocess wrapper
+│   ├── file_history_cli.py  # `git log -- <path>` subprocess wrapper (file history)
 │   ├── repo_store.py      # JSON-based repository persistence
 │   ├── remote_tag_cache.py  # Remote tag SHA→name cache
 │   └── git_clone.py       # Clone helper (recursive)
 │
 └── presentation/     # Qt UI layer
-    ├── main_window.py        # Signal orchestration between widgets
+    ├── main_window/          # MainWindow — signal orchestration between widgets,
+    │                         #   split into per-feature flow mixins
     ├── bus.py                # Command / Query bus (DI containers)
-    ├── menus/                # Menubar installers (View, Git)
-    ├── dialogs/              # Branches, Remotes, Submodules, Theme,
-    │                         #   Merge, InteractiveRebase, Reset
+    ├── app_settings.py       # QSettings-backed preferences
+    ├── menus/                # Menubar installers (View, Git, Help)
+    ├── dialogs/              # Branches, Remotes, Submodules, Worktrees, Theme,
+    │                         #   Merge, InteractiveRebase, Reset, Identity,
+    │                         #   Preferences, About, ...
     │                         #   (Insight, Clone, CreateTag live in widgets/)
+    ├── services/             # Update checker, repo change detector, smart checkout
     ├── theme/                # Theme manager + tokens
     ├── models/               # QAbstractTableModel / QAbstractListModel
     └── widgets/              # Graph, Sidebar, Diff, WorkingTree, LogPanel, ...
