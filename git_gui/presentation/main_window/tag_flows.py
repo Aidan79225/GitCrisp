@@ -21,7 +21,7 @@ class TagFlowsMixin:
         self._sidebar.tag_delete_requested.connect(self._on_delete_tag)
 
     def _on_create_tag(self, oid: str) -> None:
-        dialog = CreateTagDialog(self)
+        dialog = CreateTagDialog(self, can_push=self._has_origin())
         if dialog.exec() != QDialog.Accepted:
             return
         name = dialog.tag_name()
@@ -33,7 +33,28 @@ class TagFlowsMixin:
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Create tag — ERROR: {e}")
+            self._reload()
+            return
         self._reload()
+        if dialog.push_requested():
+            if self._remote_running:
+                # _run_remote_op drops a request while another one runs; say
+                # so rather than leave the user thinking the tag went out.
+                self._log_panel.expand()
+                self._log_panel.log_error(
+                    f"Push tag {name} — skipped: another remote operation is running. "
+                    "Push it from the sidebar's tag menu once it finishes."
+                )
+            else:
+                self._on_push_tag(name)
+
+    def _has_origin(self) -> bool:
+        """Whether the Create Tag dialog can offer to push to origin."""
+        try:
+            return any(r.name == "origin" for r in self._queries.list_remotes.execute())
+        except Exception as e:
+            logger.warning("Listing remotes failed for %s: %s", self._repo_path, e)
+            return False
 
     def _on_delete_tag(self, name: str) -> None:
         # Look up which remotes have this tag (cache only — fast, no network).
