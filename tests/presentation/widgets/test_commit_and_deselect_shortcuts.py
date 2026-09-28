@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtCore import QStringListModel, Qt
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QApplication
 
 from git_gui.presentation.widgets.file_list_view import FileListView
@@ -48,8 +49,10 @@ def test_ctrl_enter_does_nothing_while_commit_is_disabled(tree, qtbot):
 
 
 def test_commit_button_tooltip_names_the_shortcut(tree):
+    # In the platform's own spelling: "Ctrl+Return" here, "⌘↵" on macOS.
     w, _ = tree
-    assert "Enter" in w._btn_commit.toolTip() or "Return" in w._btn_commit.toolTip()
+    native = QKeySequence("Ctrl+Return").toString(QKeySequence.NativeText)
+    assert native in w._btn_commit.toolTip()
 
 
 def _file_view(qtbot):
