@@ -137,6 +137,10 @@ Every feature below is one of three things:
 | Ctrl+F | Search commits (message, author, hash, date) |
 | Ctrl+W | Close current repo and switch to previous |
 | Ctrl+1..9 | Switch to Nth open repo |
+| Ctrl+Enter | Commit (from the message editor or anywhere in the working-tree panel) |
+| Esc | Clear the selected file in a file list, back to the all-files diff |
+
+On macOS, Ctrl is Cmd.
 
 ### Diagnostics
 - Rotating file logger at `~/.gitcrisp/logs/gitcrisp.log` (1 MB × 4 files)
