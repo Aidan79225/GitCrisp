@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 
 from PySide6.QtCore import QObject, QRect, Qt, Signal
-from PySide6.QtGui import QBrush, QPainter
+from PySide6.QtGui import QBrush, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -123,11 +123,22 @@ class WorkingTreeWidget(QWidget):
         # ── Row 1: commit toolbar ────────────────────────────────────────────
         self._msg_edit = QPlainTextEdit()
         self._msg_edit.setPlaceholderText("Commit message...")
+        self._msg_edit.setAccessibleName("Commit message")
         self._msg_edit.setMaximumHeight(80)
 
         self._btn_stage_all = QPushButton("Stage All")
         self._btn_unstage_all = QPushButton("Unstage All")
         self._btn_commit = QPushButton("Commit")
+        # Ctrl+Enter (Cmd+Enter on macOS) commits from anywhere in this panel,
+        # most usefully straight from the message editor, where plain Enter
+        # has to stay a newline.
+        self._commit_shortcuts = [
+            QShortcut(QKeySequence(seq), self, context=Qt.WidgetWithChildrenShortcut)
+            for seq in ("Ctrl+Return", "Ctrl+Enter")
+        ]
+        self._btn_commit.setToolTip(
+            f"Commit ({self._commit_shortcuts[0].key().toString(QKeySequence.NativeText)})"
+        )
         self._chk_amend = QCheckBox("Amend last commit")
         self._chk_amend.setToolTip(
             "Replace the last commit instead of creating a new one.\n"
@@ -151,6 +162,7 @@ class WorkingTreeWidget(QWidget):
 
         # ── Row 2: file list ─────────────────────────────────────────────────
         self._file_view = _FileListView()
+        self._file_view.setAccessibleName("Changed files")
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDelegate(self._file_view))
 
@@ -183,6 +195,8 @@ class WorkingTreeWidget(QWidget):
         self._btn_stage_all.clicked.connect(self._on_stage_all)
         self._btn_unstage_all.clicked.connect(self._on_unstage_all)
         self._btn_commit.clicked.connect(self._on_commit)
+        for shortcut in self._commit_shortcuts:
+            shortcut.activated.connect(self._on_commit_shortcut)
         self._chk_amend.toggled.connect(self._on_amend_toggled)
         self._file_model.files_changed.connect(self._on_files_changed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
@@ -330,6 +344,11 @@ class WorkingTreeWidget(QWidget):
         if paths:
             self._commands.unstage_files.execute(paths)
             self._on_files_changed()
+
+    def _on_commit_shortcut(self) -> None:
+        # Same guard a click has: a disabled button must not commit by keyboard.
+        if self._btn_commit.isEnabled():
+            self._on_commit()
 
     def _on_commit(self) -> None:
         state = getattr(self, "_current_state", "CLEAN")

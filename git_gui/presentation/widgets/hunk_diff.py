@@ -371,6 +371,7 @@ class HunkDiffWidget(QWidget):
             x_btn.setIconSize(QSize(16, 16))
             x_btn.setFixedSize(22, 22)
             x_btn.setToolTip("Discard this file" if is_whole_file else "Discard this hunk")
+            x_btn.setAccessibleName(x_btn.toolTip())
             x_btn.setAutoRaise(True)
             x_btn.clicked.connect(
                 lambda _=False, p=path, h=header, w=is_whole_file: (

@@ -27,6 +27,7 @@ class LogPanel(QWidget):
         self._header.mousePressEvent = lambda _: self.toggle()
 
         self._body = QTextBrowser()
+        self._body.setAccessibleName("Operations log")
         self._body.setReadOnly(True)
         self._body.setLineWrapMode(QTextBrowser.NoWrap)
         self._body.setMaximumHeight(150)

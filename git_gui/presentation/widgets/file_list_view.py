@@ -16,7 +16,8 @@ class FileListView(QListView):
     1. Clicking the checkbox indicator toggles the check state WITHOUT changing
        the row selection (so the blue highlight on another row is preserved).
     2. Clicking an already-selected row deselects it and emits ``deselected``,
-       without delegating to ``super()`` so Qt cannot re-select.
+       without delegating to ``super()`` so Qt cannot re-select. Esc does the
+       same from the keyboard.
 
     Optional ``max_visible_rows`` enables content-driven sizing: ``sizeHint``
     grows to fit the actual row count up to the cap, after which the internal
@@ -92,13 +93,24 @@ class FileListView(QListView):
         # Case 2: click on the already-selected row → deselect
         current = self.currentIndex()
         if clicked.isValid() and clicked == current and self.selectionModel().isSelected(current):
-            self.selectionModel().clear()
-            self.setCurrentIndex(QModelIndex())
-            self.viewport().update()
-            self.deselected.emit()
+            self._deselect()
             return
 
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        # Esc leaves a selected row the way a second click does. With nothing
+        # selected it is passed on, so it can still close an enclosing dialog.
+        if event.key() == Qt.Key_Escape and self.selectionModel().hasSelection():
+            self._deselect()
+            return
+        super().keyPressEvent(event)
+
+    def _deselect(self) -> None:
+        self.selectionModel().clear()
+        self.setCurrentIndex(QModelIndex())
+        self.viewport().update()
+        self.deselected.emit()
 
 
 # ── Delegate for FileListView's default look ─────────────────────────────

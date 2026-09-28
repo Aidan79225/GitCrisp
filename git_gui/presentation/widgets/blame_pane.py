@@ -337,6 +337,7 @@ class BlamePane(QWidget):
 
         # There is no window chrome to close a pane, so it carries its own.
         self._close_btn = QPushButton("✕")
+        self._close_btn.setAccessibleName("Close blame")
         self._close_btn.setFixedSize(28, 28)
         self._close_btn.setToolTip("Close blame and show the commit list again (Esc)")
         self._close_btn.clicked.connect(self.close_requested)

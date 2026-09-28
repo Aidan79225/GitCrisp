@@ -329,6 +329,7 @@ class RepoListWidget(QWidget):
 
         # Tree view
         self._tree = _RepoTree()
+        self._tree.setAccessibleName("Repositories")
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(True)
         # This list has no "selected" state — the active repo is its own

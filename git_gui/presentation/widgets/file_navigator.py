@@ -29,6 +29,7 @@ class FileNavigatorWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self._list_view = FileListView(max_visible_rows=8)
+        self._list_view.setAccessibleName("Files in this commit")
         self._list_view.setEditTriggers(QListView.NoEditTriggers)
         self._list_view.setModel(model)
         self._list_view.setItemDelegate(FileDeltaDelegate(self._list_view))
