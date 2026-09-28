@@ -135,19 +135,26 @@ class _SearchBar(QWidget):
         self._label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self._label)
 
+        # The glyph buttons below would otherwise be announced by screen
+        # readers as "black up-pointing triangle" and the like.
+        self._input.setAccessibleName("Search commits")
+
         btn_prev = QPushButton("▲")
+        btn_prev.setAccessibleName("Previous match")
         btn_prev.setFixedSize(28, 28)
         btn_prev.setToolTip("Previous match (Shift+Enter)")
         btn_prev.clicked.connect(lambda: self.navigate_requested.emit(-1))
         layout.addWidget(btn_prev)
 
         btn_next = QPushButton("▼")
+        btn_next.setAccessibleName("Next match")
         btn_next.setFixedSize(28, 28)
         btn_next.setToolTip("Next match (Enter)")
         btn_next.clicked.connect(lambda: self.navigate_requested.emit(1))
         layout.addWidget(btn_next)
 
         btn_close = QPushButton("✕")
+        btn_close.setAccessibleName("Close search")
         btn_close.setFixedSize(28, 28)
         btn_close.setToolTip("Close (Escape)")
         btn_close.clicked.connect(self.closed.emit)
@@ -219,6 +226,7 @@ class _PathFilterBar(QWidget):
         layout.addWidget(self._follow)
 
         btn_close = QPushButton("✕")
+        btn_close.setAccessibleName("Clear file filter")
         btn_close.setFixedSize(28, 28)
         btn_close.setToolTip("Show the full history again")
         btn_close.clicked.connect(self.closed.emit)
@@ -300,6 +308,7 @@ class GraphWidget(QWidget):
         self._path_filter: str | None = None
 
         self._view = _GraphTableView()
+        self._view.setAccessibleName("Commit history")
         self._view.setSelectionBehavior(QTableView.SelectRows)
         self._view.setSelectionMode(QTableView.SingleSelection)
         self._view.setShowGrid(False)
@@ -334,19 +343,23 @@ class GraphWidget(QWidget):
         header_bar.setContentsMargins(4, 4, 4, 4)
         self._styled_buttons: list[QPushButton] = []
         self._tinted_button_icons: list[tuple[QPushButton, str]] = []
-        for icon_name, tooltip, signal in [
-            ("ic_reload", "Reload (F5)", self.reload_requested),
-            ("ic_push", "Push", self.push_requested),
-            ("ic_pull", "Pull", self.pull_requested),
-            ("ic_fetch", "Fetch All --prune", self.fetch_all_requested),
-            ("ic_insight", "Git Insight", self.insight_requested),
+        # Icon-only buttons: the tooltip is only a screen reader's
+        # description, so each also gets a short accessible name.
+        for icon_name, name, tooltip, signal in [
+            ("ic_reload", "Reload", "Reload (F5)", self.reload_requested),
+            ("ic_push", "Push", "Push", self.push_requested),
+            ("ic_pull", "Pull", "Pull", self.pull_requested),
+            ("ic_fetch", "Fetch all", "Fetch All --prune", self.fetch_all_requested),
+            ("ic_insight", "Git Insight", "Git Insight", self.insight_requested),
             (
                 "ic_reflog",
+                "Reflog",
                 "Reflog — where HEAD has been, and how to get back there",
                 self.reflog_requested,
             ),
         ]:
             btn = QPushButton()
+            btn.setAccessibleName(name)
             btn.setFixedSize(QSize(36, 36))
             btn.setIconSize(QSize(28, 28))
             btn.setToolTip(tooltip)
@@ -356,6 +369,7 @@ class GraphWidget(QWidget):
             self._tinted_button_icons.append((btn, icon_name))
 
         self._first_parent_btn = QPushButton()
+        self._first_parent_btn.setAccessibleName("First-parent history")
         self._first_parent_btn.setFixedSize(QSize(36, 36))
         self._first_parent_btn.setIconSize(QSize(28, 28))
         self._first_parent_btn.setCheckable(True)
@@ -368,6 +382,7 @@ class GraphWidget(QWidget):
         header_bar.addStretch()
 
         self._stash_btn = QPushButton()
+        self._stash_btn.setAccessibleName("Stash")
         self._stash_btn.setFixedSize(QSize(36, 36))
         self._stash_btn.setIconSize(QSize(28, 28))
         self._tinted_button_icons.append((self._stash_btn, "ic_stash"))

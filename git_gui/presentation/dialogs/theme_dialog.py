@@ -306,6 +306,8 @@ class ThemeDialog(QDialog):
     def _apply_swatch_color(self, token: str, hex_value: str) -> None:
         btn = self._swatch_buttons[token]
         btn.setText(hex_value)
+        # The label beside it names the token for sighted users only.
+        btn.setAccessibleName(f"{token} colour {hex_value}")
         fg = _readable_fg_for(hex_value)
         btn.setStyleSheet(
             f"QPushButton {{ background-color: {hex_value}; color: {fg}; "
@@ -315,6 +317,7 @@ class ThemeDialog(QDialog):
     def _apply_lane_swatch_color(self, idx: int, hex_value: str) -> None:
         btn = self._lane_buttons[idx]
         btn.setText("")
+        btn.setAccessibleName(f"Graph lane {idx} colour {hex_value}")
         btn.setStyleSheet(
             f"QPushButton {{ background-color: {hex_value}; "
             f"border: 1px solid #888; padding: 0px; }}"

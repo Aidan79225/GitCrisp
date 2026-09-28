@@ -123,6 +123,7 @@ class WorkingTreeWidget(QWidget):
         # ── Row 1: commit toolbar ────────────────────────────────────────────
         self._msg_edit = QPlainTextEdit()
         self._msg_edit.setPlaceholderText("Commit message...")
+        self._msg_edit.setAccessibleName("Commit message")
         self._msg_edit.setMaximumHeight(80)
 
         self._btn_stage_all = QPushButton("Stage All")
@@ -161,6 +162,7 @@ class WorkingTreeWidget(QWidget):
 
         # ── Row 2: file list ─────────────────────────────────────────────────
         self._file_view = _FileListView()
+        self._file_view.setAccessibleName("Changed files")
         self._file_view.setEditTriggers(QListView.NoEditTriggers)
         self._file_view.setItemDelegate(_FileDelegate(self._file_view))
 

@@ -362,6 +362,7 @@ class ReflogPane(QWidget):
         self._show_all_box.toggled.connect(self._on_show_all_toggled)
 
         self._close_btn = QPushButton("✕")
+        self._close_btn.setAccessibleName("Close reflog")
         self._close_btn.setFixedSize(28, 28)
         self._close_btn.setToolTip("Close the reflog and show the commit list again (Esc)")
         self._close_btn.clicked.connect(self.close_requested)

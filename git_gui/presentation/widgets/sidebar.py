@@ -157,6 +157,7 @@ class SidebarWidget(QWidget):
         self._smart_checkout = None
 
         self._tree = _SidebarTree()
+        self._tree.setAccessibleName("Branches, tags and stashes")
         self._tree.setHeaderHidden(True)
         self._tree.setMouseTracking(True)
         self._tree.viewport().setAttribute(Qt.WA_Hover, True)
