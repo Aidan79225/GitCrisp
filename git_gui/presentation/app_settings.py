@@ -22,6 +22,24 @@ def set_check_updates(value: bool) -> None:
     QSettings().setValue(_KEY_CHECK_UPDATES, value)
 
 
+_KEY_SEND_CRASH_REPORTS = "privacy/send_crash_reports"
+
+
+def get_send_crash_reports() -> bool:
+    """Whether crash reports may go to Sentry. Default True.
+
+    On by default because a release build only reports with a DSN baked in,
+    and the reports carry no personal data: PII is off and the home path is
+    redacted. Users who still want nothing sent turn it off in Preferences.
+    """
+    return QSettings().value(_KEY_SEND_CRASH_REPORTS, True, type=bool)
+
+
+def set_send_crash_reports(value: bool) -> None:
+    """Persist the crash-reporting preference."""
+    QSettings().setValue(_KEY_SEND_CRASH_REPORTS, value)
+
+
 _KEY_WINDOW_GEOMETRY = "window/geometry"
 _KEY_SPLIT = "window/split_{name}"
 

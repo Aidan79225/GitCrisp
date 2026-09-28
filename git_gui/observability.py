@@ -12,6 +12,10 @@ desktop population doesn't need transaction tracing.
 
 ``before_send`` redacts the user's HOME path from exception messages
 and breadcrumbs, since repo paths frequently contain real names.
+
+Users can turn reporting off in Preferences. Off at startup, Sentry is never
+initialized; switched off mid-session, ``before_send`` drops every event
+from then on, since the SDK cannot be cleanly torn down.
 """
 
 from __future__ import annotations
@@ -22,6 +26,9 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_enabled = True
+_initialized = False
 
 
 def _get_baked_config() -> tuple[str | None, str | None]:
@@ -60,6 +67,8 @@ def _redact_home(text: str, home: str) -> str:
 
 
 def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
+    if not _enabled:
+        return None
     home = str(Path.home())
     for exc in event.get("exception", {}).get("values", []):
         if "value" in exc and isinstance(exc["value"], str):
@@ -70,12 +79,18 @@ def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] 
     return event
 
 
-def init_crash_reporting() -> bool:
-    """Initialize Sentry if a DSN is available (baked or env var).
+def init_crash_reporting(enabled: bool = True) -> bool:
+    """Initialize Sentry if the user allows it and a DSN is available.
 
-    Returns True if Sentry was initialized, False otherwise.
-    Safe to call multiple times — the SDK itself is idempotent.
+    ``enabled`` is the user's preference; this module stays free of Qt, so
+    the caller reads it. Returns True if Sentry was initialized, False
+    otherwise. Safe to call multiple times — the SDK itself is idempotent.
     """
+    global _enabled, _initialized
+    _enabled = enabled
+    if not enabled:
+        logger.info("Crash reporting turned off in preferences")
+        return False
     dsn = _get_dsn()
     if not dsn:
         logger.debug("No Sentry DSN available; crash reporting disabled")
@@ -95,5 +110,18 @@ def init_crash_reporting() -> bool:
         send_default_pii=False,
         before_send=_before_send,
     )
+    _initialized = True
     logger.info("Crash reporting initialized")
     return True
+
+
+def set_crash_reporting_enabled(enabled: bool) -> None:
+    """Apply a preference change to the running app.
+
+    Turning reporting on starts Sentry if it was never started; turning it
+    off makes ``before_send`` drop every event from now on.
+    """
+    global _enabled
+    if enabled and not _initialized:
+        init_crash_reporting(enabled=True)
+    _enabled = enabled

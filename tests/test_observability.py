@@ -78,3 +78,36 @@ def test_before_send_redacts_home_in_breadcrumbs():
     out = _before_send(event, {})
     assert out is not None
     assert "~/work/proj" in out["breadcrumbs"]["values"][0]["message"]
+
+
+# ── User opt-out ─────────────────────────────────────────────────────────────
+
+
+def test_init_skips_sentry_when_user_opted_out(monkeypatch):
+    monkeypatch.setenv("GITCRISP_SENTRY_DSN", "https://key@example.ingest.sentry.io/123")
+    fake_sentry = MagicMock()
+    with patch.dict("sys.modules", {"sentry_sdk": fake_sentry}):
+        assert init_crash_reporting(enabled=False) is False
+    fake_sentry.init.assert_not_called()
+
+
+def test_turning_reporting_off_drops_events():
+    from git_gui.observability import set_crash_reporting_enabled
+
+    set_crash_reporting_enabled(False)
+    assert _before_send({"exception": {"values": []}}, {}) is None
+
+
+def test_turning_reporting_on_mid_session_starts_sentry(monkeypatch):
+    from git_gui.observability import set_crash_reporting_enabled
+
+    monkeypatch.setenv("GITCRISP_SENTRY_DSN", "https://key@example.ingest.sentry.io/123")
+    monkeypatch.setattr("git_gui.observability._get_baked_config", lambda: (None, None))
+    fake_sentry = MagicMock()
+    with patch.dict("sys.modules", {"sentry_sdk": fake_sentry}):
+        init_crash_reporting(enabled=False)
+        set_crash_reporting_enabled(True)
+        set_crash_reporting_enabled(False)
+        set_crash_reporting_enabled(True)
+    fake_sentry.init.assert_called_once()
+    assert _before_send({"exception": {"values": []}}, {}) is not None

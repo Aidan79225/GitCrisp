@@ -145,6 +145,7 @@ On macOS, Ctrl is Cmd.
 ### Diagnostics
 - Rotating file logger at `~/.gitcrisp/logs/gitcrisp.log` (1 MB × 4 files)
 - Uncaught exceptions logged with full tracebacks (main thread + background workers)
+- Release builds send crash reports to Sentry with personal data off and the home path redacted; untick **`Help → Preferences… → Send crash reports`** to send nothing (takes effect immediately)
 
 ## Architecture
 

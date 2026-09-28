@@ -83,3 +83,18 @@ def repo_impl(repo_path):
     from git_gui.infrastructure.pygit2 import Pygit2Repository
 
     return Pygit2Repository(str(repo_path))
+
+
+@pytest.fixture(autouse=True)
+def _reset_crash_reporting_state(monkeypatch):
+    """Keep one test's crash-reporting preference from leaking into the next.
+
+    ``git_gui.observability`` holds whether reporting is on in module
+    globals, and a test that turns it off (directly, or by accepting the
+    Preferences dialog) would otherwise make every later ``before_send``
+    test see events dropped.
+    """
+    import git_gui.observability as obs
+
+    monkeypatch.setattr(obs, "_enabled", True)
+    monkeypatch.setattr(obs, "_initialized", False)

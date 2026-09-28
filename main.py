@@ -12,6 +12,7 @@ from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 from git_gui.infrastructure.repo_store import JsonRepoStore
 from git_gui.logging_setup import setup_logging
 from git_gui.observability import init_crash_reporting
+from git_gui.presentation.app_settings import get_send_crash_reports
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
 from git_gui.presentation.theme import ThemeManager, set_theme_manager
@@ -102,11 +103,13 @@ def _qt_message_filter(mode, context, message):
 
 def main() -> None:
     setup_logging()
-    init_crash_reporting()
     qInstallMessageHandler(_qt_message_filter)
     app = QApplication(sys.argv)
     app.setOrganizationName("GitCrisp")
     app.setApplicationName("GitCrisp")
+    # After the names above: the opt-out lives in QSettings, which is keyed
+    # by them.
+    init_crash_reporting(enabled=get_send_crash_reports())
     # Windows takes the running app's icon from the exe and macOS from the
     # bundle, so this is really for Linux, where a window manager that cannot
     # match the window back to its .desktop entry falls back to a generic
