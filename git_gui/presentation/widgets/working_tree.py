@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStyle,
-    QStyledItemDelegate,
     QStyleOptionViewItem,
     QVBoxLayout,
     QWidget,
@@ -24,6 +23,7 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import FileStatus, StagingState
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
 from git_gui.presentation.widgets.file_list_view import (
     BADGE_LABEL,
     UNKNOWN_LABEL,
@@ -41,8 +41,8 @@ _BADGE_TEXT_RESERVATION = "          "
 _BADGE_LEFT_INSET = 30
 
 
-class _FileDelegate(QStyledItemDelegate):
-    """Adds a delta badge between the native checkbox and filename."""
+class _FileDelegate(CheckIndicatorDelegate):
+    """Adds a delta badge between the check indicator and filename."""
 
     def initStyleOption(self, option: QStyleOptionViewItem, index) -> None:
         super().initStyleOption(option, index)
