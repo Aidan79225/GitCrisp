@@ -80,8 +80,10 @@ class CheckIndicatorDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         super().paint(painter, option, index)
+        # Qt draws an indicator for any row with a check state, whether or not
+        # the user may toggle it, so follow the same rule.
         state = index.data(Qt.CheckStateRole)
-        if state is None or not (index.flags() & Qt.ItemIsUserCheckable):
+        if state is None:
             return
 
         opt = QStyleOptionViewItem(option)
