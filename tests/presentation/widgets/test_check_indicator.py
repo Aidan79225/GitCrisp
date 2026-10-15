@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, QRect
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QListView
 
@@ -18,8 +18,8 @@ from git_gui.domain.entities import FileDelta, FileStatus, StagingState
 from git_gui.presentation.dialogs.remote_branches_dialog import RemoteBranchesDialog
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.check_indicator import (
-    BOX_SIZE,
     CheckIndicatorDelegate,
+    indicator_box,
 )
 from git_gui.presentation.widgets.file_list_view import FileListView
 from git_gui.presentation.widgets.working_tree import _FileDelegate
@@ -66,10 +66,12 @@ def view(qtbot):
 
 def _box_points(view, row: int) -> tuple[QPoint, QPoint]:
     """A point on the box's top border and one just inside it, clear of the glyph."""
-    rect = view._checkbox_rect(view.model().index(row))
-    center = rect.center()
-    top = center.y() - BOX_SIZE // 2
-    return QPoint(center.x(), top + 1), QPoint(center.x(), top + 4)
+    index = view.model().index(row)
+    check = view._checkbox_rect(index)
+    row_rect = view.visualRect(index)
+    box = indicator_box(QRect(check.left(), row_rect.top(), check.width(), row_rect.height()))
+    x = box.center().x()
+    return QPoint(x, box.top() + 1), QPoint(x, box.top() + 4)
 
 
 def test_every_row_gets_an_indicator(view):

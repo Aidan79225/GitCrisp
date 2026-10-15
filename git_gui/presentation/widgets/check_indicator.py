@@ -31,13 +31,27 @@ _TICK = ((3.0, 7.0), (6.0, 10.0), (11.0, 4.0))
 _DASH = ((3.0, 7.0), (11.0, 7.0))
 
 
-def paint_check_indicator(
-    painter: QPainter, rect: QRect, state: Qt.CheckState, background: QColor
-) -> None:
-    """Draw the indicator for ``state`` centred in ``rect``.
+def indicator_box(gutter: QRect) -> QRect:
+    """The square the indicator is drawn in, centred in the row's check gutter.
 
-    ``rect`` is first filled with ``background`` so that whatever the platform
-    style drew there, whole or in part, cannot show around the box.
+    The box is the QCheckBox size where the gutter allows it. Styles differ in
+    how wide a column they reserve for the indicator (Fusion and Windows give
+    less than macOS), and a box wider than that column would run into the
+    text, so it shrinks to fit, two pixels of overhang allowed.
+    """
+    side = min(BOX_SIZE, gutter.width() + 2, gutter.height())
+    box = QRect(0, 0, side, side)
+    box.moveCenter(gutter.center())
+    return box
+
+
+def paint_check_indicator(
+    painter: QPainter, gutter: QRect, state: Qt.CheckState, background: QColor
+) -> None:
+    """Draw the indicator for ``state`` in the row's check ``gutter``.
+
+    ``gutter`` is first filled with ``background`` so that whatever the
+    platform style drew there, whole or in part, cannot show around the box.
     """
     colors = get_theme_manager().current.colors
     checked = state != Qt.CheckState.Unchecked
@@ -46,10 +60,9 @@ def paint_check_indicator(
 
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.fillRect(rect, background)
+    painter.fillRect(gutter, background)
 
-    box = QRect(0, 0, BOX_SIZE, BOX_SIZE)
-    box.moveCenter(rect.center())
+    box = indicator_box(gutter)
     painter.setPen(QPen(accent if checked else colors.as_qcolor(ColorRole.OUTLINE), BORDER))
     painter.setBrush(accent if checked else surface)
     # The pen straddles the path, so inset by half of it to keep the stroke
@@ -65,7 +78,8 @@ def paint_check_indicator(
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
         origin = QPointF(box.left() + BORDER, box.top() + BORDER)
-        painter.drawPolyline([origin + QPointF(x, y) for x, y in glyph])
+        scale = (box.width() - 2 * BORDER) / (BOX_SIZE - 2 * BORDER)
+        painter.drawPolyline([origin + QPointF(x * scale, y * scale) for x, y in glyph])
 
     painter.restore()
 
@@ -90,10 +104,13 @@ class CheckIndicatorDelegate(QStyledItemDelegate):
         self.initStyleOption(opt, index)
         widget = option.widget
         style = widget.style() if widget is not None else QApplication.style()
-        rect = style.subElementRect(QStyle.SE_ItemViewItemCheckIndicator, opt, widget)
+        check = style.subElementRect(QStyle.SE_ItemViewItemCheckIndicator, opt, widget)
+        # The style's rect is only as tall as its own indicator and may sit at
+        # the top of a taller row; the box is centred on the row instead.
+        gutter = QRect(check.left(), option.rect.top(), check.width(), option.rect.height())
 
         if option.state & QStyle.State_Selected:
             background = get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
         else:
             background = opt.palette.color(QPalette.Base)
-        paint_check_indicator(painter, rect, Qt.CheckState(state), background)
+        paint_check_indicator(painter, gutter, Qt.CheckState(state), background)
