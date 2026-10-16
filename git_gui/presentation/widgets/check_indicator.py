@@ -98,6 +98,12 @@ def _draw_box(painter: QPainter, box: QRect, filled: bool, colors: Colors) -> No
     painter.drawRoundedRect(QRectF(box).adjusted(half, half, -half, -half), RADIUS, RADIUS)
 
 
+def glyph_point(box: QRect, x: float, y: float) -> QPointF:
+    """Where a point of the ``_INNER_SIZE`` glyph lands inside ``box``."""
+    scale = (box.width() - 2 * BORDER) / _INNER_SIZE
+    return QPointF(box.left() + BORDER + x * scale, box.top() + BORDER + y * scale)
+
+
 def _draw_glyph(painter: QPainter, box: QRect, state: Qt.CheckState, colors: Colors) -> None:
     glyph = _TICK if state == Qt.CheckState.Checked else _DASH
     pen = QPen(colors.as_qcolor(ColorRole.PRIMARY_CONTAINER), BORDER)
@@ -105,9 +111,7 @@ def _draw_glyph(painter: QPainter, box: QRect, state: Qt.CheckState, colors: Col
     pen.setJoinStyle(Qt.RoundJoin)
     painter.setPen(pen)
     painter.setBrush(Qt.NoBrush)
-    origin = QPointF(box.left() + BORDER, box.top() + BORDER)
-    scale = (box.width() - 2 * BORDER) / _INNER_SIZE
-    painter.drawPolyline([origin + QPointF(x * scale, y * scale) for x, y in glyph])
+    painter.drawPolyline([glyph_point(box, x, y) for x, y in glyph])
 
 
 class CheckIndicatorDelegate(QStyledItemDelegate):

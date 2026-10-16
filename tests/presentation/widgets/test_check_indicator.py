@@ -17,7 +17,11 @@ from PySide6.QtWidgets import QApplication, QListView
 
 from git_gui.domain.entities import FileDelta, FileStatus, StagingState
 from git_gui.presentation.theme import ColorRole, get_theme_manager
-from git_gui.presentation.widgets.check_indicator import check_gutter, indicator_box
+from git_gui.presentation.widgets.check_indicator import (
+    check_gutter,
+    glyph_point,
+    indicator_box,
+)
 from git_gui.presentation.widgets.file_list_view import FileListView
 from git_gui.presentation.widgets.working_tree import _FileDelegate
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
@@ -65,14 +69,22 @@ def view(qtbot):
     return v
 
 
+def _box(view, row: int):
+    index = view.model().index(row)
+    return indicator_box(check_gutter(view.visualRect(index), view._checkbox_rect(index)))
+
+
 def _box_points(view, row: int) -> tuple[QPoint, QPoint]:
     """A point on the box's top border and one just inside it, clear of the glyph."""
-    index = view.model().index(row)
-    check = view._checkbox_rect(index)
-    row_rect = view.visualRect(index)
-    box = indicator_box(check_gutter(row_rect, check))
+    box = _box(view, row)
     x = box.center().x()
     return QPoint(x, box.top() + 1), QPoint(x, box.top() + 4)
+
+
+def _dash_end(view, row: int) -> QPoint:
+    """The pixel under the right end of the dash, which the tick never reaches."""
+    end = glyph_point(_box(view, row), 11, 7)
+    return QPoint(int(end.x()), int(end.y()))
 
 
 @pytest.mark.parametrize(
@@ -89,3 +101,12 @@ def test_each_state_paints_its_own_box(view, row, border_role, inside_role):
     border, inside = _box_points(view, row)
     assert _same_colour(_pixel(image, border), _color(border_role))
     assert _same_colour(_pixel(image, inside), _color(inside_role))
+
+
+def test_partial_state_draws_a_dash_where_the_tick_does_not(view):
+    """The dash end is bare fill under a tick and glyph colour under a dash, so a
+    tick drawn for every filled state would fail here, whatever the box size."""
+    image = view.viewport().grab().toImage()
+    fill = _color(ColorRole.ON_PRIMARY_CONTAINER)
+    assert _same_colour(_pixel(image, _dash_end(view, 0)), fill)
+    assert not _same_colour(_pixel(image, _dash_end(view, 1)), fill)
