@@ -17,24 +17,33 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
+    QWidget,
 )
 
-from git_gui.presentation.theme import ColorRole, Colors, get_theme_manager
+from git_gui.presentation.theme import (
+    CHECKBOX_BORDER,
+    CHECKBOX_INNER_SIZE,
+    CHECKBOX_RADIUS,
+    ColorRole,
+    Colors,
+    get_theme_manager,
+)
 
-# The same geometry as the QCheckBox rule in qss_template.py: a 14px box
-# inside a 2px border.
-BOX_SIZE = 18
-BORDER = 2
-RADIUS = 3
-_INNER_SIZE = BOX_SIZE - 2 * BORDER
+BORDER = CHECKBOX_BORDER
+RADIUS = CHECKBOX_RADIUS
+_INNER_SIZE = CHECKBOX_INNER_SIZE
+BOX_SIZE = _INNER_SIZE + 2 * BORDER
 # How far the box may stick out of a check column narrower than itself.
 _GUTTER_OVERHANG = 2
 # Glyphs in the _INNER_SIZE box; the tick traces arts/ic_check.svg.
 _TICK = ((3.0, 7.0), (6.0, 10.0), (11.0, 4.0))
 _DASH = ((3.0, 7.0), (11.0, 7.0))
+DASH_END = _DASH[-1]
 
 
-def check_indicator_rect(style: QStyle, option: QStyleOptionViewItem, widget) -> QRect:
+def check_indicator_rect(
+    style: QStyle, option: QStyleOptionViewItem, widget: QWidget | None
+) -> QRect:
     """Where the style would draw the row's check box.
 
     The view hit-tests clicks against this rect and the delegate paints into
@@ -65,6 +74,12 @@ def indicator_box(gutter: QRect) -> QRect:
     box = QRect(0, 0, side, side)
     box.moveCenter(gutter.center())
     return box
+
+
+def glyph_point(box: QRect, x: float, y: float) -> QPointF:
+    """Where a point of the ``_INNER_SIZE`` glyph lands inside ``box``."""
+    scale = (box.width() - 2 * BORDER) / _INNER_SIZE
+    return QPointF(box.left() + BORDER + x * scale, box.top() + BORDER + y * scale)
 
 
 def paint_check_indicator(
@@ -98,12 +113,6 @@ def _draw_box(painter: QPainter, box: QRect, filled: bool, colors: Colors) -> No
     painter.drawRoundedRect(QRectF(box).adjusted(half, half, -half, -half), RADIUS, RADIUS)
 
 
-def glyph_point(box: QRect, x: float, y: float) -> QPointF:
-    """Where a point of the ``_INNER_SIZE`` glyph lands inside ``box``."""
-    scale = (box.width() - 2 * BORDER) / _INNER_SIZE
-    return QPointF(box.left() + BORDER + x * scale, box.top() + BORDER + y * scale)
-
-
 def _draw_glyph(painter: QPainter, box: QRect, state: Qt.CheckState, colors: Colors) -> None:
     glyph = _TICK if state == Qt.CheckState.Checked else _DASH
     pen = QPen(colors.as_qcolor(ColorRole.PRIMARY_CONTAINER), BORDER)
@@ -118,31 +127,29 @@ class CheckIndicatorDelegate(QStyledItemDelegate):
     """A QStyledItemDelegate that paints the check indicator of checkable rows.
 
     The platform style still lays the row out as if it drew the box; only the
-    drawing is replaced.
+    drawing is replaced. A selected row is filled with the theme's primary
+    before the base paint, as the app's other delegates do, so the gutter and
+    the row behind it come from one colour.
     """
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        if option.state & QStyle.State_Selected:
+            painter.fillRect(option.rect, self._row_background(option))
         super().paint(painter, option, index)
         # Qt draws an indicator for any row with a check state, whether or not
         # the user may toggle it, so follow the same rule.
         state = index.data(Qt.CheckStateRole)
         if state is None:
             return
-        gutter = self._check_gutter(option, index)
-        paint_check_indicator(painter, gutter, Qt.CheckState(state), self.row_background(option))
+        gutter = self._gutter_for(option, index)
+        paint_check_indicator(painter, gutter, Qt.CheckState(state), self._row_background(option))
 
-    def row_background(self, option: QStyleOptionViewItem) -> QColor:
-        """The colour behind the row, which the gutter fill has to match.
-
-        A subclass that paints its own selected-row fill should take the
-        colour from here, so the box cannot end up on a differently coloured
-        square.
-        """
+    def _row_background(self, option: QStyleOptionViewItem) -> QColor:
         if option.state & QStyle.State_Selected:
             return get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
         return option.palette.color(QPalette.Base)
 
-    def _check_gutter(self, option: QStyleOptionViewItem, index) -> QRect:
+    def _gutter_for(self, option: QStyleOptionViewItem, index) -> QRect:
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         widget = option.widget

@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
-    QStyle,
     QStyleOptionViewItem,
     QVBoxLayout,
     QWidget,
@@ -49,10 +48,6 @@ class _FileDelegate(CheckIndicatorDelegate):
         option.text = _BADGE_TEXT_RESERVATION + (option.text or "")
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        # Before super(), which draws over whatever is already there.
-        if option.state & QStyle.State_Selected:
-            painter.fillRect(option.rect, self.row_background(option))
-
         super().paint(painter, option, index)
 
         painter.save()
