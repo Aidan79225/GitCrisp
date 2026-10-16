@@ -27,6 +27,34 @@ presentation  →  application  →  domain  ←  infrastructure
 A new concept should enter at the layer where it is a concept: a new git
 operation is a port and a mixin before it is a button.
 
+## Dependency injection, everywhere
+
+A class receives its collaborators; it does not build them or go and find
+them. This is what keeps the layers above testable without patching and lets
+`main.py` and `MainWindow` be the only places that know how the app is wired.
+
+- **Constructors take ports and buses.** A widget takes `QueryBus` and
+  `CommandBus` (or the one it needs); a use case takes the port it calls; an
+  infrastructure class takes the repository path or handle. One that
+  constructs a `Pygit2Repository`, a bus, a store, or a subprocess runner
+  inside its own body is a should-fix, and a must-fix if it does so in
+  `domain/` or `application/`.
+- **The composition root wires, nothing else does.** `main.py` builds the
+  stores, the session and the window and hands them down; `MainWindow` passes
+  what each panel needs and nothing more. A panel that imports a sibling
+  panel's dependency to build it itself has moved wiring out of the root.
+- **Depend on the Protocol, not the implementation.** Type a parameter as the
+  port from `domain/ports.py` so a test can pass a fake. A parameter typed as
+  the concrete pygit2 class forces every test through real git.
+- **No new module-level singletons.** `get_theme_manager()` and
+  `get_avatar_loader()` exist because the theme and the avatar cache are
+  process-wide; they are the exceptions, not the pattern. Reaching for a new
+  global, a class attribute shared across instances, or a settings read in the
+  middle of logic instead of a value passed in is a should-fix.
+- **Tests inject, they do not patch.** A test that reaches `patch()` to replace
+  a collaborator is telling you the collaborator should have been a parameter.
+  Flag the production code, not the test.
+
 ## Domain-Driven Design
 
 - **Ubiquitous language.** Names in code match the words a git user says:
