@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtCore import QPoint, QRect
+from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QListView
 
@@ -19,6 +19,7 @@ from git_gui.presentation.dialogs.remote_branches_dialog import RemoteBranchesDi
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.check_indicator import (
     CheckIndicatorDelegate,
+    check_gutter,
     indicator_box,
 )
 from git_gui.presentation.widgets.file_list_view import FileListView
@@ -69,26 +70,25 @@ def _box_points(view, row: int) -> tuple[QPoint, QPoint]:
     index = view.model().index(row)
     check = view._checkbox_rect(index)
     row_rect = view.visualRect(index)
-    box = indicator_box(QRect(check.left(), row_rect.top(), check.width(), row_rect.height()))
+    box = indicator_box(check_gutter(row_rect, check))
     x = box.center().x()
     return QPoint(x, box.top() + 1), QPoint(x, box.top() + 4)
 
 
-def test_every_row_gets_an_indicator(view):
+@pytest.mark.parametrize(
+    ("row", "border_role", "inside_role"),
+    [
+        (0, ColorRole.ON_PRIMARY_CONTAINER, ColorRole.ON_PRIMARY_CONTAINER),
+        (1, ColorRole.ON_PRIMARY_CONTAINER, ColorRole.ON_PRIMARY_CONTAINER),
+        (2, ColorRole.OUTLINE, ColorRole.SURFACE),
+    ],
+    ids=["checked", "partially-checked", "unchecked"],
+)
+def test_each_state_paints_its_own_box(view, row, border_role, inside_role):
     image = view.viewport().grab().toImage()
-    accent = _color(ColorRole.ON_PRIMARY_CONTAINER)
-
-    border, inside = _box_points(view, 0)  # checked
-    assert _close(_pixel(image, border), accent)
-    assert _close(_pixel(image, inside), accent)
-
-    border, inside = _box_points(view, 1)  # partially checked
-    assert _close(_pixel(image, border), accent)
-    assert _close(_pixel(image, inside), accent)
-
-    border, inside = _box_points(view, 2)  # unchecked
-    assert _close(_pixel(image, border), _color(ColorRole.OUTLINE))
-    assert _close(_pixel(image, inside), _color(ColorRole.SURFACE))
+    border, inside = _box_points(view, row)
+    assert _close(_pixel(image, border), _color(border_role))
+    assert _close(_pixel(image, inside), _color(inside_role))
 
 
 def test_remote_branches_table_uses_the_check_indicator_delegate(qtbot):
