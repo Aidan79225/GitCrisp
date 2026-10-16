@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication, QListView, QStyleOptionViewItem
 
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.check_indicator import (
-    DASH_END,
+    DASH,
     CheckIndicatorDelegate,
     check_gutter,
     check_indicator_rect,
@@ -96,7 +96,7 @@ def _box_points(view, row: int) -> tuple[QPoint, QPoint]:
 
 def _dash_end(view, row: int) -> QPoint:
     """The pixel under the right end of the dash, which the tick never reaches."""
-    end = glyph_point(_box(view, row), *DASH_END)
+    end = glyph_point(_box(view, row), *DASH[-1])
     return QPoint(int(end.x()), int(end.y()))
 
 

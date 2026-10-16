@@ -29,16 +29,12 @@ from git_gui.presentation.theme import (
     get_theme_manager,
 )
 
-BORDER = CHECKBOX_BORDER
-RADIUS = CHECKBOX_RADIUS
-_INNER_SIZE = CHECKBOX_INNER_SIZE
-BOX_SIZE = _INNER_SIZE + 2 * BORDER
+_BOX_SIZE = CHECKBOX_INNER_SIZE + 2 * CHECKBOX_BORDER
 # How far the box may stick out of a check column narrower than itself.
 _GUTTER_OVERHANG = 2
-# Glyphs in the _INNER_SIZE box; the tick traces arts/ic_check.svg.
-_TICK = ((3.0, 7.0), (6.0, 10.0), (11.0, 4.0))
-_DASH = ((3.0, 7.0), (11.0, 7.0))
-DASH_END = _DASH[-1]
+# Glyphs in the CHECKBOX_INNER_SIZE box; the tick traces arts/ic_check.svg.
+TICK = ((3.0, 7.0), (6.0, 10.0), (11.0, 4.0))
+DASH = ((3.0, 7.0), (11.0, 7.0))
 
 
 def check_indicator_rect(
@@ -47,19 +43,21 @@ def check_indicator_rect(
     """Where the style would draw the row's check box.
 
     The view hit-tests clicks against this rect and the delegate paints into
-    it, so both ask here rather than each working it out.
+    it, so both ask here rather than each working it out. ``option`` is
+    marked as having a check indicator on the way, so pass a copy if the
+    original must stay untouched.
     """
     option.features |= QStyleOptionViewItem.HasCheckIndicator
     return style.subElementRect(QStyle.SE_ItemViewItemCheckIndicator, option, widget)
 
 
-def check_gutter(row: QRect, check: QRect) -> QRect:
+def check_gutter(row_rect: QRect, check: QRect) -> QRect:
     """The column the indicator owns: the style's check rect at full row height.
 
     The style's rect is only as tall as its own indicator and may sit at the
     top of a taller row, so the box is centred on the row instead.
     """
-    return QRect(check.left(), row.top(), check.width(), row.height())
+    return QRect(check.left(), row_rect.top(), check.width(), row_rect.height())
 
 
 def indicator_box(gutter: QRect) -> QRect:
@@ -70,27 +68,33 @@ def indicator_box(gutter: QRect) -> QRect:
     less than macOS), and a box wider than that column would run into the
     text, so it shrinks to fit.
     """
-    side = min(BOX_SIZE, gutter.width() + _GUTTER_OVERHANG, gutter.height())
+    side = min(_BOX_SIZE, gutter.width() + _GUTTER_OVERHANG, gutter.height())
     box = QRect(0, 0, side, side)
     box.moveCenter(gutter.center())
     return box
 
 
 def glyph_point(box: QRect, x: float, y: float) -> QPointF:
-    """Where a point of the ``_INNER_SIZE`` glyph lands inside ``box``."""
-    scale = (box.width() - 2 * BORDER) / _INNER_SIZE
-    return QPointF(box.left() + BORDER + x * scale, box.top() + BORDER + y * scale)
+    """Where a point of the ``CHECKBOX_INNER_SIZE`` glyph lands inside ``box``."""
+    scale = (box.width() - 2 * CHECKBOX_BORDER) / CHECKBOX_INNER_SIZE
+    return QPointF(
+        box.left() + CHECKBOX_BORDER + x * scale,
+        box.top() + CHECKBOX_BORDER + y * scale,
+    )
 
 
 def paint_check_indicator(
-    painter: QPainter, gutter: QRect, state: Qt.CheckState, background: QColor
+    painter: QPainter,
+    gutter: QRect,
+    state: Qt.CheckState,
+    background: QColor,
+    colors: Colors,
 ) -> None:
     """Draw the indicator for ``state`` in the row's check ``gutter``.
 
     ``gutter`` is first filled with ``background`` so that whatever the
     platform style drew there, whole or in part, cannot show around the box.
     """
-    colors = get_theme_manager().current.colors
     box = indicator_box(gutter)
     filled = state != Qt.CheckState.Unchecked
 
@@ -105,17 +109,19 @@ def paint_check_indicator(
 
 def _draw_box(painter: QPainter, box: QRect, filled: bool, colors: Colors) -> None:
     accent = colors.as_qcolor(ColorRole.ON_PRIMARY_CONTAINER)
-    painter.setPen(QPen(accent if filled else colors.as_qcolor(ColorRole.OUTLINE), BORDER))
+    painter.setPen(QPen(accent if filled else colors.as_qcolor(ColorRole.OUTLINE), CHECKBOX_BORDER))
     painter.setBrush(accent if filled else colors.as_qcolor(ColorRole.SURFACE))
     # The pen straddles the path, so inset by half of it to keep the stroke
     # inside the box.
-    half = BORDER / 2
-    painter.drawRoundedRect(QRectF(box).adjusted(half, half, -half, -half), RADIUS, RADIUS)
+    half = CHECKBOX_BORDER / 2
+    painter.drawRoundedRect(
+        QRectF(box).adjusted(half, half, -half, -half), CHECKBOX_RADIUS, CHECKBOX_RADIUS
+    )
 
 
 def _draw_glyph(painter: QPainter, box: QRect, state: Qt.CheckState, colors: Colors) -> None:
-    glyph = _TICK if state == Qt.CheckState.Checked else _DASH
-    pen = QPen(colors.as_qcolor(ColorRole.PRIMARY_CONTAINER), BORDER)
+    glyph = TICK if state == Qt.CheckState.Checked else DASH
+    pen = QPen(colors.as_qcolor(ColorRole.PRIMARY_CONTAINER), CHECKBOX_BORDER)
     pen.setCapStyle(Qt.RoundCap)
     pen.setJoinStyle(Qt.RoundJoin)
     painter.setPen(pen)
@@ -133,8 +139,13 @@ class CheckIndicatorDelegate(QStyledItemDelegate):
     """
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        if option.state & QStyle.State_Selected:
-            painter.fillRect(option.rect, self._row_background(option))
+        colors = get_theme_manager().current.colors
+        selected = bool(option.state & QStyle.State_Selected)
+        background = (
+            colors.as_qcolor(ColorRole.PRIMARY) if selected else option.palette.color(QPalette.Base)
+        )
+        if selected:
+            painter.fillRect(option.rect, background)
         super().paint(painter, option, index)
         # Qt draws an indicator for any row with a check state, whether or not
         # the user may toggle it, so follow the same rule.
@@ -142,12 +153,7 @@ class CheckIndicatorDelegate(QStyledItemDelegate):
         if state is None:
             return
         gutter = self._gutter_for(option, index)
-        paint_check_indicator(painter, gutter, Qt.CheckState(state), self._row_background(option))
-
-    def _row_background(self, option: QStyleOptionViewItem) -> QColor:
-        if option.state & QStyle.State_Selected:
-            return get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
-        return option.palette.color(QPalette.Base)
+        paint_check_indicator(painter, gutter, Qt.CheckState(state), background, colors)
 
     def _gutter_for(self, option: QStyleOptionViewItem, index) -> QRect:
         opt = QStyleOptionViewItem(option)
