@@ -8,37 +8,29 @@ the style.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
-from PySide6.QtCore import QPoint
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QListView
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import QApplication, QListView, QStyleOptionViewItem
 
-from git_gui.domain.entities import FileDelta, FileStatus, StagingState
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.check_indicator import (
+    DASH_END,
+    CheckIndicatorDelegate,
     check_gutter,
+    check_indicator_rect,
     glyph_point,
     indicator_box,
 )
-from git_gui.presentation.widgets.file_list_view import FileListView
-from git_gui.presentation.widgets.working_tree import _FileDelegate
-from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 
-_FILES = [
-    FileStatus("a/staged.py", StagingState.STAGED, FileDelta.MODIFIED),
-    FileStatus("b/partial.py", StagingState.UNSTAGED, FileDelta.MODIFIED),
-    FileStatus("c/untracked.txt", StagingState.UNTRACKED, FileDelta.ADDED),
-]
+_STATES = [Qt.CheckState.Checked, Qt.CheckState.PartiallyChecked, Qt.CheckState.Unchecked]
+
+# Antialiasing blends the box edge with its background by a few levels.
+_ANTIALIAS_TOLERANCE = 12
 
 
 def _color(role: ColorRole) -> QColor:
     return get_theme_manager().current.colors.as_qcolor(role)
-
-
-# Antialiasing blends the box edge with its background by a few levels.
-_ANTIALIAS_TOLERANCE = 12
 
 
 def _same_colour(actual: QColor, expected: QColor) -> bool:
@@ -55,12 +47,15 @@ def _pixel(image, point: QPoint) -> QColor:
 
 @pytest.fixture
 def view(qtbot):
-    v = FileListView()
-    v.setEditTriggers(QListView.NoEditTriggers)
-    v.setItemDelegate(_FileDelegate(v))
-    model = WorkingTreeModel(MagicMock(), v)
+    model = QStandardItemModel()
+    for state in _STATES:
+        item = QStandardItem(f"row {state.name}")
+        item.setCheckable(True)
+        item.setCheckState(state)
+        model.appendRow(item)
+    v = QListView()
     v.setModel(model)
-    model.reload(_FILES, {"b/partial.py"})
+    v.setItemDelegate(CheckIndicatorDelegate(v))
     v.resize(400, 120)
     qtbot.addWidget(v)
     v.show()
@@ -70,8 +65,11 @@ def view(qtbot):
 
 
 def _box(view, row: int):
-    index = view.model().index(row)
-    return indicator_box(check_gutter(view.visualRect(index), view._checkbox_rect(index)))
+    index = view.model().index(row, 0)
+    opt = QStyleOptionViewItem()
+    view.initViewItemOption(opt)
+    opt.rect = view.visualRect(index)
+    return indicator_box(check_gutter(opt.rect, check_indicator_rect(view.style(), opt, view)))
 
 
 def _box_points(view, row: int) -> tuple[QPoint, QPoint]:
@@ -83,7 +81,7 @@ def _box_points(view, row: int) -> tuple[QPoint, QPoint]:
 
 def _dash_end(view, row: int) -> QPoint:
     """The pixel under the right end of the dash, which the tick never reaches."""
-    end = glyph_point(_box(view, row), 11, 7)
+    end = glyph_point(_box(view, row), *DASH_END)
     return QPoint(int(end.x()), int(end.y()))
 
 
