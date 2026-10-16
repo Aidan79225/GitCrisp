@@ -7,6 +7,13 @@ from git_gui.resources import get_resource_path
 
 from .tokens import Theme
 
+# The QCheckBox indicator's geometry. Item views paint their own indicator
+# (widgets/check_indicator.py) from these same numbers, so the two kinds of
+# box cannot drift apart.
+CHECKBOX_INNER_SIZE = 14
+CHECKBOX_BORDER = 2
+CHECKBOX_RADIUS = 3
+
 # Targeted global QSS rules for chrome elements that Qt's native styles
 # don't fully reach via QPalette alone (notably QMenuBar / QMenu on
 # Windows, which on some platforms ignore WindowText for item text).
@@ -127,10 +134,10 @@ QRadioButton::indicator:checked {
         stop:0.6 %(surface)s, stop:1 %(surface)s);
 }
 QCheckBox::indicator {
-    width: 14px;
-    height: 14px;
-    border-radius: 3px;
-    border: 2px solid %(outline)s;
+    width: %(check_inner)spx;
+    height: %(check_inner)spx;
+    border-radius: %(check_radius)spx;
+    border: %(check_border)spx solid %(outline)s;
     background: %(surface)s;
 }
 QCheckBox::indicator:hover {
@@ -230,6 +237,9 @@ def render(theme: Theme) -> str:
         "on_primary": c.on_primary,
         "on_primary_container": c.on_primary_container,
         "check_icon": _check_icon(c.primary_container),
+        "check_inner": CHECKBOX_INNER_SIZE,
+        "check_border": CHECKBOX_BORDER,
+        "check_radius": CHECKBOX_RADIUS,
         "surface": c.surface,
         "surface_variant": c.surface_variant,
         "surface_container_high": c.surface_container_high,

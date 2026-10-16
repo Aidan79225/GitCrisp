@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from git_gui.domain.entities import Branch, RemoteBranchDeleteResult
 from git_gui.presentation.dialogs.remote_branches_dialog import RemoteBranchesDialog
+from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
 
 
 def _make(qtbot, branches=None, defaults=None):
@@ -149,3 +150,8 @@ def test_failure_shows_warning_refreshes_and_re_enables_buttons(qtbot):
     assert dlg._close_btn.isEnabled()
     # refresh called at least twice: initial load + after failure
     assert queries.get_branches.execute.call_count >= 2
+
+
+def test_table_uses_the_check_indicator_delegate(qtbot):
+    dlg, _, _ = _make(qtbot)
+    assert isinstance(dlg._table.itemDelegate(), CheckIndicatorDelegate)

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from git_gui.domain.entities import RemoteBranchDeleteResult
+from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
 
 _MAX_LISTED_IN_CONFIRM = 15
 
@@ -47,6 +48,7 @@ class RemoteBranchesDialog(QDialog):
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
+        self._table.setItemDelegate(CheckIndicatorDelegate(self._table))
         self._table.itemChanged.connect(self._on_item_changed)
 
         self._select_all_btn = QPushButton("Select All")
