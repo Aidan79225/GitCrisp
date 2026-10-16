@@ -9,7 +9,7 @@ the style.
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QApplication, QListView, QStyleOptionViewItem
 
@@ -64,12 +64,27 @@ def view(qtbot):
     return v
 
 
-def _box(view, row: int):
+def _row_and_check(view, row: int):
     index = view.model().index(row, 0)
     opt = QStyleOptionViewItem()
     view.initViewItemOption(opt)
     opt.rect = view.visualRect(index)
-    return indicator_box(check_gutter(opt.rect, check_indicator_rect(view.style(), opt, view)))
+    return QRect(opt.rect), check_indicator_rect(view.style(), opt, view)
+
+
+def _box(view, row: int):
+    row_rect, check = _row_and_check(view, row)
+    return indicator_box(check_gutter(row_rect, check))
+
+
+@pytest.mark.parametrize("row", range(len(_STATES)))
+def test_box_sits_under_the_click_target(view, row):
+    """The view hit-tests clicks against the style's check rect, so the box must
+    be centred on it and stay inside the row, whatever the helpers do."""
+    row_rect, check = _row_and_check(view, row)
+    box = _box(view, row)
+    assert abs(box.center().x() - check.center().x()) <= 1
+    assert row_rect.top() <= box.top() and box.bottom() <= row_rect.bottom()
 
 
 def _box_points(view, row: int) -> tuple[QPoint, QPoint]:
