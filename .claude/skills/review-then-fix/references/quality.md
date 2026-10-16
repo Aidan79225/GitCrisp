@@ -1,0 +1,94 @@
+# Quality review
+
+The code works; the question now is whether the next person can change it
+safely. Judge each finding by what it costs a reader, and say that cost in the
+finding. A rule applied where it costs nothing is a nit.
+
+## Clean Architecture, as this repository draws it
+
+```
+presentation  →  application  →  domain  ←  infrastructure
+```
+
+- **Domain** (`domain/entities.py`, `domain/ports.py`) holds data classes and
+  `Protocol` interfaces only. No Qt, no pygit2, no subprocess, no logging of
+  presentation concerns. An entity that knows how it is displayed, or a port
+  that leaks a pygit2 type, is a must-fix.
+- **Application** (`application/commands.py`, `application/queries.py`) is thin
+  use-case wrappers that delegate to ports. Business decisions that have crept
+  in here belong in the domain; Qt types here are a must-fix.
+- **Infrastructure** (`infrastructure/pygit2/`) implements the ports.
+  `Pygit2Repository` is a composite of focused mixins; a new capability goes in
+  the mixin it belongs to, or a new one, not into whichever file was open.
+- **Presentation** (`presentation/`) may import application and domain. A widget
+  that reaches into `infrastructure` directly, or runs git itself, is a must-fix.
+  Widgets talk to the buses (`CommandBus`, `QueryBus`), not to repositories.
+
+A new concept should enter at the layer where it is a concept: a new git
+operation is a port and a mixin before it is a button.
+
+## Domain-Driven Design
+
+- **Ubiquitous language.** Names in code match the words a git user says:
+  stage, unstage, worktree, stash, amend, cherry-pick. A new name for an old
+  idea, or a git word used for something else, is a should-fix.
+- **Entities carry meaning, not transport.** A domain type with fields that
+  exist only because one widget wanted them, or stringly-typed state where an
+  enum exists (`StagingState`, `FileDelta`), is a should-fix.
+- **Use cases are verbs.** A command or query named after a screen rather than
+  an intent, or one that does three things because one screen needed three, is
+  a should-fix.
+- **Invariants live with the data.** If the same check is repeated at several
+  call sites, the entity or a domain function should own it.
+
+## Clean Code
+
+**Functions are short and do one thing.** Around twenty lines is the ceiling to
+aim for; a function that needs a blank line and a comment to separate its
+phases is two functions. A `paint()` or `__init__` that lays out a whole widget
+is the usual offender: pull each region into a method named for what it builds.
+
+**Names say how; comments say why.** The reader should learn what a function
+does from its name and what a variable holds from its name, not from a comment
+above it. A comment that restates the code (`# increment counter`) is a
+should-fix: delete it. A comment that explains a decision the code cannot show
+(why a lock is held here, why this platform needs a special case, which bug
+forced this) is the only kind to keep, and it must be true. A stale "why" is
+worse than none.
+
+Prefer renaming over commenting. If a block needs a comment to say what it
+does, it needs a name, so extract it.
+
+**No dead weight.** Unused imports, parameters nobody passes, a flag that is
+always the same value, a branch no caller can reach, a docstring that repeats
+the signature. Each is a should-fix because each one is a thing the next reader
+has to rule out.
+
+**Duplication.** Two copies of the same six lines will drift. Extract when the
+copies are the same idea; leave them when they merely look alike today.
+
+**Errors are not control flow.** Catching `Exception` to pick a default hides
+the bug that produced it. Catch what you expect, where you can do something
+about it.
+
+**Tests read like the rule they protect.** A test named for the behaviour
+(`test_a_failed_reload_does_not_block_the_next_one`) beats one named for the
+method. One assertion idea per test. Setup that is longer than the assertion
+wants a fixture or a helper.
+
+## Theming and UI
+
+- Colours come from theme tokens (`presentation/theme/tokens.py`) and MD3 roles.
+  A hex literal in widget code is a must-fix (QSS templates are the exception).
+- Spacing, type scale and elevation follow MD3; a magic pixel value needs a
+  named constant that says what it is.
+- Any new control gets an accessible name a screen reader can speak.
+
+## What not to flag
+
+- Style that `ruff format` already enforces.
+- Line length, import order, quote style.
+- A long function that is a flat table of data or a declarative layout with no
+  logic, where splitting would scatter one picture across many methods.
+- Working code in the diff that merely differs from how you would write it.
+  Preference is a nit at most.
