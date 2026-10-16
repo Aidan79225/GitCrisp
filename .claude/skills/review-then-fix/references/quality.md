@@ -59,6 +59,17 @@ worse than none.
 Prefer renaming over commenting. If a block needs a comment to say what it
 does, it needs a name, so extract it.
 
+**A value from a closed set is an enum, not a literal.** A string such as
+`"staged"` or `"modified"`, a bare integer standing for a mode, or a boolean
+pair that really encodes three states, is a should-fix when an enum already
+exists for it (`StagingState`, `FileDelta`, `ColorRole`, `ResetMode`) and a
+should-fix to introduce one when the same literal appears at more than one
+site or is compared against. The enum names the set, lets the type checker
+catch a misspelling, and gives the next reader one place to see every member.
+Compare against the enum member, never the literal behind it. A literal that
+is a measurement or a one-off (a pixel inset, a timeout) is a named constant,
+not an enum.
+
 **No dead weight.** Unused imports, parameters nobody passes, a flag that is
 always the same value, a branch no caller can reach, a docstring that repeats
 the signature. Each is a should-fix because each one is a thing the next reader
