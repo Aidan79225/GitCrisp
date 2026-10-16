@@ -91,7 +91,7 @@ def test_every_row_gets_an_indicator(view):
     assert _close(_pixel(image, inside), _color(ColorRole.SURFACE))
 
 
-def test_remote_branches_table_paints_its_own_indicators(qtbot):
+def test_remote_branches_table_uses_the_check_indicator_delegate(qtbot):
     queries = MagicMock()
     queries.get_branches.execute.return_value = []
     dialog = RemoteBranchesDialog(queries, MagicMock())
