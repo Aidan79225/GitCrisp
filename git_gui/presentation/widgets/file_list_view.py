@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QStyleOpti
 
 from git_gui.domain.entities import FileDelta, FileStatus, StagingState
 from git_gui.presentation.theme import ColorRole, get_theme_manager
+from git_gui.presentation.widgets.check_indicator import check_indicator_rect
 
 
 class FileListView(QListView):
@@ -74,8 +75,7 @@ class FileListView(QListView):
         opt = QStyleOptionViewItem()
         self.initViewItemOption(opt)
         opt.rect = self.visualRect(index)
-        opt.features |= QStyleOptionViewItem.HasCheckIndicator
-        return self.style().subElementRect(QStyle.SE_ItemViewItemCheckIndicator, opt, self)
+        return check_indicator_rect(self.style(), opt, self)
 
     def mousePressEvent(self, event) -> None:
         clicked = self.indexAt(event.pos())

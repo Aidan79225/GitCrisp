@@ -51,9 +51,7 @@ class _FileDelegate(CheckIndicatorDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         # Before super(), which draws over whatever is already there.
         if option.state & QStyle.State_Selected:
-            painter.fillRect(
-                option.rect, get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
-            )
+            painter.fillRect(option.rect, self.row_background(option))
 
         super().paint(painter, option, index)
 
