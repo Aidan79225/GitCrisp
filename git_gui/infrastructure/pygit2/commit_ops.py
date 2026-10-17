@@ -26,6 +26,7 @@ _COMMIT_DELTA_MAP = {
     pygit2.GIT_DELTA_DELETED: FileDelta.DELETED,
     pygit2.GIT_DELTA_MODIFIED: FileDelta.MODIFIED,
     pygit2.GIT_DELTA_RENAMED: FileDelta.RENAMED,
+    pygit2.GIT_DELTA_TYPECHANGE: FileDelta.MODIFIED,
 }
 
 logger = logging.getLogger(__name__)
@@ -190,14 +191,9 @@ class CommitOps:
         return str(result) if result is not None else None
 
     def get_commit_files(self, oid: str) -> list[FileStatus]:
-        commit = self._repo.get(oid)
-        if commit.parents:
-            diff = self._repo.diff(commit.parents[0].tree, commit.tree)
-        else:
-            # Initial commit: diff from empty tree to commit tree so files show as added
-            empty_tree_oid = self._repo.TreeBuilder().write()
-            empty_tree = self._repo.get(empty_tree_oid)
-            diff = self._repo.diff(empty_tree, commit.tree)
+        # Without INCLUDE_TYPECHANGE libgit2 lists a file that became a
+        # symlink twice, as a deletion and an addition of the same path.
+        diff = self._diff_against_parent(oid, pygit2.enums.DiffOption.INCLUDE_TYPECHANGE)
         files = []
         for patch in diff:
             delta = patch.delta
@@ -210,19 +206,14 @@ class CommitOps:
         """Return a dict of {path: [Hunk, ...]} for every changed file in the commit.
 
         Computes the full tree diff exactly once, instead of the per-file diff pattern.
+        A type change is diffed as the deletion and the addition libgit2 splits
+        it into, both under the one path: a TYPECHANGE delta carries no hunks.
         """
-        commit = self._repo.get(oid)
-        if commit.parents:
-            diff = self._repo.diff(commit.parents[0].tree, commit.tree)
-        else:
-            empty_tree_oid = self._repo.TreeBuilder().write()
-            empty_tree = self._repo.get(empty_tree_oid)
-            diff = self._repo.diff(empty_tree, commit.tree)
         result: dict[str, list[Hunk]] = {}
-        for patch in diff:
+        for patch in self._diff_against_parent(oid):
             path = patch.delta.new_file.path or patch.delta.old_file.path
             if path:
-                result[path] = _diff_to_hunks(patch)
+                result.setdefault(path, []).extend(_diff_to_hunks(patch))
         return result
 
     def get_commit_stats(
@@ -359,6 +350,20 @@ class CommitOps:
 
     def _get_signature(self) -> pygit2.Signature:
         return self._repo.default_signature
+
+    def _diff_against_parent(
+        self, oid: str, flags: pygit2.enums.DiffOption = pygit2.enums.DiffOption.NORMAL
+    ) -> pygit2.Diff:
+        """The commit's changes against its first parent.
+
+        A root commit is diffed against the empty tree, so its files show as added.
+        """
+        commit = self._repo.get(oid)
+        if commit.parents:
+            base = commit.parents[0].tree
+        else:
+            base = self._repo.get(self._repo.TreeBuilder().write())
+        return self._repo.diff(base, commit.tree, flags=flags)
 
     # ----------------------------------------------------------------- writes
 
