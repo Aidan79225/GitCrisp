@@ -89,7 +89,7 @@ def test_failure_is_surfaced_rather_than_swallowed(qtbot):
     queries.get_blame.execute.side_effect = ValueError("Cannot blame a binary file: logo.png")
     w = BlamePane(queries, "logo.png")
     qtbot.addWidget(w)
-    qtbot.waitUntil(lambda: "binary" in w._status.text())
+    qtbot.waitUntil(lambda: "binary" in w._status.full_text())
     assert w._editor._lines == []
 
 
@@ -254,7 +254,7 @@ def test_blame_before_a_parentless_commit_reports_and_stays_put(qtbot):
 
     w._blame_before(BBB)
 
-    assert "no parent" in w._status.text()
+    assert "no parent" in w._status.full_text()
     assert w._history == []
     assert w._oid is None
 
@@ -415,3 +415,32 @@ def test_the_gutter_widens_with_a_larger_font_after_a_theme_change(qtbot):
 
     assert editor.gutter_width() == editor._measure_gutter() > before
     assert editor._gutter.width() == editor.gutter_width()
+
+
+# ── Header width ─────────────────────────────────────────────────────────────
+
+
+LONG_PATH = "git_gui/presentation/main_window/" + "deeply_nested_module/" * 3 + "flows.py"
+
+
+def test_a_long_path_does_not_widen_the_pane(qtbot):
+    """A plain label's full text is its minimum width, and so the pane's.
+
+    The splitter could not narrow the blame column below the path's length,
+    and took the space from the diff pane instead.
+    """
+    short, _ = _window(qtbot, path="a.py")
+    long, _ = _window(qtbot, path=LONG_PATH)
+
+    assert long.minimumSizeHint().width() == short.minimumSizeHint().width()
+
+
+def test_a_cut_path_stays_whole_in_the_tooltip(qtbot):
+    w, _ = _window(qtbot, path=LONG_PATH)
+    w.show()
+    narrowest = w.minimumSizeHint().width()
+    w.resize(narrowest, 400)
+    qtbot.waitUntil(lambda: w.width() == narrowest)
+
+    assert w._status.text() != w._status.full_text(), "this width has to cut it"
+    assert LONG_PATH in w._status.toolTip()
