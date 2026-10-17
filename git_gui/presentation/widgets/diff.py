@@ -513,8 +513,8 @@ class DiffWidget(QWidget):
         if self._current_oid is None:
             return
         if not index.isValid():
-            # Selection cleared programmatically — return to all-files view
-            self._render_all_files(self._current_oid)
+            # A cleared selection is followed by `deselected`, which redraws
+            # all files; drawing them here too fetched every diff twice.
             return
         file_status = self._diff_model.data(index, Qt.UserRole)
         if file_status is None:

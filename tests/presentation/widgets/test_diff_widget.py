@@ -372,3 +372,20 @@ def test_a_failed_diff_fetch_is_logged(diff_widget, qtbot, caplog):
         worker()
 
     assert "abc123" in caplog.text
+
+
+def test_deselecting_a_file_redraws_the_commit_once(multi_file_diff_widget, qtbot):
+    """Clearing the selection also clears the current row, and both signals
+    redrew every file block and fetched the commit's diffs again."""
+    from PySide6.QtCore import QItemSelectionModel, Qt
+
+    widget, _ = multi_file_diff_widget
+    view = widget._file_navigator._list_view
+    view.selectionModel().setCurrentIndex(
+        widget._diff_model.index(0), QItemSelectionModel.ClearAndSelect
+    )
+
+    with patch("threading.Thread") as thread:
+        qtbot.keyClick(view, Qt.Key_Escape)
+
+    assert thread.call_count == 1
