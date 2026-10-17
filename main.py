@@ -1,5 +1,7 @@
+import functools
 import logging
 import sys
+from enum import Enum, auto
 from pathlib import Path
 
 import pygit2
@@ -23,22 +25,31 @@ def _is_git_repo(path: str) -> bool:
     return pygit2.discover_repository(path) is not None
 
 
-def _is_stale(path: str) -> bool:
-    """Whether *path* is gone for good, rather than out of reach for now.
+class _StoredRepo(Enum):
+    PRESENT = auto()
+    GONE = auto()
+    OUT_OF_REACH = auto()
 
-    A path that is there but no longer a repository is stale, and so is one
+
+def _stored_repo_state(path: str) -> _StoredRepo:
+    """Whether *path* is a repo, gone for good, or out of reach for now.
+
+    A path that is there but no longer a repository is gone, and so is one
     deleted from a folder that is still there (a removed worktree). One whose
     parent is missing too sits on a drive, share or mount that is not there
-    right now, and is kept for when it is.
+    right now, and is kept for when it is. The parent is probed first because
+    on an unreachable share each probe waits out a network timeout.
     """
     stored = Path(path)
-    if stored.is_dir():
-        return not _is_git_repo(path)
-    return stored.parent.is_dir()
+    if not stored.parent.is_dir():
+        return _StoredRepo.OUT_OF_REACH
+    if stored.is_dir() and _is_git_repo(path):
+        return _StoredRepo.PRESENT
+    return _StoredRepo.GONE
 
 
 def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
-    """Return a valid repo to open, pruning every stored path that is stale.
+    """Return a valid repo to open, pruning every stored path that is gone.
 
     Pruning scans the *entire* open and recent lists — not just up to the first
     valid entry — so stale paths (e.g. a deleted worktree) never linger across
@@ -46,24 +57,21 @@ def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
     switched to. Returns the active repo if still valid, otherwise the first
     valid open repo, otherwise None.
     """
-
-    def _valid(p: str | None) -> bool:
-        return bool(p) and Path(p).is_dir() and _is_git_repo(p)
+    state = functools.cache(_stored_repo_state)
 
     for path in list(repo_store.get_open_repos()) + list(repo_store.get_recent_repos()):
-        if _is_stale(path):
+        if state(path) is _StoredRepo.GONE:
             repo_store.forget(path)
+
+    active = repo_store.get_active()
+    if active is not None and state(active) is _StoredRepo.GONE:
+        repo_store.forget(active)  # clear a dead active not in open/recent
 
     # Keep a still-valid active repo even if it isn't in the open list (e.g. an
     # active worktree, recorded via set_active without add_open). Otherwise fall
     # back to the first valid open repo.
-    active = repo_store.get_active()
-    if _valid(active):
-        selected = active
-    else:
-        if active is not None and _is_stale(active):
-            repo_store.forget(active)  # clear a dead active not in open/recent
-        selected = next((p for p in repo_store.get_open_repos() if _valid(p)), None)
+    candidates = ([active] if active else []) + repo_store.get_open_repos()
+    selected = next((p for p in candidates if state(p) is _StoredRepo.PRESENT), None)
 
     if selected is not None:
         repo_store.set_active(selected)
