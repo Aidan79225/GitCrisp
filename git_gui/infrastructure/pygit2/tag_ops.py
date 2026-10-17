@@ -12,6 +12,24 @@ from git_gui.resources import subprocess_kwargs
 logger = logging.getLogger(__name__)
 
 
+def _tag_names(ls_remote_output: str) -> list[str]:
+    tags: list[str] = []
+    for line in ls_remote_output.strip().splitlines():
+        # Format: "<hash>\trefs/tags/<name>"
+        parts = line.split("\t")
+        if len(parts) != 2:
+            continue
+        ref = parts[1]
+        if not ref.startswith("refs/tags/"):
+            continue
+        name = ref[len("refs/tags/") :]
+        # Skip dereferenced entries like "v1.0^{}"
+        if name.endswith("^{}"):
+            continue
+        tags.append(name)
+    return tags
+
+
 class TagOps:
     """Tag read and write operations for the pygit2 adapter.
 
@@ -70,37 +88,26 @@ class TagOps:
         return tags
 
     def get_remote_tags(self, remote: str) -> list[str]:
-        try:
-            result = subprocess.run(
-                ["git", "ls-remote", "--tags", remote],
-                capture_output=True,
-                # git prints tag names as UTF-8 whatever the locale's code page.
-                encoding="utf-8",
-                errors="replace",
-                cwd=self._repo.workdir,
-                env=self._git_env,
-                **subprocess_kwargs(),
+        """Names of the tags on *remote*.
+
+        Raises ``RuntimeError`` when the remote cannot be listed, so that a
+        caller cannot take an unreachable remote for one without tags.
+        """
+        result = subprocess.run(
+            ["git", "ls-remote", "--tags", remote],
+            capture_output=True,
+            # git prints tag names as UTF-8 whatever the locale's code page.
+            encoding="utf-8",
+            errors="replace",
+            cwd=self._repo.workdir,
+            env=self._git_env,
+            **subprocess_kwargs(),
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                result.stderr.strip() or f"git ls-remote exited with code {result.returncode}"
             )
-            if result.returncode != 0:
-                return []
-            tags: list[str] = []
-            for line in result.stdout.strip().splitlines():
-                # Format: "<hash>\trefs/tags/<name>"
-                parts = line.split("\t")
-                if len(parts) != 2:
-                    continue
-                ref = parts[1]
-                if not ref.startswith("refs/tags/"):
-                    continue
-                name = ref[len("refs/tags/") :]
-                # Skip dereferenced entries like "v1.0^{}"
-                if name.endswith("^{}"):
-                    continue
-                tags.append(name)
-            return tags
-        except Exception as e:
-            logger.warning("Failed to list remote tags for %r: %s", remote, e)
-            return []
+        return _tag_names(result.stdout)
 
     def create_tag(self, name: str, oid: str, message: str | None = None) -> None:
         target = pygit2.Oid(hex=oid)
