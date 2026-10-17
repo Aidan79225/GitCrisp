@@ -170,7 +170,7 @@ class RepoLifecycleMixin:
         self._working_tree.set_repo_path(path)
         self._working_tree.set_buses(self._queries, self._commands)
         self._record_in_store(request)
-        self._repo_store.save()
+        self._save_repo_store()
         self._repo_list.reload()
         self.setWindowTitle(f"GitCrisp — {path}")
         # Re-install the Git menu so its actions bind to the new repo.
@@ -196,6 +196,20 @@ class RepoLifecycleMixin:
         # Load worktree list, paint badges/sidebar entries, refresh repo list.
         self._load_worktrees_for_active_repo()
         self._refresh_state_banners()
+
+    def _save_repo_store(self) -> None:
+        """Write the repo list out, reporting a failed write rather than raising.
+
+        The in-memory store is already right. An OSError escaping a slot — a
+        file briefly locked by antivirus or a sync client, a full disk — would
+        abandon a switch or a close halfway, with the panes on one repo and the
+        title, Git menu and change detector still on the other.
+        """
+        try:
+            self._repo_store.save()
+        except OSError as e:
+            self._log_panel.expand()
+            self._log_panel.log_error(f"Could not save the repo list: {e}")
 
     def _record_in_store(self, request: _RepoRequest) -> None:
         if request.reason is _SwitchReason.OPEN:
@@ -243,7 +257,7 @@ class RepoLifecycleMixin:
     def _on_repo_close(self, path: str) -> None:
         successor = self._repo_after_closing(path)
         self._repo_store.close_repo(path)
-        self._repo_store.save()
+        self._save_repo_store()
         if path != self._repo_path:
             self._repo_list.reload()  # some other row: stay where you are
         elif successor is None:
@@ -279,7 +293,7 @@ class RepoLifecycleMixin:
 
     def _on_repo_remove_recent(self, path: str) -> None:
         self._repo_store.remove_recent(path)
-        self._repo_store.save()
+        self._save_repo_store()
         self._repo_list.reload()
 
     # ── Worktree orchestration ────────────────────────────────────────────
@@ -498,7 +512,7 @@ class RepoLifecycleMixin:
         another repo themselves.
         """
         self._repo_store.forget(path)
-        self._repo_store.save()
+        self._save_repo_store()
 
         if path != self._repo_path:
             self._load_worktrees_for_active_repo()
