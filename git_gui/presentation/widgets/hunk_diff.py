@@ -360,13 +360,17 @@ class HunkDiffWidget(QWidget):
         self._layout.addStretch()
         self._sync_hscroll()
 
-    def _render_all_sync(self) -> None:
-        """Post-action refresh for all-files mode."""
+    def _redraw_after_command(self) -> None:
+        """Redraw from the index after a stage, unstage or discard.
+
+        Only the single-file view redraws itself. The all-files view is left
+        to its owner, which reloads it on hunk_toggled / discard_hunk_requested
+        with the new list of changed files, a list only the owner knows: a
+        discard can take a file out of it. Reloading here as well rebuilt
+        every block and queried every diff twice per click.
+        """
         if self._all_paths is None:
-            return
-        # Reload via the lazy pipeline
-        self.load_all_files(self._all_paths)
-        self._sync_hscroll()
+            self._render_sync()
 
     def _add_hunk_block(
         self,
@@ -437,10 +441,7 @@ class HunkDiffWidget(QWidget):
             f"{verb} {path}",
             lambda: self._stage_or_unstage(path, hunk_header, checked, is_untracked),
         )
-        if self._all_paths is not None:
-            self._render_all_sync()
-        else:
-            self._render_sync()
+        self._redraw_after_command()
         self.hunk_toggled.emit()
 
     def _stage_or_unstage(
@@ -498,10 +499,7 @@ class HunkDiffWidget(QWidget):
             f"Discard hunk in {path}",
             lambda: self._commands.discard_hunk.execute(path, hunk_header),
         )
-        if self._all_paths is not None:
-            self._render_all_sync()
-        else:
-            self._render_sync()
+        self._redraw_after_command()
         self.discard_hunk_requested.emit(path, hunk_header)
 
     def _clear_layout(self) -> None:
