@@ -43,9 +43,22 @@ class ReflogFlowMixin:
         self._undoable[head_before] = message
         self._log_panel.log_action(message, "Undo", head_before)
 
+    def _forget_undoable(self) -> None:
+        """Retire the Undo links logged so far; the window is leaving their repo.
+
+        An undo resets whatever repository is open when it is clicked. After a
+        switch that is a repository the link was never about — and a linked
+        worktree shares the object database, so the commit would resolve and
+        the reset would go through on an unrelated branch.
+        """
+        self._undoable.clear()
+
     def _on_log_action(self, action_id: str) -> None:
         message = self._undoable.get(action_id)
         if message is None:
+            self._log_panel.log(
+                "That Undo no longer applies: the window has switched repositories since"
+            )
             return
         # Same path as restoring from the pane: an undo is a reset, and is as
         # destructive as whatever it undoes.
