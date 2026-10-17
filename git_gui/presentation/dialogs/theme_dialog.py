@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QRadioButton,
     QVBoxLayout,
     QWidget,
@@ -357,6 +358,14 @@ class ThemeDialog(QDialog):
             self._apply_lane_swatch_color(idx, new_hex)
 
     def _on_apply(self) -> None:
+        try:
+            self._save_and_apply()
+        except OSError as e:
+            QMessageBox.warning(self, "Save appearance failed", str(e))
+            return
+        self.accept()
+
+    def _save_and_apply(self) -> None:
         mode = self._selected_mode()
         self._save_typography_scale()
         if mode == "custom":
@@ -365,7 +374,6 @@ class ThemeDialog(QDialog):
         # even if the mode itself didn't change.
         self._mgr.set_mode(mode, force=True)
         self._save_avatar_setting()
-        self.accept()
 
     def _save_typography_scale(self) -> None:
         scale = self._typo_slider.value() / 100.0
