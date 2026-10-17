@@ -142,18 +142,30 @@ class StageOps:
                 continue
             for hunk in patch.hunks:
                 if hunk.header == hunk_header:
-                    return _single_hunk_patch(path, hunk)
+                    return _single_hunk_patch(path, patch.delta, hunk)
         return None
 
 
-def _single_hunk_patch(path: str, hunk: pygit2.DiffHunk) -> bytes:
+def _single_hunk_patch(path: str, delta: pygit2.DiffDelta, hunk: pygit2.DiffHunk) -> bytes:
     # Built from raw_content: `content` is a lossy UTF-8 decode, so a Latin-1
     # or Big5 line rebuilt from it no longer matches the file.
-    name = os.fsencode(path)
-    lines = [b"--- a/" + name + b"\n", b"+++ b/" + name + b"\n", hunk.header.encode()]
+    lines = [*_file_header(os.fsencode(path), delta), hunk.header.encode()]
     for line in hunk.lines:
         origin = b"" if line.origin in _NO_NEWLINE_MARKERS else line.origin.encode()
         lines.append(origin + line.raw_content)
     if not lines[-1].endswith(b"\n"):
         lines[-1] += b"\n"
     return b"".join(lines)
+
+
+def _file_header(name: bytes, delta: pygit2.DiffDelta) -> list[bytes]:
+    if delta.status != pygit2.GIT_DELTA_DELETED:
+        return [b"--- a/" + name + b"\n", b"+++ b/" + name + b"\n"]
+    # Without /dev/null git apply stages an empty file rather than the
+    # deletion, and the mode line lets a reversed apply restore the file mode.
+    return [
+        b"diff --git a/" + name + b" b/" + name + b"\n",
+        b"deleted file mode %o\n" % delta.old_file.mode,
+        b"--- a/" + name + b"\n",
+        b"+++ /dev/null\n",
+    ]
