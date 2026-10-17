@@ -11,6 +11,7 @@ from __future__ import annotations
 import pygit2
 import pytest
 
+from git_gui.infrastructure.git_clone import clone_repo
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 from git_gui.infrastructure.submodule_cli import SubmoduleCommandError
 
@@ -53,3 +54,8 @@ def test_adding_a_submodule_uses_the_ssh_command_the_user_configures(global_ssh_
 
     with pytest.raises(SubmoduleCommandError, match=_MARKER):
         repo.add_submodule("lib", _UNREACHABLE)
+
+
+def test_a_clone_uses_the_ssh_command_the_user_configures(global_ssh_command, tmp_path):
+    with pytest.raises(RuntimeError, match=_MARKER):
+        clone_repo(_UNREACHABLE, str(tmp_path / "dest"))

@@ -7,6 +7,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import IO
 
+import pygit2
+
 from git_gui.infrastructure.git_process import git_popen_kwargs
 from git_gui.resources import git_ssh_env
 
@@ -22,6 +24,28 @@ _PROGRESS_RE = re.compile(r"(.+?):\s+(\d+)%")
 # git states why a clone failed at the end; a recursive clone can print a line
 # per submodule before that, so only the tail is kept for the error message.
 _KEPT_MESSAGE_LINES = 20
+
+# A new clone has no config of its own yet; it runs with these levels only.
+_USER_CONFIG_LEVELS = (
+    pygit2.Config.get_system_config,
+    pygit2.Config.get_xdg_config,
+    pygit2.Config.get_global_config,
+)
+
+
+class _UserConfig:
+    """The git config the user set outside any repository, the one a clone uses."""
+
+    def __init__(self) -> None:
+        self._files: list[pygit2.Config] = []
+        for open_level in _USER_CONFIG_LEVELS:
+            try:
+                self._files.append(open_level())
+            except OSError:
+                pass  # The user has no file at that level.
+
+    def __contains__(self, key: str) -> bool:
+        return any(key in config for config in self._files)
 
 
 def clone_repo(
@@ -40,7 +64,7 @@ def clone_repo(
         # pipe would fill up and block git while we wait for stderr to close.
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
-        env=git_ssh_env(),
+        env=git_ssh_env(config=_UserConfig()),
         **git_popen_kwargs(),
     )
 
