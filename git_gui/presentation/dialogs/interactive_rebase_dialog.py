@@ -66,7 +66,7 @@ class InteractiveRebaseDialog(QDialog):
     Rows are drag-and-drop reorderable.
 
     The "Execute" button is disabled when squash or fixup is on the
-    first row (nothing to combine with).
+    first row that is not dropped (nothing to combine with).
     """
 
     def __init__(
@@ -147,20 +147,27 @@ class InteractiveRebaseDialog(QDialog):
         return action, items
 
     def _validate(self) -> None:
-        """Disable Execute when squash/fixup is on the first row."""
+        """Disable Execute when squash/fixup is the first action that keeps a commit."""
         execute_btn = self._buttons.button(QDialogButtonBox.Ok)
         if self._table.rowCount() == 0:
             execute_btn.setEnabled(False)
             return
-        first_combo = self._table.cellWidget(0, 0)
-        if first_combo and first_combo.currentText() in ("squash", "fixup"):
+        if self._first_kept_action() in ("squash", "fixup"):
             execute_btn.setEnabled(False)
             execute_btn.setToolTip(
-                "Cannot squash/fixup the first commit — no preceding commit to combine with."
+                "Cannot squash/fixup the first kept commit — no preceding commit to combine with."
             )
         else:
             execute_btn.setEnabled(True)
             execute_btn.setToolTip("")
+
+    def _first_kept_action(self) -> str | None:
+        """git does not count a dropped commit as one to squash or fix up into."""
+        for row in range(self._table.rowCount()):
+            action = self._table.cellWidget(row, 0).currentText()
+            if action != "drop":
+                return action
+        return None
 
     def result_entries(self) -> list[tuple[str, str]]:
         """Return (action, full_oid) tuples in current row order."""
