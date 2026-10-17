@@ -73,6 +73,9 @@ class MainWindow(
         self._repo_store = repo_store
         self._remote_tag_cache = remote_tag_cache
         self._repo_path = repo_path
+        # The repo the window was last asked to show; a session that opens
+        # for any other is a request the user has since moved on from.
+        self._requested_repo = repo_path
         self._session_factory = session_factory
         self._worktree_paths_by_branch: dict[str, str] = {}
         self._smart_checkout = None  # SmartCheckout | None — set in _on_repo_ready
