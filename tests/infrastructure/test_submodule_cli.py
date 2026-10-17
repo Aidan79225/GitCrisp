@@ -89,3 +89,22 @@ def test_missing_git_raises_friendly_error(parent_and_child):
     with pytest.raises(SubmoduleCommandError) as ei:
         cli.add(path="libs/foo", url="anything")
     assert "not found" in str(ei.value).lower()
+
+
+def _git_output(cwd: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_set_url_edits_the_section_of_a_submodule_named_unlike_its_path(parent_and_child):
+    parent, child = parent_and_child
+    _run(str(parent), "submodule", "add", "--name", "gtest", "--", str(child), "third_party/gtest")
+    new_url = str(child) + "#renamed"
+
+    SubmoduleCli(str(parent)).set_url("third_party/gtest", new_url)
+
+    assert _git_output(parent, "config", "-f", ".gitmodules", "submodule.gtest.url") == new_url
+    assert "third_party/gtest" not in _git_output(
+        parent, "config", "-f", ".gitmodules", "--name-only", "--list"
+    )

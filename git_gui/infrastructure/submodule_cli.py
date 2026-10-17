@@ -52,8 +52,9 @@ class SubmoduleCli:
         self._run("submodule", "update", "--init", "--", path)
 
     def set_url(self, path: str, url: str) -> None:
-        self._run("config", "-f", ".gitmodules", f"submodule.{path}.url", url)
-        self._run("submodule", "sync", "--", path)
+        # .gitmodules sections are keyed by submodule name, which differs from
+        # the path after `add --name` or `git mv`; set-url resolves it and syncs.
+        self._run("submodule", "set-url", "--", path, url)
 
     def remove(self, path: str) -> None:
         self._run("submodule", "deinit", "-f", "--", path)
