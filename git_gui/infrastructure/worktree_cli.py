@@ -12,14 +12,17 @@ class WorktreeCommandError(Exception):
 
 
 class WorktreeDirtyError(WorktreeCommandError):
-    """Removal refused because the worktree has uncommitted changes."""
+    """Removal refused because the worktree has uncommitted changes or
+    initialised submodules, either of which forcing it would discard."""
 
 
 class WorktreeLockedError(WorktreeCommandError):
     """Removal refused because the worktree is locked."""
 
 
-_DIRTY_RE = re.compile(r"\b(is dirty|contains modified or untracked files)\b", re.IGNORECASE)
+_DIRTY_RE = re.compile(
+    r"\b(is dirty|contains modified or untracked files|containing submodules)\b", re.IGNORECASE
+)
 _LOCKED_RE = re.compile(r"\b(is locked|locked working tree)\b", re.IGNORECASE)
 
 
