@@ -121,3 +121,19 @@ def test_a_conflicted_merge_without_a_message_names_the_branch(conflicting_branc
     impl.merge("feature")
 
     assert impl.get_merge_msg() == "Merge branch 'feature'\n"
+
+
+# ── interactive rebase target ────────────────────────────────────────────────
+
+
+def test_interactive_rebase_onto_a_branch_that_moved_on_lands_on_its_tip(repo):
+    _git(repo, "checkout", "-q", "-b", "feature")
+    f1 = _commit_file(repo, "f1.txt", "f1\n", "F1")
+    f2 = _commit_file(repo, "f2.txt", "f2\n", "F2")
+    _git(repo, "checkout", "-q", "master")
+    master_tip = _commit_file(repo, "m.txt", "m\n", "M2")
+    _git(repo, "checkout", "-q", "feature")
+
+    Pygit2Repository(str(repo)).interactive_rebase(master_tip, [("pick", f1), ("pick", f2)])
+
+    assert _subjects(repo) == ["F2", "F1", "M2", "base"]

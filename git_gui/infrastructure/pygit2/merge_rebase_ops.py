@@ -175,19 +175,11 @@ class MergeRebaseOps:
 
         *entries* is a list of (action, oid) tuples in replay order.
         Actions: "pick", "squash", "fixup", "drop".
+
+        The todo file replaces the list git computes, so git replays exactly
+        *entries* onto *target_oid*, whatever range it would have picked.
         """
         import tempfile
-
-        # Use the merge-base as the actual rebase target so git's internal
-        # commit list matches the one we showed in the dialog. Without this,
-        # git rebase -i <target_tip> might compute a different range than
-        # get_commit_range() did.
-        head_oid = str(self._repo.head.target)
-        try:
-            mb = self._repo.merge_base(head_oid, target_oid)
-            rebase_target = str(mb)
-        except Exception:
-            rebase_target = target_oid
 
         todo_lines = [f"{action} {oid}" for action, oid in entries]
         todo_content = "\n".join(todo_lines) + "\n"
@@ -209,7 +201,7 @@ class MergeRebaseOps:
 
         try:
             result = subprocess.run(
-                ["git", "rebase", "-i", rebase_target],
+                ["git", "rebase", "-i", target_oid],
                 cwd=self._repo.workdir,
                 capture_output=True,
                 text=True,
