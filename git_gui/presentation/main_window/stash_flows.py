@@ -38,6 +38,15 @@ class StashFlowsMixin:
         self._reload()
 
     def _on_stash_drop(self, index: int) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Drop Stash",
+            f"Drop stash@{{{index}}}? Its changes will be lost.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
         try:
             self._commands.drop_stash.execute(index)
             self._log_panel.log(f"Stash drop: @{{{index}}}")
