@@ -5,7 +5,8 @@ Two-tier cache:
  - disk under ~/.gitcrisp/avatars/{md5}.{png|404}
 
 A `.404` marker means Gravatar has no image for this email — we don't refetch.
-On a hit, `get_pixmap()` returns synchronously. On a miss, it kicks off an
+A failed fetch (offline, server error) is remembered in memory only, so the
+next run asks again. On a hit, `get_pixmap()` returns synchronously. On a miss, it kicks off an
 async fetch and emits `avatar_ready(email_hash)` when the pixmap is available.
 """
 
@@ -21,6 +22,8 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
 GRAVATAR_SIZE = 128  # request 128px so 36px avatars stay sharp on HiDPI
+_HTTP_OK = 200
+_HTTP_NOT_FOUND = 404
 
 _EMAIL_RE = re.compile(r"<([^>]+)>")
 
@@ -128,30 +131,44 @@ class AvatarLoader(QObject):
     def _on_reply(self, email_hash: str, reply: QNetworkReply) -> None:
         try:
             status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
-            if reply.error() == QNetworkReply.NoError and status == 200:
-                data = bytes(reply.readAll())
-                self._on_fetched(email_hash, data)
-            else:
-                # 404 or any error → cache as miss so we don't retry.
+            if reply.error() == QNetworkReply.NoError and status == _HTTP_OK:
+                self._on_fetched(email_hash, bytes(reply.readAll()))
+            elif status == _HTTP_NOT_FOUND:
                 self._on_fetched(email_hash, None)
+            else:
+                # Offline, a timeout, 429 or 5xx says nothing about the
+                # avatar, so it must not leave a marker that outlives the run.
+                self._remember_miss(email_hash)
         finally:
             reply.deleteLater()
 
     def _on_fetched(self, email_hash: str, data: bytes | None) -> None:
+        """*data* is the image Gravatar sent, or None when it has none."""
+        if data is None:
+            self._write_miss_marker(email_hash)
+            self._remember_miss(email_hash)
+            return
+        pix = QPixmap()
+        if not pix.loadFromData(QByteArray(data)) or pix.isNull():
+            # Not an image — a captive portal's sign-in page, say.
+            self._remember_miss(email_hash)
+            return
         self._inflight.discard(email_hash)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        if data:
-            pix = QPixmap()
-            if pix.loadFromData(QByteArray(data)) and not pix.isNull():
-                (self._cache_dir / f"{email_hash}.png").write_bytes(data)
-                self._memory[email_hash] = pix
-                self.avatar_ready.emit(email_hash)
-                return
-        # No data or invalid image → mark miss.
+        (self._cache_dir / f"{email_hash}.png").write_bytes(data)
+        self._memory[email_hash] = pix
+        self.avatar_ready.emit(email_hash)
+
+    def _write_miss_marker(self, email_hash: str) -> None:
         try:
+            self._cache_dir.mkdir(parents=True, exist_ok=True)
             (self._cache_dir / f"{email_hash}.404").touch()
         except OSError:
             pass
+
+    def _remember_miss(self, email_hash: str) -> None:
+        """No avatar for the rest of this run, so painting doesn't refetch."""
+        self._inflight.discard(email_hash)
         self._memory[email_hash] = None
         self.avatar_ready.emit(email_hash)
 
