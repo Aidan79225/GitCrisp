@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,7 +12,8 @@ from PySide6.QtCore import QDate, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget
 
-from git_gui.presentation.widgets.insight_dialog import InsightDialog
+from git_gui.domain.entities import CommitStat, FileStat
+from git_gui.presentation.widgets.insight_dialog import InsightDialog, _AuthorRow, _FileRow
 
 
 class _EndlessHistory:
@@ -135,3 +136,97 @@ def test_a_custom_range_covers_whole_local_days(window):
 
     assert _on_the_users_clock(since) == datetime(2026, 10, 18)
     assert _on_the_users_clock(until) == datetime(2026, 10, 18, 23, 59, 59)
+
+
+# ── What it shows ───────────────────────────────────────────────────────────
+_ALICE = "Alice <alice@example.com>"
+_BOB = "Bob <bob@example.com>"
+
+
+def _commit(oid: str, author: str, *files: tuple[str, int, int]) -> CommitStat:
+    return CommitStat(
+        oid=oid,
+        author=author,
+        timestamp=datetime(2026, 10, 1, tzinfo=UTC),
+        files=[FileStat(path, added, deleted) for path, added, deleted in files],
+    )
+
+
+_HISTORY = [
+    _commit("c1", _ALICE, ("app.py", 10, 2), ("README.md", 1, 0)),
+    _commit("c2", _ALICE, ("app.py", 5, 5)),
+    _commit("c3", _BOB, ("lib.py", 0, 7)),
+]
+
+
+def _loaded_dialog(qtbot, window, history) -> InsightDialog:
+    queries = MagicMock()
+    queries.get_commit_stats.execute.side_effect = lambda since, until, cancel: iter(history)
+    dialog = InsightDialog(queries, window)
+    qtbot.waitUntil(lambda: dialog._last_render is not None)
+    return dialog
+
+
+def test_each_author_is_credited_with_their_commits(qtbot, window):
+    commits, _added, _deleted, _files, _changed, total = _loaded_dialog(
+        qtbot, window, _HISTORY
+    )._last_render
+
+    assert commits == {_ALICE: 2, _BOB: 1}
+    assert total == 3
+
+
+def test_each_author_is_credited_with_the_lines_they_added_and_deleted(qtbot, window):
+    _commits, added, deleted, _files, _changed, _total = _loaded_dialog(
+        qtbot, window, _HISTORY
+    )._last_render
+
+    assert added == {_ALICE: 16, _BOB: 0}
+    assert deleted == {_ALICE: 7, _BOB: 7}
+
+
+def test_a_file_counts_once_per_commit_that_changes_it(qtbot, window):
+    _commits, _added, _deleted, file_counts, changed, _total = _loaded_dialog(
+        qtbot, window, _HISTORY
+    )._last_render
+
+    assert file_counts == {"app.py": 2, "README.md": 1, "lib.py": 1}
+    assert changed == {"app.py", "README.md", "lib.py"}
+
+
+def test_a_superseded_load_that_finishes_late_is_not_shown(qtbot, window):
+    dialog = _loaded_dialog(qtbot, window, _HISTORY)
+    shown = dialog._last_render
+
+    dialog._on_loaded(dialog._load_generation - 1, {"Mallory": 99}, {}, {}, {}, set(), 99)
+
+    assert dialog._last_render is shown
+
+
+def test_a_superseded_load_that_fails_late_does_not_hide_the_results(qtbot, window):
+    dialog = _loaded_dialog(qtbot, window, _HISTORY)
+
+    dialog._on_failed(dialog._load_generation - 1, "boom")
+
+    assert not dialog._scroll.isHidden()
+
+
+def test_authors_are_ranked_by_commit_count(qtbot, window):
+    dialog = _loaded_dialog(qtbot, window, [*reversed(_HISTORY)])
+
+    rows = dialog._content.findChildren(_AuthorRow)
+
+    assert [row._name for row in rows] == [_ALICE, _BOB]
+
+
+def test_only_the_ten_most_modified_files_are_listed(qtbot, window):
+    many_files = [_commit(f"c{n}", _ALICE, (f"file{n}.py", 1, 0)) for n in range(12)]
+    dialog = _loaded_dialog(qtbot, window, many_files)
+
+    assert len(dialog._content.findChildren(_FileRow)) == 10
+
+
+def test_the_result_rows_paint(qtbot, window):
+    dialog = _loaded_dialog(qtbot, window, _HISTORY)
+
+    assert not dialog.grab().isNull()
