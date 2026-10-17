@@ -108,3 +108,22 @@ def test_conflict_cancel_does_not_scroll(qtbot):
     ):
         win._on_checkout_branch("origin/feature")
     win._graph.scroll_to_oid.assert_not_called()
+
+
+def test_undo_after_reset_to_remote_returns_the_branch_to_its_own_tip(qtbot):
+    """Run from master, the reset moves feature; its Undo must name feature's
+    old tip, not the commit master happened to be on."""
+    win = _make_window(qtbot)
+    queries, commands = _wire_buses(win)
+    queries.get_branches.execute.return_value = [
+        Branch("master", False, True, "m" * 40),
+        Branch("feature", False, False, "f1" * 20),
+        Branch("origin/feature", True, False, "f2" * 20),
+    ]
+    queries.get_head_oid.execute.return_value = "m" * 40
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+        patch.object(win, "_reload"),
+    ):
+        win._on_checkout_branch("origin/feature")
+    assert list(win._undoable) == ["f1" * 20]
