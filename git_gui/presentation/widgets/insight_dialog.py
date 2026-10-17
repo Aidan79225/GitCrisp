@@ -344,10 +344,13 @@ class InsightDialog(QDialog):
             self._render_content(*self._last_render)
         self.update()
 
-    def closeEvent(self, event) -> None:
+    def done(self, result: int) -> None:
+        # Esc, reject() and the title-bar X all end here. Since Qt 6.3 done()
+        # closes the dialog without delivering a close event, so cancelling
+        # in closeEvent left the walk running after Esc.
         if self._cancel is not None:
             self._cancel.set()
-        super().closeEvent(event)
+        super().done(result)
 
     def _on_range_changed(self, label: str) -> None:
         self._custom_widget.setVisible(label == "Custom")
@@ -484,12 +487,12 @@ class InsightDialog(QDialog):
         )
 
     def _on_cancelled(self, generation: int) -> None:
-        # Worker was cancelled (closeEvent or supersession). Nothing to render.
+        # Worker was cancelled (dialog closed, or supersession). Nothing to render.
         if generation != self._load_generation:
             return
         # Keep the loading label visible briefly so a fast cancel still
-        # shows that we acknowledged it; closeEvent will tear the dialog
-        # down anyway.
+        # shows that we acknowledged it; a closed dialog is going away
+        # anyway.
         self._loading_label.setText("Cancelled.")
 
     def _on_failed(self, generation: int, message: str) -> None:
