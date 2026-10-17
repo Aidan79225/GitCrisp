@@ -200,11 +200,18 @@ class BranchesDialog(QDialog):
             QMessageBox.warning(self, "Invalid input", "Name and start point are required.")
             return
         try:
-            self._commands.create_branch.execute(name, start)
+            self._commands.create_branch.execute(name, self._start_point_oid(start))
             self._commands.checkout.execute(name)
         except Exception as e:
             QMessageBox.warning(self, "Create branch failed", str(e))
         self._refresh()
+
+    def _start_point_oid(self, start: str) -> str:
+        """create_branch takes an object id, but the start point is usually a branch name."""
+        for branch in self._queries.get_branches.execute():
+            if branch.name == start:
+                return branch.target_oid
+        return start
 
     def _on_rename(self) -> None:
         old = self._selected_name()
