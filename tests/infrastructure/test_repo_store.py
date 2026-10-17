@@ -1,4 +1,3 @@
-import contextlib
 import errno
 import json
 import os
@@ -273,8 +272,17 @@ def test_a_save_that_fails_partway_keeps_the_previous_file(store, store_path, mo
 
     monkeypatch.setattr(os, "fsync", disk_full)
     store.add_open("/repo/b")
-    with contextlib.suppress(OSError):
-        store.save()
+    store.save()
 
     assert store_path.read_text(encoding="utf-8") == before
     assert list(store_path.parent.iterdir()) == [store_path]
+
+
+def test_a_save_that_cannot_write_the_file_keeps_the_store_usable(store, store_path):
+    store_path.mkdir(parents=True)
+    store.load()
+    store.add_open("/repo/a")
+
+    store.save()
+
+    assert store.get_open_repos() == ["/repo/a"]
