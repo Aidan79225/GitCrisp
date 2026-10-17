@@ -125,7 +125,7 @@ def test_clear_blocks_clears_loader(diff_widget, qtbot):
     widget._clear_blocks()
 
     assert widget._loader._block_refs == []
-    assert widget._loader._loaded_paths == set()
+    assert widget._loader._realized == set()
     assert widget._loader._diff_map == {}
 
 
