@@ -492,6 +492,8 @@ class RepoListWidget(QWidget):
     def _on_item_clicked(self, index) -> None:
         kind = index.data(Qt.UserRole + 1)
         path = index.data(Qt.UserRole)
+        if index.data(_IS_ACTIVE_ROLE):
+            return  # already open; switching would rebuild the whole session
         if kind == "open" and path:
             self.repo_switch_requested.emit(path)
         elif kind == "recent" and path:
