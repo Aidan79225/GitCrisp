@@ -32,7 +32,10 @@ class ViewportBlockLoader:
         self._scroll_area = scroll_area
         self._realize_fn = realize_fn
         self._block_refs: list[tuple[str, QFrame, QVBoxLayout, QWidget | None]] = []
-        self._loaded_paths: set[str] = set()
+        # Positions in _block_refs, not paths: a commit that changes a file's
+        # type lists the path twice, and tracking by path left the second
+        # block a skeleton for good.
+        self._realized: set[int] = set()
         self._diff_map: dict[str, Any] = {}
 
         self._scroll_timer = QTimer()
@@ -44,7 +47,7 @@ class ViewportBlockLoader:
 
     def set_blocks(self, block_refs: list[tuple[str, QFrame, QVBoxLayout, QWidget | None]]) -> None:
         self._block_refs = list(block_refs)
-        self._loaded_paths = set()
+        self._realized = set()
         self._diff_map = {}
 
     def set_diff_map(self, diff_map: dict[str, Any]) -> None:
@@ -67,7 +70,7 @@ class ViewportBlockLoader:
 
     def clear(self) -> None:
         self._block_refs = []
-        self._loaded_paths = set()
+        self._realized = set()
         self._diff_map = {}
 
     # Private
@@ -89,8 +92,8 @@ class ViewportBlockLoader:
             vp_rect = viewport.rect()
         except RuntimeError:
             return
-        for path, frame, inner, skeleton in list(self._block_refs):
-            if path in self._loaded_paths:
+        for index, (path, frame, inner, skeleton) in enumerate(list(self._block_refs)):
+            if index in self._realized:
                 continue
             if frame is None:
                 continue
@@ -103,6 +106,6 @@ class ViewportBlockLoader:
                 entry = self._diff_map.get(path)
                 if entry is not None:
                     self._realize_fn(path, inner, skeleton, entry)
-                self._loaded_paths.add(path)
+                self._realized.add(index)
                 QTimer.singleShot(0, self._check_viewport)
                 return

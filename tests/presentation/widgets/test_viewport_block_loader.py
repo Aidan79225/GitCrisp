@@ -64,14 +64,14 @@ def test_realizes_one_block_per_check(qtbot, scroll_area):
     assert len(realized) >= first_count
 
 
-def test_skips_loaded_paths(qtbot, scroll_area):
+def test_skips_realized_blocks(qtbot, scroll_area):
     sa, container, layout = scroll_area
     realized = []
     loader = ViewportBlockLoader(sa, lambda path, inner, skel, entry: realized.append(path))
 
     block = _make_block(layout, "a.txt")
     loader.set_blocks([block])
-    loader._loaded_paths.add("a.txt")  # pre-mark as loaded
+    loader._realized.add(0)  # pre-mark as realized
     loader.set_diff_map({"a.txt": ["hunk1"]})
 
     qtbot.wait(100)
@@ -106,5 +106,21 @@ def test_clear_resets_state(qtbot, scroll_area):
 
     loader.clear()
     assert loader._block_refs == []
-    assert loader._loaded_paths == set()
+    assert loader._realized == set()
     assert loader._diff_map == {}
+
+
+def test_two_blocks_for_one_path_are_both_realized(qtbot, scroll_area):
+    """A commit that turns a symlink into a file lists the path twice, as a
+    deletion and an addition. Tracking realized blocks by path left the
+    second one a skeleton for good."""
+    sa, container, layout = scroll_area
+    realized = []
+    loader = ViewportBlockLoader(sa, lambda path, inner, skel, entry: realized.append(skel))
+
+    blocks = [_make_block(layout, "config"), _make_block(layout, "config")]
+    loader.set_blocks(blocks)
+    loader.set_diff_map({"config": ["hunk"]})
+
+    qtbot.waitUntil(lambda: len(realized) == 2)
+    assert realized == [blocks[0][3], blocks[1][3]]
