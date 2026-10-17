@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtGui import QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -17,6 +18,44 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import Commit
 
 _ACTIONS = ["pick", "squash", "fixup", "drop"]
+
+# Read-only, and never a drop target, so a drop always lands between rows.
+_CELL_FLAGS = Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsDragEnabled
+
+
+def _cell(text: str) -> QTableWidgetItem:
+    item = QTableWidgetItem(text)
+    item.setFlags(_CELL_FLAGS)
+    return item
+
+
+class _RowMoveTable(QTableWidget):
+    """A table whose drag-and-drop moves the dragged row as a whole.
+
+    QTableWidget's own InternalMove moves single cells onto the cell under
+    the cursor, overwriting it, and leaves cell widgets where they were.
+    """
+
+    row_dropped = Signal(int, int)  # source row, destination row
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        dragged = self.selectionModel().selectedRows()
+        if event.source() is self and not event.isAccepted() and dragged:
+            source = dragged[0].row()
+            gap = self._drop_gap(event.position().toPoint())
+            # An accepted drop tells QTableWidget the move is done, so it
+            # neither moves cells itself nor removes the source row afterwards.
+            event.accept()
+            self.row_dropped.emit(source, gap - 1 if gap > source else gap)
+        super().dropEvent(event)
+
+    def _drop_gap(self, pos: QPoint) -> int:
+        """The boundary between rows the drop lands on, counted from the top."""
+        row = self.rowAt(pos.y())
+        if row < 0:
+            return self.rowCount()
+        middle = self.visualRect(self.model().index(row, 0)).center().y()
+        return row if pos.y() < middle else row + 1
 
 
 class InteractiveRebaseDialog(QDialog):
@@ -46,7 +85,7 @@ class InteractiveRebaseDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Table
-        self._table = QTableWidget(len(commits), 3)
+        self._table = _RowMoveTable(len(commits), 3)
         self._table.setHorizontalHeaderLabels(["Action", "OID", "Message"])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
@@ -60,6 +99,7 @@ class InteractiveRebaseDialog(QDialog):
         # Enable row drag-and-drop reorder
         self._table.setDragDropMode(QAbstractItemView.InternalMove)
         self._table.setDragDropOverwriteMode(False)
+        self._table.row_dropped.connect(self.move_row)
 
         for row, commit in enumerate(commits):
             # Action combo
@@ -68,17 +108,14 @@ class InteractiveRebaseDialog(QDialog):
             combo.setCurrentText("pick")
             combo.currentTextChanged.connect(self._validate)
             self._table.setCellWidget(row, 0, combo)
+            self._table.setItem(row, 0, _cell(""))
 
             # OID
-            oid_item = QTableWidgetItem(commit.oid[:7])
-            oid_item.setFlags(oid_item.flags() & ~Qt.ItemIsEditable)
-            self._table.setItem(row, 1, oid_item)
+            self._table.setItem(row, 1, _cell(commit.oid[:7]))
 
             # Message (first line)
             msg_line = commit.message.split("\n", 1)[0]
-            msg_item = QTableWidgetItem(msg_line)
-            msg_item.setFlags(msg_item.flags() & ~Qt.ItemIsEditable)
-            self._table.setItem(row, 2, msg_item)
+            self._table.setItem(row, 2, _cell(msg_line))
 
         layout.addWidget(self._table)
 
@@ -90,6 +127,24 @@ class InteractiveRebaseDialog(QDialog):
         layout.addWidget(self._buttons)
 
         self._validate()
+
+    def move_row(self, source: int, destination: int) -> None:
+        """Move the commit at ``source`` to ``destination``, its action with it."""
+        if source == destination:
+            return
+        rows = [self._take_row(row) for row in range(self._table.rowCount())]
+        rows.insert(destination, rows.pop(source))
+        for row, (action, items) in enumerate(rows):
+            self._table.cellWidget(row, 0).setCurrentText(action)
+            for column, item in enumerate(items):
+                self._table.setItem(row, column, item)
+        self._table.selectRow(destination)
+        self._validate()
+
+    def _take_row(self, row: int) -> tuple[str, list[QTableWidgetItem]]:
+        action = self._table.cellWidget(row, 0).currentText()
+        items = [self._table.takeItem(row, column) for column in range(self._table.columnCount())]
+        return action, items
 
     def _validate(self) -> None:
         """Disable Execute when squash/fixup is on the first row."""
