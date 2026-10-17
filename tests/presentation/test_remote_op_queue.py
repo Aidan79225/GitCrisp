@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock, patch
 
+import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from git_gui.domain.entities import Branch
@@ -167,3 +168,16 @@ def test_the_tag_cache_after_a_fetch_is_saved_for_the_repo_that_was_fetched(qtbo
 
     win._remote_tag_cache.save.assert_called_once_with("/repo/a", {"origin": ["a-tag"]})
     fetched_in.fetch.execute.assert_called_once_with("origin")
+
+
+@pytest.mark.parametrize("slot", ["_on_push", "_on_pull"])
+def test_push_or_pull_with_no_branch_checked_out_says_why_nothing_ran(qtbot, slot):
+    win = _make_window(qtbot)
+    win._queries = _queries_on_branch(None, others=["main"])  # detached HEAD
+    win._log_panel = MagicMock()
+
+    getattr(win, slot)()
+
+    assert win._remote_running is False
+    win._log_panel.expand.assert_called_once_with()
+    assert "check out a branch" in win._log_panel.log_error.call_args.args[0].lower()
