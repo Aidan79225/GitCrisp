@@ -114,6 +114,7 @@ class MainWindow(
         self._repo_list.reload()
         if self._repo_path is not None:
             self._start_change_detector(self._repo_path)
+            self._load_worktrees_for_active_repo()
         self._start_update_check()
 
     def closeEvent(self, event) -> None:
