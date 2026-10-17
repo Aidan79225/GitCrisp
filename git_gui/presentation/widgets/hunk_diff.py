@@ -25,7 +25,7 @@ from git_gui.presentation.widgets.diff_block import (
     make_file_block,
     make_syntax_formats,
 )
-from git_gui.presentation.widgets.hunk_view import add_hunk_view
+from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 from git_gui.resources import get_resource_path
@@ -300,6 +300,7 @@ class HunkDiffWidget(QWidget):
             self._add_hunk_block(
                 hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
             )
+        hide_hunks_if_collapsed(inner)
         self._sync_hscroll()
 
     def _render_sync(self) -> None:

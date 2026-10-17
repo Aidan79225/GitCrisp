@@ -84,3 +84,19 @@ def test_collapsing_a_block_realises_the_blocks_it_reveals(qtbot, make_widget):
     _frame_of(widget, "f0.txt").findChild(_CollapseToggle).click()
 
     qtbot.waitUntil(lambda: bool(_editors(_frame_of(widget, "f2.txt"))), timeout=2000)
+
+
+def test_a_block_collapsed_before_its_diff_arrives_stays_collapsed(qtbot, make_widget):
+    """The chevron says collapsed, so hunks that arrive later must not show;
+    otherwise the next click "expands" a block that is already open."""
+    widget, queries = make_widget({"x.txt": {StagingState.UNSTAGED: [_hunk(3)]}})
+    widget.load_all_files(["x.txt"])
+    frame = _frame_of(widget, "x.txt")
+    toggle = frame.findChild(_CollapseToggle)
+
+    toggle.click()
+    queries.released.set()
+    qtbot.waitUntil(lambda: bool(_editors(frame)), timeout=2000)
+
+    assert not toggle.is_expanded()
+    assert not any(editor.isVisible() for editor in _editors(frame))
