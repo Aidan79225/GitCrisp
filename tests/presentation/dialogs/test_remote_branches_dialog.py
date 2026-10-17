@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 
-from git_gui.domain.entities import Branch, RemoteBranchDeleteResult
+from git_gui.domain.entities import Branch, Remote, RemoteBranchDeleteResult
 from git_gui.presentation.dialogs.remote_branches_dialog import RemoteBranchesDialog
 from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
 
@@ -67,7 +67,9 @@ def test_filter_hides_non_matching(qtbot):
 
 
 def test_grouped_by_remote():
-    grouped = RemoteBranchesDialog._grouped_by_remote(["origin/a", "origin/b", "upstream/c"])
+    grouped = RemoteBranchesDialog._grouped_by_remote(
+        ["origin/a", "origin/b", "upstream/c"], ["origin", "upstream"]
+    )
     assert grouped == {"origin": ["a", "b"], "upstream": ["c"]}
 
 
@@ -197,3 +199,27 @@ def test_the_list_is_locked_while_a_delete_runs(qtbot):
     with patch.object(QMessageBox, "information"):
         qtbot.waitUntil(lambda: not dlg._busy)
     assert dlg._table.isEnabled() is True
+
+
+def test_a_remote_named_with_a_slash_owns_its_branches():
+    grouped = RemoteBranchesDialog._grouped_by_remote(
+        ["gh/fork/topic", "gh/fix/x"], ["gh", "gh/fork"]
+    )
+    assert grouped == {"gh/fork": ["topic"], "gh": ["fix/x"]}
+
+
+def test_delete_pushes_to_the_remote_whose_name_has_a_slash(qtbot):
+    dlg, queries, commands = _make(qtbot, branches=[Branch("gh/fork/topic", True, False, "a")])
+    queries.list_remotes.execute.return_value = [Remote("gh/fork", "../up", "../up")]
+    dlg._refresh()
+    commands.delete_remote_branches.execute.return_value = []
+    dlg._select_all_visible()
+
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+        patch.object(QMessageBox, "information"),
+        patch("git_gui.presentation.dialogs.remote_branches_dialog.threading.Thread", _SyncThread),
+    ):
+        dlg._on_delete()
+
+    commands.delete_remote_branches.execute.assert_called_once_with("gh/fork", ["topic"])

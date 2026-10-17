@@ -35,6 +35,7 @@ class RemoteBranchesDialog(QDialog):
         self._queries = queries
         self._commands = commands
         self._defaults: set[str] = set()
+        self._remotes: list[str] = []
         self._signals: _DeleteSignals | None = None
         self._busy: bool = False
 
@@ -89,6 +90,10 @@ class RemoteBranchesDialog(QDialog):
             self._defaults = set(self._queries.remote_default_branches.execute().values())
         except Exception:
             self._defaults = set()
+        try:
+            self._remotes = [r.name for r in self._queries.list_remotes.execute()]
+        except Exception:
+            self._remotes = []
 
         self._table.blockSignals(True)
         self._table.setRowCount(0)
@@ -154,11 +159,16 @@ class RemoteBranchesDialog(QDialog):
         self._delete_btn.setEnabled(n > 0 and not self._busy)
 
     @staticmethod
-    def _grouped_by_remote(names: list[str]) -> dict[str, list[str]]:
+    def _grouped_by_remote(names: list[str], remotes: list[str]) -> dict[str, list[str]]:
         grouped: dict[str, list[str]] = {}
         for full in names:
-            remote, branch = full.split("/", 1)
-            grouped.setdefault(remote, []).append(branch)
+            # Remote names may contain '/', so the longest known remote prefix wins.
+            remote = max(
+                (r for r in remotes if full.startswith(f"{r}/")),
+                key=len,
+                default=full.split("/", 1)[0],
+            )
+            grouped.setdefault(remote, []).append(full[len(remote) + 1 :])
         return grouped
 
     def _perform_deletions(self, grouped: dict[str, list[str]]) -> list[RemoteBranchDeleteResult]:
@@ -186,7 +196,7 @@ class RemoteBranchesDialog(QDialog):
         ):
             return
 
-        grouped = self._grouped_by_remote(selected)
+        grouped = self._grouped_by_remote(selected, self._remotes)
         self._set_busy(True)
         signals = _DeleteSignals(self)
         signals.finished.connect(self._on_delete_finished)
