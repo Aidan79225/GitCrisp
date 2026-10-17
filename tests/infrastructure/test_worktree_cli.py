@@ -88,3 +88,17 @@ def test_remove_unknown_path_raises_generic(repo_with_worktree, tmp_path):
     bogus = tmp_path / "does-not-exist"
     with pytest.raises(WorktreeCommandError):
         cli.remove(str(bogus), force=False)
+
+
+def test_force_remove_overrides_a_lock(repo_with_worktree):
+    """git needs --force twice to remove a locked worktree; a single one fails
+    with the same "locked" error, so the UI's force prompt came back forever."""
+    main, wt = repo_with_worktree
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "lock", "--reason", "busy", str(wt)],
+        check=True,
+        capture_output=True,
+    )
+    cli = WorktreeCli(str(main))
+    cli.remove(str(wt), force=True)
+    assert not wt.exists()
