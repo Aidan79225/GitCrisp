@@ -1,3 +1,4 @@
+import threading
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
@@ -155,3 +156,44 @@ def test_failure_shows_warning_refreshes_and_re_enables_buttons(qtbot):
 def test_table_uses_the_check_indicator_delegate(qtbot):
     dlg, _, _ = _make(qtbot)
     assert isinstance(dlg._table.itemDelegate(), CheckIndicatorDelegate)
+
+
+def _start_blocked_delete(dlg, commands):
+    """Confirm a delete of the checked rows whose worker stays parked on the returned gate."""
+    gate = threading.Event()
+
+    def _blocked(remote, branches):
+        gate.wait(5)
+        return [RemoteBranchDeleteResult(f"{remote}/{b}", True, "deleted") for b in branches]
+
+    commands.delete_remote_branches.execute.side_effect = _blocked
+    with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+        dlg._on_delete()
+    return gate
+
+
+def test_ticking_a_row_mid_delete_does_not_re_arm_delete(qtbot):
+    dlg, _, commands = _make(qtbot)
+    rows = _rows_by_name(dlg)
+    rows["origin/feature-a"].setCheckState(Qt.Checked)
+    gate = _start_blocked_delete(dlg, commands)
+
+    rows["origin/feature-b"].setCheckState(Qt.Checked)
+
+    assert dlg._delete_btn.isEnabled() is False
+    gate.set()
+    with patch.object(QMessageBox, "information"):
+        qtbot.waitUntil(lambda: not dlg._busy)
+
+
+def test_the_list_is_locked_while_a_delete_runs(qtbot):
+    dlg, _, commands = _make(qtbot)
+    _rows_by_name(dlg)["origin/feature-a"].setCheckState(Qt.Checked)
+    gate = _start_blocked_delete(dlg, commands)
+
+    assert dlg._table.isEnabled() is False
+    assert dlg._filter.isEnabled() is False
+    gate.set()
+    with patch.object(QMessageBox, "information"):
+        qtbot.waitUntil(lambda: not dlg._busy)
+    assert dlg._table.isEnabled() is True
