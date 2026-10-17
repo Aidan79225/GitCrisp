@@ -55,3 +55,13 @@ def test_is_dirty_does_not_rewrite_index(repo_path):
     after = index_path.stat().st_mtime_ns
 
     assert before == after
+
+
+def test_is_dirty_survives_a_non_ascii_path_printed_raw(repo_path):
+    """With core.quotepath=false git prints paths as raw UTF-8. Decoding that
+    in a non-UTF-8 locale (cp950, cp1252) killed subprocess's reader thread,
+    so stdout came back None and every graph reload failed."""
+    impl = Pygit2Repository(str(repo_path))
+    impl._repo.config["core.quotepath"] = False
+    (repo_path / "Łódź-測試.txt").write_text("x")
+    assert impl.is_dirty() is True
