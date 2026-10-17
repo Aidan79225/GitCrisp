@@ -87,3 +87,12 @@ def test_a_failed_checkbox_stage_is_reported(panel):
     model.setData(model.index(0), Qt.CheckState.Checked, Qt.CheckStateRole)
 
     assert reported == [f"Stage failed for a.txt: {LOCKED}"]
+
+
+def test_a_failed_hunk_stage_in_the_diff_pane_is_reported(panel):
+    w, commands, reported = panel
+    commands.stage_hunk.execute.side_effect = RuntimeError(LOCKED)
+
+    w._hunk_diff._on_hunk_toggled("a.txt", "@@ -1,2 +1,2 @@", True)
+
+    assert reported == [f"Stage a.txt failed: {LOCKED}"]
