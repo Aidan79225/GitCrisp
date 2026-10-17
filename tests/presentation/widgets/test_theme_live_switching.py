@@ -1,10 +1,11 @@
-"""Smoke test: every theme-aware widget refreshes on theme_changed.
+"""Theme-aware widgets follow a live theme switch.
 
-For each widget:
-  1. Build under a qtbot/QApplication fixture.
-  2. Spy on its update() method.
-  3. Call get_theme_manager().set_mode("light") then set_mode("dark").
-  4. Assert update() was called and the widget did not raise.
+ThemeManager repaints every live widget on a switch, so a widget that paints
+from the current theme needs nothing more, and for those this file only
+checks that the switch goes through. A widget that bakes token colours into
+its stylesheets must rebuild them through the ``rebuild`` it hands
+``connect_widget``, or it keeps the old theme's colours until restart; those
+are checked on what the rebuild produces.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from git_gui.presentation.theme import get_theme_manager
 
@@ -29,138 +30,107 @@ def reset_theme():
     get_theme_manager().set_mode("dark")
 
 
-def _spy_update(widget) -> list[int]:
-    """Replace widget.update with a counting wrapper. Returns the call list."""
-    calls: list[int] = []
-    original = widget.update
-
-    def wrapped(*args, **kwargs):
-        calls.append(1)
-        return original(*args, **kwargs)
-
-    widget.update = wrapped  # type: ignore[method-assign]
-    return calls
+def _switch_to_light_then_dark() -> None:
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    mgr.set_mode("dark")
 
 
-def test_sidebar_refreshes_on_theme_change(app, reset_theme):
+def _stylesheets(widget: QWidget) -> str:
+    return "\n".join(w.styleSheet() for w in [widget, *widget.findChildren(QWidget)])
+
+
+def _restyles_with_the_theme(widget: QWidget) -> bool:
+    """Whether any stylesheet under `widget` changes between light and dark."""
+    mgr = get_theme_manager()
+    mgr.set_mode("light")
+    light = _stylesheets(widget)
+    mgr.set_mode("dark")
+    return _stylesheets(widget) != light
+
+
+def test_a_widget_that_keeps_its_baked_colours_fails_the_check(app, reset_theme):
+    """Guards the check itself: ThemeManager's repaint alone must not pass it."""
+    label = QLabel()
+    label.setStyleSheet(f"color: {get_theme_manager().current.colors.primary};")
+
+    assert not _restyles_with_the_theme(label)
+
+
+def test_sidebar_survives_a_theme_switch(app, reset_theme, qtbot):
     from git_gui.presentation.widgets.sidebar import SidebarWidget
 
-    widget = SidebarWidget(queries=MagicMock(), commands=MagicMock())
-    calls = _spy_update(widget)
+    qtbot.addWidget(SidebarWidget(queries=MagicMock(), commands=MagicMock()))
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2, f"expected update() to be called at least twice, got {len(calls)}"
+    _switch_to_light_then_dark()
 
 
-def test_working_tree_refreshes_on_theme_change(app, reset_theme):
+def test_working_tree_survives_a_theme_switch(app, reset_theme, qtbot):
     from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 
-    widget = WorkingTreeWidget(queries=MagicMock(), commands=MagicMock())
-    calls = _spy_update(widget)
+    qtbot.addWidget(WorkingTreeWidget(queries=MagicMock(), commands=MagicMock()))
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2
+    _switch_to_light_then_dark()
 
 
-def test_diff_refreshes_on_theme_change(app, reset_theme):
+def test_diff_restyles_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.diff import DiffWidget
 
     widget = DiffWidget(queries=MagicMock(), commands=MagicMock())
-    calls = _spy_update(widget)
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2
+    assert _restyles_with_the_theme(widget)
 
 
-def test_insight_dialog_refreshes_on_theme_change(app, reset_theme):
+def test_insight_dialog_restyles_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.insight_dialog import InsightDialog
 
     queries = MagicMock()
     queries.get_commit_stats.execute.return_value = []
     dialog = InsightDialog(queries=queries)
-    calls = _spy_update(dialog)
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2
+    assert _restyles_with_the_theme(dialog)
 
 
-def test_commit_detail_refreshes_on_theme_change(app, reset_theme):
+def test_commit_detail_survives_a_theme_switch(app, reset_theme, qtbot):
     from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 
-    widget = CommitDetailWidget()
-    calls = _spy_update(widget)
+    qtbot.addWidget(CommitDetailWidget())
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2
+    _switch_to_light_then_dark()
 
 
-def test_graph_refreshes_on_theme_change(app, reset_theme):
+def test_graph_restyles_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.graph import GraphWidget
 
     repo_store = MagicMock()
     repo_store.get_repo_setting.return_value = False
     widget = GraphWidget(queries=MagicMock(), commands=MagicMock(), repo_store=repo_store)
-    calls = _spy_update(widget)
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2
+    assert _restyles_with_the_theme(widget)
 
 
-def test_repo_list_refreshes_on_theme_change(app, reset_theme):
+def test_repo_list_survives_a_theme_switch(app, reset_theme, qtbot):
     from git_gui.presentation.widgets.repo_list import RepoListWidget
 
-    widget = RepoListWidget(repo_store=MagicMock())
-    calls = _spy_update(widget)
+    qtbot.addWidget(RepoListWidget(repo_store=MagicMock()))
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2
+    _switch_to_light_then_dark()
 
 
-def test_clone_dialog_refreshes_on_theme_change(app, reset_theme):
+def test_clone_dialog_restyles_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.clone_dialog import CloneDialog
 
     dialog = CloneDialog()
-    calls = _spy_update(dialog)
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2
+    assert _restyles_with_the_theme(dialog)
 
 
-def test_log_panel_refreshes_on_theme_change(app, reset_theme):
+def test_log_panel_restyles_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.log_panel import LogPanel
 
     widget = LogPanel()
-    calls = _spy_update(widget)
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2
+    assert _restyles_with_the_theme(widget)
 
 
 def test_diff_block_hunk_rerenders_on_theme_change(app, reset_theme):
@@ -202,14 +172,9 @@ def test_diff_block_hunk_rerenders_on_theme_change(app, reset_theme):
     assert "new line" in text_after
 
 
-def test_diff_block_refreshes_on_theme_change(app, reset_theme):
+def test_diff_block_restyles_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.diff_block import make_file_block
 
     frame, _inner = make_file_block("path/to/file.py")
-    calls = _spy_update(frame)
 
-    mgr = get_theme_manager()
-    mgr.set_mode("light")
-    mgr.set_mode("dark")
-
-    assert len(calls) >= 2
+    assert _restyles_with_the_theme(frame)
