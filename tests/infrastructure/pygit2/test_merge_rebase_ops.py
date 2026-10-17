@@ -8,6 +8,7 @@ import tempfile
 
 import pytest
 
+from git_gui.domain.entities import MergeStrategy
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
@@ -37,6 +38,16 @@ def repo(tmp_path):
     _git(path, "config", "user.name", "t")
     _commit_file(path, "a.txt", "base\n", "base")
     return path
+
+
+@pytest.fixture
+def conflicting_branches(repo):
+    """``feature`` and ``master`` both change a.txt after ``base``; HEAD is on master."""
+    _git(repo, "checkout", "-q", "-b", "feature")
+    _commit_file(repo, "a.txt", "feature\n", "feature change")
+    _git(repo, "checkout", "-q", "master")
+    _commit_file(repo, "a.txt", "master\n", "master change")
+    return repo
 
 
 @pytest.fixture
@@ -77,12 +88,9 @@ def test_interactive_rebase_copes_with_a_quote_and_a_space_in_the_temp_dir(
 
 
 def test_rebase_continue_commits_the_given_message_without_a_python_interpreter(
-    repo, frozen_app_executable
+    conflicting_branches, frozen_app_executable
 ):
-    _git(repo, "checkout", "-q", "-b", "feature")
-    _commit_file(repo, "a.txt", "feature\n", "feature change")
-    _git(repo, "checkout", "-q", "master")
-    _commit_file(repo, "a.txt", "master\n", "master change")
+    repo = conflicting_branches
     _git(repo, "checkout", "-q", "feature")
     impl = Pygit2Repository(str(repo))
     with pytest.raises(RuntimeError):
@@ -93,3 +101,23 @@ def test_rebase_continue_commits_the_given_message_without_a_python_interpreter(
     impl.rebase_continue("resolved it")
 
     assert _subjects(repo) == ["resolved it", "master change", "base"]
+
+
+# ── merge message on conflict ────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("strategy", [MergeStrategy.NO_FF, MergeStrategy.ALLOW_FF])
+def test_a_conflicted_merge_keeps_the_message_the_user_chose(conflicting_branches, strategy):
+    impl = Pygit2Repository(str(conflicting_branches))
+
+    impl.merge("feature", strategy=strategy, message="My merge message")
+
+    assert impl.get_merge_msg() == "My merge message\n"
+
+
+def test_a_conflicted_merge_without_a_message_names_the_branch(conflicting_branches):
+    impl = Pygit2Repository(str(conflicting_branches))
+
+    impl.merge("feature")
+
+    assert impl.get_merge_msg() == "Merge branch 'feature'\n"
