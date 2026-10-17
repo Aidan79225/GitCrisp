@@ -249,6 +249,7 @@ class RepoLifecycleMixin:
         self._diff.set_buses(None, None)
         self._working_tree.set_repo_path(None)
         self._working_tree.set_buses(None, None)
+        self._right_stack.setCurrentIndex(0)
         self._repo_list.set_active_worktrees([])
         self._repo_list.reload()
         self.setWindowTitle("GitCrisp")

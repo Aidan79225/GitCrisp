@@ -101,3 +101,17 @@ def test_closing_the_only_repo_leaves_the_window_empty(qtbot, tmp_path, repos):
 
     assert win._repo_path is None
     assert win.windowTitle() == "GitCrisp"
+
+
+def test_closing_the_only_repo_from_uncommitted_changes_shows_the_commit_pane(
+    qtbot, tmp_path, repos
+):
+    """The working-tree pane, with its Commit and Stage buttons, has no repo
+    to act on once the last one is closed."""
+    a = repos[0]
+    win = _window_on(qtbot, tmp_path, [a], active=a)
+    win._right_stack.setCurrentWidget(win._working_tree)
+
+    win._close_current_repo()
+
+    assert win._right_stack.currentWidget() is win._diff
