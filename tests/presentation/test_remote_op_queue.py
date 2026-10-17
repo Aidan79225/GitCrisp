@@ -95,3 +95,33 @@ def test_a_rejected_tag_push_does_not_offer_to_force_push_a_branch(qtbot):
         win._on_remote_error("Push tag v1", REJECTED)
 
     warning.assert_not_called()
+
+
+def _cancel_after(win: MainWindow, replace_active_commands) -> MagicMock:
+    """Start an op, swap the active bus as a repo switch would, then Cancel."""
+    started_in = win._commands
+    release = threading.Event()
+    win._run_remote_op("Fetch --all --prune", lambda: release.wait(2))
+    replace_active_commands()
+    win._cancel_remote_op()
+    release.set()
+    return started_in
+
+
+def test_cancel_after_a_repo_switch_stops_the_op_in_the_repo_it_started_in(qtbot):
+    win = _make_window(qtbot)
+    with patch.object(win, "_reload"):
+        started_in = _cancel_after(win, lambda: setattr(win, "_commands", MagicMock()))
+        _wait_until_idle(qtbot, win)
+
+    started_in.cancel_remote_op.execute.assert_called_once_with()
+    win._commands.cancel_remote_op.execute.assert_not_called()
+
+
+def test_cancel_after_closing_the_last_repo_still_stops_the_op(qtbot):
+    win = _make_window(qtbot)
+    with patch.object(win, "_reload"):
+        started_in = _cancel_after(win, lambda: setattr(win, "_commands", None))
+        _wait_until_idle(qtbot, win)
+
+    started_in.cancel_remote_op.execute.assert_called_once_with()

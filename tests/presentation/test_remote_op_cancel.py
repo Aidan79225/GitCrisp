@@ -31,6 +31,7 @@ def test_cancel_executes_command_when_running(qtbot):
     win = _make_window(qtbot)
     win._remote_running = True
     win._remote_op_name = "Push origin/main"
+    win._remote_op_commands = win._commands
 
     win._cancel_remote_op()
 

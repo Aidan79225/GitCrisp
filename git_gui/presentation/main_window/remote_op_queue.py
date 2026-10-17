@@ -105,12 +105,13 @@ class RemoteOpQueueMixin:
     def _cancel_remote_op(self) -> None:
         """Ask the running push/pull/fetch to abort by terminating its git
         subprocess. Completion is reported via the `cancelled` signal."""
-        if not self._remote_running or self._commands is None:
+        commands = self._remote_op_commands
+        if not self._remote_running or commands is None:
             return
         self._log_panel.log(f"{self._remote_op_name or 'Remote operation'} — cancelling...")
         self._cancel_remote_btn.setEnabled(False)
         try:
-            self._commands.cancel_remote_op.execute()
+            commands.cancel_remote_op.execute()
         except Exception as e:
             self._log_panel.log_error(f"Cancel — ERROR: {e}")
 
