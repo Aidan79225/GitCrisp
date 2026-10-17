@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 
+import pygit2
 import pytest
 
 from git_gui.infrastructure.pygit2 import Pygit2Repository
@@ -91,3 +92,18 @@ def test_list_shows_the_url_of_a_submodule_named_unlike_its_path(parent_repo):
     subs = repo.list_submodules()
 
     assert [(s.path, s.url) for s in subs] == [("third_party/gtest", gitmodules_url)]
+
+
+def test_a_submodule_is_added_to_the_open_repo_whatever_git_dir_the_app_inherited(
+    parent_repo, tmp_path, monkeypatch
+):
+    """Started with GIT_DIR set (from inside a git hook, say), git ranked it
+    above the folder it ran in and staged the submodule in that other repo."""
+    repo, child_url, parent_path = parent_repo
+    other = tmp_path / "other"
+    _run(str(tmp_path), "init", "-q", str(other))
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+
+    repo.add_submodule("libs/foo", child_url)
+
+    assert "libs/foo" in pygit2.Repository(str(parent_path)).index

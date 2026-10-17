@@ -316,3 +316,19 @@ def test_a_failing_post_checkout_hook_keeps_the_worktree_s_branch(fresh_repo, tm
 
     assert (target / "a.txt").exists()
     assert "hooked" in pygit2.Repository(str(fresh_repo)).branches.local
+
+
+def test_a_worktree_is_added_to_the_open_repo_whatever_git_dir_the_app_inherited(
+    fresh_repo, tmp_path, monkeypatch
+):
+    """Started with GIT_DIR set (from inside a git hook, say), git ranked it
+    above the folder it ran in and added the worktree to that other repo."""
+    other = tmp_path / "other"
+    pygit2.init_repository(str(other))
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+
+    wt = Pygit2Repository(str(fresh_repo)).add_worktree(
+        str(tmp_path / "wt-inherited"), "inherited", create_branch=True, base_ref="master"
+    )
+
+    assert wt.branch == "inherited"
