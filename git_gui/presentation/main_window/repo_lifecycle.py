@@ -239,7 +239,7 @@ class RepoLifecycleMixin:
         try:
             wts = self._queries.list_worktrees.execute()
         except Exception as e:
-            self._log_panel.log_error(f"Failed to list worktrees: {e}")
+            self._report_worktree_error(f"Failed to list worktrees: {e}")
             wts = []
         self._repo_list.set_active_worktrees(wts, owner_path=self._repo_path)
         self._repo_list.reload()
@@ -247,6 +247,12 @@ class RepoLifecycleMixin:
         wt_paths = {wt.branch: str(wt.path) for wt in wts if wt.branch and not wt.is_main}
         self._sidebar.set_worktree_branches(wt_branches)
         self._worktree_paths_by_branch = wt_paths
+
+    def _report_worktree_error(self, message: str) -> None:
+        # The log starts collapsed, and a line added to it unopened is never
+        # seen: a failed worktree operation would look like nothing happened.
+        self._log_panel.expand()
+        self._log_panel.log_error(message)
 
     def _on_worktree_action(self, action: str, path: str) -> None:
         if action == "add":
@@ -303,7 +309,7 @@ class RepoLifecycleMixin:
         try:
             wts = self._queries.list_worktrees.execute()
         except Exception as e:
-            self._log_panel.log_error(f"Failed to list worktrees: {e}")
+            self._report_worktree_error(f"Failed to list worktrees: {e}")
             return
         dlg = WorktreesDialog(worktrees=wts, parent=self)
         dlg.open_requested.connect(self._switch_repo)
@@ -333,7 +339,9 @@ class RepoLifecycleMixin:
                 signals.failed.emit(str(e))
 
         signals.added.connect(self._on_worktree_added)
-        signals.failed.connect(lambda msg: self._log_panel.log_error(f"Add worktree failed: {msg}"))
+        signals.failed.connect(
+            lambda msg: self._report_worktree_error(f"Add worktree failed: {msg}")
+        )
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_worktree_added(self, path: str, switch_after: bool) -> None:
@@ -353,7 +361,7 @@ class RepoLifecycleMixin:
 
         signals.completed.connect(self._load_worktrees_for_active_repo)
         signals.failed.connect(
-            lambda msg: self._log_panel.log_error(f"Lock worktree failed: {msg}")
+            lambda msg: self._report_worktree_error(f"Lock worktree failed: {msg}")
         )
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -377,7 +385,7 @@ class RepoLifecycleMixin:
 
         signals.completed.connect(self._load_worktrees_for_active_repo)
         signals.failed.connect(
-            lambda msg: self._log_panel.log_error(f"Unlock worktree failed: {msg}")
+            lambda msg: self._report_worktree_error(f"Unlock worktree failed: {msg}")
         )
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -414,7 +422,7 @@ class RepoLifecycleMixin:
         signals.dirty_error.connect(self._on_remove_dirty)
         signals.locked_error.connect(self._on_remove_locked)
         signals.failed.connect(
-            lambda msg: self._log_panel.log_error(f"Remove worktree failed: {msg}")
+            lambda msg: self._report_worktree_error(f"Remove worktree failed: {msg}")
         )
         threading.Thread(target=_worker, daemon=True).start()
 
