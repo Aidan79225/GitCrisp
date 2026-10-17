@@ -293,3 +293,44 @@ def test_the_next_match_is_still_a_match_after_a_reload_shifts_the_rows(graph, i
     graph._on_search_navigate(1)
 
     assert _current_oid(graph) == "c120"
+
+
+# ── The selected row and the diff pane ───────────────────────────────────────
+
+
+def _select_row(graph: GraphWidget, row: int) -> None:
+    graph._view.setCurrentIndex(graph._model.index(row, 0))
+
+
+def test_a_commit_clicked_again_after_the_selection_was_cleared_is_shown_again(
+    graph, qtbot, inline_workers
+):
+    """Clicking a stash clears the graph's selection and shows the stash in
+    the diff pane; clicking the commit again has to bring it back."""
+    graph.reload()
+    _select_row(graph, 2)
+
+    graph.clear_selection()
+    with qtbot.waitSignal(graph.commit_selected, timeout=1000) as shown:
+        _select_row(graph, 2)
+
+    assert shown.args == ["c2"]
+
+
+def test_the_working_tree_row_is_announced_when_it_comes_back(graph, qtbot, inline_workers):
+    """Committing removes the row and the right pane moves to HEAD; when a
+    file is edited again the row returns, and clicking it must show it."""
+    from git_gui.domain.entities import WORKING_TREE_OID
+
+    graph._queries.is_dirty.execute.return_value = True
+    graph.reload()
+    _select_row(graph, 0)
+    graph._queries.is_dirty.execute.return_value = False
+    graph.reload()  # committed: the row is gone
+    graph._queries.is_dirty.execute.return_value = True
+    graph.reload()  # edited again: the row is back
+
+    with qtbot.waitSignal(graph.commit_selected, timeout=1000) as shown:
+        _select_row(graph, 0)
+
+    assert shown.args == [WORKING_TREE_OID]
