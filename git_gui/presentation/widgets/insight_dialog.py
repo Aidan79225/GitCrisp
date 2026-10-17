@@ -268,6 +268,10 @@ def _local_midnight(day: date) -> datetime:
     return datetime(day.year, day.month, day.day).astimezone()
 
 
+def _day_of(picked: QDate) -> date:
+    return date(picked.year(), picked.month(), picked.day())
+
+
 class InsightDialog(QDialog):
     def __init__(
         self,
@@ -392,8 +396,8 @@ class InsightDialog(QDialog):
         if label == "All":
             return (None, None)
         if label == "Custom":
-            since = _local_midnight(self._start_date.date().toPython())
-            day_after = self._end_date.date().toPython() + timedelta(days=1)
+            since = _local_midnight(_day_of(self._start_date.date()))
+            day_after = _day_of(self._end_date.date()) + timedelta(days=1)
             until = _local_midnight(day_after) - timedelta(seconds=1)
             return (since, until)
         return (None, None)
