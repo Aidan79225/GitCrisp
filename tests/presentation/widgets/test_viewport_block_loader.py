@@ -124,3 +124,36 @@ def test_two_blocks_for_one_path_are_both_realized(qtbot, scroll_area):
 
     qtbot.waitUntil(lambda: len(realized) == 2)
     assert realized == [blocks[0][3], blocks[1][3]]
+
+
+def test_a_hidden_pane_realizes_nothing_until_it_is_shown(qtbot):
+    """A page the stack is not showing is never laid out, so every new frame
+    sat at (0, 0) and read as on screen: switching the diff view while on the
+    working tree built the hidden commit's every block."""
+    from PySide6.QtWidgets import QStackedWidget
+
+    stack = QStackedWidget()
+    qtbot.addWidget(stack)
+    stack.addWidget(QWidget())
+    sa = QScrollArea()
+    sa.setWidgetResizable(True)
+    container = QWidget()
+    layout = QVBoxLayout(container)
+    sa.setWidget(container)
+    stack.addWidget(sa)
+    stack.resize(400, 300)
+    stack.show()
+    qtbot.waitExposed(stack)
+    realized = []
+    loader = ViewportBlockLoader(sa, lambda path, inner, skel, entry: realized.append(path))
+    paths = [f"f{i}.txt" for i in range(20)]
+    loader.set_blocks([_make_block(layout, path, height=100) for path in paths])
+    loader.set_diff_map({path: ["hunk"] for path in paths})
+
+    qtbot.wait(200)
+    assert realized == []
+
+    stack.setCurrentWidget(sa)
+    qtbot.waitUntil(lambda: len(realized) > 0)
+    qtbot.wait(200)
+    assert len(realized) < len(paths)
