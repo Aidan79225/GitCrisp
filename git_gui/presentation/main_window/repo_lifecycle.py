@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
+from enum import Enum, auto
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -14,6 +16,24 @@ from git_gui.presentation.services.repo_change_detector import RepoChangeDetecto
 class _RepoReadySignals(QObject):
     ready = Signal(str, object, object)  # path, QueryBus, CommandBus
     failed = Signal(str, str)  # path, error
+
+
+class _SwitchReason(Enum):
+    """What a requested repo does to the repo store once it has opened.
+
+    Nothing is recorded before then: a path that fails to open must not end
+    up listed as open, or as active, while another repo is on screen.
+    """
+
+    SWITCH = auto()  # becomes the active repo; the open list is left alone
+    OPEN = auto()  # joins the open list
+    REPLACE = auto()  # succeeds a repo just closed; failing leaves nothing to show
+
+
+@dataclass(frozen=True)
+class _RepoRequest:
+    path: str
+    reason: _SwitchReason = _SwitchReason.SWITCH
 
 
 class _WorktreeOpSignals(QObject):
@@ -104,9 +124,13 @@ class RepoLifecycleMixin:
             self._change_detector = None
 
     def _switch_repo(self, path: str) -> None:
+        self._request_repo(_RepoRequest(path))
+
+    def _request_repo(self, request: _RepoRequest) -> None:
         # Each open runs on its own thread, and they finish in any order — one
         # on a network share can take seconds — so only the latest may land.
-        self._requested_repo = path
+        self._repo_request = request
+        path = request.path
         signals = self._repo_ready_signals
 
         def _worker():
@@ -118,8 +142,14 @@ class RepoLifecycleMixin:
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _request_for(self, path: str) -> _RepoRequest | None:
+        """The request *path* answers, or None if a later one replaced it."""
+        request = self._repo_request
+        return request if request is not None and request.path == path else None
+
     def _on_repo_ready(self, path: str, queries: QueryBus, commands: CommandBus) -> None:
-        if path != self._requested_repo:
+        request = self._request_for(path)
+        if request is None:
             return  # superseded: the user has asked for something else since
         # Both panes show the repo being left behind.
         self._close_blame_pane()
@@ -140,7 +170,7 @@ class RepoLifecycleMixin:
         self._diff.set_buses(self._queries, self._commands)
         self._working_tree.set_repo_path(path)
         self._working_tree.set_buses(self._queries, self._commands)
-        self._repo_store.set_active(path)
+        self._record_in_store(request)
         self._repo_store.save()
         self._repo_list.reload()
         self.setWindowTitle(f"GitCrisp — {path}")
@@ -168,12 +198,23 @@ class RepoLifecycleMixin:
         self._load_worktrees_for_active_repo()
         self._refresh_state_banners()
 
+    def _record_in_store(self, request: _RepoRequest) -> None:
+        if request.reason is _SwitchReason.OPEN:
+            self._repo_store.add_open(request.path)
+        else:
+            self._repo_store.set_active(request.path)
+
     def _on_repo_failed(self, path: str, error: str) -> None:
         self._log_panel.expand()
         self._log_panel.log_error(f"Cannot open {path}: {error}")
+        request = self._request_for(path)
+        if request is not None and request.reason is _SwitchReason.REPLACE:
+            # The repo on screen is already closed. Staying on it would leave
+            # Ctrl+W retrying this one forever.
+            self._enter_empty_state()
 
     def _enter_empty_state(self) -> None:
-        self._requested_repo = None
+        self._repo_request = None
         self._stop_change_detector()
         self._close_blame_pane()
         self._close_reflog_pane()
@@ -198,9 +239,7 @@ class RepoLifecycleMixin:
         self._install_git_menu()
 
     def _on_repo_open(self, path: str) -> None:
-        self._repo_store.add_open(path)
-        self._repo_store.save()
-        self._switch_repo(path)
+        self._request_repo(_RepoRequest(path, _SwitchReason.OPEN))
 
     def _on_repo_close(self, path: str) -> None:
         successor = self._repo_after_closing(path)
@@ -211,7 +250,7 @@ class RepoLifecycleMixin:
         elif successor is None:
             self._enter_empty_state()
         else:
-            self._switch_repo(successor)
+            self._request_repo(_RepoRequest(successor, _SwitchReason.REPLACE))
 
     def _repo_after_closing(self, path: str) -> str | None:
         """The open repo listed just before *path*, or after it when it is first."""
