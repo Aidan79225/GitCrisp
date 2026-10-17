@@ -25,19 +25,24 @@ def graph(qtbot) -> GraphWidget:
     return widget
 
 
-def test_a_long_path_does_not_widen_the_commit_list(graph):
-    narrowest = graph.minimumSizeHint().width()
+def _minimum_width_with(graph: GraphWidget, qtbot, path: str) -> int:
+    graph.set_path_filter(path)
+    qtbot.wait(10)  # the layout learns of the chip's new text from posted events
+    return graph.minimumSizeHint().width()
 
-    graph.set_path_filter(LONG_PATH)
 
-    assert graph.minimumSizeHint().width() == narrowest
+def test_a_long_path_does_not_widen_the_commit_list(graph, qtbot):
+    graph.show()
+
+    with_a_long_path = _minimum_width_with(graph, qtbot, LONG_PATH)
+
+    assert with_a_long_path == _minimum_width_with(graph, qtbot, "a.py")
 
 
 def test_a_long_path_is_shortened_to_fit_the_chip(graph):
-    graph.resize(300, 400)
-    graph.show()
-
     graph.set_path_filter(LONG_PATH)
+    graph.resize(graph.minimumSizeHint().width() + 120, 400)
+    graph.show()
 
     label = graph._path_filter_bar._label
     assert label.fontMetrics().horizontalAdvance(label.text()) <= label.contentsRect().width()
