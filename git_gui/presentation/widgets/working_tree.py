@@ -125,9 +125,7 @@ class WorkingTreeWidget(QWidget):
         self._btn_abort = QPushButton("Abort")
         banner_layout.addWidget(self._banner_label, 1)
         banner_layout.addWidget(self._btn_abort)
-        self._conflict_banner.setStyleSheet(
-            "background-color: #5c2d2d; border: none; padding: 2px;"
-        )
+        self._restyle_banner()
         self._conflict_banner.setVisible(False)
 
         # ── Row 1: commit toolbar ────────────────────────────────────────────
@@ -216,7 +214,15 @@ class WorkingTreeWidget(QWidget):
         self._hunk_diff.submodule_open_requested.connect(self.submodule_open_requested)
         self._btn_abort.clicked.connect(self._on_abort_clicked)
 
-        connect_widget(self)
+        connect_widget(self, rebuild=self._restyle_banner)
+
+    def _restyle_banner(self) -> None:
+        # No selector: the label and the Abort button take the banner's
+        # colours, rather than a palette that was never chosen to sit on it.
+        c = get_theme_manager().current.colors
+        self._conflict_banner.setStyleSheet(
+            f"background-color: {c.error}; color: {c.on_error}; border: none; padding: 2px;"
+        )
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
