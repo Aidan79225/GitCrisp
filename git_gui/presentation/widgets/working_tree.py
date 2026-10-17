@@ -212,6 +212,7 @@ class WorkingTreeWidget(QWidget):
         self._file_model.operation_failed.connect(self.commit_failed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
         self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
+        self._hunk_diff.operation_failed.connect(self.commit_failed)
         self._hunk_diff.submodule_open_requested.connect(self.submodule_open_requested)
         self._btn_abort.clicked.connect(self._on_abort_clicked)
 
