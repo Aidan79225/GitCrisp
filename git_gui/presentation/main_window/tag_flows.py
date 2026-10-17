@@ -110,9 +110,10 @@ class TagFlowsMixin:
         # but still published on the remotes.
         if self._remote_slot_busy(op_name):
             return
+        commands, repo_path = self._commands, self._repo_path
         # Local delete first (synchronous), then the remotes in background.
         try:
-            self._commands.delete_tag.execute(name)
+            commands.delete_tag.execute(name)
             self._log_panel.log(f"Deleted tag: {name}")
         except Exception as e:
             self._log_panel.expand()
@@ -125,25 +126,29 @@ class TagFlowsMixin:
             # drops any request made while one runs, so an op per remote lost
             # all but the first.
             for remote in remotes:
-                self._commands.delete_remote_tag.execute(remote, name)
-                self._forget_remote_tag(remote, name)
+                commands.delete_remote_tag.execute(remote, name)
+                self._forget_remote_tag(repo_path, remote, name)
 
-        self._run_remote_op(op_name, _fn)
+        self._run_remote_op(op_name, _fn, commands=commands)
         self._reload()
 
-    def _forget_remote_tag(self, remote: str, name: str) -> None:
-        """Remove `name` from the cached tag list of `remote`."""
-        if not (self._remote_tag_cache and self._repo_path):
+    def _forget_remote_tag(self, repo_path: str | None, remote: str, name: str) -> None:
+        """Remove `name` from the cached tag list of `remote`.
+
+        Runs on the worker thread, so it is handed the repo the op ran in: the
+        active one may have been switched while the op ran.
+        """
+        if not (self._remote_tag_cache and repo_path):
             return
         try:
-            data = self._remote_tag_cache.load(self._repo_path)
+            data = self._remote_tag_cache.load(repo_path)
             if remote in data and name in data[remote]:
                 data[remote] = [t for t in data[remote] if t != name]
-                self._remote_tag_cache.save(self._repo_path, data)
+                self._remote_tag_cache.save(repo_path, data)
         except Exception as e:
             logger.warning(
                 "Remote tag cache update failed for %s (remote=%s, tag=%s): %s",
-                self._repo_path,
+                repo_path,
                 remote,
                 name,
                 e,
