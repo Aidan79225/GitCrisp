@@ -183,7 +183,7 @@ git_gui/
 │   │   └── _helpers.py       # Pure functions (status map, entity conversion, synthesis)
 │   ├── commit_ops_cli.py  # `git cherry-pick` / `git revert` subprocess wrapper
 │   ├── submodule_cli.py   # `git submodule` subprocess wrapper
-│   ├── worktree_cli.py    # `git worktree remove` subprocess wrapper
+│   ├── worktree_cli.py    # `git worktree add`/`remove` subprocess wrapper
 │   ├── file_history_cli.py  # `git log -- <path>` subprocess wrapper (file history)
 │   ├── repo_store.py      # JSON-based repository persistence
 │   ├── remote_tag_cache.py  # Remote tag SHA→name cache
