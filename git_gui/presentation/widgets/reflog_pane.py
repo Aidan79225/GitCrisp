@@ -82,6 +82,14 @@ def _went_nowhere(entry: ReflogEntry) -> bool:
     return entry.oid_old is not None and entry.oid_old == entry.oid_new
 
 
+def _movement(entry: ReflogEntry) -> tuple:
+    """What identifies one movement from one reload to the next.
+
+    Not its index: each new movement renumbers every entry before it.
+    """
+    return (entry.oid_old, entry.oid_new, entry.timestamp, entry.operation, entry.summary)
+
+
 class ReflogModel(QAbstractTableModel):
     """One column per row; the whole row is painted by ReflogDelegate."""
 
@@ -154,6 +162,11 @@ class ReflogModel(QAbstractTableModel):
         if 0 <= row < len(self._entries):
             return self._entries[row]
         return None
+
+    def row_of(self, entry: ReflogEntry) -> int | None:
+        """The row showing the same movement as `entry`, if one does."""
+        wanted = _movement(entry)
+        return next((row for row, e in enumerate(self._entries) if _movement(e) == wanted), None)
 
     def reload(self, entries: list[ReflogEntry]) -> None:
         self.beginResetModel()
@@ -403,10 +416,25 @@ class ReflogPane(QWidget):
     def _on_loaded(self, generation: int, entries: list[ReflogEntry], branch: str | None) -> None:
         if generation != self._load_generation:
             return
+        picked = self.current_entry()
         self._branch = branch
         self._model.reload(entries)
-        self._last_emitted = None
+        self._reselect(picked)
         self._update_status()
+
+    def _reselect(self, picked: ReflogEntry | None) -> None:
+        """Put the selection back on the movement picked before a reload.
+
+        The model reset clears it, and the pane reloads with every window
+        reload. Its commit is still the one in the diff pane, so finding it
+        again emits nothing; a pick that is gone is forgotten, so picking
+        that commit again hands it over.
+        """
+        row = self._model.row_of(picked) if picked is not None else None
+        if row is None:
+            self._last_emitted = None
+            return
+        self.select_row(row)
 
     def _on_show_all_toggled(self, checked: bool) -> None:
         self._model.set_show_all(checked)
