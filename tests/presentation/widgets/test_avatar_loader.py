@@ -311,3 +311,20 @@ class TestAvatarLoaderHttpReplies:
         fetched = _answer_fetch(tmp_path, _Reply(QNetworkReply.HostNotFoundError, None))
 
         assert fetched == [_BOB_HASH]
+
+
+class TestAvatarLoaderUnwritableCache:
+    """The cache directory cannot be created: a file sits at its path."""
+
+    def test_a_fetched_avatar_is_still_shown(self, tmp_path, qtbot):
+        blocked = tmp_path / "avatars"
+        blocked.write_text("")
+        answers = []
+        loader = AvatarLoader(cache_dir=blocked, fetcher=lambda h, cb: answers.append(cb))
+        loader.get_pixmap(_BOB)
+
+        with qtbot.waitSignal(loader.avatar_ready, timeout=1000):
+            answers[0](_make_png_bytes())
+
+        pix = loader.get_pixmap(_BOB)
+        assert pix is not None and not pix.isNull()
