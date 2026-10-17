@@ -405,3 +405,32 @@ def test_a_branch_whose_tip_is_in_the_file_history_is_selected_there(graph, inli
 
     assert graph._path_filter == "README.md"
     assert _current_oid(graph) == "c3"
+
+
+# ── A repo whose history cannot be loaded ────────────────────────────────────
+
+
+def _unloadable_repo() -> MagicMock:
+    """Opens fine, then fails to list its tags: an annotated tag on a tree or
+    a blob, as git.git and linux both have, cannot be peeled to a commit."""
+    queries = _queries(_chain(3, prefix="b"))
+    queries.get_tags.execute.side_effect = RuntimeError("cannot be peeled into a commit")
+    return queries
+
+
+def test_switching_to_a_repo_that_fails_to_load_clears_the_previous_repos_commits(
+    graph, inline_workers
+):
+    graph.reload()
+    assert graph._model.rowCount() > 0
+
+    graph.set_buses(_unloadable_repo(), MagicMock())
+
+    assert graph._model.rowCount() == 0
+
+
+def test_a_failed_load_is_announced_with_its_reason(graph, qtbot, inline_workers):
+    with qtbot.waitSignal(graph.load_failed, timeout=1000) as failed:
+        graph.set_buses(_unloadable_repo(), MagicMock())
+
+    assert failed.args == ["cannot be peeled into a commit"]
