@@ -300,8 +300,8 @@ class ReflogDelegate(QStyledItemDelegate):
 
 
 class _LoadSignals(QObject):
-    done = Signal(list, object)  # entries, current branch name or None
-    failed = Signal(str)
+    done = Signal(int, list, object)  # generation, entries, current branch name or None
+    failed = Signal(int, str)  # generation, message
 
 
 class ReflogPane(QWidget):
@@ -318,6 +318,9 @@ class ReflogPane(QWidget):
         self._branch: str | None = None
         self._last_emitted: str | None = None
         self._load_signals: _LoadSignals | None = None
+        # Every window reload reloads this pane too, so loads overlap, and a
+        # slow one must not land on top of a newer one.
+        self._load_generation = 0
 
         self._status = ElidingLabel()
 
@@ -372,6 +375,8 @@ class ReflogPane(QWidget):
 
     def reload(self) -> None:
         ref = self._ref
+        self._load_generation += 1
+        generation = self._load_generation
         self._status.setText(f"Reading the {ref} reflog …")
 
         signals = _LoadSignals()
@@ -389,13 +394,15 @@ class ReflogPane(QWidget):
                 # read while a context menu is opening is the wrong place for it.
                 branch = queries.get_repo_state.execute().head_branch
             except Exception as e:  # surfaced in the header, not swallowed
-                signals.failed.emit(str(e))
+                signals.failed.emit(generation, str(e))
                 return
-            signals.done.emit(entries, branch)
+            signals.done.emit(generation, entries, branch)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_loaded(self, entries: list[ReflogEntry], branch: str | None) -> None:
+    def _on_loaded(self, generation: int, entries: list[ReflogEntry], branch: str | None) -> None:
+        if generation != self._load_generation:
+            return
         self._branch = branch
         self._model.reload(entries)
         self._last_emitted = None
@@ -413,7 +420,9 @@ class ReflogPane(QWidget):
             text += f"  ({hidden} that changed nothing hidden)"
         self._status.setText(text)
 
-    def _on_failed(self, message: str) -> None:
+    def _on_failed(self, generation: int, message: str) -> None:
+        if generation != self._load_generation:
+            return
         self._branch = None
         self._model.reload([])
         self._status.setText(message)
