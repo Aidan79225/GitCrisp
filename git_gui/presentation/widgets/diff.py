@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from git_gui.domain.entities import Branch, Commit
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.theme import connect_widget, get_theme_manager
@@ -336,8 +337,7 @@ class DiffWidget(QWidget):
             self._clear_commit()
             return
         self._set_empty_state(False)
-        refs = [b.name for b in branches if b.target_oid == oid]
-        self._detail.set_commit(commit, refs)
+        self._show_commit_header(oid, commit, branches)
 
         # Full commit message — add trailing newline so last line is always visible
         msg = commit.message
@@ -356,6 +356,19 @@ class DiffWidget(QWidget):
         # Files — no auto-selection; show all files' hunks as bordered blocks
         self._diff_model.reload(self._apply_path_filter(files))
         self._render_all_files(oid)
+
+    def _show_commit_header(self, oid: str, commit: Commit, branches: list[Branch]) -> None:
+        """Show the header with a badge for each branch at `oid`.
+
+        The header is told which branches are remote and which is checked
+        out, because the name cannot say: a local branch can hold a slash too.
+        """
+        self._detail.set_commit(
+            commit,
+            [b.name for b in branches if b.target_oid == oid],
+            head_branch=next((b.name for b in branches if b.is_head and not b.is_remote), None),
+            remote_branches=frozenset(b.name for b in branches if b.is_remote),
+        )
 
     def refresh_view(self) -> None:
         """Redraw the current commit after the unified/side-by-side choice changed.

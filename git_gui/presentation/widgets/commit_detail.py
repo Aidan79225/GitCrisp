@@ -36,6 +36,8 @@ class CommitDetailWidget(QWidget):
         super().__init__(parent)
         self._commit: Commit | None = None
         self._refs: list[str] = []
+        self._head_branch: str | None = None
+        self._remote_branches: frozenset[str] | None = None
         self._avatar_hash: str | None = None
         self._oid_rect: QRect | None = None
         # Clickable ref badges painted on line 2: (rect, copy text).
@@ -46,9 +48,18 @@ class CommitDetailWidget(QWidget):
         self._avatar_loader.avatar_ready.connect(self._on_avatar_ready)
         self._avatar_loader.enabled_changed.connect(lambda _v: self.update())
 
-    def set_commit(self, commit: Commit, refs: list[str]) -> None:
+    def set_commit(
+        self,
+        commit: Commit,
+        refs: list[str],
+        *,
+        head_branch: str | None = None,
+        remote_branches: frozenset[str] | None = None,
+    ) -> None:
         self._commit = commit
         self._refs = refs
+        self._head_branch = head_branch
+        self._remote_branches = remote_branches
         self._avatar_hash = self._avatar_loader.hash_for_author(commit.author)
         # Prime the cache; first call may kick off async fetch.
         self._avatar_loader.get_pixmap(commit.author)
@@ -124,7 +135,7 @@ class CommitDetailWidget(QWidget):
             display = _badge_display_name(name)
             badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
             badge_rect = QRect(x, cy - badge_h // 2, badge_w, badge_h)
-            painter.setBrush(QBrush(_badge_color(name)))
+            painter.setBrush(QBrush(_badge_color(name, self._head_branch, self._remote_branches)))
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
             painter.setPen(on_badge)
