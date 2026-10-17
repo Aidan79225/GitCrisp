@@ -23,15 +23,16 @@ class ReloadCoordinatorMixin:
             self._reflog_pane.reload()
         if self._right_stack.currentIndex() == 1:
             self._working_tree.reload()
-        if self._queries is not None:
-            try:
-                state_info = self._queries.get_repo_state.execute()
-                state_name = state_info.state.name
-                merge_msg = (
-                    self._queries.get_merge_msg.execute() if state_name == "MERGING" else None
-                )
-                self._working_tree.update_conflict_banner(state_name, merge_msg)
-                self._diff.update_state_banner(state_name)
-            except Exception:
-                self._working_tree.update_conflict_banner("CLEAN")
-                self._diff.update_state_banner("CLEAN")
+        self._refresh_state_banners()
+
+    def _refresh_state_banners(self) -> None:
+        """Show the open repo's merge/rebase state, or none, in both panes."""
+        try:
+            state_info = self._queries.get_repo_state.execute()
+            state_name = state_info.state.name
+            merge_msg = self._queries.get_merge_msg.execute() if state_name == "MERGING" else None
+            self._working_tree.update_conflict_banner(state_name, merge_msg)
+            self._diff.update_state_banner(state_name)
+        except Exception:
+            self._working_tree.update_conflict_banner("CLEAN")
+            self._diff.update_state_banner("CLEAN")
