@@ -119,6 +119,8 @@ class RepoLifecycleMixin:
         # Both panes show the repo being left behind.
         self._close_blame_pane()
         self._close_reflog_pane()
+        if path != self._repo_path:
+            self._forget_undoable()
         self._queries = queries
         self._commands = commands
         self._repo_path = path
@@ -168,6 +170,7 @@ class RepoLifecycleMixin:
         self._stop_change_detector()
         self._close_blame_pane()
         self._close_reflog_pane()
+        self._forget_undoable()
         self._queries = None
         self._commands = None
         self._repo_path = None
