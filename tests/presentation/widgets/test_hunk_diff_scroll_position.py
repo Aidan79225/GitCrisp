@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtCore import QEvent
-from PySide6.QtWidgets import QApplication, QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QCheckBox, QPlainTextEdit
 
 from git_gui.domain.entities import Hunk, LineKind, StagingState
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
@@ -88,3 +88,17 @@ def test_a_reload_keeps_the_same_file_at_the_top(widget, qtbot):
     qtbot.wait(200)
 
     assert _block_at_top(widget) == "f15.txt"
+
+
+def test_ticking_a_hunk_leaves_the_reload_to_the_owner(widget, qtbot):
+    """The owner reloads on hunk_toggled with the new list of changed files;
+    reloading here as well rebuilt every block and queried every diff twice."""
+    widget.load_all_files(PATHS)
+    qtbot.waitUntil(lambda: _is_realised(widget, "f0.txt"), timeout=2000)
+    diff_map_query = widget._queries.get_working_tree_diff_map.execute
+
+    with qtbot.waitSignal(widget.hunk_toggled, timeout=1000):
+        _frames(widget)["f0.txt"].findChild(QCheckBox).click()
+    qtbot.wait(100)  # time for a stray reload's worker to query
+
+    assert diff_map_query.call_count == 1
