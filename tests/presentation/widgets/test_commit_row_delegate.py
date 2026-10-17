@@ -132,3 +132,52 @@ def test_a_wrapped_subject_with_an_emoji_loses_no_characters(qtbot):
 
     assert len(lines) > 1
     assert "".join(line.text for line in lines) == subject
+
+
+# ── Ref badges and the sha ───────────────────────────────────────────────────
+
+
+SHA = "bc8a15f6"
+LONG_BRANCH = "claude/code-review-loop-refactor"
+LONG_REMOTE = "origin/claude/code-review-loop-refactor"
+
+
+def _drawn(painted: RecordingPainter, text: str) -> DrawnText:
+    return next(t for t in painted.texts if t.text == text)
+
+
+def _badge_labels(painted: RecordingPainter) -> list[DrawnText]:
+    badge_rects = [rect for rect, _ in painted.badges]
+    return [t for t in painted.texts if t.rect in badge_rects]
+
+
+def test_a_badge_wider_than_the_room_left_of_the_sha_stays_clear_of_it(qtbot):
+    info = _info(branch_names=[LONG_BRANCH], head_branch=LONG_BRANCH, short_oid=SHA)
+    width = _text_width(SHA) + _text_width(LONG_BRANCH) // 2
+
+    painted = _paint(info, width)
+
+    sha = _drawn(painted, SHA).bounds
+    assert painted.badges
+    assert not any(rect.intersects(sha) for rect, _ in painted.badges)
+
+
+def test_a_badge_wider_than_the_row_is_elided_not_cut_mid_glyph(qtbot):
+    info = _info(branch_names=[LONG_BRANCH, LONG_REMOTE], short_oid=SHA)
+    width = _text_width(LONG_REMOTE) // 2
+
+    painted = _paint(info, width)
+
+    assert len(painted.badges) == 2
+    assert all(rect.left() >= 0 and rect.right() < width for rect, _ in painted.badges)
+    labels = _badge_labels(painted)
+    assert all(label.fits() for label in labels)
+    assert all(label.text.endswith(ELLIPSIS) for label in labels)
+
+
+def test_badges_that_fit_are_drawn_whole(qtbot):
+    info = _info(branch_names=["main", "origin/main"], short_oid=SHA)
+
+    painted = _paint(info, 4 * _text_width(f"main origin/main {SHA}"))
+
+    assert [label.text for label in _badge_labels(painted)] == ["main", "origin/main"]
