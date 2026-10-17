@@ -42,7 +42,8 @@ class WorktreeCli:
             raise WorktreeCommandError(f"`{self._git}` executable not found on PATH")
         args = [self._git, "worktree", "remove"]
         if force:
-            args.append("--force")
+            # Once overrides uncommitted changes; a lock needs it a second time.
+            args += ["--force", "--force"]
         args.append(worktree_path)
         try:
             subprocess.run(
