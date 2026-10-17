@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from git_gui.presentation.theme import get_theme_manager
+
 
 def _sanitize_branch(branch: str) -> str:
     """Replace path-unfriendly chars in a branch name for the default path."""
@@ -31,6 +33,20 @@ def _default_location(repo_path: str, branch: str) -> str:
     parent = p.parent
     name = p.name or "worktree"
     return str(parent / f"{name}-{_sanitize_branch(branch or 'new')}")
+
+
+def _location_problem(location: str) -> str | None:
+    """Why a worktree cannot be created at `location`, or None when it can."""
+    if not location:
+        return None
+    path = Path(location)
+    if not path.is_absolute():
+        # git would resolve it against the app's working directory.
+        return "Location must be an absolute path."
+    if path.exists():
+        # libgit2 refuses any existing folder, even an empty one.
+        return "This location already exists; choose a folder that does not exist yet."
+    return None
 
 
 class AddWorktreeDialog(QDialog):
@@ -107,6 +123,11 @@ class AddWorktreeDialog(QDialog):
         loc_row = QHBoxLayout()
         loc_row.addWidget(self._location_edit, 1)
         loc_row.addWidget(self._browse_btn)
+        self._location_error = QLabel()
+        self._location_error.setWordWrap(True)
+        self._location_error.setStyleSheet(f"color: {get_theme_manager().current.colors.error};")
+        self._location_error.setVisible(False)
+        self._location_edit.textChanged.connect(self._refresh_location_error)
 
         # Switch-after checkbox.
         self._switch_after_cb = QCheckBox("Switch to new worktree after creating")
@@ -118,6 +139,7 @@ class AddWorktreeDialog(QDialog):
         form.addRow("", self._mode_stack)
         form.addRow("", self._in_use_notice)
         form.addRow("Location:", loc_row)
+        form.addRow("", self._location_error)
         form.addRow("", self._switch_after_cb)
 
         # Buttons.
@@ -249,6 +271,11 @@ class AddWorktreeDialog(QDialog):
         self._in_use_notice.setVisible(path is not None)
         self._in_use_label.setText(f"Already checked out at {path}" if path else "")
 
+    def _refresh_location_error(self) -> None:
+        problem = _location_problem(self.location())
+        self._location_error.setText(problem or "")
+        self._location_error.setVisible(problem is not None)
+
     def _refresh_default_location(self) -> None:
         if self._location_dirty:
             return
@@ -258,7 +285,7 @@ class AddWorktreeDialog(QDialog):
     def _refresh_add_button(self) -> None:
         branch = self._current_branch()
         loc = self.location()
-        valid = bool(branch) and bool(loc)
+        valid = bool(branch) and bool(loc) and _location_problem(loc) is None
         if not self.is_create_new() and self.branch_disabled(branch):
             valid = False
         self._buttons.button(QDialogButtonBox.Ok).setEnabled(valid)
