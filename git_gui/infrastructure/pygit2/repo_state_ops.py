@@ -5,7 +5,7 @@ import os
 import pygit2
 
 from git_gui.domain.entities import RepoState, RepoStateInfo
-from git_gui.resources import git_ssh_env
+from git_gui.resources import git_ssh_env, subprocess_kwargs
 
 # Keyed by `pygit2.enums.RepositoryState` — the legacy `pygit2.GIT_REPOSITORY_*`
 # constants this used to read were removed in pygit2 1.20. Because they were
@@ -141,6 +141,7 @@ class RepoStateOps:
                 env=self._git_env,
                 capture_output=True,
                 text=True,
+                **subprocess_kwargs(),
             )
             if result.returncode != 0:
                 raise RuntimeError(
