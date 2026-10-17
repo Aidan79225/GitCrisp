@@ -32,6 +32,9 @@ _ROLE_MAP = {
 }
 
 
+_BOM = "﻿"
+
+
 @lru_cache(maxsize=128)
 def _lexer_for(filename: str) -> Lexer:
     try:
@@ -54,13 +57,15 @@ def tokenize(text: str, filename: str) -> list[SyntaxToken]:
     except Exception:
         return []
     tokens: list[SyntaxToken] = []
-    offset = 0
+    # Pygments drops a leading byte-order mark before lexing, and ends its
+    # input with a newline if it lacks one; offsets have to be counted against
+    # the text the caller drew, not the text Pygments lexed.
+    offset = len(_BOM) if text.startswith(_BOM) else 0
     for tok_type, value in pairs:
-        length = len(value)
+        start, offset = offset, min(offset + len(value), len(text))
         role = _resolve_role(tok_type)
-        if role is not None:
-            tokens.append(SyntaxToken(offset, offset + length, role))
-        offset += length
+        if role is not None and start < offset:
+            tokens.append(SyntaxToken(start, offset, role))
     return tokens
 
 

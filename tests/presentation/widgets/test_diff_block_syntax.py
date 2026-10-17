@@ -247,3 +247,39 @@ def test_a_multi_line_change_pairs_each_removed_line_with_its_replacement(qtbot)
     assert _bg_color_at(editor, 1, 17) == removed  # bar = [2]
     assert _bg_color_at(editor, 3, 17) == added  # bar = [20]
     assert _bg_color_at(editor, 1, 11) != removed  # [bar] is the same on both sides
+
+
+def _format_at_qt(editor: QPlainTextEdit, line_index: int, qt_col: int):
+    """The char format at a Qt (UTF-16) column, where an emoji takes two."""
+    block = editor.document().findBlockByNumber(line_index)
+    cursor = editor.textCursor()
+    cursor.setPosition(block.position() + qt_col + 1)  # reads the char before
+    return cursor.charFormat()
+
+
+def test_syntax_colours_stay_on_their_characters_after_an_emoji(qtbot):
+    """Qt counts an emoji as two positions where Python counts one, so every
+    colour after it landed a character early."""
+    hunk = Hunk(header="@@ -1 +1 @@", lines=[(" ", 's = "\U0001f389" # note\n')])
+    editor = _editor_for_hunk(qtbot, hunk, "x.py")
+    syntax = make_syntax_formats()
+    string_fg = syntax.string.foreground().color().name()
+    comment_fg = syntax.comment.foreground().color().name()
+
+    # After the 11-char prefix, in UTF-16: '"' 4, emoji 5-6, '"' 7, ' ' 8, '#' 9.
+    assert _format_at_qt(editor, 0, 11 + 7).foreground().color().name() == string_fg
+    assert _format_at_qt(editor, 0, 11 + 8).foreground().color().name() != comment_fg
+    assert _format_at_qt(editor, 0, 11 + 9).foreground().color().name() == comment_fg
+
+
+def test_word_overlay_stays_on_the_changed_word_after_an_emoji(qtbot):
+    hunk = Hunk(
+        header="@@ -1 +1 @@",
+        lines=[("-", 'msg = "\U0001f389 done" + foo\n'), ("+", 'msg = "\U0001f389 done" + bar\n')],
+    )
+    editor = _editor_for_hunk(qtbot, hunk, "x.py")
+    added = make_syntax_formats().added_word_overlay.background().color()
+
+    # In UTF-16 the emoji is 7-8, so 'bar' is 18-20 and the space before it 17.
+    assert _format_at_qt(editor, 1, 11 + 20).background().color() == added
+    assert _format_at_qt(editor, 1, 11 + 17).background().color() != added
