@@ -52,7 +52,25 @@ def _isolated_settings(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True, scope="session")
-def _theme_manager():
+def _isolated_theme_settings(_isolated_gitcrisp_home):
+    """Keep the theme's settings.json out of the developer's AppData.
+
+    ``settings_path()`` comes from ``QStandardPaths.AppDataLocation``, which
+    neither the QSettings redirect nor ``Path.home()`` reaches. Every
+    ``set_mode`` in the suite wrote there and the session's ThemeManager read
+    it back at startup, so one run's theme mode and typography scale became
+    the next run's starting state, on every checkout of the machine.
+    """
+    from git_gui.presentation.theme import settings
+
+    path = _isolated_gitcrisp_home / "AppData" / "GitStack" / "settings.json"
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(settings, "settings_path", lambda: path)
+        yield path
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _theme_manager(_isolated_theme_settings):
     """Initialize ThemeManager singleton for tests that touch theme-aware code."""
     from PySide6.QtWidgets import QApplication
 
