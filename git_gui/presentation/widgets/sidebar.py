@@ -422,19 +422,23 @@ class SidebarWidget(QWidget):
         SmartCheckout when set. Falls back to direct command if None."""
         self._smart_checkout = sc
 
+    def _checkout(self, branch: str) -> None:
+        sc = self._smart_checkout
+        if sc is None:
+            self.checkout_branch_requested.emit(branch)
+            return
+        try:
+            sc.execute(branch)
+        except Exception:
+            # SmartCheckout only absorbs the worktree collision. The sidebar
+            # has nowhere to report anything else, so the unified
+            # `_on_checkout_branch` flow runs the checkout again and logs why
+            # it failed. A failed checkout leaves HEAD and the tree untouched.
+            self.checkout_branch_requested.emit(branch)
+
     def trigger_branch_action(self, action: str, branch: str) -> None:
         if action == "checkout":
-            # Route through SmartCheckout if MainWindow has set one;
-            # otherwise emit the standard checkout signal for MainWindow
-            # to handle through the unified `_on_checkout_branch` flow.
-            sc = self._smart_checkout
-            if sc is not None:
-                try:
-                    sc.execute(branch)
-                except Exception:
-                    pass
-            else:
-                self.checkout_branch_requested.emit(branch)
+            self._checkout(branch)
         elif action == "checkout_in_new_worktree":
             self.checkout_in_new_worktree_requested.emit(branch)
         elif action == "merge":
