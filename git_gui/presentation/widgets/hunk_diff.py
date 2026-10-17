@@ -253,7 +253,11 @@ class HunkDiffWidget(QWidget):
             if path in self._submodule_paths
             else None
         )
-        return make_file_block(path, on_header_clicked=on_click)
+        return make_file_block(
+            path,
+            on_header_clicked=on_click,
+            on_state_changed=lambda _expanded: self._loader.check_viewport(),
+        )
 
     def _on_load_done(
         self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk], is_untracked: bool
