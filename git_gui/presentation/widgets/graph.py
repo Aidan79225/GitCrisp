@@ -746,9 +746,12 @@ class GraphWidget(QWidget):
         # with the diff pane. The model reset above wiped the view's current
         # row; without this restore the user sees a diff pane with content but
         # no corresponding highlight in the graph. Skipped during retry — the
-        # next reload will run this branch.
+        # next reload will run this branch. A selection whose row is gone is
+        # forgotten, or a click on that commit when it returns would not
+        # reach the diff pane.
         if not retrying and self._selected_oid is not None:
-            self._restore_selection_no_scroll(self._selected_oid)
+            if not self._restore_selection_no_scroll(self._selected_oid):
+                self._selected_oid = None
 
         # Restore the user's scroll position. Auto-refreshes (e.g., on focus
         # return) used to silently jump the viewport back to the top because
@@ -833,11 +836,12 @@ class GraphWidget(QWidget):
         # trying.
         self._scroll_anchor_oid = None
 
-    def _restore_selection_no_scroll(self, oid: str) -> None:
+    def _restore_selection_no_scroll(self, oid: str) -> bool:
         """Re-apply the highlighted row to the row matching `oid` after a
         model reset, without scrolling. Used in _on_reload_done so the
         graph's highlight survives auto-reloads (RepoChangeDetector,
-        post-operation flows) without losing the user's selection."""
+        post-operation flows) without losing the user's selection.
+        Returns whether `oid` still has a row."""
         for row in range(self._model.rowCount()):
             if self._model.data(self._model.index(row, 0), OID_ROLE) == oid:
                 index = self._model.index(row, 0)
@@ -845,7 +849,8 @@ class GraphWidget(QWidget):
                     index,
                     QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows,
                 )
-                return
+                return True
+        return False
 
     def _on_scroll(self, value: int) -> None:
         scrollbar = self._view.verticalScrollBar()
@@ -1253,6 +1258,8 @@ class GraphWidget(QWidget):
     def clear_selection(self) -> None:
         self._view.clearSelection()
         self._view.setCurrentIndex(self._model.index(-1, 0))
+        # Left set, it would swallow the next click on the same commit.
+        self._selected_oid = None
 
     def set_stash_visible(self, visible: bool) -> None:
         self._stash_btn.setVisible(visible)
