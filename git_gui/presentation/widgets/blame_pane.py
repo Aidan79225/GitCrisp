@@ -54,6 +54,19 @@ def _elide(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+_IN_BLOCK_BREAK = str.maketrans({"\r": " ", " ": " "})
+
+
+def _document_text(lines: list[BlameLine]) -> str:
+    """The editor's text, one block per blamed line as the gutter assumes.
+
+    A document starts a block at a lone carriage return and at U+2029, where
+    git does not end the line. U+2028 breaks the row inside the block
+    instead, and swaps one UTF-16 unit for one, so no offset moves.
+    """
+    return "\n".join(line.text.translate(_IN_BLOCK_BREAK) for line in lines)
+
+
 def _syntax_spans(lines: list[BlameLine], path: str) -> list[SyntaxToken]:
     """Syntax tokens over the document `set_lines` builds from `lines`.
 
@@ -61,7 +74,7 @@ def _syntax_spans(lines: list[BlameLine], path: str) -> list[SyntaxToken]:
     counts code points, so each emoji or other astral character would
     otherwise shift every token after it one place to the left.
     """
-    text = "\n".join(line.text for line in lines)
+    text = _document_text(lines)
     positions = list(accumulate((2 if ord(ch) > 0xFFFF else 1 for ch in text), initial=0))
     return [
         SyntaxToken(positions[token.start], positions[token.end], token.kind)
@@ -132,7 +145,7 @@ class _BlameEditor(QPlainTextEdit):
         self._lines = lines
         self._spans = spans
         self._gutter_w = self._measure_gutter()
-        self.setPlainText("\n".join(line.text for line in lines))
+        self.setPlainText(_document_text(lines))
         self._apply_syntax()
         self._sync_gutter_width()
         self._gutter.update()

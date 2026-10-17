@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import pytest
+
 from git_gui.domain.entities import BlameLine
 from git_gui.presentation.theme import get_theme_manager
 from git_gui.presentation.widgets.blame_pane import (
@@ -440,3 +442,25 @@ def test_a_cut_path_stays_whole_in_the_tooltip(qtbot):
 
     assert w._status.text() != w._status.full_text(), "this width has to cut it"
     assert LONG_PATH in w._status.toolTip()
+
+
+# ── Characters a document breaks on and git does not ─────────────────────────
+
+
+@pytest.mark.parametrize("inside", ["\r", " "], ids=["carriage return", "paragraph sep"])
+def test_a_line_git_keeps_whole_stays_one_line_beside_its_gutter(qtbot, inside):
+    """The gutter pairs the nth text block with the nth blamed line.
+
+    A document starts a block at a lone carriage return and at U+2029, where
+    git does not end the line, so every gutter entry below one named the line
+    above its own.
+    """
+    lines = [
+        _line(1, f"a{inside}b", AAA, run_start=True),
+        _line(2, "c", BBB, run_start=True),
+    ]
+    w, _ = _window(qtbot, lines=lines)
+    document = w._editor.document()
+
+    assert document.blockCount() == len(lines)
+    assert document.findBlockByNumber(1).text() == "c"
