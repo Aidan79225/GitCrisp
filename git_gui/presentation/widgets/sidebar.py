@@ -118,8 +118,9 @@ class _SidebarTree(QTreeView):
 
 
 class _LoadSignals(QObject):
-    # branches, stashes, tags, remote_tag_names, {local branch: upstream shorthand}
-    done = Signal(list, list, list, set, dict)
+    # generation, branches, stashes, tags, remote_tag_names,
+    # {local branch: upstream shorthand}
+    done = Signal(int, list, list, list, set, dict)
 
 
 class SidebarWidget(QWidget):
@@ -155,6 +156,9 @@ class SidebarWidget(QWidget):
         self._repo_path = repo_path
         self._worktree_branches: set[str] = set()
         self._smart_checkout = None
+        # Bumped by every reload. A load that finishes after a newer one was
+        # started — a previous repo's, or a superseded F5 — is dropped.
+        self._load_generation = 0
 
         self._tree = _SidebarTree()
         self._tree.setAccessibleName("Branches, tags and stashes")
@@ -192,9 +196,11 @@ class SidebarWidget(QWidget):
 
     def reload(self) -> None:
         queries = self._queries
+        self._load_generation += 1
+        generation = self._load_generation
 
         signals = _LoadSignals()
-        signals.done.connect(self._on_load_done)
+        signals.done.connect(self._on_worker_done)
         self._load_signals = signals  # prevent GC
 
         cache = self._remote_tag_cache
@@ -214,9 +220,22 @@ class SidebarWidget(QWidget):
                 data = cache.load(repo_path)
                 for names in data.values():
                     remote_tag_names.update(names)
-            signals.done.emit(branches, stashes, tags, remote_tag_names, upstreams)
+            signals.done.emit(generation, branches, stashes, tags, remote_tag_names, upstreams)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_worker_done(
+        self,
+        generation: int,
+        branches: list[Branch],
+        stashes: list[Stash],
+        tags: list[Tag],
+        remote_tag_names: set[str],
+        upstreams: dict[str, str],
+    ) -> None:
+        if generation != self._load_generation:
+            return
+        self._on_load_done(branches, stashes, tags, remote_tag_names, upstreams)
 
     def _on_load_done(
         self,
