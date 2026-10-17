@@ -154,15 +154,18 @@ class AvatarLoader(QObject):
             self._remember_miss(email_hash)
             return
         self._inflight.discard(email_hash)
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
-        (self._cache_dir / f"{email_hash}.png").write_bytes(data)
+        self._write_cache_file(f"{email_hash}.png", data)
         self._memory[email_hash] = pix
         self.avatar_ready.emit(email_hash)
 
     def _write_miss_marker(self, email_hash: str) -> None:
+        self._write_cache_file(f"{email_hash}.404", b"")
+
+    def _write_cache_file(self, name: str, data: bytes) -> None:
+        """Best effort: an unwritable cache costs a refetch next run, nothing more."""
         try:
             self._cache_dir.mkdir(parents=True, exist_ok=True)
-            (self._cache_dir / f"{email_hash}.404").touch()
+            (self._cache_dir / name).write_bytes(data)
         except OSError:
             pass
 
