@@ -7,6 +7,8 @@ the widest row in the history.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QTextLayout, QTextOption
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
@@ -74,24 +76,57 @@ def _wrap_message(painter: QPainter, message: str, width: int) -> list[str]:
     return lines
 
 
-def _badge_line_count(
+@dataclass(frozen=True)
+class _PlacedBadge:
+    name: str
+    label: str
+    line: int
+    x: int
+    width: int
+
+
+def _hash_width(fm: QFontMetrics, short_oid: str) -> int:
+    """Room the sha takes at the right of the first badge line, gap included."""
+    return fm.horizontalAdvance(short_oid) + BADGE_GAP * 2
+
+
+def _layout_badges(
     fm: QFontMetrics, branch_names: list[str], first_line_width: int, full_width: int
-) -> int:
-    """Compute how many lines badges need, given first-line and subsequent-line widths."""
-    if not branch_names:
-        return 1
-    lines = 1
+) -> list[_PlacedBadge]:
+    """Flow the badges left to right, wrapping onto lines of ``full_width``.
+
+    A badge too wide even for a line to itself has its label elided to fit, so
+    it never runs under the sha or past the edge of the row.
+    """
+    placed: list[_PlacedBadge] = []
+    line = 0
     x = 0
-    max_x = first_line_width
+    line_width = first_line_width
     for name in branch_names:
-        display = _badge_display_name(name)
-        badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
-        if x > 0 and x + badge_w > max_x:
-            lines += 1
+        label = _badge_display_name(name)
+        width = fm.horizontalAdvance(label) + BADGE_H_PAD * 2
+        if x > 0 and x + width > line_width:
+            line += 1
             x = 0
-            max_x = full_width
-        x += badge_w + BADGE_GAP
-    return lines
+            line_width = full_width
+        if width > line_width - x:
+            width = line_width - x
+            label = fm.elidedText(label, Qt.ElideRight, width - BADGE_H_PAD * 2)
+        placed.append(_PlacedBadge(name, label, line, x, width))
+        x += width + BADGE_GAP
+    return placed
+
+
+def _badge_line_count(placed: list[_PlacedBadge]) -> int:
+    return placed[-1].line + 1 if placed else 1
+
+
+def _paint_badge(painter: QPainter, rect: QRect, color: QColor, label: str) -> None:
+    painter.setBrush(QBrush(color))
+    painter.setPen(Qt.NoPen)
+    painter.drawRoundedRect(rect, BADGE_RADIUS, BADGE_RADIUS)
+    painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE))
+    painter.drawText(rect, Qt.AlignCenter, label)
 
 
 class CommitRowDelegate(QStyledItemDelegate):
@@ -107,9 +142,8 @@ class CommitRowDelegate(QStyledItemDelegate):
         indent = row_graph_width(index.data(LANE_ROLE))
         row_w = option.rect.width() if option.rect.width() > 0 else indent + 400
         cell_w = max(row_w - indent - CELL_PAD * 2, 1)
-        hash_w = fm.horizontalAdvance(info.short_oid) + BADGE_GAP * 2
-        first_line_w = cell_w - hash_w
-        badge_lines = _badge_line_count(fm, info.branch_names, first_line_w, cell_w)
+        first_line_w = cell_w - _hash_width(fm, info.short_oid)
+        badge_lines = _badge_line_count(_layout_badges(fm, info.branch_names, first_line_w, cell_w))
 
         # author row + badge rows + message lines + padding
         return QSize(option.rect.width(), header_h * (1 + badge_lines) + line_h * MESSAGE_LINES + 8)
@@ -163,39 +197,8 @@ class CommitRowDelegate(QStyledItemDelegate):
 
         # ── Sub-row 2+: branch badges (left, multi-line) + hash (right, first line) ─
         cell_w = rect.width() - CELL_PAD * 2
-        hash_w = fm.horizontalAdvance(info.short_oid) + BADGE_GAP * 2
-        first_line_max_x = cell_w - hash_w
-        badge_h = line_h + BADGE_V_PAD * 2
-
-        badge_line = 0
-        r2_top = rect.top() + header_h
-        x = 0
-
-        for name in info.branch_names:
-            display = _badge_display_name(name)
-            badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
-            max_x = first_line_max_x if badge_line == 0 else cell_w
-            if x > 0 and x + badge_w > max_x:
-                badge_line += 1
-                x = 0
-            row_top = r2_top + badge_line * header_h
-            cy = row_top + header_h // 2
-            bx = rect.left() + CELL_PAD + x
-            badge_rect = QRect(bx, cy - badge_h // 2, badge_w, badge_h)
-            painter.setBrush(QBrush(_badge_color(name, info.head_branch)))
-            painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
-            painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE))
-            painter.drawText(badge_rect, Qt.AlignCenter, display)
-            x += badge_w + BADGE_GAP
-
-        # Hash right-aligned on first badge line
-        r2_first = QRect(rect.left() + CELL_PAD, r2_top, cell_w, header_h)
-        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
-        painter.drawText(r2_first, Qt.AlignVCenter | Qt.AlignRight, info.short_oid)
-
-        # Total badge lines for message offset
-        badge_lines = _badge_line_count(fm, info.branch_names, first_line_max_x, cell_w)
+        first_ref_line = QRect(rect.left() + CELL_PAD, rect.top() + header_h, cell_w, header_h)
+        badge_lines = self._paint_refs(painter, info, first_ref_line)
 
         msg_top = rect.top() + header_h * (1 + badge_lines)
         first_message_line = QRect(rect.left() + CELL_PAD, msg_top, cell_w, line_h)
@@ -203,6 +206,24 @@ class CommitRowDelegate(QStyledItemDelegate):
 
         self._paint_divider(painter, row_rect)
         painter.restore()
+
+    @staticmethod
+    def _paint_refs(painter: QPainter, info: CommitInfo, first_line: QRect) -> int:
+        """Paint the badges and the sha, and return how many lines the badges took."""
+        fm = painter.fontMetrics()
+        first_line_w = first_line.width() - _hash_width(fm, info.short_oid)
+        placed = _layout_badges(fm, info.branch_names, first_line_w, first_line.width())
+        badge_h = fm.height() + BADGE_V_PAD * 2
+        for badge in placed:
+            if not badge.label:
+                continue  # not even room for an ellipsis
+            cy = first_line.top() + badge.line * first_line.height() + first_line.height() // 2
+            rect = QRect(first_line.left() + badge.x, cy - badge_h // 2, badge.width, badge_h)
+            _paint_badge(painter, rect, _badge_color(badge.name, info.head_branch), badge.label)
+
+        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
+        painter.drawText(first_line, Qt.AlignVCenter | Qt.AlignRight, info.short_oid)
+        return _badge_line_count(placed)
 
     @staticmethod
     def _paint_message(painter: QPainter, message: str, first_line: QRect) -> None:
