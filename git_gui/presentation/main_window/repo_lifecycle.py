@@ -282,10 +282,12 @@ class RepoLifecycleMixin:
             branches = [b.name for b in self._queries.get_branches.execute() if not b.is_remote]
         except Exception:
             branches = []
+        # The main worktree counts too: git refuses a branch checked out in
+        # any worktree, not only in a linked one.
         in_use: dict[str, str] = {}
         try:
             for wt in self._queries.list_worktrees.execute():
-                if wt.branch and not wt.is_main:
+                if wt.branch:
                     in_use[wt.branch] = str(wt.path)
         except Exception:
             pass
