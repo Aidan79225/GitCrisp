@@ -179,3 +179,30 @@ def test_amend_is_disabled_during_a_merge(qtbot):
 
     assert w._chk_amend.isEnabled() is False
     assert w._chk_amend.isChecked() is False
+
+
+# ── Detached HEAD is not an operation in progress ────────────────────────────
+
+
+def test_detached_head_still_rejects_an_empty_message(qtbot):
+    w, _, commands = _amend_widget(qtbot)
+    w._conflict_banner = QWidget()
+    w._banner_label = QLabel()
+    w.update_conflict_banner("DETACHED_HEAD")
+    received: list[str] = []
+    w.commit_failed.connect(received.append)
+
+    w._on_commit()
+
+    assert received == ["Commit message is empty"]
+    commands.create_commit.execute.assert_not_called()
+
+
+def test_amend_is_available_on_a_detached_head(qtbot):
+    w, _, _ = _amend_widget(qtbot)
+    w._conflict_banner = QWidget()
+    w._banner_label = QLabel()
+
+    w.update_conflict_banner("DETACHED_HEAD")
+
+    assert w._chk_amend.isEnabled() is True

@@ -39,6 +39,12 @@ _BADGE_GAP = 6
 _BADGE_TEXT_RESERVATION = "          "
 _BADGE_LEFT_INSET = 30
 
+# While one of these runs, Commit continues it rather than creating a commit.
+# A detached HEAD is not among them: committing there is an ordinary commit.
+_OPERATIONS_IN_PROGRESS = frozenset(
+    {RepoState.MERGING, RepoState.REBASING, RepoState.CHERRY_PICKING, RepoState.REVERTING}
+)
+
 
 class _FileDelegate(CheckIndicatorDelegate):
     """Adds a delta badge between the check indicator and filename."""
@@ -349,7 +355,7 @@ class WorkingTreeWidget(QWidget):
     def _on_commit(self) -> None:
         state = getattr(self, "_current_state", "CLEAN")
         msg = self._msg_edit.toPlainText().strip()
-        if state == "CLEAN" and not msg:
+        if state not in _OPERATIONS_IN_PROGRESS and not msg:
             self.commit_failed.emit("Commit message is empty")
             return
 
@@ -525,7 +531,7 @@ class WorkingTreeWidget(QWidget):
         self._current_state = state_name
         # An in-progress merge/rebase/cherry-pick/revert has its own commit path.
         # Untick before labelling: unticking resets the label to "Commit".
-        amend_allowed = state_name == "CLEAN"
+        amend_allowed = state_name not in _OPERATIONS_IN_PROGRESS
         if not amend_allowed:
             self._untick_amend()
         self._chk_amend.setEnabled(amend_allowed)
