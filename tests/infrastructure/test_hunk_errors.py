@@ -40,3 +40,11 @@ def test_a_hunk_unstage_refused_by_git_carries_gits_reason(repo_path):
 
     with pytest.raises(RuntimeError, match="index.lock"):
         impl.unstage_hunk("f.txt", hunk.header)
+
+
+@pytest.mark.parametrize("operation", ["stage_hunk", "unstage_hunk", "discard_hunk"])
+def test_a_hunk_that_is_no_longer_in_the_diff_is_reported(repo_path, operation):
+    impl = _edited_repo(repo_path)
+
+    with pytest.raises(RuntimeError, match="not found in f.txt"):
+        getattr(impl, operation)("f.txt", "@@ -7,3 +7,3 @@\n")

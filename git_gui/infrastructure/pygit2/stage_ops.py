@@ -64,13 +64,11 @@ class StageOps:
 
     def stage_hunk(self, path: str, hunk_header: str) -> None:
         patch = self._build_hunk_patch(path, hunk_header, staged=False)
-        if patch:
-            self._apply_patch(patch, "--cached")
+        self._apply_patch(patch, "--cached")
 
     def unstage_hunk(self, path: str, hunk_header: str) -> None:
         patch = self._build_hunk_patch(path, hunk_header, staged=True)
-        if patch:
-            self._apply_patch(patch, "--cached", "--reverse")
+        self._apply_patch(patch, "--cached", "--reverse")
 
     def discard_file(self, path: str) -> None:
         full = os.path.join(self._repo.workdir, path)
@@ -113,8 +111,7 @@ class StageOps:
 
     def discard_hunk(self, path: str, hunk_header: str) -> None:
         patch = self._build_hunk_patch(path, hunk_header, staged=False)
-        if patch:
-            self._apply_patch(patch, "--reverse")
+        self._apply_patch(patch, "--reverse")
 
     def _apply_patch(self, patch: bytes, *options: str) -> None:
         self._run_git_checked(["apply", *options], stdin=patch)
@@ -139,7 +136,7 @@ class StageOps:
             reason = result.stderr.decode("utf-8", errors="replace").strip()
             raise RuntimeError(reason or f"git exited with status {result.returncode}")
 
-    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> bytes | None:
+    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> bytes:
         if staged:
             if self._repo.head_is_unborn:
                 empty_tree_oid = self._repo.TreeBuilder().write()
@@ -157,7 +154,8 @@ class StageOps:
             for hunk in patch.hunks:
                 if hunk.header == hunk_header:
                     return _single_hunk_patch(path, patch.delta, hunk)
-        return None
+        # Returning quietly let the checkbox show a stage that never happened.
+        raise RuntimeError(f"hunk {hunk_header.strip()} not found in {path}")
 
 
 def _single_hunk_patch(path: str, delta: pygit2.DiffDelta, hunk: pygit2.DiffHunk) -> bytes:
