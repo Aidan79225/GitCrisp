@@ -229,6 +229,12 @@ class WorkingTreeWidget(QWidget):
         self._hunk_diff.refresh_view()
 
     def reload(self) -> None:
+        """Re-read the working tree, keeping the selected file selected.
+
+        The change detector calls this after every index write, including a
+        stage made from this panel, so a reload that dropped the selection
+        would throw the user back to the all-files view after each one.
+        """
         queries = self._queries
 
         signals = _LoadSignals()
@@ -245,14 +251,29 @@ class WorkingTreeWidget(QWidget):
     def _on_reload_done(self, files: list[FileStatus], partial: set[str]) -> None:
         if self._queries is None:
             return
+        selected_path = self._selected_path()
         files = _conflicts_first(files)
         self._file_model.reload(files, partial)
         if not files:
             self._hunk_diff.clear()
             self.working_tree_empty.emit()
-        else:
-            # No selection after reload — show all files' hunks
+        elif not (selected_path and self._reselect(selected_path)):
             self._hunk_diff.load_all_files([f.path for f in files])
+
+    def _selected_path(self) -> str | None:
+        fs = self._file_model.data(self._file_view.currentIndex(), Qt.UserRole)
+        return fs.path if fs else None
+
+    def _reselect(self, path: str) -> bool:
+        """Select *path* again after a refill; False when it is no longer listed."""
+        for row in range(self._file_model.rowCount()):
+            index = self._file_model.index(row)
+            fs = self._file_model.data(index, Qt.UserRole)
+            if fs and fs.path == path:
+                self._file_view.setCurrentIndex(index)
+                self._hunk_diff.load_file(path)
+                return True
+        return False
 
     def _on_file_selected(self, current, previous) -> None:
         if not current.isValid():
@@ -478,53 +499,7 @@ class WorkingTreeWidget(QWidget):
         return True
 
     def _on_files_changed(self) -> None:
-        # Remember selected path before reload clears selection
-        selected_path = None
-        idx = self._file_view.currentIndex()
-        if idx.isValid():
-            fs = self._file_model.data(idx, Qt.UserRole)
-            if fs:
-                selected_path = fs.path
-
-        queries = self._queries
-
-        signals = _LoadSignals()
-        signals.done.connect(
-            lambda files, partial: self._on_files_changed_done(files, partial, selected_path)
-        )
-        self._load_signals = signals  # prevent GC
-
-        def _worker():
-            raw_files = queries.get_working_tree.execute()
-            files, partial = _deduplicate(raw_files)
-            signals.done.emit(files, partial)
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _on_files_changed_done(
-        self, files: list[FileStatus], partial: set[str], selected_path: str | None
-    ) -> None:
-        if self._queries is None:
-            return
-        files = _conflicts_first(files)
-        self._file_model.reload(files, partial)
-
-        if not files:
-            self._hunk_diff.clear()
-            self.working_tree_empty.emit()
-            return
-
-        # Restore selection by path and refresh hunk diff
-        if selected_path:
-            for row in range(self._file_model.rowCount()):
-                fs = self._file_model.data(self._file_model.index(row), Qt.UserRole)
-                if fs and fs.path == selected_path:
-                    self._file_view.setCurrentIndex(self._file_model.index(row))
-                    self._hunk_diff.load_file(selected_path)
-                    return
-
-        # No selection (or selected file disappeared) — show all files' hunks
-        self._hunk_diff.load_all_files([f.path for f in files])
+        self.reload()
 
     def update_conflict_banner(self, state_name: str, merge_msg: str | None = None) -> None:
         self._current_state = state_name

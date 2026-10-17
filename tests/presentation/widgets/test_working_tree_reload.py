@@ -77,3 +77,45 @@ def test_the_diff_blocks_follow_the_order_of_the_list(qtbot, panel):
     )
 
     assert w._hunk_diff._all_paths == ["z.txt", "a.txt"]
+
+
+# ── An auto-reload keeps the file the user is reading ────────────────────────
+
+
+def _select_then_reload(qtbot, w, queries, after: list[FileStatus]) -> None:
+    """Select a.txt, then reload onto *after*, whose b.txt is staged so the
+    refill can be told apart from the list it replaces."""
+    _load(
+        qtbot,
+        w,
+        queries,
+        [_fs("a.txt", StagingState.UNSTAGED), _fs("b.txt", StagingState.UNSTAGED)],
+    )
+    w._file_view.setCurrentIndex(w._file_model.index(0))
+    assert w._hunk_diff._current_path == "a.txt"
+    queries.get_working_tree.execute.return_value = after
+    w.reload()
+    qtbot.waitUntil(lambda: ("b.txt", StagingState.STAGED) in _listed(w), timeout=2000)
+
+
+def test_a_reload_keeps_the_selected_file_selected(qtbot, panel):
+    w, queries = panel
+    _select_then_reload(
+        qtbot,
+        w,
+        queries,
+        [_fs("a.txt", StagingState.UNSTAGED), _fs("b.txt", StagingState.STAGED)],
+    )
+
+    current = w._file_view.currentIndex()
+    assert current.isValid()
+    assert w._file_model.data(current, Qt.UserRole).path == "a.txt"
+    assert w._hunk_diff._current_path == "a.txt"
+
+
+def test_a_reload_falls_back_to_all_files_when_the_selected_file_is_gone(qtbot, panel):
+    w, queries = panel
+    _select_then_reload(qtbot, w, queries, [_fs("b.txt", StagingState.STAGED)])
+
+    assert not w._file_view.currentIndex().isValid()
+    assert w._hunk_diff._all_paths == ["b.txt"]
