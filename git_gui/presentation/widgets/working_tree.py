@@ -204,7 +204,7 @@ class WorkingTreeWidget(QWidget):
         self._commands = commands
         # Amend, the message and any merge or rebase in progress all belong to
         # the repo being left; carried over, Commit would act on them here.
-        self._set_amend_checked(False)
+        self._untick_amend()
         self._draft_msg = ""
         self._msg_edit.clear()
         self.update_conflict_banner(RepoState.CLEAN)
@@ -387,7 +387,7 @@ class WorkingTreeWidget(QWidget):
         first_line = msg.split("\n")[0]
         self._draft_msg = ""
         self._msg_edit.clear()
-        self._set_amend_checked(False)
+        self._untick_amend()
         self.commit_completed.emit(first_line)
         self.reload_requested.emit()
         self.reload()
@@ -523,6 +523,12 @@ class WorkingTreeWidget(QWidget):
 
     def update_conflict_banner(self, state_name: str, merge_msg: str | None = None) -> None:
         self._current_state = state_name
+        # An in-progress merge/rebase/cherry-pick/revert has its own commit path.
+        # Untick before labelling: unticking resets the label to "Commit".
+        amend_allowed = state_name == "CLEAN"
+        if not amend_allowed:
+            self._untick_amend()
+        self._chk_amend.setEnabled(amend_allowed)
         if state_name == "MERGING":
             self._banner_label.setText("\u26a0 Merge in progress")
             self._conflict_banner.setVisible(True)
@@ -544,19 +550,11 @@ class WorkingTreeWidget(QWidget):
         else:
             self._conflict_banner.setVisible(False)
             self._btn_commit.setText("Amend Commit" if self._chk_amend.isChecked() else "Commit")
-        # An in-progress merge/rebase/cherry-pick/revert has its own commit path.
-        self._chk_amend.setEnabled(state_name == "CLEAN")
-        if state_name != "CLEAN":
-            self._set_amend_checked(False)
 
-    def _set_amend_checked(self, checked: bool) -> None:
-        """Set the Amend checkbox without running the message-swap handler."""
-        if self._chk_amend.isChecked() == checked:
-            return
-        self._chk_amend.blockSignals(True)
-        self._chk_amend.setChecked(checked)
-        self._chk_amend.blockSignals(False)
-        self._btn_commit.setText("Amend Commit" if checked else "Commit")
+    def _untick_amend(self) -> None:
+        """Untick Amend through its handler, so the editor gets the draft back
+        instead of keeping HEAD's message."""
+        self._chk_amend.setChecked(False)
 
     def _on_abort_clicked(self) -> None:
         state = getattr(self, "_current_state", "CLEAN")
