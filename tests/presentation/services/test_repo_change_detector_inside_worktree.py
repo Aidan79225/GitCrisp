@@ -221,3 +221,29 @@ def test_a_branch_created_elsewhere_reaches_the_callback(qtbot, clone, worktree)
         qtbot.waitUntil(lambda: bool(calls), timeout=5000)
     finally:
         d.stop()
+
+
+# ── Opened on a subdirectory ─────────────────────────────────────────────────
+
+
+def test_a_subdirectory_of_a_clone_resolves_to_the_clones_directory(clone):
+    """The Open dialog accepts any folder git can discover a repo from, so the
+    path can sit below the working tree's root, with no `.git` of its own."""
+    (clone / "src").mkdir()
+
+    assert resolve_git_dirs(clone / "src") == (clone / ".git", clone / ".git")
+
+
+def test_a_subdirectory_of_a_submodule_reads_the_relative_pointer_from_the_checkout(submodule):
+    """The pointer is relative to the directory holding `.git`, not to the
+    subdirectory that was opened."""
+    (submodule / "src").mkdir()
+    git_dir, common_dir = resolve_git_dirs(submodule / "src")
+
+    assert git_dir == common_dir == submodule.parent / ".git" / "modules" / "lib"
+
+
+def test_a_subdirectory_of_a_clone_watches_the_clones_head(qtbot, clone):
+    (clone / "src").mkdir()
+
+    assert str(clone / ".git" / "HEAD") in _watched(qtbot, clone / "src")

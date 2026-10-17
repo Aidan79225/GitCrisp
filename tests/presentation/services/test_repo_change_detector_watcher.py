@@ -66,7 +66,7 @@ def test_stop_releases_all_watches(qtbot, repo_path):
 
 def test_stop_on_empty_watcher_does_not_warn(qtbot, tmp_path):
     """When stop() runs on a detector whose watch list never populated (e.g.
-    a monorepo subdirectory with no .git/ of its own), Qt must not emit
+    a path with no git directory at or above it), Qt must not emit
     'QFileSystemWatcher::removePaths: list is empty'.
 
     Captured via qInstallMessageHandler because Qt warnings on Windows do
