@@ -168,8 +168,15 @@ class BranchOps:
         local_name = parts[1] if len(parts) > 1 else remote_branch
         remote_ref = self._repo.branches.remote[remote_branch]
         local_ref = self._repo.branches.local.create(local_name, self._repo.get(remote_ref.target))
-        local_ref.upstream = remote_ref
-        self._repo.checkout(local_ref)
+        try:
+            local_ref.upstream = remote_ref
+            self._repo.checkout(local_ref)
+        except Exception:
+            # A checkout refused over uncommitted changes must not leave behind
+            # a branch the user never got onto: retrying would then find it and
+            # offer to reset "their" branch.
+            local_ref.delete()
+            raise
 
     def delete_branch(self, name: str) -> None:
         self._repo.branches.local[name].delete()

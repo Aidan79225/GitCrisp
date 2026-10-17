@@ -133,3 +133,23 @@ def test_get_branches_leaves_out_the_remote_head_symref(clone_with_a_feature_bra
     branches = Pygit2Repository(str(clone_with_a_feature_branch)).get_branches()
 
     assert sorted(b.name for b in branches if b.is_remote) == ["origin/feature", "origin/master"]
+
+
+def test_a_refused_remote_checkout_leaves_no_local_branch_behind(clone_with_a_feature_branch):
+    clone = clone_with_a_feature_branch
+    (clone / "f.txt").write_text("uncommitted edit\n")
+    impl = Pygit2Repository(str(clone))
+
+    with pytest.raises(pygit2.GitError):
+        impl.checkout_remote_branch("origin/feature")
+
+    assert _git(clone, "branch", "--list", "feature") == ""
+
+
+def test_remote_checkout_switches_to_a_local_branch_tracking_it(clone_with_a_feature_branch):
+    clone = clone_with_a_feature_branch
+
+    Pygit2Repository(str(clone)).checkout_remote_branch("origin/feature")
+
+    assert _git(clone, "rev-parse", "--abbrev-ref", "HEAD@{upstream}").strip() == "origin/feature"
+    assert _git(clone, "symbolic-ref", "--short", "HEAD").strip() == "feature"
