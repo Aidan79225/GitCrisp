@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import pygit2
 import pytest
 
+from git_gui.domain.entities import FileDelta, FileStatus, StagingState
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
@@ -146,3 +148,35 @@ def test_discarding_a_hunk_at_a_missing_final_newline_restores_head(repo_path):
     impl.discard_hunk("f.txt", _only_hunk_header(impl))
 
     assert (repo_path / "f.txt").read_bytes() == b"a\nb"
+
+
+def _deleted_executable(repo_path: Path) -> Pygit2Repository:
+    """d.txt committed as an executable, then deleted from the working tree."""
+    impl = Pygit2Repository(str(repo_path))
+    blob = impl._repo.create_blob(b"a\nb\n")
+    impl._repo.index.add(pygit2.IndexEntry("d.txt", blob, pygit2.GIT_FILEMODE_BLOB_EXECUTABLE))
+    impl._repo.index.write()
+    impl.commit("seed d.txt")
+    return impl
+
+
+def test_staging_the_hunk_of_a_deleted_file_stages_the_deletion(repo_path):
+    impl = _deleted_executable(repo_path)
+    [hunk] = impl.get_file_diff("WORKING_TREE", "d.txt")
+
+    impl.stage_hunk("d.txt", hunk.header)
+
+    assert impl.get_working_tree() == [FileStatus("d.txt", StagingState.STAGED, FileDelta.DELETED)]
+
+
+def test_unstaging_the_hunk_of_a_staged_deletion_puts_the_file_back_with_its_mode(repo_path):
+    impl = _deleted_executable(repo_path)
+    impl.stage(["d.txt"])
+    [hunk] = impl.get_staged_diff("d.txt")
+
+    impl.unstage_hunk("d.txt", hunk.header)
+
+    head_entry = impl._repo.head.peel(pygit2.Commit).tree["d.txt"]
+    impl._repo.index.read()
+    restored = impl._repo.index["d.txt"]
+    assert (restored.id, restored.mode) == (head_entry.id, head_entry.filemode)
