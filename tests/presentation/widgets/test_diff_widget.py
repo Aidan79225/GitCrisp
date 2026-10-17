@@ -232,3 +232,49 @@ def test_message_collapse_shrinks_msg_view_to_subject_line(diff_widget, qtbot):
     # Expand — height returns to full.
     widget._msg_toggle.click()
     assert widget._msg_view.height() == full_h
+
+
+def _relative_luminance(color) -> float:
+    def channel(value: float) -> float:
+        return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * channel(color.redF())
+        + 0.7152 * channel(color.greenF())
+        + 0.0722 * channel(color.blueF())
+    )
+
+
+def _best_text_contrast(widget) -> float:
+    """WCAG contrast between a widget's commonest pixel and its strongest other."""
+    from collections import Counter
+
+    from PySide6.QtGui import QColor
+
+    image = widget.grab().toImage()
+    pixels = Counter(image.pixel(x, y) for x in range(image.width()) for y in range(image.height()))
+    background = _relative_luminance(QColor(pixels.most_common(1)[0][0]))
+    best = 1.0
+    for pixel in pixels:
+        luminance = _relative_luminance(QColor(pixel))
+        lighter, darker = max(luminance, background), min(luminance, background)
+        best = max(best, (lighter + 0.05) / (darker + 0.05))
+    return best
+
+
+def test_the_state_banner_is_readable_in_the_light_theme(diff_widget, qtbot):
+    """The banner's background was hard-coded maroon while its text took the
+    theme's text colour, which in the light theme is near-black: 1.4:1."""
+    from git_gui.presentation.theme import get_theme_manager
+
+    widget, _ = diff_widget
+    manager = get_theme_manager()
+    manager.set_mode("light")
+    try:
+        widget.update_state_banner("REBASING")
+        qtbot.waitUntil(widget._state_banner.isVisible)
+
+        for part in (widget._banner_label, widget._btn_abort, widget._btn_continue):
+            assert _best_text_contrast(part) >= 4.5
+    finally:
+        manager.set_mode("dark")

@@ -70,7 +70,6 @@ class DiffWidget(QWidget):
         banner_layout.addWidget(self._banner_label, 1)
         banner_layout.addWidget(self._btn_abort)
         banner_layout.addWidget(self._btn_continue)
-        self._state_banner.setStyleSheet("background-color: #5c2d2d; border: none; padding: 2px;")
         self._state_banner.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._state_banner.setVisible(False)
         self._btn_abort.clicked.connect(self._on_banner_abort)
@@ -239,6 +238,12 @@ class DiffWidget(QWidget):
         self._msg_view.setStyleSheet(
             f"QPlainTextEdit {{ background: {bg}; "
             f"border: 1px solid {outline}; border-radius: 4px; }}"
+        )
+        # No selector: the label and both buttons take the banner's colours,
+        # so the text is set with the background rather than left to a palette
+        # that was never chosen to sit on it.
+        self._state_banner.setStyleSheet(
+            f"background-color: {c.error}; color: {c.on_error}; border: none; padding: 2px;"
         )
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
