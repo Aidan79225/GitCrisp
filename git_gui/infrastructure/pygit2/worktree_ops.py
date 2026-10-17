@@ -135,7 +135,14 @@ class WorktreeOps:
         if self._repo.references.get(f"refs/heads/{branch}") is None:
             raise ValueError(f"Branch not found: {branch}")
 
-        self._worktree_cli().add(str(target), branch)
+        try:
+            self._worktree_cli().add(str(target), branch)
+        except Exception:
+            # A branch left behind would make retrying the same name fail, but
+            # git keeps the worktree when only its post-checkout hook failed.
+            if create_branch and self.find_worktree_for_branch(branch) is None:
+                self._repo.references.delete(f"refs/heads/{branch}")
+            raise
 
         wt_branch, wt_sha = _read_head_branch(str(target))
         return Worktree(
