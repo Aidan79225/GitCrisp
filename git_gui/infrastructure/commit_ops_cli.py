@@ -71,7 +71,10 @@ class CommitOpsCli:
                 [self._git, *argv],
                 cwd=self._cwd,
                 capture_output=True,
-                text=True,
+                # git writes UTF-8; `text=True` alone would decode with the
+                # locale (cp950, cp1252), and a failed decode loses the output.
+                encoding="utf-8",
+                errors="replace",
                 env=self._env(env_overrides),
                 **subprocess_kwargs(),
             )
