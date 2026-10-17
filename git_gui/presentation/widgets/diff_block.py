@@ -317,22 +317,32 @@ class _Rewrite:
 def _build_pair_index(lines: list[tuple[str, str]]) -> dict[int, _Rewrite]:
     """Map the indices of paired -/+ lines to the rewrite they belong to.
 
-    A pair is formed only when a '-' line is immediately followed by a '+' line;
-    a no-newline note between them is not a line and does not count. Both
-    indices map to the same rewrite so the renderer can look up either side.
+    A change is every '-' and '+' line between two context lines, and its i-th
+    removed line pairs with its i-th added line, as align_hunk pairs them for
+    the side-by-side view. A no-newline note is not a line and does not end
+    the change. Both indices map to the same rewrite so the renderer can look
+    up either side.
     """
     pairs: dict[int, _Rewrite] = {}
-    numbered = [(i, line) for i, line in enumerate(lines) if line[0] not in NO_NEWLINE_MARKERS]
-    k = 0
-    while k < len(numbered) - 1:
-        (i, (origin, old)), (j, (next_origin, new)) = numbered[k], numbered[k + 1]
-        if origin == LineKind.REMOVED and next_origin == LineKind.ADDED:
-            rewrite = _Rewrite(old.rstrip("\n"), new.rstrip("\n"))
-            pairs[i] = rewrite
-            pairs[j] = rewrite
-            k += 2
-        else:
-            k += 1
+    removed: list[int] = []
+    added: list[int] = []
+
+    def close_change() -> None:
+        for old_index, new_index in zip(removed, added, strict=False):
+            rewrite = _Rewrite(lines[old_index][1].rstrip("\n"), lines[new_index][1].rstrip("\n"))
+            pairs[old_index] = rewrite
+            pairs[new_index] = rewrite
+        removed.clear()
+        added.clear()
+
+    for index, (origin, _) in enumerate(lines):
+        if origin == LineKind.REMOVED:
+            removed.append(index)
+        elif origin == LineKind.ADDED:
+            added.append(index)
+        elif origin not in NO_NEWLINE_MARKERS:
+            close_change()
+    close_change()
     return pairs
 
 
