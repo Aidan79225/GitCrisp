@@ -94,7 +94,7 @@ def test_dirty_clean_creates_uncommitted_changes_row(qtbot):
 def test_dirty_merging_creates_merge_in_progress_row(qtbot):
     w = _make_widget(qtbot)
     merge_head = "abc123"
-    commits = [_make_commit("c1")]
+    commits = [_make_commit("c1"), _make_commit(merge_head)]
 
     w._on_reload_done(
         commits,
@@ -107,7 +107,7 @@ def test_dirty_merging_creates_merge_in_progress_row(qtbot):
         False,
     )
 
-    assert w._model.rowCount() == 2
+    assert w._model.rowCount() == 3
     info = w._model.data(w._model.index(0, 0), INFO_ROLE)
     assert info.message == "Merge in progress (conflicts)"
 

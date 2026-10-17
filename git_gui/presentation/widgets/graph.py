@@ -687,7 +687,10 @@ class GraphWidget(QWidget):
             state_name = repo_state_info.state.name if repo_state_info else "CLEAN"
             if state_name == "MERGING":
                 message = "Merge in progress (conflicts)"
-                parents = [head_oid, merge_head] if merge_head else [head_oid]
+                # The walk does not push MERGE_HEAD. A parent that never
+                # arrives as a row would hold its lane open to the bottom.
+                merge_head_loaded = any(c.oid == merge_head for c in commits)
+                parents = [head_oid, merge_head] if merge_head_loaded else [head_oid]
             elif state_name == "REBASING":
                 message = "Rebase in progress"
                 parents = [head_oid] if head_oid else []
