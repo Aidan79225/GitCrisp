@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt
+from PySide6.QtGui import QDropEvent
 from PySide6.QtWidgets import QDialogButtonBox
 
 from git_gui.domain.entities import Commit
@@ -98,4 +100,54 @@ def test_result_entries_returns_actions_and_oids(qtbot):
         ("pick", "aaa111"),
         ("squash", "bbb222"),
         ("drop", "ccc333"),
+    ]
+
+
+class _DropFromTheTable(QDropEvent):
+    """A drop whose drag started in ``table``, as a real in-table drag reports it."""
+
+    def __init__(self, table, pos, mime):
+        super().__init__(QPointF(pos), Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
+        self._table = table
+
+    def source(self):
+        return self._table
+
+
+def _drag_row(dlg, row, *, onto_row, upper_half):
+    table = dlg._table
+    table.selectRow(row)
+    rect = table.visualRect(table.model().index(onto_row, 2))
+    offset = rect.height() // 4
+    pos = rect.center() + QPoint(0, -offset if upper_half else offset)
+    mime = QMimeData()
+    table.dropEvent(_DropFromTheTable(table, pos, mime))
+
+
+def _shown_dialog(qtbot):
+    dlg = InteractiveRebaseDialog(_commits(), "main")
+    qtbot.addWidget(dlg)
+    dlg.show()
+    qtbot.waitExposed(dlg)
+    dlg._table.cellWidget(2, 0).setCurrentText("drop")
+    return dlg
+
+
+def test_dragging_a_row_below_the_last_moves_the_whole_commit_to_the_end(qtbot):
+    dlg = _shown_dialog(qtbot)
+    _drag_row(dlg, 0, onto_row=2, upper_half=False)
+    assert dlg.result_entries() == [
+        ("pick", "bbb222"),
+        ("drop", "ccc333"),
+        ("pick", "aaa111"),
+    ]
+
+
+def test_dragging_a_row_onto_the_upper_half_of_another_lands_above_it(qtbot):
+    dlg = _shown_dialog(qtbot)
+    _drag_row(dlg, 2, onto_row=0, upper_half=True)
+    assert dlg.result_entries() == [
+        ("drop", "ccc333"),
+        ("pick", "aaa111"),
+        ("pick", "bbb222"),
     ]
