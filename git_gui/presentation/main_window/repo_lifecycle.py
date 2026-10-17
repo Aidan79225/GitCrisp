@@ -160,6 +160,7 @@ class RepoLifecycleMixin:
 
         # Load worktree list, paint badges/sidebar entries, refresh repo list.
         self._load_worktrees_for_active_repo()
+        self._refresh_state_banners()
 
     def _on_repo_failed(self, path: str, error: str) -> None:
         self._log_panel.expand()
