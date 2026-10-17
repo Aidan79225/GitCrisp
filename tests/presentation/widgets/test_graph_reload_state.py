@@ -14,8 +14,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from git_gui.domain.entities import WORKING_TREE_OID, Commit, Tag
-from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE
+from git_gui.domain.entities import (
+    WORKING_TREE_OID,
+    Commit,
+    RepoState,
+    RepoStateInfo,
+    Tag,
+)
+from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, OID_ROLE
 from git_gui.presentation.widgets.graph import PAGE_SIZE, GraphWidget
 
 
@@ -354,3 +360,22 @@ def test_scrolling_to_the_next_page_keeps_the_detached_head_badge(graph, inline_
     graph._load_more()
 
     assert _badges(graph, 0) == ["HEAD", "tag:v1.0"]
+
+
+# ── The working-tree row ─────────────────────────────────────────────────────
+
+
+def test_a_merge_with_conflicts_draws_no_lane_to_a_merge_head_not_loaded(graph, inline_workers):
+    """The walk does not push MERGE_HEAD, so its commit is usually not among
+    the rows. A parent that never arrives held its lane open past every
+    commit, down to the bottom of history."""
+    graph._queries.is_dirty.execute.return_value = True
+    graph._queries.get_repo_state.execute.return_value = RepoStateInfo(
+        state=RepoState.MERGING, head_branch="main"
+    )
+    graph._queries.get_merge_head.execute.return_value = "feature-tip"
+
+    graph.reload()
+
+    lanes = [graph._model.data(graph._model.index(row, 0), LANE_ROLE) for row in range(1, 10)]
+    assert all(lane.lines == [] for lane in lanes)
