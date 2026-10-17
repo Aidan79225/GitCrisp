@@ -8,7 +8,6 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
-    QLabel,
     QMessageBox,
     QScrollArea,
     QScrollBar,
@@ -25,6 +24,7 @@ from git_gui.presentation.theme import connect_widget
 from git_gui.presentation.widgets.diff_block import (
     make_diff_formats,
     make_file_block,
+    make_overflow_notice,
     make_syntax_formats,
 )
 from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
@@ -161,7 +161,7 @@ class HunkDiffWidget(QWidget):
             block_refs.append((path, frame, inner, skeleton))
 
         if hidden > 0:
-            self._layout.addWidget(self._make_overflow_notice(hidden))
+            self._layout.addWidget(make_overflow_notice(hidden))
 
         self._layout.addStretch()
         self._loader.set_blocks(block_refs)
@@ -193,16 +193,6 @@ class HunkDiffWidget(QWidget):
             path: max(frame.sizeHint().height(), frame.minimumHeight())
             for path, frame in self._aggregate_blocks.items()
         }
-
-    def _make_overflow_notice(self, hidden: int) -> QWidget:
-        """A muted one-line notice standing in for files beyond the block cap."""
-        label = QLabel(
-            f"+ {hidden} more changed file{'s' if hidden != 1 else ''} not shown — "
-            "select a file above to view its diff."
-        )
-        label.setWordWrap(True)
-        label.setContentsMargins(8, 8, 8, 8)
-        return label
 
     def _sync_hscroll(self) -> None:
         """Re-measure the shared horizontal bar once the layout has settled.
