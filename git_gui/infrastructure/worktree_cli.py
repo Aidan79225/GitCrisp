@@ -68,7 +68,10 @@ class WorktreeCli:
                 cwd=self._cwd,
                 check=True,
                 capture_output=True,
-                text=True,
+                # git writes paths in its messages as UTF-8 whatever the
+                # locale code page is, and a failed decode loses the message.
+                encoding="utf-8",
+                errors="replace",
                 **subprocess_kwargs(),
             )
         except subprocess.CalledProcessError as e:

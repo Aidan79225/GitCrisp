@@ -102,3 +102,21 @@ def test_force_remove_overrides_a_lock(repo_with_worktree):
     cli = WorktreeCli(str(main))
     cli.remove(str(wt), force=True)
     assert not wt.exists()
+
+
+def test_a_dirty_worktree_under_a_non_ascii_folder_is_reported_dirty(repo_with_worktree, tmp_path):
+    """git's message names the path in UTF-8; decoded in the locale code page
+    (cp950, cp1252) the read failed, the message was lost, and the user got a
+    bare exit status instead of the force prompt."""
+    main, _ = repo_with_worktree
+    wt = tmp_path / "Łódź 功能" / "wt"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "other", str(wt)],
+        cwd=main,
+        check=True,
+        capture_output=True,
+    )
+    (wt / "a.txt").write_text("changed\n")
+
+    with pytest.raises(WorktreeDirtyError):
+        WorktreeCli(str(main)).remove(str(wt), force=False)
