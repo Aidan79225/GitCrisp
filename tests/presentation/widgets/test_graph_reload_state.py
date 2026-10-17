@@ -120,3 +120,22 @@ def test_a_bare_reload_keeps_the_highlight_on_a_row_from_a_later_page(graph, inl
     graph.reload()
 
     assert _current_oid(graph) == f"c{PAGE_SIZE + 30}"
+
+
+# ── The branch the user clicked ──────────────────────────────────────────────
+
+
+def test_clicking_a_branch_below_the_page_leaves_its_tip_on_screen(graph, inline_workers):
+    """The reload that loads the tip also restores the viewport saved before
+    it. That restore must not undo the scroll to the tip the click asked for."""
+    graph.resize(400, 300)
+    graph.show()
+    graph.reload()
+    target = f"c{2 * PAGE_SIZE + 20}"
+    graph._queries.get_merge_base.execute.return_value = target
+
+    graph.reload_with_extra_tip(target)
+
+    assert _current_oid(graph) == target
+    viewport = graph._view.viewport().rect()
+    assert viewport.intersects(graph._view.visualRect(graph._view.currentIndex()))
