@@ -7,7 +7,7 @@ from typing import NamedTuple
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
-from git_gui.presentation.bus import CommandBus
+from git_gui.presentation.bus import CommandBus, QueryBus
 
 
 class _RemoteSignals(QObject):
@@ -196,25 +196,31 @@ class RemoteOpQueueMixin:
             )
 
     def _on_fetch_all_prune(self) -> None:
-        def _fn():
-            self._commands.fetch_all_prune.execute()
-            self._update_remote_tag_cache("origin")
+        commands, queries, repo_path = self._commands, self._queries, self._repo_path
 
-        self._run_remote_op("Fetch --all --prune", _fn)
+        def _fn():
+            commands.fetch_all_prune.execute()
+            self._update_remote_tag_cache(queries, repo_path, "origin")
+
+        self._run_remote_op("Fetch --all --prune", _fn, commands=commands)
 
     def _on_fetch_single(self, remote: str) -> None:
-        def _fn():
-            self._commands.fetch.execute(remote)
-            self._update_remote_tag_cache(remote)
+        commands, queries, repo_path = self._commands, self._queries, self._repo_path
 
-        self._run_remote_op(f"Fetch {remote}", _fn)
+        def _fn():
+            commands.fetch.execute(remote)
+            self._update_remote_tag_cache(queries, repo_path, remote)
+
+        self._run_remote_op(f"Fetch {remote}", _fn, commands=commands)
 
     def _on_push_tag(self, name: str) -> None:
-        def _fn():
-            self._commands.push_tag.execute("origin", name)
-            self._update_remote_tag_cache("origin")
+        commands, queries, repo_path = self._commands, self._queries, self._repo_path
 
-        self._run_remote_op(f"Push tag {name}", _fn)
+        def _fn():
+            commands.push_tag.execute("origin", name)
+            self._update_remote_tag_cache(queries, repo_path, "origin")
+
+        self._run_remote_op(f"Push tag {name}", _fn, commands=commands)
 
     def _get_current_branch(self) -> str | None:
         if self._queries is None:
@@ -225,13 +231,17 @@ class RemoteOpQueueMixin:
                 return b.name
         return None
 
-    def _update_remote_tag_cache(self, remote: str) -> None:
-        if not self._remote_tag_cache or not self._repo_path or not self._queries:
+    def _update_remote_tag_cache(
+        self, queries: QueryBus | None, repo_path: str | None, remote: str
+    ) -> None:
+        """Runs on the worker thread, so it is handed the repo the op ran in:
+        the active one may have been switched while the op ran."""
+        if not self._remote_tag_cache or not repo_path or not queries:
             return
         try:
-            remote_tags = self._queries.get_remote_tags.execute(remote)
-            data = self._remote_tag_cache.load(self._repo_path)
+            remote_tags = queries.get_remote_tags.execute(remote)
+            data = self._remote_tag_cache.load(repo_path)
             data[remote] = remote_tags
-            self._remote_tag_cache.save(self._repo_path, data)
+            self._remote_tag_cache.save(repo_path, data)
         except Exception:
             pass  # cache update failure is non-critical

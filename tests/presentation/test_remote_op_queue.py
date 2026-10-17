@@ -144,3 +144,26 @@ def test_an_op_requested_while_another_runs_is_reported_as_skipped(qtbot):
         "Delete tag v1 from upstream — skipped" in e and "Delete tag v1 from origin" in e
         for e in errors
     ), errors
+
+
+def _switch_to_repo_b(win: MainWindow) -> None:
+    win._commands = MagicMock()
+    win._queries = MagicMock()
+    win._queries.get_remote_tags.execute.return_value = ["b-tag"]
+    win._repo_path = "/repo/b"
+
+
+def test_the_tag_cache_after_a_fetch_is_saved_for_the_repo_that_was_fetched(qtbot):
+    win = _make_window(qtbot)
+    win._remote_tag_cache = MagicMock()
+    win._remote_tag_cache.load.return_value = {}
+    win._repo_path = "/repo/a"
+    win._queries.get_remote_tags.execute.return_value = ["a-tag"]
+    fetched_in = win._commands
+    fetched_in.fetch.execute.side_effect = lambda _remote: _switch_to_repo_b(win)
+    with patch.object(win, "_reload"):
+        win._on_fetch_single("origin")
+        _wait_until_idle(qtbot, win)
+
+    win._remote_tag_cache.save.assert_called_once_with("/repo/a", {"origin": ["a-tag"]})
+    fetched_in.fetch.execute.assert_called_once_with("origin")
