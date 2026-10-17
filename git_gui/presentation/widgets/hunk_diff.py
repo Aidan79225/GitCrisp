@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QSize, Signal
 from PySide6.QtGui import QIcon
@@ -61,6 +62,7 @@ class HunkDiffWidget(QWidget):
     hunk_toggled = Signal()
     discard_hunk_requested = Signal(str, str)  # path, hunk_header
     submodule_open_requested = Signal(str)  # emits the submodule path (relative)
+    operation_failed = Signal(str)  # what failed and why, for the log panel
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -407,6 +409,20 @@ class HunkDiffWidget(QWidget):
     def _on_hunk_toggled(
         self, path: str, hunk_header: str, checked: bool, is_untracked: bool = False
     ) -> None:
+        verb = "Stage" if checked else "Unstage"
+        self._run_command(
+            f"{verb} {path}",
+            lambda: self._stage_or_unstage(path, hunk_header, checked, is_untracked),
+        )
+        if self._all_paths is not None:
+            self._render_all_sync()
+        else:
+            self._render_sync()
+        self.hunk_toggled.emit()
+
+    def _stage_or_unstage(
+        self, path: str, hunk_header: str, checked: bool, is_untracked: bool
+    ) -> None:
         # Whole-file add (untracked → stage, or staged-add → unstage):
         # the synthesised "@@ -0,0 +1,N @@" hunk can't be processed by
         # `git apply [--cached] [--reverse]`, so route to stage/unstage_files.
@@ -419,11 +435,18 @@ class HunkDiffWidget(QWidget):
             self._commands.stage_hunk.execute(path, hunk_header)
         else:
             self._commands.unstage_hunk.execute(path, hunk_header)
-        if self._all_paths is not None:
-            self._render_all_sync()
-        else:
-            self._render_sync()
-        self.hunk_toggled.emit()
+
+    def _run_command(self, action: str, command: Callable[[], None]) -> None:
+        """Run a staging or discard command, reporting a failure to the user.
+
+        A failure must not escape the Qt slot: it would skip the redraw that
+        puts the checkbox back in step with the index, and reach nothing but
+        the log file, so the user would commit believing the hunk was staged.
+        """
+        try:
+            command()
+        except Exception as e:
+            self.operation_failed.emit(f"{action} failed: {e}")
 
     def _on_discard_file_clicked(self, path: str) -> None:
         reply = QMessageBox.question(
@@ -435,7 +458,7 @@ class HunkDiffWidget(QWidget):
         )
         if reply != QMessageBox.Yes:
             return
-        self._commands.discard_file.execute(path)
+        self._run_command(f"Discard {path}", lambda: self._commands.discard_file.execute(path))
         self.discard_hunk_requested.emit(path, "")
 
     def _on_discard_hunk_clicked(self, path: str, hunk_header: str) -> None:
@@ -448,7 +471,10 @@ class HunkDiffWidget(QWidget):
         )
         if reply != QMessageBox.Yes:
             return
-        self._commands.discard_hunk.execute(path, hunk_header)
+        self._run_command(
+            f"Discard hunk in {path}",
+            lambda: self._commands.discard_hunk.execute(path, hunk_header),
+        )
         if self._all_paths is not None:
             self._render_all_sync()
         else:
