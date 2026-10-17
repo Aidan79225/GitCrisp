@@ -10,8 +10,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtCore import QEvent
-from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox, QToolButton
+from PySide6.QtWidgets import QCheckBox, QMessageBox, QToolButton
 
 from git_gui.domain.entities import Hunk, LineKind
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
@@ -33,25 +32,17 @@ def commands():
 
 @pytest.fixture
 def widget(qtbot, commands):
-    """A pane showing one file, torn down only after its redraws have settled.
-
-    A redraw leaves the old blocks to deleteLater, and destroying their
-    editors queues a scrollbar re-measure; it has to run while the pane still
-    exists, so the pane is not handed to qtbot, which would destroy it first.
-    """
+    """A pane showing one file."""
     queries = MagicMock()
     queries.list_submodules.execute.return_value = []
     queries.get_staged_diff.execute.return_value = []
     queries.get_file_diff.execute.return_value = [HUNK]
     w = HunkDiffWidget(queries, commands)
+    qtbot.addWidget(w)
     w.show()
     w.load_file("a.txt")
     qtbot.waitUntil(lambda: bool(_current_checkboxes(w)), timeout=2000)
-    yield w
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    qtbot.wait(10)
-    w.deleteLater()
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    return w
 
 
 def _current_block(widget: HunkDiffWidget):

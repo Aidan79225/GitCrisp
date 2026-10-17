@@ -79,8 +79,10 @@ class SharedHScroll(QObject):
         Deferred, because clearing a pane destroys its editors one after
         another and this fires part-way through: measuring now would read a
         half-emptied pane, and would reach for siblings already destroyed.
+        Bound to this object, so a re-measure the pane's own teardown queued
+        is dropped with it instead of reaching into the destroyed container.
         """
-        QTimer.singleShot(0, self.refresh)
+        QTimer.singleShot(0, self, self.refresh)
 
     def _on_bar_moved(self, value: int) -> None:
         if self._syncing:

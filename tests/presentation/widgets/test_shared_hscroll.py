@@ -209,3 +209,18 @@ def test_a_page_is_one_editors_width_when_two_share_the_row(qtbot):
     left, right = sync._editors()
     assert bar.pageStep() == left.horizontalScrollBar().pageStep()
     assert bar.pageStep() == right.horizontalScrollBar().pageStep()
+
+
+def test_a_re_measure_queued_by_a_dying_editor_is_dropped_with_the_pane(qtbot):
+    """Destroying a pane destroys its editors first, and each one queues a
+    re-measure; run after the pane is gone, it reached into the destroyed
+    container and raised from the event loop."""
+    pane = QWidget()
+    container = QWidget(pane)
+    QPlainTextEdit(container)
+    sync = SharedHScroll(QScrollBar(pane), container, pane)
+    sync.refresh()
+
+    pane.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    qtbot.wait(20)
