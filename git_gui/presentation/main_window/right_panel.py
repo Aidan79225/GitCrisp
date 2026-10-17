@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from git_gui.domain.entities import WORKING_TREE_OID
 from git_gui.presentation.widgets.blame_pane import BlamePane
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
@@ -126,6 +128,15 @@ class RightPanelMixin:
         Inserts the submodule right after the current (parent) repo in the
         open list, so the sidebar shows submodules grouped under their parent.
         """
+        # An uninitialized submodule is an empty directory; opening it would
+        # find the parent repo above it and work on that under the submodule's name.
+        if not os.path.exists(os.path.join(abs_path, ".git")):
+            self._log_panel.expand()
+            self._log_panel.log_error(
+                f"Cannot open submodule {abs_path}: it is not initialized. "
+                "Run `git submodule update --init` in the parent repo first."
+            )
+            return
         self._repo_store.add_open(abs_path, after=self._repo_path)
         self._repo_store.save()
         self._switch_repo(abs_path)
@@ -134,7 +145,5 @@ class RightPanelMixin:
         """Resolve a relative submodule path against the current repo and open it."""
         if not self._repo_path:
             return
-        import os
-
         abs_path = os.path.abspath(os.path.join(self._repo_path, rel_path))
         self._on_submodule_open_requested(abs_path)
