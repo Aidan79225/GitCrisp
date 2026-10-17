@@ -278,3 +278,63 @@ def test_the_state_banner_is_readable_in_the_light_theme(diff_widget, qtbot):
             assert _best_text_contrast(part) >= 4.5
     finally:
         manager.set_mode("dark")
+
+
+def _load_message(widget, queries, message: str) -> None:
+    queries.get_commit_detail.execute.return_value = Commit(
+        oid="b" * 40, message=message, author="Alice", timestamp=datetime(2026, 5, 8), parents=[]
+    )
+    queries.get_branches.execute.return_value = []
+    queries.get_commit_files.execute.return_value = []
+    with patch("threading.Thread"):
+        widget.load_commit("b" * 40)
+
+
+def _message_fits(widget) -> bool:
+    # The view keeps one blank line under the text; anything more is hidden.
+    return widget._msg_view.verticalScrollBar().maximum() <= 1
+
+
+LONG_BODY = "Subject\n\n" + "A paragraph that wraps many times in a narrow pane. " * 16
+
+
+def test_a_wrapped_commit_message_shows_every_line(diff_widget, qtbot):
+    """The height counted the message's newlines, but the view wraps at its
+    width with its scrollbar off, so a long paragraph lost every line it
+    wrapped onto, with no way to scroll to them."""
+    widget, queries = diff_widget
+    widget.resize(600, 700)
+
+    _load_message(widget, queries, LONG_BODY)
+
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)
+
+
+def test_a_commit_message_refits_when_the_pane_narrows(diff_widget, qtbot):
+    widget, queries = diff_widget
+    widget.resize(900, 700)
+    _load_message(widget, queries, LONG_BODY)
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)
+
+    widget.resize(400, 700)
+
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)
+
+
+def test_a_commit_message_refits_when_its_font_grows(diff_widget, qtbot):
+    """A typography change sets a larger font on every widget."""
+    widget, queries = diff_widget
+    widget.resize(600, 700)
+    _load_message(widget, queries, "Subject\n\n" + "".join(f"Body {i}.\n" for i in range(8)))
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)
+
+    font = widget._msg_view.font()
+    font.setPointSizeF(font.pointSizeF() * 1.5)
+    widget._msg_view.setFont(font)
+
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)

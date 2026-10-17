@@ -33,6 +33,63 @@ from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoad
 
 logger = logging.getLogger(__name__)
 
+_MESSAGE_MARGIN = 12
+
+
+class _CommitMessageView(QPlainTextEdit):
+    """The read-only commit message: as tall as its wrapped text, or one line.
+
+    It wraps at its own width with its scrollbar off, so its height has to come
+    from the laid-out lines. Counting the message's newlines instead hid every
+    line a long paragraph wrapped onto. The height is measured again whenever
+    the width or the font changes.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._expanded = True
+        self.setReadOnly(True)
+        self.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.document().setDocumentMargin(_MESSAGE_MARGIN)
+        font = self.font()
+        font.setFamily("Courier New")
+        self.setFont(font)
+
+    def show_message(self, text: str) -> None:
+        self.setPlainText(text)
+        self._fit_height()
+
+    def set_expanded(self, expanded: bool) -> None:
+        """Show the whole message, or only its first line."""
+        self._expanded = expanded
+        self._fit_height()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)  # re-wraps the text at the new width first
+        self._fit_height()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:
+            self._fit_height()
+
+    def _wrapped_line_count(self) -> int:
+        layout = self.document().documentLayout()
+        count = 0
+        block = self.document().begin()
+        while block.isValid():
+            layout.ensureBlockLayout(block)
+            count += block.layout().lineCount()
+            block = block.next()
+        return count
+
+    def _fit_height(self) -> None:
+        lines = self._wrapped_line_count() if self._expanded else 1
+        line_height = self.fontMetrics().lineSpacing()
+        self.setFixedHeight(int(lines * line_height + self.document().documentMargin() * 2))
+
 
 class DiffWidget(QWidget):
     submodule_open_requested = Signal(str)  # emits the submodule path (relative)
@@ -82,16 +139,8 @@ class DiffWidget(QWidget):
         self._detail.ref_copy_requested.connect(self.ref_copy_requested.emit)
 
         # ── Row 2: full commit message ──────────────────────────────────────
-        self._msg_view = QPlainTextEdit()
-        self._msg_view.setReadOnly(True)
-        self._msg_view.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        self._msg_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._msg_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._msg_view = _CommitMessageView()
         self._msg_view.viewport().installEventFilter(self)
-        self._msg_view.document().setDocumentMargin(12)
-        font = self._msg_view.font()
-        font.setFamily("Courier New")
-        self._msg_view.setFont(font)
 
         # Wrap the message view in a panel with a slim collapsible header.
         self._msg_panel = QWidget()
@@ -111,10 +160,7 @@ class DiffWidget(QWidget):
         msg_panel_layout.addLayout(msg_header_row)
         msg_panel_layout.addWidget(self._msg_view)
 
-        # Cached heights filled in by load_commit; expanded by default.
-        self._msg_full_h: int = 0
-        self._msg_collapsed_h: int = 0
-        self._msg_toggle.state_changed.connect(self._on_msg_toggle)
+        self._msg_toggle.state_changed.connect(self._msg_view.set_expanded)
 
         # ── Diff container (will live inside the unified scroll area) ────────
         self._diff_container = QWidget()
@@ -177,11 +223,6 @@ class DiffWidget(QWidget):
         self._file_navigator.setVisible(not empty)
         self._diff_container.setVisible(not empty)
         self._scroll_area.setVisible(not empty)
-
-    def _on_msg_toggle(self, expanded: bool) -> None:
-        if self._msg_full_h <= 0 or self._msg_collapsed_h <= 0:
-            return
-        self._msg_view.setFixedHeight(self._msg_full_h if expanded else self._msg_collapsed_h)
 
     def update_state_banner(self, state_name: str) -> None:
         """Show or hide the merge/rebase state banner."""
@@ -251,8 +292,6 @@ class DiffWidget(QWidget):
         self._current_oid = None
         self._detail.clear()
         self._msg_view.clear()
-        self._msg_full_h = 0
-        self._msg_collapsed_h = 0
         self._diff_model.reload([])
         self._clear_blocks()
         self._set_empty_state(True)
@@ -289,8 +328,6 @@ class DiffWidget(QWidget):
             self._current_oid = None
             self._detail.clear()
             self._msg_view.clear()
-            self._msg_full_h = 0
-            self._msg_collapsed_h = 0
             self._diff_model.reload([])
             self._clear_blocks()
             self._set_empty_state(True)
@@ -310,14 +347,9 @@ class DiffWidget(QWidget):
         self._msg_toggle.setChecked(True)
         self._msg_toggle.blockSignals(False)
         self._msg_toggle.setArrowType(Qt.DownArrow)
+        self._msg_view.set_expanded(True)
 
-        self._msg_view.setPlainText(msg)
-        line_count = msg.count("\n") + 1
-        line_h = self._msg_view.fontMetrics().lineSpacing()
-        doc_margin = self._msg_view.document().documentMargin() * 2
-        self._msg_full_h = int(line_count * line_h + doc_margin)
-        self._msg_collapsed_h = int(line_h + doc_margin)
-        self._msg_view.setFixedHeight(self._msg_full_h)
+        self._msg_view.show_message(msg)
 
         # Files — no auto-selection; show all files' hunks as bordered blocks
         files = self._queries.get_commit_files.execute(oid)
