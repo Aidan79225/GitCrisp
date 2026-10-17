@@ -88,6 +88,9 @@ class _BlameEditor(QPlainTextEdit):
     """Read-only code view with a blame gutter down its left edge."""
 
     gutter_context_menu = Signal(object)  # QPoint, in global coordinates
+    # A pick of the line the cursor already sits on moves nothing, so
+    # cursorPositionChanged alone would miss it.
+    line_picked = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -242,6 +245,7 @@ class _BlameEditor(QPlainTextEdit):
         cursor = self.textCursor()
         cursor.setPosition(block.position())
         self.setTextCursor(cursor)
+        self.line_picked.emit()
 
     def select_line_at(self, y: int) -> None:
         """Put the cursor on the line the gutter was clicked next to."""
@@ -350,6 +354,7 @@ class BlamePane(QWidget):
 
         self._editor = _BlameEditor()
         self._editor.cursorPositionChanged.connect(self._on_cursor_moved)
+        self._editor.line_picked.connect(self._on_cursor_moved)
         self._editor.gutter_context_menu.connect(self._show_gutter_menu)
 
         layout = QVBoxLayout(self)
@@ -397,9 +402,7 @@ class BlamePane(QWidget):
         self._suppress_emit = True
         self._editor.set_lines(lines, path)
         self._suppress_emit = False
-        # The cursor now sits on line 1; record its commit as already current so
-        # opening blame never yanks the main window's selection on its own.
-        self._last_emitted = lines[0].commit_oid if lines else None
+        self._last_emitted = None
         self._set_title()
 
     def _on_failed(self, message: str) -> None:
