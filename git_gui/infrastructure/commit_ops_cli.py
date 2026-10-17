@@ -79,10 +79,7 @@ class CommitOpsCli:
             raise CommitOpsCommandError(f"`{self._git}` executable not found on PATH") from e
         if result.returncode == 0:
             return
-        if (
-            conflict_state_file is not None
-            and (Path(self._cwd) / ".git" / conflict_state_file).exists()
-        ):
+        if conflict_state_file is not None and (self._state_dir() / conflict_state_file).exists():
             return
         stderr = (
             (result.stderr or "").strip()
@@ -98,3 +95,10 @@ class CommitOpsCli:
             env["GIT_WORK_TREE"] = self._cwd
         env.update(overrides or {})
         return env
+
+    def _state_dir(self) -> Path:
+        # In a linked worktree or a submodule `<workdir>/.git` is a file, and
+        # git writes CHERRY_PICK_HEAD / REVERT_HEAD into the gitdir it names.
+        if self._git_dir is not None:
+            return Path(self._git_dir)
+        return Path(self._cwd) / ".git"
