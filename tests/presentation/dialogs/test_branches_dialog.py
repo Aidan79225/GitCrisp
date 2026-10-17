@@ -116,3 +116,21 @@ def test_create_from_a_branch_name_start_point_creates_the_branch(qtbot, repo_im
         d._on_create()
     warn.assert_not_called()
     assert "feat" in {b.name for b in queries.get_branches.execute()}
+
+
+def test_checkout_closes_the_dialog_and_hands_the_branch_to_the_window(qtbot, buses):
+    """The window's checkout flow is what notices a branch held by another
+    worktree before the working tree is touched, and logs and reloads."""
+    from PySide6.QtWidgets import QDialog
+
+    queries, commands = buses
+    d = BranchesDialog(queries, commands)
+    qtbot.addWidget(d)
+    d._table.selectRow(1)  # wip
+
+    with qtbot.waitSignal(d.checkout_requested, timeout=1000) as blocker:
+        d._checkout_btn.click()
+
+    assert blocker.args == ["wip"]
+    assert d.result() == QDialog.Accepted
+    commands.checkout.execute.assert_not_called()

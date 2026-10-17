@@ -99,3 +99,34 @@ def test_from_a_linked_worktree_the_main_worktrees_branch_opens_main(
 
     assert Path(win._repo_path) == main.resolve()
     assert pygit2.Repository(str(wt)).head.shorthand == "feat"
+
+
+def test_the_branches_dialog_checkout_opens_the_worktree_holding_the_branch(
+    qtbot, tmp_path, main_with_feat_worktree
+):
+    from unittest.mock import patch
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QMessageBox
+
+    from git_gui.presentation.dialogs.branches_dialog import BranchesDialog
+
+    main, wt = main_with_feat_worktree
+    win = _window_on(qtbot, tmp_path, main)
+
+    def _check_out_feat(dialog: BranchesDialog) -> int:
+        table = dialog._table
+        rows = range(table.rowCount())
+        table.selectRow(next(r for r in rows if table.item(r, 0).data(Qt.UserRole) == "feat"))
+        dialog._checkout_btn.click()
+        return 0
+
+    with (
+        patch.object(BranchesDialog, "exec", _check_out_feat),
+        patch.object(QMessageBox, "warning"),
+        qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000),
+    ):
+        win._git_branches_action.trigger()
+
+    assert Path(win._repo_path) == wt.resolve()
+    assert (main / "a.txt").read_text() == "master\n"

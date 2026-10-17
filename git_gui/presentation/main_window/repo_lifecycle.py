@@ -92,6 +92,7 @@ class RepoLifecycleMixin:
             on_open_submodule=self._on_submodule_open_requested,
             on_open_worktrees_dialog=self._open_worktrees_dialog,
             on_open_reflog=self.open_reflog,
+            on_checkout_branch=self._on_checkout_branch,
         )
 
     def _start_change_detector(self, path: str) -> None:
