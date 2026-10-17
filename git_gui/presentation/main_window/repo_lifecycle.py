@@ -104,6 +104,9 @@ class RepoLifecycleMixin:
             self._change_detector = None
 
     def _switch_repo(self, path: str) -> None:
+        # Each open runs on its own thread, and they finish in any order — one
+        # on a network share can take seconds — so only the latest may land.
+        self._requested_repo = path
         signals = self._repo_ready_signals
 
         def _worker():
@@ -116,6 +119,8 @@ class RepoLifecycleMixin:
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_repo_ready(self, path: str, queries: QueryBus, commands: CommandBus) -> None:
+        if path != self._requested_repo:
+            return  # superseded: the user has asked for something else since
         # Both panes show the repo being left behind.
         self._close_blame_pane()
         self._close_reflog_pane()
@@ -168,6 +173,7 @@ class RepoLifecycleMixin:
         self._log_panel.log_error(f"Cannot open {path}: {error}")
 
     def _enter_empty_state(self) -> None:
+        self._requested_repo = None
         self._stop_change_detector()
         self._close_blame_pane()
         self._close_reflog_pane()
