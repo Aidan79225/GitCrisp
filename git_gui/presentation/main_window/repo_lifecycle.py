@@ -227,6 +227,7 @@ class RepoLifecycleMixin:
     def _load_worktrees_for_active_repo(self) -> None:
         if self._queries is None or self._repo_path is None:
             return
+        self._refresh_worktrees_dialog()
         # When the active path is a linked worktree (not a top-level open repo),
         # its session reports worktree metadata relative to itself — its own
         # directory as the main worktree, with the real main repo absent. Re-
@@ -325,7 +326,25 @@ class RepoLifecycleMixin:
         dlg.add_requested.connect(
             lambda: self._open_add_worktree_dialog(preselect_branch=None, default_create=False)
         )
-        dlg.exec()
+        self._worktrees_dialog = dlg
+        try:
+            dlg.exec()
+        finally:
+            self._worktrees_dialog = None
+
+    def _refresh_worktrees_dialog(self) -> None:
+        """Give the open Worktrees dialog the list as it is now.
+
+        Its actions finish on background threads after it has emitted them,
+        so without this its table keeps showing the state from before them.
+        """
+        dlg = self._worktrees_dialog
+        if dlg is None:
+            return
+        try:
+            dlg.set_worktrees(self._queries.list_worktrees.execute())
+        except Exception as e:
+            self._report_worktree_error(f"Failed to list worktrees: {e}")
 
     def _on_add_worktree_requested(self, payload: dict) -> None:
         if self._commands is None:
