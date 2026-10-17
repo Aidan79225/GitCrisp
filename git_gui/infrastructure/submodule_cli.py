@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 import shutil
+import stat
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from git_gui.resources import git_ssh_env, subprocess_kwargs
@@ -22,18 +25,20 @@ class SubmoduleCli:
         self._cwd = repo_workdir
         self._git = git_executable
 
-    def _run(self, *args: str) -> None:
+    def _run(self, *args: str) -> str:
         if shutil.which(self._git) is None:
             raise SubmoduleCommandError(f"`{self._git}` executable not found on PATH")
         try:
             # Paths come from the repo, not from a user pattern: without this a
             # submodule at "lib[1]" makes `rm -f` also delete a tracked "lib1".
-            subprocess.run(
+            completed = subprocess.run(
                 [self._git, "--literal-pathspecs", *args],
                 cwd=self._cwd,
                 check=True,
                 capture_output=True,
-                text=True,
+                # git prints paths in UTF-8 whatever the console code page is.
+                encoding="utf-8",
+                errors="replace",
                 env=git_ssh_env(),
                 **subprocess_kwargs(),
             )
@@ -42,6 +47,7 @@ class SubmoduleCli:
             raise SubmoduleCommandError(stderr) from e
         except FileNotFoundError as e:
             raise SubmoduleCommandError(f"`{self._git}` executable not found on PATH") from e
+        return completed.stdout
 
     def add(self, path: str, url: str) -> None:
         self._run("submodule", "add", "--", url, path)
@@ -59,8 +65,49 @@ class SubmoduleCli:
         self._run("submodule", "set-url", "--", path, url)
 
     def remove(self, path: str) -> None:
+        # Resolved first: `git rm` drops the .gitmodules entry that names it.
+        gitdir = self._module_gitdir(path)
         self._run("submodule", "deinit", "-f", "--", path)
         self._run("rm", "-f", "--", path)
-        modules_dir = Path(self._cwd) / ".git" / "modules" / path
-        if modules_dir.exists():
-            shutil.rmtree(modules_dir, ignore_errors=True)
+        if gitdir is not None and gitdir.exists():
+            _delete_module_gitdir(path, gitdir)
+
+    def _module_gitdir(self, path: str) -> Path | None:
+        """The submodule's repository, at modules/<name> in this worktree's git dir."""
+        output = self._run(
+            "rev-parse", "--git-path", "modules", "--git-path", f"modules/{self._name_of(path)}"
+        )
+        modules_root, gitdir = (Path(self._cwd, line).resolve() for line in output.splitlines())
+        # A hand-written .gitmodules can name a submodule "../.."; never
+        # delete anything outside modules/.
+        return gitdir if modules_root in gitdir.parents else None
+
+    def _name_of(self, path: str) -> str:
+        try:
+            listing = self._run(
+                "config", "-f", ".gitmodules", "--null", "--get-regexp", r"^submodule\..*\.path$"
+            )
+        except SubmoduleCommandError:
+            # --get-regexp fails when nothing matches; git's default name is the path.
+            return path
+        for record in listing.split("\0"):
+            key, _, value = record.partition("\n")
+            if value == path:
+                return key.removeprefix("submodule.").removesuffix(".path")
+        return path
+
+
+def _delete_module_gitdir(path: str, gitdir: Path) -> None:
+    try:
+        shutil.rmtree(gitdir, onexc=_make_writable_and_retry)
+    except OSError as e:
+        raise SubmoduleCommandError(
+            f"Removed submodule '{path}', but could not delete its repository at {gitdir}: {e}"
+        ) from e
+
+
+def _make_writable_and_retry(func: Callable[[str], object], path: str, _exc: BaseException) -> None:
+    # git writes object and pack files read-only, and Windows refuses to
+    # delete a read-only file.
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
