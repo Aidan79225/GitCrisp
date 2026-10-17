@@ -243,6 +243,9 @@ class CommitOps:
         """
         cmd = [
             "git",
+            # Without this git prints a non-ASCII path as a quoted octal escape.
+            "-c",
+            "core.quotepath=off",
             "log",
             "--no-merges",
             "--numstat",
