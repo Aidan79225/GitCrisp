@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 
-from git_gui.resources import subprocess_kwargs
+from git_gui.infrastructure.git_process import run_git
 
 
 class FileHistoryError(Exception):
@@ -66,14 +65,7 @@ class FileHistoryCli:
         args += ["--", path]
 
         try:
-            proc = subprocess.run(
-                args,
-                cwd=self._cwd,
-                capture_output=True,
-                text=True,
-                env=self._env(),
-                **subprocess_kwargs(),
-            )
+            proc = run_git(args, cwd=self._cwd, env=self._env())
         except OSError as e:
             raise FileHistoryError(f"Failed to run git log: {e}") from e
 

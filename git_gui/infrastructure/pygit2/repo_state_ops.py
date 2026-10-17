@@ -5,7 +5,8 @@ import os
 import pygit2
 
 from git_gui.domain.entities import RepoState, RepoStateInfo
-from git_gui.resources import git_ssh_env, subprocess_kwargs
+from git_gui.infrastructure.git_process import run_git
+from git_gui.resources import git_ssh_env
 
 # Keyed by `pygit2.enums.RepositoryState` — the legacy `pygit2.GIT_REPOSITORY_*`
 # constants this used to read were removed in pygit2 1.20. Because they were
@@ -131,17 +132,12 @@ class RepoStateOps:
     def set_identity(self, name: str, email: str, global_: bool) -> None:
         """Write user.name and user.email via subprocess `git config`.
         global_=True writes to ~/.gitconfig; False writes to this repo only."""
-        import subprocess
-
         scope = "--global" if global_ else "--local"
         for key, value in (("user.name", name), ("user.email", email)):
-            result = subprocess.run(
+            result = run_git(
                 ["git", "config", scope, key, value],
                 cwd=self._repo.workdir or self._repo.path,
                 env=self._git_env,
-                capture_output=True,
-                text=True,
-                **subprocess_kwargs(),
             )
             if result.returncode != 0:
                 raise RuntimeError(
