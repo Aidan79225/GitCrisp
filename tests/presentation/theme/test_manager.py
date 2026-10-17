@@ -172,3 +172,72 @@ def test_a_settings_write_that_fails_leaves_the_mode_as_it_was(
         mgr.set_mode("light")
 
     assert mgr.mode == "dark"
+
+
+@pytest.fixture
+def restore_app_font(app):
+    from PySide6.QtGui import QFont
+
+    original = QFont(app.font())
+    yield
+    app.setFont(original)
+
+
+def _shown_in_a_window(widget):
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    window = QWidget()
+    QVBoxLayout(window).addWidget(widget)
+    window.show()
+    return window
+
+
+def test_a_theme_change_keeps_the_font_family_a_widget_chose(
+    app, isolated_settings, restore_app_font
+):
+    """The commit message and the Operations Log set Courier New, and every
+    Apply replaced it with the proportional UI font until restart."""
+    from PySide6.QtWidgets import QPlainTextEdit
+
+    mgr = ThemeManager(app)
+    mono = QPlainTextEdit()
+    font = mono.font()
+    font.setFamily("Courier New")
+    mono.setFont(font)
+    _window = _shown_in_a_window(mono)
+
+    mgr.set_mode("light", force=True)
+
+    assert mono.font().family() == "Courier New"
+
+
+def test_a_theme_change_keeps_the_bold_a_widget_chose(app, isolated_settings, restore_app_font):
+    from PySide6.QtWidgets import QLabel
+
+    mgr = ThemeManager(app)
+    title = QLabel("REPOSITORIES")
+    font = title.font()
+    font.setBold(True)
+    title.setFont(font)
+    _window = _shown_in_a_window(title)
+
+    mgr.set_mode("light", force=True)
+
+    assert title.font().bold()
+
+
+def test_a_widget_without_its_own_font_follows_the_typography_scale(
+    app, isolated_settings, restore_app_font
+):
+    """Under an application style sheet Qt does not pass a new application
+    font down to child widgets itself, so the manager still has to."""
+    from PySide6.QtWidgets import QLabel
+
+    mgr = ThemeManager(app)
+    label = QLabel("plain")
+    _window = _shown_in_a_window(label)
+    s.save_settings({"typography_scale": 2.0})
+
+    mgr.set_mode("light", force=True)
+
+    assert label.font().pointSize() == app.font().pointSize()
