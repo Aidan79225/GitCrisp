@@ -167,10 +167,12 @@ class BranchFlowsMixin:
                     )
                     if reply != QMessageBox.Yes:
                         return
-                    head_before = self.head_before_operation()
+                    # Undo returns the reset branch to its own tip; HEAD may
+                    # have been on a different branch when this started.
+                    tip_before = local_branches[local_name].target_oid
                     self._commands.checkout.execute(local_name)
                     self._commands.reset_branch_to_ref.execute(local_name, name)
-                    self._log_undoable(f"Reset {local_name} to {name}", head_before)
+                    self._log_undoable(f"Reset {local_name} to {name}", tip_before)
                 else:
                     self._commands.checkout_remote_branch.execute(name)
                     self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
