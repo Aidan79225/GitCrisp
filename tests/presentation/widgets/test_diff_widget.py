@@ -338,3 +338,37 @@ def test_a_commit_message_refits_when_its_font_grows(diff_widget, qtbot):
 
     qtbot.wait(50)  # let the resize and relayout land
     assert _message_fits(widget)
+
+
+def test_a_commit_whose_files_cannot_be_read_does_not_sit_over_the_last_diff(
+    multi_file_diff_widget, qtbot
+):
+    """In a blob-less partial clone the commit loads but its files do not.
+    The header switched to the new commit while the old commit's file list
+    and diff stayed underneath it."""
+    widget, queries = multi_file_diff_widget
+    assert widget._diff_model.rowCount() == 3
+    queries.get_commit_files.execute.side_effect = KeyError("object not found")
+
+    with patch("threading.Thread"):
+        widget.load_commit("def456")
+
+    assert widget._current_oid is None
+    assert widget._diff_model.rowCount() == 0
+    assert widget._loader._block_refs == []
+    assert not widget._detail.isVisible()
+
+
+def test_a_failed_diff_fetch_is_logged(diff_widget, qtbot, caplog):
+    """The diffs load off the UI thread; a failure there left the skeletons
+    on screen with nothing said anywhere."""
+    widget, queries = diff_widget
+    queries.get_commit_diff_map.execute.side_effect = KeyError("object not found")
+
+    with patch("threading.Thread") as thread:
+        widget.load_commit("abc123")
+    worker = thread.call_args.kwargs["target"]
+    with caplog.at_level("WARNING"):
+        worker()
+
+    assert "abc123" in caplog.text
