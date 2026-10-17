@@ -402,7 +402,9 @@ class GraphWidget(QWidget):
 
         # Search bar (hidden by default, toggled by Ctrl+F)
         self._search_bar = _SearchBar()
-        self._search_matches: list[int] = []  # row indices of matching commits
+        # Oids of the matching commits, not rows: a reload shifts the rows
+        # (the working-tree row comes and goes, a fetch adds commits).
+        self._search_matches: list[str] = []
         self._search_idx = -1  # current position in _search_matches
         self._pending_search: str | None = None  # search to re-run after full reload
         # The reload limit a search's full-history load replaced, put back
@@ -1317,12 +1319,13 @@ class GraphWidget(QWidget):
         self._search_matches.clear()
         self._search_idx = -1
         for row in range(self._model.rowCount()):
-            info = self._model.data(self._model.index(row, 0), INFO_ROLE)
+            index = self._model.index(row, 0)
+            info = self._model.data(index, INFO_ROLE)
             if info is None:
                 continue
             haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
             if needle in haystack:
-                self._search_matches.append(row)
+                self._search_matches.append(self._model.data(index, OID_ROLE))
         if self._search_matches:
             self._search_idx = 0
             self._jump_to_match()
@@ -1342,10 +1345,18 @@ class GraphWidget(QWidget):
         )
 
     def _jump_to_match(self) -> None:
-        row = self._search_matches[self._search_idx]
+        row = self._row_of(self._search_matches[self._search_idx])
+        if row is None:
+            return  # a reload since the search dropped this commit
         index = self._model.index(row, 0)
         self._view.scrollTo(index, QTableView.PositionAtCenter)
         self._view.setCurrentIndex(index)
+
+    def _row_of(self, oid: str) -> int | None:
+        for row in range(self._model.rowCount()):
+            if self._model.data(self._model.index(row, 0), OID_ROLE) == oid:
+                return row
+        return None
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), OID_ROLE)
