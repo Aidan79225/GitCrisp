@@ -181,3 +181,35 @@ def test_badges_that_fit_are_drawn_whole(qtbot):
     painted = _paint(info, 4 * _text_width(f"main origin/main {SHA}"))
 
     assert [label.text for label in _badge_labels(painted)] == ["main", "origin/main"]
+
+
+# ── Author and date ──────────────────────────────────────────────────────────
+
+
+AUTHOR = "Aidan Wang"
+DATE = "2026-10-16"
+
+
+def _drawn_author(painted: RecordingPainter) -> DrawnText:
+    return next(
+        t for t in painted.texts if t.text and AUTHOR.startswith(t.text.removesuffix(ELLIPSIS))
+    )
+
+
+def test_the_author_is_elided_before_it_reaches_the_date(qtbot):
+    """A deep lane indent leaves the header too narrow for both in full."""
+    info = _info(author=f"{AUTHOR} <a@example.com>", timestamp=DATE)
+
+    painted = _paint(info, _text_width(AUTHOR + DATE) * 3 // 4)
+
+    author = _drawn_author(painted)
+    assert not author.bounds.intersects(_drawn(painted, DATE).bounds)
+    assert author.text.endswith(ELLIPSIS)
+
+
+def test_an_author_that_fits_beside_the_date_is_drawn_whole(qtbot):
+    info = _info(author=f"{AUTHOR} <a@example.com>", timestamp=DATE)
+
+    painted = _paint(info, 2 * _text_width(AUTHOR + DATE))
+
+    assert _drawn_author(painted).text == AUTHOR
