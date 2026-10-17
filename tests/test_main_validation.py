@@ -145,3 +145,23 @@ class TestFindValidRepoPruning:
         _find_valid_repo(store)
 
         assert str(dead) not in store.get_recent_repos()
+
+
+class TestOpenStartupSession:
+    def test_a_repo_that_validates_but_will_not_open_starts_without_a_session(self, tmp_path):
+        """discover_repository accepts a repo whose config does not parse, but
+        opening it raises — which used to escape main() on every launch."""
+        pygit2.init_repository(str(tmp_path))
+        (tmp_path / ".git" / "config").write_text("[core\n", encoding="utf-8")
+        assert _is_git_repo(str(tmp_path))
+
+        from main import _open_startup_session
+
+        assert _open_startup_session(str(tmp_path)) is None
+
+    def test_a_repo_that_opens_starts_with_its_session(self, tmp_path):
+        pygit2.init_repository(str(tmp_path))
+
+        from main import _open_startup_session
+
+        assert _open_startup_session(str(tmp_path)) is not None
