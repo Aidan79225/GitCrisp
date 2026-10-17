@@ -52,3 +52,28 @@ def test_commit_after_a_switch_creates_a_commit_instead_of_finishing_the_old_mer
 
     assert continued == []
     commands.create_commit.execute.assert_called_once_with("Fix typo")
+
+
+# ── With the last repo closed, the panel's controls do nothing ───────────────
+
+
+@pytest.fixture
+def closed(widget):
+    widget.set_buses(None, None)
+    reported: list[str] = []
+    widget.commit_failed.connect(reported.append)
+    return widget, reported
+
+
+def test_stage_all_with_no_repo_open_does_nothing(closed):
+    w, reported = closed
+    w._on_stage_all()
+    w._on_unstage_all()
+    assert reported == []
+
+
+def test_commit_with_no_repo_open_does_nothing(closed):
+    w, reported = closed
+    w._msg_edit.setPlainText("typed after closing the repo")
+    w._on_commit()
+    assert reported == []

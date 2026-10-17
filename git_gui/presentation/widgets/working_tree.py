@@ -358,6 +358,9 @@ class WorkingTreeWidget(QWidget):
         self._on_files_changed()
 
     def _on_stage_all(self) -> None:
+        # Closing the last repo can leave this panel on screen with no buses.
+        if self._queries is None:
+            return
         try:
             raw_files = self._queries.get_working_tree.execute()
             files, partial = _deduplicate(raw_files)
@@ -371,6 +374,8 @@ class WorkingTreeWidget(QWidget):
         self._on_files_changed()
 
     def _on_unstage_all(self) -> None:
+        if self._queries is None:
+            return
         try:
             raw_files = self._queries.get_working_tree.execute()
             files, partial = _deduplicate(raw_files)
@@ -389,6 +394,8 @@ class WorkingTreeWidget(QWidget):
             self._on_commit()
 
     def _on_commit(self) -> None:
+        if self._queries is None:
+            return
         state = getattr(self, "_current_state", "CLEAN")
         msg = self._msg_edit.toPlainText().strip()
         if state not in _OPERATIONS_IN_PROGRESS and not msg:
