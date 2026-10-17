@@ -389,3 +389,30 @@ def test_deselecting_a_file_redraws_the_commit_once(multi_file_diff_widget, qtbo
         qtbot.keyClick(view, Qt.Key_Escape)
 
     assert thread.call_count == 1
+
+
+def test_a_huge_commit_builds_blocks_only_up_to_the_cap(diff_widget, qtbot):
+    """Every block is a frame subtree built on the UI thread: an initial
+    import of thousands of files held the window for seconds before a single
+    diff was fetched. The working-tree view already stopped at the cap."""
+    from PySide6.QtWidgets import QLabel
+
+    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+
+    widget, queries = diff_widget
+    paths = [f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 50)]
+    queries.get_commit_files.execute.return_value = [
+        FileStatus(path=p, status="staged", delta="added") for p in paths
+    ]
+
+    with patch("threading.Thread"):
+        widget.load_commit("abc123")
+
+    assert [ref[0] for ref in widget._loader._block_refs] == paths[:MAX_AGGREGATE_FILE_BLOCKS]
+    assert widget._diff_model.rowCount() == len(paths)  # all still listed
+    notices = [
+        label.text()
+        for label in widget._diff_container.findChildren(QLabel)
+        if label.text().startswith("+ 50 more")
+    ]
+    assert len(notices) == 1
