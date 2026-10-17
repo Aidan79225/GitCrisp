@@ -6,8 +6,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat, QTextCursor
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QPainter, QTextBlockFormat, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -19,11 +19,50 @@ from PySide6.QtWidgets import (
 )
 
 
-class _ClickableLabel(QLabel):
-    """QLabel that calls a callback on left-click and shows a pointer cursor."""
+class _ElidedLabel(QLabel):
+    """A one-line header that gives up width it cannot have, eliding its text.
 
-    def __init__(self, text: str, on_click: Callable[[], None], parent=None) -> None:
+    A plain QLabel's minimum width is its whole text. Inside a resizable scroll
+    area that minimum widened the block, and every editor in it, past the pane,
+    pushing the hunk's buttons out of view behind a second scrollbar. This one
+    still asks for its whole text when there is room; when there is not, it
+    shows what fits and keeps the rest in its tooltip.
+    """
+
+    def __init__(self, text: str, elide_mode: Qt.TextElideMode, parent=None) -> None:
         super().__init__(text, parent)
+        self._elide_mode = elide_mode
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        fits = self.fontMetrics().horizontalAdvance(self.text()) <= self.contentsRect().width()
+        self.setToolTip("" if fits else self.text())
+
+    def paintEvent(self, event) -> None:
+        rect = self.contentsRect()
+        shown = self.fontMetrics().elidedText(self.text(), self._elide_mode, rect.width())
+        painter = QPainter(self)
+        self.style().drawItemText(
+            painter,
+            rect,
+            self.alignment(),
+            self.palette(),
+            self.isEnabled(),
+            shown,
+            self.foregroundRole(),
+        )
+
+
+class _ClickableLabel(_ElidedLabel):
+    """A header label that calls a callback on left-click and shows a pointer cursor."""
+
+    def __init__(
+        self, text: str, elide_mode: Qt.TextElideMode, on_click: Callable[[], None], parent=None
+    ) -> None:
+        super().__init__(text, elide_mode, parent)
         self._on_click = on_click
         self.setCursor(Qt.PointingHandCursor)
 
@@ -146,10 +185,11 @@ def make_file_block(
     toggle = _CollapseToggle(expanded=True)
     header_row_layout.addWidget(toggle)
     label_text = f"\U0001f4c4 {path}"
+    # Eliding the middle keeps both the top folder and the file name in view.
     if on_header_clicked is not None:
-        header_label = _ClickableLabel(label_text, on_header_clicked)
+        header_label = _ClickableLabel(label_text, Qt.ElideMiddle, on_header_clicked)
     else:
-        header_label = QLabel(label_text)
+        header_label = _ElidedLabel(label_text, Qt.ElideMiddle)
     header_label.setStyleSheet(_header_style())
     header_row_layout.addWidget(header_label)
     header_row_layout.addStretch()
@@ -636,9 +676,9 @@ def make_hunk_header_row(
         header_layout.addWidget(w)
     header_text = hunk.header.strip()
     if on_header_clicked is not None:
-        header_label: QLabel = _ClickableLabel(header_text, on_header_clicked)
+        header_label: QLabel = _ClickableLabel(header_text, Qt.ElideRight, on_header_clicked)
     else:
-        header_label = QLabel(header_text)
+        header_label = _ElidedLabel(header_text, Qt.ElideRight)
     header_label.setStyleSheet(f"color: {_hunk_header_color()};")
     header_layout.addWidget(header_label)
     header_layout.addStretch()
