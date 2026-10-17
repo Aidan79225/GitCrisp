@@ -58,9 +58,10 @@ class FileHistoryCli:
             "log",
             "--format=%H",
             f"--max-count={skip + limit}",
+            # Explicit either way: a user's `log.follow=true` would otherwise
+            # follow renames even when the caller asked not to.
+            "--follow" if follow else "--no-follow",
         ]
-        if follow:
-            args.append("--follow")
         # `--` stops git treating a path that looks like a ref as one.
         args += ["--", path]
 
