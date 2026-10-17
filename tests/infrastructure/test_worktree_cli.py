@@ -120,3 +120,41 @@ def test_a_dirty_worktree_under_a_non_ascii_folder_is_reported_dirty(repo_with_w
 
     with pytest.raises(WorktreeDirtyError):
         WorktreeCli(str(main)).remove(str(wt), force=False)
+
+
+def _git(cwd, *args):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+@pytest.fixture
+def worktree_with_submodule(repo_with_worktree, tmp_path, monkeypatch):
+    """A clean linked worktree whose submodule has been initialised."""
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+    main, _ = repo_with_worktree
+    child = tmp_path / "child"
+    child.mkdir()
+    _git(child, "init", "-q")
+    _git(child, "config", "user.name", "T")
+    _git(child, "config", "user.email", "t@e.com")
+    _git(child, "commit", "-q", "--allow-empty", "-m", "c")
+    _git(main, "submodule", "add", str(child), "sub")
+    _git(main, "commit", "-q", "-m", "add sub")
+    wt = tmp_path / "wt-sub"
+    _git(main, "worktree", "add", "-b", "with-sub", str(wt))
+    _git(wt, "submodule", "update", "--init")
+    return main, wt
+
+
+def test_a_worktree_with_submodules_can_be_force_removed(worktree_with_submodule):
+    """git refuses "working trees containing submodules" without --force; that
+    message matched neither pattern, so the force prompt never appeared."""
+    main, wt = worktree_with_submodule
+    cli = WorktreeCli(str(main))
+
+    with pytest.raises(WorktreeDirtyError):
+        cli.remove(str(wt), force=False)
+    cli.remove(str(wt), force=True)
+
+    assert not wt.exists()
