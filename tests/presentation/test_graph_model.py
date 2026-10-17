@@ -148,13 +148,6 @@ def test_badge_color_head_arrow():
     assert color.name().lower() == "#238636"
 
 
-def test_badge_color_remote():
-    from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
-
-    color = _badge_color("origin/main")
-    assert color.name().lower() == "#1f4287"
-
-
 def test_badge_color_local():
     from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
 

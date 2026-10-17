@@ -51,7 +51,7 @@ class CommitDetailWidget(QWidget):
         self._commit: Commit | None = None
         self._refs: list[str] = []
         self._head_branch: str | None = None
-        self._remote_branches: frozenset[str] | None = None
+        self._remote_branches: frozenset[str] = frozenset()
         self._avatar_hash: str | None = None
         self._oid_rect: QRect | None = None
         self._cut_author_rect: QRect | None = None
@@ -69,7 +69,7 @@ class CommitDetailWidget(QWidget):
         refs: list[str],
         *,
         head_branch: str | None = None,
-        remote_branches: frozenset[str] | None = None,
+        remote_branches: frozenset[str] = frozenset(),
     ) -> None:
         self._commit = commit
         self._refs = refs
