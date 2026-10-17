@@ -125,3 +125,22 @@ def test_cancel_after_closing_the_last_repo_still_stops_the_op(qtbot):
         _wait_until_idle(qtbot, win)
 
     started_in.cancel_remote_op.execute.assert_called_once_with()
+
+
+def test_an_op_requested_while_another_runs_is_reported_as_skipped(qtbot):
+    win = _make_window(qtbot)
+    win._log_panel = MagicMock()
+    release = threading.Event()
+    skipped = []
+    with patch.object(win, "_reload"):
+        win._run_remote_op("Delete tag v1 from origin", lambda: release.wait(2))
+        win._run_remote_op("Delete tag v1 from upstream", lambda: skipped.append("ran"))
+        release.set()
+        _wait_until_idle(qtbot, win)
+
+    assert skipped == []
+    errors = [call.args[0] for call in win._log_panel.log_error.call_args_list]
+    assert any(
+        "Delete tag v1 from upstream — skipped" in e and "Delete tag v1 from origin" in e
+        for e in errors
+    ), errors

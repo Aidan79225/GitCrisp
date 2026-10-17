@@ -69,6 +69,7 @@ class RemoteOpQueueMixin:
         *push_target* marks the op as a push that may be offered a force push.
         """
         if self._remote_running:
+            self._report_remote_op_skipped(name)
             return
 
         self._log_panel.expand()
@@ -101,6 +102,15 @@ class RemoteOpQueueMixin:
 
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
+
+    def _report_remote_op_skipped(self, name: str) -> None:
+        """The user may already have confirmed *name*, so dropping it unannounced
+        would leave them believing it ran."""
+        running = self._remote_op_name or "another remote operation"
+        self._log_panel.expand()
+        self._log_panel.log_error(
+            f"{name} — skipped: {running} is still running. Try again once it finishes."
+        )
 
     def _cancel_remote_op(self) -> None:
         """Ask the running push/pull/fetch to abort by terminating its git
