@@ -242,3 +242,52 @@ def test_cherry_pick_merge_commit_with_is_merge_false_raises(tmp_path: Path):
     with pytest.raises(RuntimeError):
         cli.cherry_pick(merge_sha, is_merge=False)
     assert not (tmp_path / ".git" / "CHERRY_PICK_HEAD").exists()
+
+
+@pytest.fixture
+def linked_worktree(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
+    """A linked worktree on master, with commits that conflict when picked or reverted there.
+
+    Returns (worktree, its gitdir, oids). In a linked worktree `.git` is a file
+    and git keeps CHERRY_PICK_HEAD / REVERT_HEAD in the gitdir it points to.
+    """
+    main = tmp_path / "main"
+    main.mkdir()
+    _run(str(main), "init", "-q", "-b", "master")
+    _run(str(main), "config", "user.email", "t@t")
+    _run(str(main), "config", "user.name", "t")
+    _commit(main, "f.txt", "line1\n", "init")
+    _run(str(main), "checkout", "-q", "-b", "a")
+    oids = {"from_a": _commit(main, "f.txt", "from-a\n", "from a")}
+    _run(str(main), "checkout", "-q", "master")
+    oids["update"] = _commit(main, "f.txt", "line2\n", "update")
+    _commit(main, "f.txt", "line3\n", "second update")
+
+    worktree = tmp_path / "wt"
+    _run(str(main), "worktree", "add", "-b", "wt", str(worktree), "master")
+    git_dir = subprocess.run(
+        ["git", "rev-parse", "--absolute-git-dir"],
+        cwd=str(worktree),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    return worktree, Path(git_dir), oids
+
+
+def test_cherry_pick_conflict_in_a_linked_worktree_does_not_raise(linked_worktree):
+    worktree, git_dir, oids = linked_worktree
+    cli = CommitOpsCli(str(worktree), git_dir=str(git_dir))
+
+    cli.cherry_pick(oids["from_a"], is_merge=False)  # Conflict; must not raise.
+
+    assert (git_dir / "CHERRY_PICK_HEAD").exists()
+
+
+def test_revert_conflict_in_a_linked_worktree_does_not_raise(linked_worktree):
+    worktree, git_dir, oids = linked_worktree
+    cli = CommitOpsCli(str(worktree), git_dir=str(git_dir))
+
+    cli.revert_commit(oids["update"], is_merge=False)  # Conflict; must not raise.
+
+    assert (git_dir / "REVERT_HEAD").exists()
