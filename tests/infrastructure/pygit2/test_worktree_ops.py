@@ -265,3 +265,23 @@ def test_a_lock_reason_is_written_as_utf8(fresh_repo, linked_worktree):
 
     locked = fresh_repo / ".git" / "worktrees" / linked_worktree.name / "locked"
     assert locked.read_bytes() == reason.encode("utf-8")
+
+
+def test_a_new_branch_starts_at_the_base_branch_not_a_same_named_tag(fresh_repo, tmp_path):
+    """revparse prefers refs/tags/<name> over refs/heads/<name>, and the tag
+    object was not peeled: the branch started at the tag's commit and its ref
+    held a tag object, which `git fsck` reports as an error."""
+    repo = pygit2.Repository(str(fresh_repo))
+    branch_tip = repo.head.target
+    repo.references.create("refs/heads/rel", branch_tip)
+    sig = pygit2.Signature("T", "t@e.com")
+    later = repo.create_commit(
+        "refs/heads/master", sig, sig, "later", repo.head.peel(pygit2.Tree).id, [branch_tip]
+    )
+    repo.create_tag("rel", later, pygit2.enums.ObjectType.COMMIT, sig, "release")
+
+    Pygit2Repository(str(fresh_repo)).add_worktree(
+        str(tmp_path / "wt-rel"), "from-rel", create_branch=True, base_ref="rel"
+    )
+
+    assert repo.references["refs/heads/from-rel"].target == branch_tip

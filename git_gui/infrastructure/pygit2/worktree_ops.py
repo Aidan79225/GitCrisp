@@ -127,10 +127,10 @@ class WorktreeOps:
         if create_branch:
             base = base_ref or "HEAD"
             try:
-                base_obj = self._repo.revparse_single(base)
+                base_commit = self._base_commit(base)
             except Exception as e:
                 raise ValueError(f"Base ref not found: {base}") from e
-            self._repo.references.create(f"refs/heads/{branch}", base_obj.id)
+            self._repo.references.create(f"refs/heads/{branch}", base_commit.id)
 
         if self._repo.references.get(f"refs/heads/{branch}") is None:
             raise ValueError(f"Branch not found: {branch}")
@@ -190,6 +190,14 @@ class WorktreeOps:
         # Not the session's workdir: that may be the worktree being removed,
         # and Windows will not delete a process's current directory.
         return WorktreeCli(str(self._common_dir()))
+
+    def _base_commit(self, base: str) -> pygit2.Commit:
+        # The dialog offers local branch names, and revparse's DWIM order
+        # would take a tag of the same name first.
+        branch_ref = f"refs/heads/{base}"
+        if pygit2.reference_is_valid_name(branch_ref) and branch_ref in self._repo.references:
+            return self._repo.references[branch_ref].peel(pygit2.Commit)
+        return self._repo.revparse_single(base).peel(pygit2.Commit)
 
     def _common_dir(self) -> Path:
         """The git dir every worktree of this repository shares.
