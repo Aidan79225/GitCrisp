@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.domain.entities import FileStatus, StagingState
+from git_gui.domain.entities import FileStatus, RepoState, StagingState
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
@@ -202,9 +202,12 @@ class WorkingTreeWidget(QWidget):
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
         self._commands = commands
-        # Amend targets the old repo's HEAD; switching repos must not carry it over.
+        # Amend, the message and any merge or rebase in progress all belong to
+        # the repo being left; carried over, Commit would act on them here.
         self._set_amend_checked(False)
         self._draft_msg = ""
+        self._msg_edit.clear()
+        self.update_conflict_banner(RepoState.CLEAN)
         self._file_model.set_commands(commands)
         self._hunk_diff.set_buses(queries, commands)
         if queries is None:
