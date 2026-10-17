@@ -50,10 +50,10 @@ def test_context_belongs_to_both_sides():
 
 
 def test_an_unrecognised_origin_is_context():
-    """git marks "\\ No newline at end of file" and the end-of-file variants
-    with their own characters. The unified renderer counts them on both sides,
-    and a row that only appeared on one of them would be a phantom change."""
-    rows = align_hunk(_hunk("@@ -1,1 +1,1 @@", ("\\", " No newline at end of file\n")))
+    """An origin the view does not know is drawn on both sides, as the
+    unified view draws it, rather than as a phantom change on one of them.
+    git's real no-newline markers are covered in test_no_newline_note."""
+    rows = align_hunk(_hunk("@@ -1,1 +1,1 @@", ("?", "something\n")))
 
     left, right = rows[0]
     assert (left.number, right.number) == (1, 1)

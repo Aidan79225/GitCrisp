@@ -30,9 +30,10 @@ class LineKind(StrEnum):
     """A diff line's leading character, as libgit2 reports it.
 
     The three EOFNL members are libgit2's "no newline at end of file" markers.
-    They are listed so an origin round-trips unchanged rather than raising, and
-    every renderer treats them the way it always has: anything that is not
-    ADDED or REMOVED draws as context.
+    Each one notes that the line just before it ends without a newline (an
+    ADDED_EOFNL follows a removed line, a REMOVED_EOFNL an added one, a
+    CONTEXT_EOFNL a context line). A marker is not a line of either file, so
+    renderers show it without a line number and do not count it.
     """
 
     ADDED = "+"
