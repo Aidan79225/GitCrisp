@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QVBoxLayout,
     QWidget,
 )
@@ -83,7 +84,8 @@ def ensure_identity(parent: QWidget, queries: QueryBus, commands: CommandBus) ->
 
     Returns True if identity is already set, or the user successfully
     set it via the dialog. Returns False if the user cancelled or
-    saving failed; the caller decides any error messaging.
+    saving failed; a failed save is reported to the user here, because
+    the bool cannot tell the caller which of the two happened.
     """
     name, email = queries.get_identity.execute()
     if name and email:
@@ -94,7 +96,8 @@ def ensure_identity(parent: QWidget, queries: QueryBus, commands: CommandBus) ->
     new_name, new_email, global_ = dlg.values()
     try:
         commands.set_identity.execute(new_name, new_email, global_)
-    except Exception:
+    except Exception as e:
         logger.exception("Failed to save git identity")
+        QMessageBox.warning(parent, "Save identity failed", str(e))
         return False
     return True
