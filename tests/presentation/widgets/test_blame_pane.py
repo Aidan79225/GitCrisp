@@ -389,3 +389,25 @@ def test_an_emoji_does_not_shift_the_colours_after_it(qtbot):
     def_start = w._editor.document().findBlockByNumber(1).position()
     assert [colour_at(def_start + i) for i in range(3)] == [keyword] * 3
     assert colour_at(def_start + 3) != keyword, "the space after def stays plain"
+
+
+# ── Gutter after a font change ───────────────────────────────────────────────
+
+
+def test_the_gutter_widens_with_a_larger_font_after_a_theme_change(qtbot):
+    """The typography scale reaches the editor as a new font, then a theme change.
+
+    Measured once at load, the gutter kept its old width: author names ran
+    into the line numbers and the numbers were clipped.
+    """
+    w, _ = _window(qtbot)
+    editor = w._editor
+    before = editor.gutter_width()
+    font = editor.font()
+    font.setPointSizeF(font.pointSizeF() * 1.6)
+    editor.setFont(font)
+
+    editor.restyle()
+
+    assert editor.gutter_width() == editor._measure_gutter() > before
+    assert editor._gutter.width() == editor.gutter_width()
