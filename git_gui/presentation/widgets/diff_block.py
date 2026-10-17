@@ -754,6 +754,17 @@ def add_hunk_widget(
     parent_layout.addWidget(editor)
 
 
+def make_overflow_notice(hidden: int) -> QLabel:
+    """A muted one-line notice standing in for files beyond the block cap."""
+    label = QLabel(
+        f"+ {hidden} more changed file{'s' if hidden != 1 else ''} not shown — "
+        "select a file above to view its diff."
+    )
+    label.setWordWrap(True)
+    label.setContentsMargins(8, 8, 8, 8)
+    return label
+
+
 def make_skeleton_container() -> QWidget:
     """Return a QWidget containing 4 gray placeholder bars that mimic diff rows.
 

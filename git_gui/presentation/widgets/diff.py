@@ -24,9 +24,11 @@ from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.diff_block import (
     make_diff_formats,
     make_file_block,
+    make_overflow_notice,
     make_syntax_formats,
 )
 from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
+from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
 from git_gui.presentation.widgets.hunk_view import add_hunk_view
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
@@ -549,8 +551,11 @@ class DiffWidget(QWidget):
 
         block_refs = []
 
+        # Each block is a frame subtree registered with the theme manager, and
+        # building one per file held the window for seconds on a commit that
+        # touches thousands. The rest stay reachable through the file list.
         row_count = self._diff_model.rowCount()
-        for row in range(row_count):
+        for row in range(min(row_count, MAX_AGGREGATE_FILE_BLOCKS)):
             index = self._diff_model.index(row)
             file_status = self._diff_model.data(index, Qt.UserRole)
             if file_status is None:
@@ -559,6 +564,8 @@ class DiffWidget(QWidget):
             frame, inner, skeleton = self._build_skeleton_block(path)
             self._diff_layout.addWidget(frame)
             block_refs.append((path, frame, inner, skeleton))
+        if row_count > MAX_AGGREGATE_FILE_BLOCKS:
+            self._diff_layout.addWidget(make_overflow_notice(row_count - MAX_AGGREGATE_FILE_BLOCKS))
 
         self._diff_layout.addStretch()
 
