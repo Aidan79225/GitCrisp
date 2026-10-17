@@ -1,0 +1,103 @@
+"""Closing a repo moves you only if it was the one you were in, and then back
+to the repo listed before it.
+
+Closing always switched to the first open repo: closing some other row from
+the repo list threw away where you were, and Ctrl+W landed on the top of the
+list rather than on the previous repo the README promises.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
+from git_gui.infrastructure.repo_store import JsonRepoStore
+from git_gui.presentation.main_window import MainWindow
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+
+
+def _repo(path: Path) -> str:
+    path.mkdir()
+    _git(path, "init", "-q", "-b", "master", ".")
+    _git(path, "config", "user.name", "T")
+    _git(path, "config", "user.email", "t@e.com")
+    (path / "a.txt").write_text("x\n")
+    _git(path, "add", "a.txt")
+    _git(path, "commit", "-qm", "init")
+    return str(path)
+
+
+@pytest.fixture
+def repos(tmp_path) -> list[str]:
+    """Three open repos, listed A, B, C."""
+    return [_repo(tmp_path / name) for name in ("a", "b", "c")]
+
+
+def _window_on(qtbot, tmp_path, repos: list[str], active: str) -> MainWindow:
+    from main import _open_session
+
+    store = JsonRepoStore(tmp_path / "repos.json")
+    for path in reversed(repos):
+        store.add_open(path)
+    store.set_active(active)
+    queries, commands = _open_session(active)
+    win = MainWindow(
+        queries, commands, store, JsonRemoteTagCache(), active, session_factory=_open_session
+    )
+    qtbot.addWidget(win)
+    return win
+
+
+def _close_and_wait(qtbot, win: MainWindow, path: str) -> None:
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        win._on_repo_close(path)
+
+
+def test_closing_another_repo_leaves_you_where_you_are(qtbot, tmp_path, repos):
+    a, b, c = repos
+    win = _window_on(qtbot, tmp_path, repos, active=c)
+
+    with qtbot.assertNotEmitted(win._repo_ready_signals.ready, wait=500):
+        win._on_repo_close(a)
+
+    assert win._repo_path == c
+    assert win._repo_store.get_open_repos() == [b, c]
+    assert win._repo_store.get_active() == c
+    assert a in win._repo_store.get_recent_repos()
+
+
+def test_ctrl_w_goes_back_to_the_repo_listed_before(qtbot, tmp_path, repos):
+    a, b, c = repos
+    win = _window_on(qtbot, tmp_path, repos, active=c)
+
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        win._close_current_repo()
+
+    assert win._repo_path == b
+    assert win._repo_store.get_open_repos() == [a, b]
+
+
+def test_closing_the_first_repo_goes_to_the_next(qtbot, tmp_path, repos):
+    a, b, c = repos
+    win = _window_on(qtbot, tmp_path, repos, active=a)
+
+    _close_and_wait(qtbot, win, a)
+
+    assert win._repo_path == b
+    assert win._repo_store.get_open_repos() == [b, c]
+
+
+def test_closing_the_only_repo_leaves_the_window_empty(qtbot, tmp_path, repos):
+    a = repos[0]
+    win = _window_on(qtbot, tmp_path, [a], active=a)
+
+    win._close_current_repo()
+
+    assert win._repo_path is None
+    assert win.windowTitle() == "GitCrisp"

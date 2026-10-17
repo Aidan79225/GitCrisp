@@ -202,13 +202,24 @@ class RepoLifecycleMixin:
         self._switch_repo(path)
 
     def _on_repo_close(self, path: str) -> None:
+        successor = self._repo_after_closing(path)
         self._repo_store.close_repo(path)
         self._repo_store.save()
-        open_repos = self._repo_store.get_open_repos()
-        if open_repos:
-            self._switch_repo(open_repos[0])
-        else:
+        if path != self._repo_path:
+            self._repo_list.reload()  # some other row: stay where you are
+        elif successor is None:
             self._enter_empty_state()
+        else:
+            self._switch_repo(successor)
+
+    def _repo_after_closing(self, path: str) -> str | None:
+        """The open repo listed just before *path*, or after it when it is first."""
+        open_repos = self._repo_store.get_open_repos()
+        others = [p for p in open_repos if p != path]
+        if not others:
+            return None
+        index = open_repos.index(path) if path in open_repos else 0
+        return others[max(index - 1, 0)]
 
     def _close_current_repo(self) -> None:
         """Ctrl+W: close the active repo and switch to the previous open one."""
