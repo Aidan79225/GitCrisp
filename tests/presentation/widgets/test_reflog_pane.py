@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 from datetime import datetime
 from typing import ClassVar
 from unittest.mock import MagicMock
@@ -640,3 +641,44 @@ def test_a_superseded_failure_does_not_clear_a_newer_reload(qtbot):
 
     assert pane._model.entry_at(0).summary == "newest"
     assert "lock held" not in pane._status.full_text()
+
+
+def _with_a_new_movement_on_top() -> list[ReflogEntry]:
+    """ENTRIES after one more movement: every HEAD@{n} below it moves down one."""
+    renumbered = [replace(e, index=e.index + 1) for e in ENTRIES]
+    return [_entry(0, "commit", "made after the pick", oid_old="d" * 40), *renumbered]
+
+
+def test_a_reload_keeps_the_movement_the_user_picked(qtbot):
+    pane, queries = _pane(qtbot)
+    pane.select_row(2)
+
+    _reload_to(qtbot, pane, queries, _with_a_new_movement_on_top())
+
+    assert pane.current_entry().summary == ENTRIES[2].summary
+
+
+def test_a_reload_that_keeps_the_pick_does_not_reload_its_commit(qtbot):
+    pane, queries = _pane(qtbot)
+    pane.select_row(2)
+    got: list[str] = []
+    pane.commit_selected.connect(got.append)
+
+    _reload_to(qtbot, pane, queries, _with_a_new_movement_on_top())
+
+    assert got == []
+
+
+def test_a_pick_that_a_reload_dropped_hands_its_commit_over_again(qtbot):
+    pane, queries = _pane(qtbot)
+    pane.select_row(2)
+    got: list[str] = []
+    pane.commit_selected.connect(got.append)
+
+    _reload_to(qtbot, pane, queries, [_entry(0, "commit", "another history")])
+    queries.get_reflog.execute.return_value = list(ENTRIES)
+    pane.reload()
+    qtbot.waitUntil(lambda: pane._model.rowCount() == len(ENTRIES))
+    pane.select_row(2)
+
+    assert got == [ENTRIES[2].oid_new]
