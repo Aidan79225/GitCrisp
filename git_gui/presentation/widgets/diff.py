@@ -29,7 +29,7 @@ from git_gui.presentation.widgets.diff_block import (
 )
 from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
 from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
-from git_gui.presentation.widgets.hunk_view import add_hunk_view
+from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
@@ -496,19 +496,7 @@ class DiffWidget(QWidget):
                 syntax_formats=self._syntax_formats,
                 filename=path,
             )
-
-        # If the user collapsed this file before realize fired, the newly
-        # added hunk widgets default to visible — sync them with the toggle.
-        from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
-
-        frame = inner.parentWidget()  # the QFrame that owns `inner`
-        toggle = frame.findChild(_CollapseToggle) if frame is not None else None
-        if toggle is not None and not toggle.isChecked():
-            for i in range(1, inner.count()):
-                item = inner.itemAt(i)
-                w = item.widget() if item else None
-                if w is not None:
-                    w.setVisible(False)
+        hide_hunks_if_collapsed(inner)
         self._sync_hscroll()
 
     def _on_file_selected(self, index) -> None:
