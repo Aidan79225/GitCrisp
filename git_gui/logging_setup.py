@@ -36,6 +36,23 @@ _uncaught_logger = logging.getLogger("gitcrisp.uncaught")
 _fault_fp: IO[str] | None = None
 
 
+class _SharedRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """A rotating handler that keeps appending when the log cannot be rotated.
+
+    Every running GitCrisp holds the same log open, and Windows will not
+    rename a file another process has open. The stock handler then drops the
+    record, and every record after it, for as long as the other one runs; a
+    log that outgrows its limit loses less than one that goes silent.
+    """
+
+    def doRollover(self) -> None:
+        try:
+            super().doRollover()
+        except OSError:
+            if self.stream is None:
+                self.stream = self._open()
+
+
 def _log_uncaught(exc_type, exc_value, exc_traceback) -> None:
     """Log uncaught main-thread exceptions, then delegate to the default hook.
 
@@ -75,7 +92,7 @@ def setup_logging() -> None:
     root = logging.getLogger()
     if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
         _LOG_DIR.mkdir(parents=True, exist_ok=True)
-        handler = logging.handlers.RotatingFileHandler(
+        handler = _SharedRotatingFileHandler(
             _LOG_FILE,
             maxBytes=_MAX_BYTES,
             backupCount=_BACKUP_COUNT,
