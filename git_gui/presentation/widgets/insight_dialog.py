@@ -272,6 +272,9 @@ class InsightDialog(QDialog):
 
         self.setWindowTitle("Git Insight")
         self.resize(700, 800)
+        # Opened afresh each time and parented to the main window: without
+        # this every closed dialog stays alive holding its last results.
+        self.setAttribute(Qt.WA_DeleteOnClose)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
