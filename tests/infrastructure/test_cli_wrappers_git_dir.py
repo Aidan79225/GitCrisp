@@ -16,6 +16,7 @@ import pytest
 
 from git_gui.infrastructure.commit_ops_cli import CommitOpsCli
 from git_gui.infrastructure.file_history_cli import FileHistoryCli
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="needs the git CLI")
 
@@ -83,3 +84,11 @@ def test_cherry_pick_applies_a_submodule_commit_to_the_submodule(unlinked_submod
     cli.cherry_pick(oids["side"], is_merge=False)
 
     assert (workdir / "side.txt").read_text(encoding="utf-8") == "side"
+
+
+def test_the_repository_reads_a_submodule_s_file_history_not_its_parent_s(unlinked_submodule):
+    workdir, _gitdir, oids = unlinked_submodule
+
+    history = Pygit2Repository(str(workdir)).get_file_history("f.txt", 10)
+
+    assert [commit.oid for commit in history] == [oids["base"]]
