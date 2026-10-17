@@ -79,8 +79,8 @@ class _LoadSignals(QObject):
     reload_done = Signal(list, list, list, bool, str, object, object, bool, object, int)
     # more, first_parent, path_filter, generation
     append_done = Signal(list, bool, object, int)
-    # generation — the worker raised instead of producing a result
-    load_failed = Signal(int)
+    # generation, error message — the worker raised instead of producing a result
+    load_failed = Signal(int, str)
 
 
 _ARTS = get_resource_path("arts")
@@ -302,6 +302,7 @@ class GraphWidget(QWidget):
     stash_requested = Signal()
     insight_requested = Signal()
     reflog_requested = Signal()
+    load_failed = Signal(str)  # why the commits could not be loaded
 
     def __init__(
         self, queries: QueryBus, commands: CommandBus, repo_store: IRepoStore, parent=None
@@ -485,9 +486,10 @@ class GraphWidget(QWidget):
             self._path_filter = None
             self._path_filter_bar.close_bar()
             self.path_filter_changed.emit(None)
-        if queries is None:
-            self._model.reload([], {})
-        else:
+        # The previous repo's commits mean nothing here, and would stay on
+        # screen under this repo's name if its first load failed.
+        self._model.reload([], {})
+        if queries is not None:
             self.reload()
 
     def set_repo_path(self, path: str | None) -> None:
@@ -612,7 +614,7 @@ class GraphWidget(QWidget):
                 merge_head = queries.get_merge_head.execute()
             except Exception as e:
                 logger.warning("Graph reload failed: %s", e)
-                signals.load_failed.emit(generation)
+                signals.load_failed.emit(generation, str(e))
                 return
             signals.reload_done.emit(
                 commits,
@@ -823,7 +825,7 @@ class GraphWidget(QWidget):
             self.reload()
         return stale
 
-    def _on_load_failed(self, generation: int) -> None:
+    def _on_load_failed(self, generation: int, message: str) -> None:
         """A load raised instead of producing a result.
 
         The guard needs clearing. Left set, it turns away every reload
@@ -834,6 +836,7 @@ class GraphWidget(QWidget):
         if generation != self._load_generation:
             return
         self._loading = False
+        self.load_failed.emit(message)
         if self._reload_queued:
             self._reload_queued = False
             self.reload()
@@ -923,7 +926,7 @@ class GraphWidget(QWidget):
                     )
             except Exception as e:
                 logger.warning("Graph page load failed: %s", e)
-                signals.load_failed.emit(generation)
+                signals.load_failed.emit(generation, str(e))
                 return
             signals.append_done.emit(more, fp, path, generation)
 
