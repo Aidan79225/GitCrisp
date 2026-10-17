@@ -21,12 +21,15 @@ def install_git_menu(
     on_open_submodule: Callable[[str], None],
     on_open_worktrees_dialog: Callable[[], None] | None = None,
     on_open_reflog: Callable[[], None] | None = None,
+    on_checkout_branch: Callable[[str], None] | None = None,
 ) -> None:
     """Add a `Git` menu with `Remotes...` and `Submodules...` actions,
     replacing the one an earlier call added.
 
     `on_open_submodule` is invoked with the absolute path of the submodule
-    when the user clicks Open in the submodule dialog.
+    when the user clicks Open in the submodule dialog, and
+    `on_checkout_branch` with the branch the user checks out in the Branches
+    dialog.
     """
     _remove_previous_git_menu(window)
     bar = window.menuBar()
@@ -49,6 +52,8 @@ def install_git_menu(
             return
         dlg = BranchesDialog(queries, commands, window)
         dlg.set_worktree_paths(window._worktree_paths_by_branch)
+        if on_checkout_branch is not None:
+            dlg.checkout_requested.connect(on_checkout_branch)
         dlg.checkout_in_new_worktree_requested.connect(
             lambda branch: window._open_add_worktree_dialog(
                 preselect_branch=branch, default_create=False
