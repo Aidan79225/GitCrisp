@@ -7,12 +7,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtWidgets import QDialog
 
+from git_gui.presentation.main_window.remote_op_queue import RemoteOpQueueMixin
 from git_gui.presentation.main_window.tag_flows import TagFlowsMixin
 
 MODULE = "git_gui.presentation.main_window.tag_flows"
 
 
-class _Host(TagFlowsMixin):
+class _Host(TagFlowsMixin, RemoteOpQueueMixin):
     """Bare composite standing in for MainWindow's attributes."""
 
     def __init__(self) -> None:
@@ -21,6 +22,7 @@ class _Host(TagFlowsMixin):
         self._log_panel = MagicMock()
         self._repo_path = "/repo"
         self._remote_running = False
+        self._remote_op_name: str | None = None
         self.pushed: list[str] = []
         self.reloaded = 0
 
@@ -94,3 +96,12 @@ def test_cancel_creates_nothing(host):
     _run(host, push=True, accepted=False)
     host._commands.create_tag.execute.assert_not_called()
     assert host.pushed == []
+
+
+def test_a_skipped_push_of_a_new_tag_names_the_running_op_and_where_to_push_it_later(host):
+    host._remote_running = True
+    host._remote_op_name = "Fetch origin"
+    _run(host, push=True)
+    message = host._log_panel.log_error.call_args.args[0]
+    assert "Fetch origin" in message
+    assert "sidebar" in message

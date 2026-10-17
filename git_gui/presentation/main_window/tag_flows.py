@@ -8,6 +8,9 @@ from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 
 logger = logging.getLogger(__name__)
 
+# The new tag already exists, so creating it again is not the way to retry.
+_PUSH_FROM_SIDEBAR_LATER = "Push it from the sidebar's tag menu once it finishes."
+
 
 class TagFlowsMixin:
     """Tag operations — create and delete (local and/or remote).
@@ -36,17 +39,10 @@ class TagFlowsMixin:
             self._reload()
             return
         self._reload()
-        if dialog.push_requested():
-            if self._remote_running:
-                # _run_remote_op drops a request while another one runs; say
-                # so rather than leave the user thinking the tag went out.
-                self._log_panel.expand()
-                self._log_panel.log_error(
-                    f"Push tag {name} — skipped: another remote operation is running. "
-                    "Push it from the sidebar's tag menu once it finishes."
-                )
-            else:
-                self._on_push_tag(name)
+        if dialog.push_requested() and not self._remote_slot_busy(
+            f"Push tag {name}", retry_hint=_PUSH_FROM_SIDEBAR_LATER
+        ):
+            self._on_push_tag(name)
 
     def _has_origin(self) -> bool:
         """Whether the Create Tag dialog can offer to push to origin."""
@@ -110,14 +106,9 @@ class TagFlowsMixin:
 
     def _delete_tag_local_and_remote(self, name: str, remotes: list[str]) -> None:
         op_name = f"Delete tag {name} from {', '.join(remotes)}"
-        if self._remote_running:
-            # Refused before the local delete, so the tag is not left gone
-            # here but still published on the remotes.
-            self._log_panel.expand()
-            self._log_panel.log_error(
-                f"{op_name} — skipped: another remote operation is running. "
-                "Try again once it finishes."
-            )
+        # Refused before the local delete, so the tag is not left gone here
+        # but still published on the remotes.
+        if self._remote_slot_busy(op_name):
             return
         # Local delete first (synchronous), then the remotes in background.
         try:
