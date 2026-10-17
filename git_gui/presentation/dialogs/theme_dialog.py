@@ -302,6 +302,7 @@ class ThemeDialog(QDialog):
             for token in tokens:
                 self._working_colors[token] = getattr(c, token)
         self._working_lane_colors = list(c.graph_lane_colors)
+        self._prefill_theme = self._base_theme
 
     def _apply_swatch_color(self, token: str, hex_value: str) -> None:
         btn = self._swatch_buttons[token]
@@ -402,7 +403,10 @@ class ThemeDialog(QDialog):
         from git_gui.presentation.theme import settings as _settings
         from git_gui.presentation.theme.tokens import Colors, Theme
 
-        base = self._base_theme
+        # Tokens without a swatch come from the theme the swatches were
+        # filled from, so a saved theme never pairs one theme's surfaces
+        # with another's syntax colours.
+        base = self._prefill_theme
 
         colors_kwargs = dict(dataclasses.asdict(base.colors))
         for token, hex_value in self._working_colors.items():
@@ -444,6 +448,7 @@ class ThemeDialog(QDialog):
         for i, hex_value in enumerate(self._working_lane_colors):
             if i < len(self._lane_buttons):
                 self._apply_lane_swatch_color(i, hex_value)
+        self._prefill_theme = theme
 
 
 def _theme_to_json(theme) -> dict:
