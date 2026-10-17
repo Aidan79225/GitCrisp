@@ -189,11 +189,27 @@ class RemoteOpQueueMixin:
 
     def _on_pull(self) -> None:
         branch = self._branch_to_sync("Pull")
-        if branch:
-            self._run_remote_op(
-                f"Pull origin/{branch}",
-                lambda: self._commands.pull.execute("origin", branch),
-            )
+        if branch is None:
+            return
+        commands = self._commands
+        remote, source = self._pull_source(branch)
+        self._run_remote_op(
+            f"Pull {remote}/{source}",
+            lambda: commands.pull.execute(remote, source),
+            commands=commands,
+        )
+
+    def _pull_source(self, branch: str) -> tuple[str, str]:
+        """The remote and branch `git pull` takes *branch* from: its upstream
+        when that is on a remote, else the same-named branch on origin."""
+        upstream = self._upstream_for(branch)
+        if upstream:
+            # Longest first, because a remote's name may itself contain a slash.
+            remotes = self._queries.list_remotes.execute()
+            for remote in sorted((r.name for r in remotes), key=len, reverse=True):
+                if upstream.startswith(f"{remote}/"):
+                    return remote, upstream[len(remote) + 1 :]
+        return "origin", branch
 
     def _branch_to_sync(self, op: str) -> str | None:
         """The checked-out branch, or None after logging that HEAD is on none.
