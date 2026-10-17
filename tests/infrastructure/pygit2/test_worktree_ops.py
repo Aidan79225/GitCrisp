@@ -213,3 +213,28 @@ def test_a_session_can_remove_the_worktree_it_is_open_on(linked_worktree):
     impl.remove_worktree(str(linked_worktree), force=False)
 
     assert not linked_worktree.exists()
+
+
+def test_add_worktree_into_an_existing_empty_folder(fresh_repo, tmp_path):
+    """Browse… can only pick a folder that already exists, and git accepts an
+    empty one; libgit2 refused it with "directory exists"."""
+    target = tmp_path / "picked"
+    target.mkdir()
+
+    wt = Pygit2Repository(str(fresh_repo)).add_worktree(
+        str(target), "picked", create_branch=True, base_ref="master"
+    )
+
+    assert wt.branch == "picked"
+    assert (target / "a.txt").read_text() == "hi\n"
+
+
+def test_add_worktrees_whose_folders_share_a_name(fresh_repo, tmp_path):
+    """The folder name was used as the worktree's admin name, so a second
+    `app` folder anywhere else collided with the first."""
+    impl = Pygit2Repository(str(fresh_repo))
+    impl.add_worktree(str(tmp_path / "a" / "app"), "one", create_branch=True, base_ref="master")
+
+    impl.add_worktree(str(tmp_path / "b" / "app"), "two", create_branch=True, base_ref="master")
+
+    assert {wt.branch for wt in impl.list_worktrees()} == {"master", "one", "two"}

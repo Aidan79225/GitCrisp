@@ -121,8 +121,7 @@ class WorktreeOps:
         create_branch: bool,
         base_ref: str | None,
     ) -> Worktree:
-        target = Path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target = Path(path).absolute()
 
         if create_branch:
             base = base_ref or "HEAD"
@@ -132,14 +131,10 @@ class WorktreeOps:
                 raise ValueError(f"Base ref not found: {base}") from e
             self._repo.references.create(f"refs/heads/{branch}", base_obj.id)
 
-        ref = self._repo.references.get(f"refs/heads/{branch}")
-        if ref is None:
+        if self._repo.references.get(f"refs/heads/{branch}") is None:
             raise ValueError(f"Branch not found: {branch}")
 
-        # pygit2's "name" is the dir name under .git/worktrees/<name>/.
-        # Use the basename of the target for predictability.
-        wt_name = target.name
-        self._repo.add_worktree(wt_name, str(target), ref)
+        self._worktree_cli().add(str(target), branch)
 
         wt_branch, wt_sha = _read_head_branch(str(target))
         return Worktree(
@@ -153,12 +148,7 @@ class WorktreeOps:
         )
 
     def remove_worktree(self, path: str, *, force: bool) -> None:
-        from git_gui.infrastructure.worktree_cli import WorktreeCli
-
-        # Not the session's workdir: that may be the worktree being removed,
-        # and Windows will not delete a process's current directory.
-        cli = WorktreeCli(str(self._common_dir()))
-        cli.remove(path, force=force)
+        self._worktree_cli().remove(path, force=force)
 
     def lock_worktree(self, path: str, *, reason: str | None = None) -> None:
         target = Path(path).resolve()
@@ -192,6 +182,13 @@ class WorktreeOps:
                 locked.unlink()
 
     # ── Internals ────────────────────────────────────────────────────────
+
+    def _worktree_cli(self):
+        from git_gui.infrastructure.worktree_cli import WorktreeCli
+
+        # Not the session's workdir: that may be the worktree being removed,
+        # and Windows will not delete a process's current directory.
+        return WorktreeCli(str(self._common_dir()))
 
     def _common_dir(self) -> Path:
         """The git dir every worktree of this repository shares.
