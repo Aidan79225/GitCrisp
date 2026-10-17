@@ -220,6 +220,6 @@ def test_a_pinned_commit_is_not_appended_again_when_the_walk_reaches_it(qtbot):
     _deliver(w, _commits(3) + _commits(1, prefix="pinned"))
     before = w._model.rowCount()
 
-    w._on_append_done(_commits(1, prefix="pinned"), [], [], w._first_parent, w._path_filter)
+    w._on_append_done(_commits(1, prefix="pinned"), w._first_parent, w._path_filter)
 
     assert w._model.rowCount() == before

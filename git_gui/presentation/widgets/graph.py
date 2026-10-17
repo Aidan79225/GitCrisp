@@ -76,8 +76,8 @@ class _LoadSignals(QObject):
     # commits, branches, tags, is_dirty, head_oid, repo_state, merge_head,
     # first_parent, path_filter, generation
     reload_done = Signal(list, list, list, bool, str, object, object, bool, object, int)
-    # more, branches, tags, first_parent, path_filter, generation
-    append_done = Signal(list, list, list, bool, object, int)
+    # more, first_parent, path_filter, generation
+    append_done = Signal(list, bool, object, int)
     # generation — the worker raised instead of producing a result
     load_failed = Signal(int)
 
@@ -881,21 +881,17 @@ class GraphWidget(QWidget):
                     more = queries.get_file_history.execute(
                         path, limit=PAGE_SIZE, skip=skip, follow=follow
                     )
-                branches = queries.get_branches.execute()
-                tags = queries.get_tags.execute()
             except Exception as e:
                 logger.warning("Graph page load failed: %s", e)
                 signals.load_failed.emit(generation)
                 return
-            signals.append_done.emit(more, branches, tags, fp, path, generation)
+            signals.append_done.emit(more, fp, path, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_append_done(
         self,
         more: list[Commit],
-        branches: list[Branch],
-        tags: list[Tag],
         first_parent: bool,
         path_filter: str | None = None,
         generation: int | None = None,
@@ -919,13 +915,9 @@ class GraphWidget(QWidget):
         # it would drop the rows under the user's scroll position and selection.
         self._reload_limit = max(self._reload_limit, self._loaded_count)
 
-        refs: dict[str, list[str]] = {}
-        for b in branches:
-            refs.setdefault(b.target_oid, []).append(b.name)
-        for t in tags:
-            refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
-
-        self._model.append(more, refs)
+        # No refs: the reload labelled every branch and tag tip, loaded or
+        # not, along with the detached-HEAD badge that relabelling would drop.
+        self._model.append(more, {})
 
     def _show_context_menu(self, pos) -> None:
         index = self._view.indexAt(pos)

@@ -14,8 +14,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from git_gui.domain.entities import Commit
-from git_gui.presentation.models.graph_model import OID_ROLE
+from git_gui.domain.entities import WORKING_TREE_OID, Commit, Tag
+from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE
 from git_gui.presentation.widgets.graph import PAGE_SIZE, GraphWidget
 
 
@@ -320,8 +320,6 @@ def test_a_commit_clicked_again_after_the_selection_was_cleared_is_shown_again(
 def test_the_working_tree_row_is_announced_when_it_comes_back(graph, qtbot, inline_workers):
     """Committing removes the row and the right pane moves to HEAD; when a
     file is edited again the row returns, and clicking it must show it."""
-    from git_gui.domain.entities import WORKING_TREE_OID
-
     graph._queries.is_dirty.execute.return_value = True
     graph.reload()
     _select_row(graph, 0)
@@ -334,3 +332,25 @@ def test_the_working_tree_row_is_announced_when_it_comes_back(graph, qtbot, inli
         _select_row(graph, 0)
 
     assert shown.args == [WORKING_TREE_OID]
+
+
+# ── Ref badges ───────────────────────────────────────────────────────────────
+
+
+def _badges(graph: GraphWidget, row: int) -> list[str]:
+    return graph._model.data(graph._model.index(row, 0), INFO_ROLE).branch_names
+
+
+def test_scrolling_to_the_next_page_keeps_the_detached_head_badge(graph, inline_workers):
+    """`git checkout v1.0`: the commit shows HEAD and the tag. Loading the
+    next page used to relabel it with the tag alone."""
+    tag = Tag(
+        name="v1.0", target_oid="c0", is_annotated=False, message=None, tagger=None, timestamp=None
+    )
+    graph._queries.get_tags.execute.return_value = [tag]
+    graph.reload()
+    assert _badges(graph, 0) == ["HEAD", "tag:v1.0"]
+
+    graph._load_more()
+
+    assert _badges(graph, 0) == ["HEAD", "tag:v1.0"]
