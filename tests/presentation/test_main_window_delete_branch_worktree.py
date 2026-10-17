@@ -64,10 +64,13 @@ def test_cancel_aborts_without_removing_or_deleting(qtbot):
     win._commands.delete_branch.execute.assert_not_called()
 
 
-def test_branch_not_in_worktree_deletes_directly(qtbot):
+def test_branch_not_in_worktree_deletes_once_confirmed(qtbot):
     win = _make_window(qtbot)
     win._queries.find_worktree_for_branch.execute.return_value = None
-    with patch.object(win, "_reload"):
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+        patch.object(win, "_reload"),
+    ):
         win._on_delete_branch("plain")
     win._commands.remove_worktree.execute.assert_not_called()
     win._commands.delete_branch.execute.assert_called_once_with("plain")
@@ -78,7 +81,10 @@ def test_main_worktree_branch_is_not_offered_removal(qtbot):
     removed; fall through to a plain delete (which surfaces git's own error)."""
     win = _make_window(qtbot)
     win._queries.find_worktree_for_branch.execute.return_value = _worktree("develop", is_main=True)
-    with patch.object(win, "_reload"):
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+        patch.object(win, "_reload"),
+    ):
         win._on_delete_branch("develop")
     win._commands.remove_worktree.execute.assert_not_called()
     win._commands.delete_branch.execute.assert_called_once_with("develop")
@@ -119,3 +125,30 @@ def test_dirty_worktree_force_declined_aborts(qtbot):
     ):
         win._on_delete_branch("wt-branch")
     win._commands.delete_branch.execute.assert_not_called()
+
+
+def test_declining_the_delete_prompt_keeps_the_branch(qtbot):
+    """The sidebar and graph delete straight from a context menu, and the
+    delete is a force delete: unmerged commits go with the branch."""
+    win = _make_window(qtbot)
+    win._queries.find_worktree_for_branch.execute.return_value = None
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.No) as question,
+        patch.object(win, "_reload"),
+    ):
+        win._on_delete_branch("feature")
+    assert "feature" in question.call_args.args[2]
+    win._commands.delete_branch.execute.assert_not_called()
+
+
+def test_the_worktree_prompt_is_the_only_confirmation(qtbot):
+    win = _make_window(qtbot)
+    win._queries.find_worktree_for_branch.execute.return_value = _worktree("wt-branch")
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes) as question,
+        patch.object(win, "_reload"),
+        patch.object(win, "_load_worktrees_for_active_repo"),
+    ):
+        win._on_delete_branch("wt-branch")
+    question.assert_called_once()
+    win._commands.delete_branch.execute.assert_called_once_with("wt-branch")

@@ -34,7 +34,10 @@ class BranchFlowsMixin:
         # (instead of surfacing libgit2's opaque "current HEAD of a linked
         # repository" error).
         wt = self._linked_worktree_for_branch(branch)
-        if wt is not None and not self._remove_worktree_for_branch_delete(branch, wt):
+        if wt is not None:
+            if not self._remove_worktree_for_branch_delete(branch, wt):
+                return
+        elif not self._confirm_delete_branch(branch):
             return
         try:
             self._commands.delete_branch.execute(branch)
@@ -43,6 +46,16 @@ class BranchFlowsMixin:
             self._log_panel.expand()
             self._log_panel.log_error(f"Delete branch {branch} — ERROR: {e}")
         self._reload()
+
+    def _confirm_delete_branch(self, branch: str) -> bool:
+        reply = QMessageBox.question(
+            self,
+            "Delete branch",
+            f"Delete branch '{branch}'? Commits that are only on it will be lost.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return reply == QMessageBox.Yes
 
     def _linked_worktree_for_branch(self, branch: str):
         """Return the linked (non-main) worktree that has `branch` checked out,
