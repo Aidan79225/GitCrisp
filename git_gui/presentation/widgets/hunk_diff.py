@@ -56,7 +56,7 @@ class _LoadSignals(QObject):
 
 
 class _DiffMapSignals(QObject):
-    done = Signal(object)  # dict[str, dict[str, list[Hunk]]]
+    done = Signal(object, int)  # dict[str, dict[str, list[Hunk]]], blocks generation
 
 
 class HunkDiffWidget(QWidget):
@@ -75,6 +75,10 @@ class HunkDiffWidget(QWidget):
         # The all-files view's blocks by path, so a reload can find the height
         # each one had before it is rebuilt as a skeleton.
         self._aggregate_blocks: dict[str, QFrame] = {}
+        # Bumped whenever the blocks are torn down. A diff map hands back the
+        # generation it was asked for, so one meant for blocks that are gone,
+        # after a repo switch or a newer load, is dropped.
+        self._blocks_generation = 0
 
         # Lazy loading — initialized after scroll area is created (see below)
         self._loader: ViewportBlockLoader | None = None
@@ -167,8 +171,9 @@ class HunkDiffWidget(QWidget):
         self._loader.set_blocks(block_refs)
 
         queries = self._queries
+        generation = self._blocks_generation
         signals = _DiffMapSignals()
-        signals.done.connect(lambda diff_map: self._loader.set_diff_map(diff_map))
+        signals.done.connect(self._on_diff_map_loaded)
         self._load_all_signals = signals  # prevent GC
 
         def _worker():
@@ -179,9 +184,13 @@ class HunkDiffWidget(QWidget):
                 result = queries.get_working_tree_diff_map.execute(shown)
             except Exception:
                 result = {}
-            signals.done.emit(result)
+            signals.done.emit(result, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_diff_map_loaded(self, diff_map: dict, generation: int) -> None:
+        if generation == self._blocks_generation:
+            self._loader.set_diff_map(diff_map)
 
     def _aggregate_block_heights(self) -> dict[str, int]:
         """Each all-files block's height: its content's, or the one it still holds.
@@ -494,6 +503,7 @@ class HunkDiffWidget(QWidget):
 
     def _clear_layout(self) -> None:
         self._aggregate_blocks = {}
+        self._blocks_generation += 1
         while self._layout.count():
             item = self._layout.takeAt(0)
             widget = item.widget()
