@@ -196,7 +196,7 @@ class WorktreeOps:
 
         # Not the session's workdir: that may be the worktree being removed,
         # and Windows will not delete a process's current directory.
-        return WorktreeCli(str(self._common_dir()))
+        return WorktreeCli(str(self._common_dir()), env=self._git_env)
 
     def _base_commit(self, base: str) -> pygit2.Commit:
         # The dialog offers local branch names, and revparse's DWIM order

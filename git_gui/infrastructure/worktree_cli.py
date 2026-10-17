@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 
 from git_gui.infrastructure.git_process import run_git
 
@@ -32,13 +33,23 @@ class WorktreeCli:
     pygit2 lacks a "remove worktree with directory cleanup" call, and its add
     refuses an existing empty folder and a folder name another worktree already
     uses, both of which git accepts, so we shell out to the git CLI. `repo_dir`
-    is only the cwd that selects the repository, so worktree paths must be
-    absolute.
+    is only the cwd, so worktree paths must be absolute.
+
+    Pass `env` with GIT_DIR to pin git to that repository. Without it git
+    finds the repository from `repo_dir`, unless the app inherited a GIT_DIR
+    of its own, which git ranks first.
     """
 
-    def __init__(self, repo_dir: str, git_executable: str = "git") -> None:
+    def __init__(
+        self,
+        repo_dir: str,
+        git_executable: str = "git",
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> None:
         self._cwd = repo_dir
         self._git = git_executable
+        self._env = env
 
     def add(self, worktree_path: str, branch: str) -> None:
         """Check out the existing local `branch` in a new worktree.
@@ -66,7 +77,7 @@ class WorktreeCli:
         if shutil.which(self._git) is None:
             raise WorktreeCommandError(f"`{self._git}` executable not found on PATH")
         try:
-            run_git([self._git, *args], cwd=self._cwd, check=True)
+            run_git([self._git, *args], cwd=self._cwd, env=self._env, check=True)
         except subprocess.CalledProcessError as e:
             message = (e.stderr or "").strip() or (e.stdout or "").strip() or str(e)
             raise WorktreeCommandError(message) from e
