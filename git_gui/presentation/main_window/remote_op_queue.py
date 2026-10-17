@@ -173,7 +173,7 @@ class RemoteOpQueueMixin:
             )
 
     def _on_push(self) -> None:
-        branch = self._get_current_branch()
+        branch = self._branch_to_sync("Push")
         if branch:
             self._on_push_branch(branch)
 
@@ -188,12 +188,30 @@ class RemoteOpQueueMixin:
         )
 
     def _on_pull(self) -> None:
-        branch = self._get_current_branch()
+        branch = self._branch_to_sync("Pull")
         if branch:
             self._run_remote_op(
                 f"Pull origin/{branch}",
                 lambda: self._commands.pull.execute("origin", branch),
             )
+
+    def _branch_to_sync(self, op: str) -> str | None:
+        """The checked-out branch, or None after logging that HEAD is on none.
+
+        The toolbar's Push and Pull stay enabled on a detached HEAD (every
+        rebase stops on one) and in a repo with no commits yet, so a click
+        there needs an answer.
+        """
+        if self._queries is None:
+            return None
+        branch = self._get_current_branch()
+        if branch is None:
+            self._log_panel.expand()
+            self._log_panel.log_error(
+                f"{op} — HEAD is not on a branch (detached, or no commits yet). "
+                "Check out a branch first."
+            )
+        return branch
 
     def _on_fetch_all_prune(self) -> None:
         commands, queries, repo_path = self._commands, self._queries, self._repo_path
