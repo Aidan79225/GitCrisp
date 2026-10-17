@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
-from git_gui.domain.entities import Branch
+from git_gui.domain.entities import Branch, Worktree
 from git_gui.presentation.dialogs.branch_select_dialog import BranchSelectDialog
+
+logger = logging.getLogger(__name__)
 
 
 class BranchFlowsMixin:
@@ -140,14 +144,18 @@ class BranchFlowsMixin:
     def _on_checkout_branch(self, name: str) -> None:
         try:
             all_branches = self._queries.get_branches.execute()
-            local_names = {b.name for b in all_branches if not b.is_remote}
+            local_branches = {b.name: b for b in all_branches if not b.is_remote}
 
-            if name in local_names:
+            if name in local_branches:
+                if self._switch_to_worktree_holding(local_branches[name]):
+                    return
                 self._commands.checkout.execute(name)
                 self._log_panel.log(f"Checkout branch: {name}")
             else:
                 local_name = name.split("/", 1)[1] if "/" in name else name
-                if local_name in local_names:
+                if local_name in local_branches:
+                    if self._switch_to_worktree_holding(local_branches[local_name]):
+                        return
                     reply = QMessageBox.question(
                         self,
                         "Local branch exists",
@@ -174,6 +182,33 @@ class BranchFlowsMixin:
             head_oid = self._queries.get_head_oid.execute()
             if head_oid:
                 self._graph.scroll_to_oid(head_oid, select=True)
+
+    def _switch_to_worktree_holding(self, branch: Branch) -> bool:
+        """Open the worktree that has `branch` checked out, in place of
+        checking it out here. Returns True when it did.
+
+        This has to be asked before checking out rather than after it fails:
+        libgit2 rewrites the working tree and index first, and only then
+        refuses to move HEAD onto a branch another worktree holds, which
+        leaves this worktree's files on one branch and its HEAD on another.
+        """
+        wt = self._worktree_holding_elsewhere(branch)
+        if wt is None:
+            return False
+        self._log_panel.log(
+            f"Branch {branch.name} is checked out in {wt.path} — switching to that worktree"
+        )
+        self._switch_repo(wt.path)
+        return True
+
+    def _worktree_holding_elsewhere(self, branch: Branch) -> Worktree | None:
+        if branch.is_head or self._queries is None:
+            return None
+        try:
+            return self._queries.find_worktree_for_branch.execute(branch.name)
+        except Exception as e:
+            logger.warning("Looking up the worktree for %s failed: %s", branch.name, e)
+            return None
 
     # ── Double-click to switch branch ───────────────────────────────────
 
@@ -226,6 +261,8 @@ class BranchFlowsMixin:
             # Remote-only branch on this commit — reuse the existing dispatch,
             # which creates/updates the tracking local branch as needed.
             self._on_checkout_branch(branch.name)
+            return
+        if self._switch_to_worktree_holding(branch):
             return
         try:
             self._commands.checkout.execute(branch.name)
