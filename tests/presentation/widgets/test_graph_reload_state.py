@@ -278,3 +278,18 @@ def test_closing_the_search_while_its_history_loads_loads_a_page_instead(graph, 
 
     assert _last_graph_limit(graph) == PAGE_SIZE
     assert graph._model.rowCount() == PAGE_SIZE
+
+
+def test_the_next_match_is_still_a_match_after_a_reload_shifts_the_rows(graph, inline_workers):
+    """Editing a file adds the 'Uncommitted Changes' row on top, moving every
+    commit down one row. Matches kept as rows then pointed at their neighbours."""
+    graph.reload()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")  # c12, then c120…c129
+    assert _current_oid(graph) == "c12"
+
+    graph._queries.is_dirty.execute.return_value = True
+    graph.reload()
+    graph._on_search_navigate(1)
+
+    assert _current_oid(graph) == "c120"
