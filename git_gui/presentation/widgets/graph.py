@@ -873,6 +873,9 @@ class GraphWidget(QWidget):
 
         self._has_more = len(more) >= PAGE_SIZE
         self._loaded_count += min(len(more), PAGE_SIZE)
+        # A bare reload loads `_reload_limit` commits. Below what is on screen,
+        # it would drop the rows under the user's scroll position and selection.
+        self._reload_limit = max(self._reload_limit, self._loaded_count)
 
         refs: dict[str, list[str]] = {}
         for b in branches:
