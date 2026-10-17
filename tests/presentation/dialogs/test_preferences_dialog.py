@@ -106,3 +106,28 @@ def test_reject_leaves_crash_report_choice_alone(qtbot, monkeypatch):
     dlg.reject()
     assert get_send_crash_reports() is True
     assert applied == []
+
+
+def test_accepting_in_a_release_build_does_not_start_sentry(qtbot, monkeypatch):
+    """The release job bakes the production DSN in before it runs the suite."""
+    import sys
+    from types import ModuleType
+
+    import sentry_sdk
+
+    import git_gui
+    from git_gui.presentation.dialogs.preferences_dialog import PreferencesDialog
+
+    release_config = ModuleType("git_gui._build_config")
+    release_config.DSN = "https://key@example.ingest.sentry.io/1"  # type: ignore[attr-defined]
+    release_config.VERSION = "9.9.9"  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "git_gui._build_config", release_config)
+    monkeypatch.setattr(git_gui, "_build_config", release_config, raising=False)
+    started: list[dict] = []
+    monkeypatch.setattr(sentry_sdk, "init", lambda **kwargs: started.append(kwargs))
+
+    dlg = PreferencesDialog()
+    qtbot.addWidget(dlg)
+    dlg.accept()
+
+    assert started == []
