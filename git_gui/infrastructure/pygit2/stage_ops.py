@@ -50,7 +50,7 @@ class StageOps:
         if patch:
             subprocess.run(
                 ["git", "apply", "--cached"],
-                input=patch.encode("utf-8"),
+                input=patch,
                 cwd=self._repo.workdir,
                 env=self._git_env,
                 check=True,
@@ -64,7 +64,7 @@ class StageOps:
         if patch:
             subprocess.run(
                 ["git", "apply", "--cached", "--reverse"],
-                input=patch.encode("utf-8"),
+                input=patch,
                 cwd=self._repo.workdir,
                 env=self._git_env,
                 check=True,
@@ -109,7 +109,7 @@ class StageOps:
         if patch:
             subprocess.run(
                 ["git", "apply", "--reverse"],
-                input=patch.encode("utf-8"),
+                input=patch,
                 cwd=self._repo.workdir,
                 env=self._git_env,
                 check=True,
@@ -118,7 +118,7 @@ class StageOps:
             )
             self._repo.index.read()
 
-    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> str | None:
+    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> bytes | None:
         if staged:
             if self._repo.head_is_unborn:
                 empty_tree_oid = self._repo.TreeBuilder().write()
@@ -135,13 +135,17 @@ class StageOps:
                 continue
             for hunk in patch.hunks:
                 if hunk.header == hunk_header:
-                    # Build minimal patch: diff header + single hunk
-                    lines = [f"--- a/{path}\n", f"+++ b/{path}\n"]
-                    lines.append(hunk.header)
-                    for line in hunk.lines:
-                        lines.append(f"{line.origin}{line.content}")
-                    # Ensure last line ends with newline
-                    if lines and not lines[-1].endswith("\n"):
-                        lines[-1] += "\n"
-                    return "".join(lines)
+                    return _single_hunk_patch(path, hunk)
         return None
+
+
+def _single_hunk_patch(path: str, hunk: pygit2.DiffHunk) -> bytes:
+    # Built from raw_content: `content` is a lossy UTF-8 decode, so a Latin-1
+    # or Big5 line rebuilt from it no longer matches the file.
+    name = os.fsencode(path)
+    lines = [b"--- a/" + name + b"\n", b"+++ b/" + name + b"\n", hunk.header.encode()]
+    for line in hunk.lines:
+        lines.append(line.origin.encode() + line.raw_content)
+    if not lines[-1].endswith(b"\n"):
+        lines[-1] += b"\n"
+    return b"".join(lines)
