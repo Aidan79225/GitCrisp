@@ -32,7 +32,7 @@ def _bundle_version(monkeypatch, baked: str | None) -> str:
         )
     monkeypatch.delenv("GITCRISP_VERSION", raising=False)
 
-    source = SPEC.read_text()
+    source = SPEC.read_text(encoding="utf-8")
     header = source[: source.index("a = Analysis(")]
     namespace: dict = {"SPECPATH": str(REPO_ROOT)}
     exec(compile(header, str(SPEC), "exec"), namespace)  # our own build file
@@ -51,7 +51,7 @@ def test_a_local_build_is_not_stamped_as_a_release(monkeypatch):
 
 def test_the_spec_carries_no_version_literal():
     """The literal is what rotted. A number here again should fail loudly."""
-    source = SPEC.read_text()
+    source = SPEC.read_text(encoding="utf-8")
     plist = source[source.index("info_plist=") :]
 
     for key in ("CFBundleShortVersionString", "CFBundleVersion"):
@@ -63,6 +63,6 @@ def test_pyproject_does_not_claim_to_be_a_release():
     installed, and a stale number there would report a version that shipped."""
     import tomllib
 
-    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert data["project"]["version"] == "0.0.0"
