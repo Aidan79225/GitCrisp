@@ -421,46 +421,25 @@ def test_local_delete_emits_local_name_when_remote_also_present(qtbot):
     branch, the later `name = remote_branches[0]` rebind clobbered the closure,
     and clicking "Delete branch: <local>" emitted the remote name instead.
 
-    This test builds the local-only delete section and asserts the lambda
-    fires with the local name, not whatever was bound last.
+    The commit carries both refs whenever local and remote are in sync.
     """
-    from PySide6.QtWidgets import QMenu
+    from git_gui.domain.entities import Branch
+    from tests.presentation.widgets.graph_menu_helpers import (
+        ROW_OID,
+        find_action,
+        open_context_menu,
+    )
 
-    from git_gui.presentation.widgets.graph import GraphWidget
-
-    w = GraphWidget.__new__(GraphWidget)
-    from PySide6.QtWidgets import QWidget
-
-    QWidget.__init__(w)
-    qtbot.addWidget(w)
-
+    w, menu = open_context_menu(
+        qtbot,
+        [Branch("main", False, True, ROW_OID), Branch("origin/main", True, False, ROW_OID)],
+    )
     received_local: list[str] = []
     received_remote: list[tuple[str, str]] = []
-    w.delete_branch_requested.connect(lambda n: received_local.append(n))
+    w.delete_branch_requested.connect(received_local.append)
     w.remote_branch_delete_requested.connect(lambda r, b: received_remote.append((r, b)))
 
-    # Build a menu manually using the EXACT closure pattern from the fix:
-    # both a local-branch single-item lambda AND a later remote-branch
-    # single-item lambda capture `name` via default arg.
-    menu = QMenu()
-    local_branches = ["main"]
-    remote_branches = ["origin/main"]
-
-    if len(local_branches) == 1:
-        name = local_branches[0]
-        local_action = menu.addAction(f"Delete branch: {name}")
-        local_action.triggered.connect(
-            lambda _checked=False, n=name: w.delete_branch_requested.emit(n)
-        )
-
-    if len(remote_branches) == 1:
-        name = remote_branches[0]  # rebinds the closure variable
-        remote_action = menu.addAction(f"Delete remote branch: {name}")
-        remote_action.triggered.connect(lambda _checked=False, n=name: w._emit_remote_delete(n))
-
-    # Trigger the LOCAL delete after the remote rebind. Without the
-    # default-arg capture, the closure would read "origin/main".
-    local_action.trigger()
+    find_action(menu, "Delete branch: main").trigger()
 
     assert received_local == ["main"]
     assert received_remote == []
