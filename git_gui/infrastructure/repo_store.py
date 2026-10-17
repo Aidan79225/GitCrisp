@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 _RECENT_LIMIT = 20
+
+
+def _str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 class JsonRepoStore:
@@ -18,20 +27,31 @@ class JsonRepoStore:
         self._settings: dict[str, dict[str, Any]] = {}
 
     def load(self) -> None:
-        if self._path.exists():
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-            self._open = list(data.get("open", []))
-            self._recent = list(data.get("recent", []))
-            self._active = data.get("active")
-            raw_settings = data.get("settings", {}) or {}
-            self._settings = {
-                str(k): dict(v) for k, v in raw_settings.items() if isinstance(v, dict)
-            }
-        else:
-            self._open = []
-            self._recent = []
-            self._active = None
-            self._settings = {}
+        data = self._read_file()
+        self._open = _str_list(data.get("open"))
+        self._recent = _str_list(data.get("recent"))
+        active = data.get("active")
+        self._active = active if isinstance(active, str) else None
+        raw_settings = data.get("settings")
+        if not isinstance(raw_settings, dict):
+            raw_settings = {}
+        self._settings = {str(k): dict(v) for k, v in raw_settings.items() if isinstance(v, dict)}
+
+    def _read_file(self) -> dict[str, Any]:
+        # A crash mid-save or a hand edit can leave the file unreadable; the
+        # app must still start, so fall back to an empty store.
+        if not self._path.exists():
+            return {}
+        try:
+            # utf-8-sig: editors such as Notepad may add a BOM on save.
+            data = json.loads(self._path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as e:
+            logger.warning("Could not read %s: %s; starting with no repos", self._path, e)
+            return {}
+        if not isinstance(data, dict):
+            logger.warning("Ignoring %s: its root is not an object", self._path)
+            return {}
+        return data
 
     def save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
