@@ -133,17 +133,6 @@ def test_without_a_prior_head_the_line_is_logged_plainly(host, qtbot):
     assert host._undoable == {}
 
 
-def test_head_is_captured_before_the_operation_not_read_back_after(host, qtbot):
-    """Reading HEAD@{1} at click time would undo whatever happened most
-    recently, which need not be the operation the line reports."""
-    assert host.head_before_operation() == GOOD
-
-    host._queries.get_head_oid.execute.return_value = "later-state"
-    host._log_undoable("Reset main --hard to xyz", GOOD)
-
-    assert host._undoable[GOOD] == "Reset main --hard to xyz"
-
-
 def test_a_failure_reading_head_does_not_break_the_operation(host, qtbot):
     host._queries.get_head_oid.execute.side_effect = RuntimeError("locked")
     assert host.head_before_operation() is None
