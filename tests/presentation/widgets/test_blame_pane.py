@@ -298,3 +298,32 @@ def test_back_does_nothing_with_an_empty_history(qtbot):
 def test_author_column_is_capped(qtbot):
     """The gutter is a fixed width, so a long name must not push the columns apart."""
     assert len(_elide("An Extremely Long Contributor Name", AUTHOR_CHARS)) == AUTHOR_CHARS
+
+
+# ── Picking a line of the first run ──────────────────────────────────────────
+
+
+def test_picking_a_line_of_the_first_run_loads_its_commit(qtbot):
+    """Opening blame emits nothing, so nothing of line 1's commit is showing yet.
+
+    The diff pane still holds the revision blame was opened from; treating line
+    1's commit as already emitted dropped the user's first pick of it.
+    """
+    w, _ = _window(qtbot, at_oid="x" * 40)
+    got: list[str] = []
+    w.commit_selected.connect(got.append)
+
+    w._editor.select_line_at_block(1)
+
+    assert got == [AAA]
+
+
+def test_a_gutter_click_on_the_line_the_cursor_is_already_on_loads_its_commit(qtbot):
+    """Loading leaves the cursor on line 1, so clicking it moves nothing."""
+    w, _ = _window(qtbot)
+    got: list[str] = []
+    w.commit_selected.connect(got.append)
+
+    w._editor.select_line_at_block(0)
+
+    assert got == [AAA]
