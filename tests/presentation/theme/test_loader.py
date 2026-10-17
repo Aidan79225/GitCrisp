@@ -122,3 +122,62 @@ def test_load_builtin_light():
 def test_load_builtin_dark():
     t = load_builtin("dark")
     assert t.is_dark is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"", b'{"name": "Cust', b"\xff\xfe{}"],
+    ids=["empty", "truncated", "not-utf8"],
+)
+def test_a_file_that_is_not_json_is_a_validation_error(tmp_path, content):
+    """Callers fall back to Dark on ThemeValidationError; anything else
+    escaped them and stopped the app from launching."""
+    p = tmp_path / "theme.json"
+    p.write_bytes(content)
+    with pytest.raises(ThemeValidationError):
+        load_theme(p)
+
+
+def test_a_theme_saved_with_a_byte_order_mark_loads(tmp_path):
+    """Windows editors save UTF-8 with a BOM, which plain utf-8 rejects."""
+    p = tmp_path / "theme.json"
+    p.write_text(json.dumps(_valid_dict()), encoding="utf-8-sig")
+    assert load_theme(p).name == "Test"
+
+
+def _with(path: str, value) -> dict:
+    d = _valid_dict()
+    *parents, leaf = path.split(".")
+    target = d
+    for key in parents:
+        target = target[key]
+    target[leaf] = value
+    return d
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("name", 5),
+        ("is_dark", "false"),
+        ("colors", "#000000"),
+        ("typography", []),
+        ("typography.body_medium", "X"),
+        ("typography.body_medium.family", 1),
+        ("typography.body_medium.size", "10"),
+        ("typography.body_medium.weight", True),
+        ("typography.body_medium.letter_spacing", "0.5"),
+        ("shape", None),
+        ("shape.corner_xs", "4"),
+        ("spacing.md", 16.5),
+    ],
+)
+def test_a_value_of_the_wrong_type_is_a_validation_error(tmp_path, path, value):
+    with pytest.raises(ThemeValidationError, match=path.split(".")[-1]):
+        load_theme(_write(tmp_path, _with(path, value)))
+
+
+def test_an_integer_letter_spacing_is_accepted(tmp_path):
+    """JSON has one number type, so 0 and 0.0 are the same spacing."""
+    t = load_theme(_write(tmp_path, _with("typography.body_medium.letter_spacing", 1)))
+    assert t.typography.body_medium.letter_spacing == 1

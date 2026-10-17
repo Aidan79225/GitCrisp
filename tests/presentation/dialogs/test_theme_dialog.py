@@ -223,3 +223,19 @@ def test_custom_panel_remains_navigable_outside_custom_mode(app, reset_theme):
     original = dlg._working_colors["primary"]
     dlg._open_picker("primary")
     assert dlg._working_colors["primary"] == original
+
+
+def test_dialog_opens_when_the_saved_custom_theme_is_malformed(
+    app, reset_theme, tmp_path, monkeypatch
+):
+    """Outside Custom mode the app still launches, but the dialog read the
+    broken file on open and raised, so View > Appearance did nothing."""
+    from git_gui.presentation.theme import settings as s
+
+    custom_path = tmp_path / "custom_theme.json"
+    custom_path.write_text("{", encoding="utf-8")
+    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+    get_theme_manager().set_mode("dark")
+
+    assert isinstance(ThemeDialog(), QDialog)

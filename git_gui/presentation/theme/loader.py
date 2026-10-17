@@ -29,7 +29,26 @@ def _check_hex(name: str, value: Any) -> None:
         raise ThemeValidationError(f"{name}: invalid hex color {value!r}")
 
 
-def _check_keys(cls, data: dict, path: str) -> None:
+# JSON has a single number type, so a float field accepts a written 0.
+_JSON_TYPES: dict[str, tuple[type, ...]] = {
+    "str": (str,),
+    "int": (int,),
+    "float": (int, float),
+    "bool": (bool,),
+}
+
+
+def _check_type(path: str, value: Any, field_type: str) -> None:
+    expected = _JSON_TYPES[field_type]
+    # isinstance(True, int) holds, but a JSON true is never a size.
+    is_stray_bool = isinstance(value, bool) and bool not in expected
+    if is_stray_bool or not isinstance(value, expected):
+        raise ThemeValidationError(f"{path}: expected {field_type}, got {value!r}")
+
+
+def _check_keys(cls, data: Any, path: str) -> None:
+    if not isinstance(data, dict):
+        raise ThemeValidationError(f"{path}: must be an object")
     expected = {f.name for f in fields(cls)}
     given = set(data.keys())
     missing = expected - given
@@ -38,11 +57,6 @@ def _check_keys(cls, data: dict, path: str) -> None:
         raise ThemeValidationError(f"{path}: missing key(s) {sorted(missing)}")
     if extra:
         raise ThemeValidationError(f"{path}: unknown key(s) {sorted(extra)}")
-
-
-def _build_text_style(data: dict, path: str) -> TextStyle:
-    _check_keys(TextStyle, data, path)
-    return TextStyle(**data)
 
 
 def _build_colors(data: dict) -> Colors:
@@ -60,19 +74,31 @@ def _build_colors(data: dict) -> Colors:
 
 def _build_typography(data: dict) -> Typography:
     _check_keys(Typography, data, "typography")
-    return Typography(**{k: _build_text_style(v, f"typography.{k}") for k, v in data.items()})
+    return Typography(
+        **{k: _build_simple(TextStyle, v, f"typography.{k}") for k, v in data.items()}
+    )
 
 
-def _build_simple(cls, data: dict, path: str):
+def _build_simple(cls, data: Any, path: str):
     _check_keys(cls, data, path)
+    for f in fields(cls):
+        _check_type(f"{path}.{f.name}", data[f.name], f.type)
     return cls(**data)
 
 
 _TOP_KEYS = {"name", "is_dark", "colors", "typography", "shape", "spacing"}
 
 
+def _read_json(path: Path) -> Any:
+    # utf-8-sig also reads the byte-order mark Windows editors prepend.
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except ValueError as e:  # JSONDecodeError and UnicodeDecodeError
+        raise ThemeValidationError(f"root: not valid JSON ({e})") from e
+
+
 def load_theme(path: Path) -> Theme:
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    raw = _read_json(path)
     if not isinstance(raw, dict):
         raise ThemeValidationError("root: must be an object")
     given = set(raw.keys())
@@ -82,6 +108,8 @@ def load_theme(path: Path) -> Theme:
         raise ThemeValidationError(f"root: missing key(s) {sorted(missing)}")
     if extra:
         raise ThemeValidationError(f"root: unknown key(s) {sorted(extra)}")
+    _check_type("name", raw["name"], "str")
+    _check_type("is_dark", raw["is_dark"], "bool")
     return Theme(
         name=raw["name"],
         is_dark=bool(raw["is_dark"]),
