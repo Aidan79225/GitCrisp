@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 
 from PySide6.QtCore import QObject, QRect, Qt, Signal
@@ -39,6 +40,9 @@ _BADGE_GAP = 6
 # the badge is then painted into, clear of the check indicator.
 _BADGE_TEXT_RESERVATION = "          "
 _BADGE_LEFT_INSET = 30
+
+# Characters a .gitignore line reads as glob syntax or as an escape.
+_GITIGNORE_SPECIALS = re.compile(r"[\\*?\[]")
 
 # While one of these runs, Commit continues it rather than creating a commit.
 # A detached HEAD is not among them: committing there is an ordinary commit.
@@ -575,16 +579,30 @@ class WorkingTreeWidget(QWidget):
 def _append_to_gitignore(repo_path: str, path: str) -> None:
     """Add *path* to the repo's top-level .gitignore unless it is already listed."""
     gitignore_path = os.path.join(repo_path, ".gitignore")
-    entry = path + "\n"
+    pattern = _ignore_pattern(path)
+    entry = pattern + "\n"
     if os.path.exists(gitignore_path):
         with open(gitignore_path, encoding="utf-8") as f:
             existing = f.read()
-        if path in existing.splitlines():
+        if pattern in existing.splitlines():
             return
         if not existing.endswith("\n") and existing:
             entry = "\n" + entry
     with open(gitignore_path, "a", encoding="utf-8") as f:
         f.write(entry)
+
+
+def _ignore_pattern(path: str) -> str:
+    """The .gitignore line that matches the repo-relative *path* and nothing else.
+
+    Written raw, a path is a pattern: a leading '#' or '!' makes a comment or
+    a negation, '[', '*' and '?' are globs, trailing spaces are dropped, and a
+    name with no slash matches at every depth. The leading slash anchors the
+    line to the repo root, which also keeps '#' and '!' off its first column.
+    """
+    escaped = _GITIGNORE_SPECIALS.sub(r"\\\g<0>", path)
+    body = escaped.rstrip(" ")
+    return "/" + body + "\\ " * (len(escaped) - len(body))
 
 
 def _conflicts_first(files: list[FileStatus]) -> list[FileStatus]:
