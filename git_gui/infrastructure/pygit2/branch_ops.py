@@ -133,7 +133,23 @@ class BranchOps:
     def checkout(self, branch: str) -> None:
         self._refresh_index()
         ref = self._repo.branches.local[branch]
+        self._refuse_branch_held_by_another_worktree(ref)
         self._repo.checkout(ref)
+
+    def _refuse_branch_held_by_another_worktree(self, ref: pygit2.Branch) -> None:
+        """Raise before touching the tree if another worktree has *ref* checked out.
+
+        pygit2's ``checkout`` rewrites the index and files first and only then
+        moves HEAD, which libgit2 refuses for a branch another worktree holds,
+        so without this the failed checkout leaves that branch's tree staged
+        on the current one. The wording matches git's own refusal, which is
+        what ``SmartCheckout`` recognises to offer the owning worktree instead.
+        """
+        if not ref.is_checked_out() or ref.is_head():
+            return
+        owner = self.find_worktree_for_branch(ref.branch_name)
+        location = f"worktree at '{owner.path}'" if owner else "another worktree"
+        raise RuntimeError(f"'{ref.branch_name}' is already used by {location}")
 
     def checkout_commit(self, oid: str) -> None:
         self._refresh_index()
