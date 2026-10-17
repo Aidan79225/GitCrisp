@@ -10,8 +10,9 @@ dev never ships events by accident. Performance/profile sampling is
 forced to zero — the free tier's quota is 5k errors/month and the
 desktop population doesn't need transaction tracing.
 
-``before_send`` redacts the user's HOME path from exception messages
-and breadcrumbs, since repo paths frequently contain real names.
+Reports carry no local variables and no hostname, and ``before_send``
+redacts the user's HOME path from every string in the event, since repo
+paths frequently contain real names.
 
 Users can turn reporting off in Preferences. Off at startup, Sentry is never
 initialized; switched off mid-session, ``before_send`` drops every event
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -60,23 +62,37 @@ def _get_version() -> str:
         return os.environ.get("GITCRISP_VERSION", "unknown")
 
 
-def _redact_home(text: str, home: str) -> str:
-    if not text:
-        return text
-    return text.replace(home, "~")
+def _home_pattern(home: str) -> re.Pattern[str]:
+    """Match *home* however an event spells it.
+
+    One Windows home reaches an event with backslashes, with forward slashes
+    (libgit2 messages), and with doubled backslashes (a path inside a repr);
+    and since Windows and macOS file systems ignore case, so does the match.
+    """
+    separator = r"[\\/]+"
+    return re.compile(separator.join(map(re.escape, re.split(separator, home))), re.IGNORECASE)
+
+
+def _redact_home(value: Any, home: re.Pattern[str]) -> Any:
+    if isinstance(value, str):
+        return home.sub("~", value)
+    if isinstance(value, dict):
+        return {key: _redact_home(item, home) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_home(item, home) for item in value]
+    return value
 
 
 def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
+    """Drop the event if reporting is off; otherwise redact the home path.
+
+    Every string is redacted rather than a list of known fields: the path
+    turns up in messages, frame paths, log arguments and ``sys.argv``, and a
+    field missed here is a field that leaks.
+    """
     if not _enabled:
         return None
-    home = str(Path.home())
-    for exc in event.get("exception", {}).get("values", []):
-        if "value" in exc and isinstance(exc["value"], str):
-            exc["value"] = _redact_home(exc["value"], home)
-    for crumb in event.get("breadcrumbs", {}).get("values", []) or []:
-        if isinstance(crumb.get("message"), str):
-            crumb["message"] = _redact_home(crumb["message"], home)
-    return event
+    return _redact_home(event, _home_pattern(str(Path.home())))
 
 
 def init_crash_reporting(enabled: bool = True) -> bool:
@@ -108,6 +124,10 @@ def init_crash_reporting(enabled: bool = True) -> bool:
         traces_sample_rate=0.0,
         profiles_sample_rate=0.0,
         send_default_pii=False,
+        # Locals hold repository paths and the text of the user's files, and
+        # the SDK's default server name is the machine's hostname.
+        include_local_variables=False,
+        server_name="",
         before_send=_before_send,
     )
     _initialized = True
