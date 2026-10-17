@@ -125,3 +125,16 @@ def test_get_file_history_paginates(history_repo):
 def test_get_file_history_unknown_path_is_empty(history_repo):
     impl, _, _ = history_repo
     assert impl.get_file_history("never-existed.txt", limit=50) == []
+
+
+@pytest.mark.parametrize("follow", [True, False])
+def test_cli_reads_brackets_in_a_file_name_literally(repo_path, follow):
+    """`data[1].csv` is one file, not a glob that also matches `data1.csv`."""
+    raw = pygit2.Repository(str(repo_path))
+    _commit(raw, repo_path, "data1.csv", "1\n", "add data1 only")
+    bracket = _commit(raw, repo_path, "data[1].csv", "b\n", "add bracket file")
+    _commit(raw, repo_path, "data1.csv", "2\n", "edit data1 only")
+
+    cli = FileHistoryCli(str(repo_path))
+
+    assert cli.commit_oids("data[1].csv", limit=50, follow=follow) == [bracket]
