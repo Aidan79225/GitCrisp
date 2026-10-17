@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from datetime import UTC
 
@@ -17,6 +18,8 @@ from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.resources import get_resource_path
+
+logger = logging.getLogger(__name__)
 
 
 def _tag_sort_key(name: str) -> tuple[bool, list[int] | str]:
@@ -121,6 +124,26 @@ class _LoadSignals(QObject):
     # generation, branches, stashes, tags, remote_tag_names,
     # {local branch: upstream shorthand}
     done = Signal(int, list, list, list, set, dict)
+    failed = Signal(int, str)  # generation, message
+
+
+def _read_sidebar_data(
+    queries: QueryBus, cache, repo_path: str | None
+) -> tuple[list[Branch], list[Stash], list[Tag], set[str], dict[str, str]]:
+    """Everything the sidebar lists, read on the worker thread."""
+    branches = queries.get_branches.execute()
+    stashes = queries.get_stashes.execute()
+    tags = queries.get_tags.execute()
+    upstreams = {
+        info.name: info.upstream
+        for info in queries.list_local_branches_with_upstream.execute()
+        if info.upstream
+    }
+    remote_tag_names: set[str] = set()
+    if cache and repo_path:
+        for names in cache.load(repo_path).values():
+            remote_tag_names.update(names)
+    return branches, stashes, tags, remote_tag_names, upstreams
 
 
 class SidebarWidget(QWidget):
@@ -140,6 +163,7 @@ class SidebarWidget(QWidget):
     tag_push_requested = Signal(str)  # tag name
     remote_branch_delete_requested = Signal(str, str)  # (remote, branch)
     checkout_in_new_worktree_requested = Signal(str)  # branch name
+    load_failed = Signal(str)  # why branches, stashes and tags could not be listed
 
     def __init__(
         self,
@@ -183,6 +207,7 @@ class SidebarWidget(QWidget):
         self._queries = queries
         self._commands = commands
         if queries is None:
+            self._load_generation += 1  # drop whatever the closed repo is still loading
             self._model.clear()
         else:
             self.reload()
@@ -201,26 +226,20 @@ class SidebarWidget(QWidget):
 
         signals = _LoadSignals()
         signals.done.connect(self._on_worker_done)
+        signals.failed.connect(self._on_worker_failed)
         self._load_signals = signals  # prevent GC
 
         cache = self._remote_tag_cache
         repo_path = self._repo_path
 
         def _worker():
-            branches = queries.get_branches.execute()
-            stashes = queries.get_stashes.execute()
-            tags = queries.get_tags.execute()
-            upstreams = {
-                info.name: info.upstream
-                for info in queries.list_local_branches_with_upstream.execute()
-                if info.upstream
-            }
-            remote_tag_names: set[str] = set()
-            if cache and repo_path:
-                data = cache.load(repo_path)
-                for names in data.values():
-                    remote_tag_names.update(names)
-            signals.done.emit(generation, branches, stashes, tags, remote_tag_names, upstreams)
+            try:
+                loaded = _read_sidebar_data(queries, cache, repo_path)
+            except Exception as e:
+                logger.warning("Sidebar reload failed: %s", e)
+                signals.failed.emit(generation, str(e))
+                return
+            signals.done.emit(generation, *loaded)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -237,6 +256,14 @@ class SidebarWidget(QWidget):
             return
         self._on_load_done(branches, stashes, tags, remote_tag_names, upstreams)
 
+    def _on_worker_failed(self, generation: int, message: str) -> None:
+        if generation != self._load_generation:
+            return
+        # The rows on screen may be the previous repo's: clicking one would
+        # send its oids to this repo's graph.
+        self._model.clear()
+        self.load_failed.emit(message)
+
     def _on_load_done(
         self,
         branches: list[Branch],
@@ -245,9 +272,6 @@ class SidebarWidget(QWidget):
         remote_tag_names: set[str],
         upstreams: dict[str, str],
     ) -> None:
-        if self._queries is None:
-            return
-
         self._model.clear()
 
         local = [b for b in branches if not b.is_remote]

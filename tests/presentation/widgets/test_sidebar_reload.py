@@ -84,3 +84,50 @@ def test_an_older_reload_finishing_last_does_not_bring_back_a_deleted_branch(sid
     older()
 
     assert _local_branch_names(sidebar) == ["main"]
+
+
+# ── A load that raises ──────────────────────────────────────────────────────
+def _unreadable_bus() -> MagicMock:
+    """A repo with a tag that cannot be peeled to a commit (it points at a tree)."""
+    queries = _bus("unused")
+    queries.get_tags.execute.side_effect = RuntimeError("can not be peeled into a commit")
+    return queries
+
+
+def test_a_failed_load_does_not_leave_the_previous_repos_rows(sidebar, held_workers):
+    sidebar.set_buses(_bus("repoA-main"), MagicMock())
+    held_workers.pop()()
+    sidebar.set_buses(_unreadable_bus(), MagicMock())
+
+    held_workers.pop()()
+
+    assert _local_branch_names(sidebar) == []
+
+
+def test_a_failed_load_says_why(sidebar, held_workers, qtbot):
+    sidebar.set_buses(_unreadable_bus(), MagicMock())
+
+    with qtbot.waitSignal(sidebar.load_failed, timeout=1000) as failure:
+        held_workers.pop()()
+
+    assert failure.args == ["can not be peeled into a commit"]
+
+
+def test_an_older_load_failing_late_leaves_the_current_rows(sidebar, held_workers, qtbot):
+    sidebar.set_buses(_unreadable_bus(), MagicMock())
+    sidebar.set_buses(_bus("repoB-main"), MagicMock())
+    failing, current = held_workers
+
+    current()
+    with qtbot.assertNotEmitted(sidebar.load_failed):
+        failing()
+
+    assert _local_branch_names(sidebar) == ["repoB-main"]
+
+
+def test_a_load_still_running_when_the_repo_closes_is_dropped(sidebar, held_workers, qtbot):
+    sidebar.set_buses(_unreadable_bus(), MagicMock())
+    sidebar.set_buses(None, None)
+
+    with qtbot.assertNotEmitted(sidebar.load_failed):
+        held_workers.pop()()
