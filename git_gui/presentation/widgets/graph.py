@@ -503,12 +503,15 @@ class GraphWidget(QWidget):
     def clear_path_filter(self) -> None:
         if self._path_filter is None:
             return
+        self._leave_path_filter()
+        if self._queries is not None:
+            self.reload()
+
+    def _leave_path_filter(self) -> None:
         self._path_filter = None
         self._path_filter_bar.close_bar()
         self._reset_paging()
         self.path_filter_changed.emit(None)
-        if self._queries is not None:
-            self.reload()
 
     def _reset_paging(self) -> None:
         """Drop paging and scroll state that belongs to the previous listing."""
@@ -618,7 +621,14 @@ class GraphWidget(QWidget):
             self._model.data(self._model.index(row, 0), OID_ROLE)
             for row in range(self._model.rowCount())
         }
-        if loaded.issuperset(tips):
+        if self._path_filter is not None:
+            if oid in loaded:
+                self.scroll_to_oid(oid, select=True)
+                return
+            # File history lists only HEAD's commits that touched the file,
+            # so the tip may never be among them. The full graph can load it.
+            self._leave_path_filter()
+        elif loaded.issuperset(tips):
             self.scroll_to_oid(oid, select=True)
             return
 

@@ -379,3 +379,29 @@ def test_a_merge_with_conflicts_draws_no_lane_to_a_merge_head_not_loaded(graph, 
 
     lanes = [graph._model.data(graph._model.index(row, 0), LANE_ROLE) for row in range(1, 10)]
     assert all(lane.lines == [] for lane in lanes)
+
+
+# ── Clicking a branch while showing a file's history ─────────────────────────
+
+
+def test_a_branch_outside_the_file_history_is_shown_in_the_full_graph(graph, inline_workers):
+    """File history walks HEAD for commits touching the file, so a branch tip
+    that did not touch it can never appear there: the click looked dead."""
+    _with_side_branch(graph)
+    graph._queries.get_file_history.execute.return_value = _chain(10)[3:5]
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("side")
+
+    assert graph._path_filter is None
+    assert _current_oid(graph) == "side"
+
+
+def test_a_branch_whose_tip_is_in_the_file_history_is_selected_there(graph, inline_workers):
+    graph._queries.get_file_history.execute.return_value = _chain(10)[3:5]
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("c3", ["origin-c3-ahead"])
+
+    assert graph._path_filter == "README.md"
+    assert _current_oid(graph) == "c3"
