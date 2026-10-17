@@ -236,3 +236,45 @@ def test_clearing_the_search_text_before_its_history_loads_cancels_the_jump(
         _finish_all(held_workers)
 
     assert _current_oid(graph) is None
+
+
+def _last_graph_limit(graph: GraphWidget) -> int:
+    return graph._queries.get_commit_graph.execute.call_args.kwargs["limit"]
+
+
+def test_auto_reloads_after_a_search_closes_go_back_to_a_page(graph, inline_workers):
+    """A search loads the whole history to look through it. Kept afterwards,
+    that size made every alt-tab walk and lay out the entire history."""
+    graph.reload()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+    graph._close_search()
+
+    graph.reload()
+
+    assert _last_graph_limit(graph) == PAGE_SIZE
+
+
+def test_auto_reloads_after_a_search_closes_keep_the_pages_scrolled_before_it(
+    graph, inline_workers
+):
+    graph.reload()
+    graph._load_more()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+    graph._close_search()
+
+    graph.reload()
+
+    assert _last_graph_limit(graph) == 2 * PAGE_SIZE
+
+
+def test_closing_the_search_while_its_history_loads_loads_a_page_instead(graph, held_workers):
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    graph._close_search()
+    _finish_all(held_workers)
+
+    assert _last_graph_limit(graph) == PAGE_SIZE
+    assert graph._model.rowCount() == PAGE_SIZE

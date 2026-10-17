@@ -405,6 +405,9 @@ class GraphWidget(QWidget):
         self._search_matches: list[int] = []  # row indices of matching commits
         self._search_idx = -1  # current position in _search_matches
         self._pending_search: str | None = None  # search to re-run after full reload
+        # The reload limit a search's full-history load replaced, put back
+        # when the search closes; None while no search has widened it.
+        self._limit_before_search: int | None = None
         self._search_bar.input_widget.textChanged.connect(self._on_search_text_changed)
         self._search_bar.navigate_requested.connect(self._on_search_navigate)
         self._search_bar.closed.connect(self._close_search)
@@ -447,6 +450,7 @@ class GraphWidget(QWidget):
         self._selected_oid = None
         self._scroll_anchor_oid = None
         self._reload_limit = PAGE_SIZE
+        self._limit_before_search = None
         # A file history from the previous repo means nothing in the new one.
         if self._path_filter is not None:
             self._path_filter = None
@@ -507,6 +511,7 @@ class GraphWidget(QWidget):
     def _reset_paging(self) -> None:
         """Drop paging and scroll state that belongs to the previous listing."""
         self._reload_limit = PAGE_SIZE
+        self._limit_before_search = None
         self._extra_tips = None
         self._pending_scroll_oid = None
         self._pending_merge_base = None
@@ -1259,7 +1264,22 @@ class GraphWidget(QWidget):
         self._pending_search = None
         self._search_matches.clear()
         self._search_idx = -1
+        self._restore_limit_before_search()
         self._view.setFocus()
+
+    def _restore_limit_before_search(self) -> None:
+        """Put back the reload limit the search's full-history load replaced.
+
+        Kept, it made every later auto-reload walk and lay out the whole
+        history. A full load still in flight is no longer wanted, so it is
+        replaced by one of the restored size.
+        """
+        if self._limit_before_search is None:
+            return
+        self._reload_limit = self._limit_before_search
+        self._limit_before_search = None
+        if self._loading:
+            self.reload()
 
     def _on_search_text_changed(self, text: str) -> None:
         needle = text.strip().lower()
@@ -1272,16 +1292,26 @@ class GraphWidget(QWidget):
 
         # If not all commits are loaded yet, reload with a large limit so the
         # search covers the full history. The reload callback will re-trigger
-        # the search via _run_search_after_load. Later keystrokes only swap
-        # the needle: asking again would discard the load already running.
+        # the search via _run_search_after_load.
         if self._has_more:
-            full_load_running = self._pending_search is not None
-            self._pending_search = needle
-            if not full_load_running:
-                self.reload(limit=999_999)
+            self._search_after_full_load(needle)
             return
 
         self._run_search(needle)
+
+    def _search_after_full_load(self, needle: str) -> None:
+        """Load the whole history, then search it for `needle`.
+
+        Later keystrokes only swap the needle: asking again would discard the
+        load already running.
+        """
+        full_load_running = self._pending_search is not None
+        self._pending_search = needle
+        if full_load_running:
+            return
+        if self._limit_before_search is None:
+            self._limit_before_search = self._reload_limit
+        self.reload(limit=999_999)
 
     def _run_search(self, needle: str) -> None:
         self._search_matches.clear()
