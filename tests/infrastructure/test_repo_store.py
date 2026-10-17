@@ -1,4 +1,7 @@
+import contextlib
+import errno
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -257,3 +260,21 @@ def test_entries_of_the_wrong_type_are_dropped_and_the_rest_kept(store, store_pa
     assert store.get_open_repos() == ["/repo/a"]
     assert store.get_recent_repos() == []
     assert store.get_active() is None
+
+
+def test_a_save_that_fails_partway_keeps_the_previous_file(store, store_path, monkeypatch):
+    store.load()
+    store.add_open("/repo/a")
+    store.save()
+    before = store_path.read_text(encoding="utf-8")
+
+    def disk_full(fd: int) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(os, "fsync", disk_full)
+    store.add_open("/repo/b")
+    with contextlib.suppress(OSError):
+        store.save()
+
+    assert store_path.read_text(encoding="utf-8") == before
+    assert list(store_path.parent.iterdir()) == [store_path]
