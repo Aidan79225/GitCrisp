@@ -1256,6 +1256,7 @@ class GraphWidget(QWidget):
 
     def _close_search(self) -> None:
         self._search_bar.close_bar()
+        self._pending_search = None
         self._search_matches.clear()
         self._search_idx = -1
         self._view.setFocus()
@@ -1265,6 +1266,7 @@ class GraphWidget(QWidget):
         self._search_matches.clear()
         self._search_idx = -1
         if not needle:
+            self._pending_search = None
             self._search_bar.set_match_label(0, 0)
             return
 

@@ -209,3 +209,30 @@ def test_typing_on_while_a_search_loads_the_history_does_not_restart_the_load(gr
 
     assert graph._queries.get_commit_graph.execute.call_count == 1
     assert _current_oid(graph) == "c12"
+
+
+# ── Search ───────────────────────────────────────────────────────────────────
+
+
+def test_closing_the_search_before_its_history_loads_cancels_the_jump(graph, qtbot, held_workers):
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    graph._close_search()
+    with qtbot.assertNotEmitted(graph.commit_selected):
+        _finish_all(held_workers)
+
+    assert _current_oid(graph) is None
+
+
+def test_clearing_the_search_text_before_its_history_loads_cancels_the_jump(
+    graph, qtbot, held_workers
+):
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    graph._search_bar.input_widget.clear()
+    with qtbot.assertNotEmitted(graph.commit_selected):
+        _finish_all(held_workers)
+
+    assert _current_oid(graph) is None
