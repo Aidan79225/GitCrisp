@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from typing import ClassVar
 from unittest.mock import MagicMock
@@ -585,3 +586,57 @@ def test_the_row_is_tall_enough_for_both_lines(qtbot):
 
     wanted = delegate.sizeHint(option, pane._model.index(0, 0)).height()
     assert pane._view.rowHeight(0) >= wanted
+
+
+# ── Reloading ────────────────────────────────────────────────────────────────
+
+
+def _start_a_held_reload(pane, queries, outcome):
+    """Start a reload whose read waits until the returned event is set.
+
+    The read then returns `outcome`, or raises it when it is an exception.
+    Returns the event and the signals that reload will answer on.
+    """
+    entered, release = threading.Event(), threading.Event()
+
+    def held_read(_ref):
+        entered.set()
+        release.wait(5)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    queries.get_reflog.execute.side_effect = held_read
+    pane.reload()
+    assert entered.wait(5), "the held reload never started reading"
+    queries.get_reflog.execute.side_effect = None
+    return release, pane._load_signals
+
+
+def _reload_to(qtbot, pane, queries, entries) -> None:
+    queries.get_reflog.execute.return_value = entries
+    pane.reload()
+    qtbot.waitUntil(lambda: pane._model.entry_at(0).summary == entries[0].summary)
+
+
+def test_a_superseded_reload_does_not_overwrite_a_newer_one(qtbot):
+    pane, queries = _pane(qtbot)
+    release, superseded = _start_a_held_reload(pane, queries, [_entry(0, "commit", "old")])
+    _reload_to(qtbot, pane, queries, [_entry(0, "commit", "newest")])
+
+    with qtbot.waitSignal(superseded.done):
+        release.set()
+
+    assert pane._model.entry_at(0).summary == "newest"
+
+
+def test_a_superseded_failure_does_not_clear_a_newer_reload(qtbot):
+    pane, queries = _pane(qtbot)
+    release, superseded = _start_a_held_reload(pane, queries, ValueError("lock held"))
+    _reload_to(qtbot, pane, queries, [_entry(0, "commit", "newest")])
+
+    with qtbot.waitSignal(superseded.failed):
+        release.set()
+
+    assert pane._model.entry_at(0).summary == "newest"
+    assert "lock held" not in pane._status.full_text()
