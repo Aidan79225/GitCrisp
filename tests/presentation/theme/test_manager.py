@@ -140,3 +140,20 @@ def test_typography_scale_applies_to_app_font(app, isolated_settings):
     else:
         unscaled = max(1, round(body.size * 1.0))
         assert app.font().pointSize() > unscaled
+
+
+def test_a_malformed_custom_theme_falls_back_to_dark_at_launch(
+    app, isolated_settings, tmp_path, monkeypatch
+):
+    """A Custom file cut short by a crash during Apply used to raise out of
+    ThemeManager.__init__, so the app never opened again."""
+    from git_gui.presentation.theme.loader import load_builtin
+
+    custom_path = tmp_path / "custom_theme.json"
+    custom_path.write_text('{"name": "Cust', encoding="utf-8")
+    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+    s.save_settings({"theme_mode": "custom"})
+
+    mgr = ThemeManager(app)
+
+    assert mgr.current.name == load_builtin("dark").name
