@@ -180,3 +180,42 @@ def test_word_overlay_preserves_syntax_foreground(qtbot):
     fmt_bar = _format_at(editor, 1, 15)
     assert fmt_bar.foreground().color().name() == function_fg
     assert _bg_color_at(editor, 1, 15) != _bg_color_at(editor, 1, 11)
+
+
+def _count_word_diffs(monkeypatch) -> list[tuple[str, str]]:
+    from git_gui.presentation.widgets import word_diff
+
+    calls: list[tuple[str, str]] = []
+    real = word_diff.pair_diff
+
+    def counting(old: str, new: str):
+        calls.append((old, new))
+        return real(old, new)
+
+    monkeypatch.setattr(word_diff, "pair_diff", counting)
+    return calls
+
+
+def test_a_rewritten_minified_line_is_not_word_diffed(qtbot, monkeypatch):
+    """The word diff is roughly quadratic in tokens: a rebuilt minified bundle
+    held the window for seconds while its one-line hunk rendered."""
+    calls = _count_word_diffs(monkeypatch)
+    old = "var a=" + "x(1)," * 10_000
+    new = "var b=" + "x(1)," * 10_000
+    hunk = Hunk(header="@@ -1 +1 @@", lines=[("-", old + "\n"), ("+", new + "\n")])
+
+    _editor_for_hunk(qtbot, hunk, "bundle.js")
+
+    assert calls == []
+
+
+def test_a_rewritten_line_is_word_diffed_once_for_both_sides(qtbot, monkeypatch):
+    calls = _count_word_diffs(monkeypatch)
+    hunk = Hunk(
+        header="@@ -1 +1 @@",
+        lines=[("-", "once = 'unified old'\n"), ("+", "once = 'unified new'\n")],
+    )
+
+    _editor_for_hunk(qtbot, hunk, "x.py")
+
+    assert calls == [("once = 'unified old'", "once = 'unified new'")]
