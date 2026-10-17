@@ -29,7 +29,9 @@ def clone_repo(
     """
     proc = subprocess.Popen(
         ["git", "clone", "--progress", "--recurse-submodules", url, dest],
-        stdout=subprocess.PIPE,
+        # Nothing reads stdout, and git writes a line there per submodule: a
+        # pipe would fill up and block git while we wait for stderr to close.
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         env=git_ssh_env(),
         **subprocess_kwargs(),
