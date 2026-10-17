@@ -198,3 +198,41 @@ def test_clear_resets_badge_rects(app, qtbot):
     widget._badge_rects = [(QRect(0, 0, 50, 20), "main")]
     widget.clear()
     assert widget._badge_rects == []
+
+
+# ── A long author in a narrow pane ───────────────────────────────────────────
+
+
+LONG_AUTHOR = "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
+
+
+def _narrow_widget_with_long_author(qtbot) -> tuple[CommitDetailWidget, Commit]:
+    """The diff pane beside blame or the reflog is about this narrow."""
+    from dataclasses import replace
+
+    widget = CommitDetailWidget()
+    qtbot.addWidget(widget)
+    widget.resize(444, 120)
+    commit = replace(_make_commit(), author=LONG_AUTHOR)
+    widget.set_commit(commit, [])
+    return widget, commit
+
+
+def test_a_long_author_ends_before_the_timestamp_starts(app, qtbot):
+    """Painted in full, the author ran under the timestamp and both were unreadable."""
+    widget, commit = _narrow_widget_with_long_author(qtbot)
+    fm = widget.fontMetrics()
+
+    line = widget._author_line(commit, fm)
+
+    assert line.author != LONG_AUTHOR, "this width has to cut it"
+    assert line.author_x + fm.horizontalAdvance(line.author) < line.timestamp_x
+
+
+def test_a_cut_author_stays_whole_in_its_tooltip(app, qtbot):
+    widget, commit = _narrow_widget_with_long_author(qtbot)
+    line = widget._author_line(commit, widget.fontMetrics())
+    widget._cut_author_rect = QRect(line.author_x, 0, line.timestamp_x - line.author_x, 20)
+
+    assert widget._tooltip_at(QPoint(line.author_x + 5, 10)) == LONG_AUTHOR
+    assert widget._tooltip_at(QPoint(line.timestamp_x + 5, 10)) == ""
