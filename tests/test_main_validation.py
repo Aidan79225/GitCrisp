@@ -220,3 +220,19 @@ class TestFindValidRepoKeepsUnreachablePaths:
 
         assert _find_valid_repo(store) == str(valid)
         assert store.get_open_repos() == [str(offline), str(valid)]
+
+    def test_each_stored_path_is_probed_once(self, tmp_path, monkeypatch):
+        """On an unreachable share every probe waits out a network timeout,
+        about ten seconds on Windows, and the launch waits with it."""
+        import main
+
+        valid = self._repo(tmp_path / "valid")
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = self._store(tmp_path, open_paths=[offline, valid], active=offline)
+        probed: list[str] = []
+        probe = main._stored_repo_state
+        monkeypatch.setattr(main, "_stored_repo_state", lambda p: probed.append(p) or probe(p))
+
+        main._find_valid_repo(store)
+
+        assert sorted(probed) == sorted({str(offline), str(valid)})
