@@ -119,7 +119,7 @@ def _render_row(
         if side == LEFT
         else (right_spans, syntax_formats.added_word_overlay)
     )
-    apply_word_overlay(cursor.document(), content_start, spans, overlay)
+    apply_word_overlay(cursor.document(), content_start, cell.text, spans, overlay)
 
 
 def render_side(

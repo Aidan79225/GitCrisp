@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat
+from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -359,33 +359,57 @@ def apply_syntax_tokens(
     in both. A very long line is left alone: tokenizing it costs more than the
     colour is worth, and minified files are mostly one such line.
     """
-    from PySide6.QtGui import QTextCursor
-
     from git_gui.presentation.widgets.syntax_highlighter import tokenize
 
     if not text or _too_long_to_highlight(text):
         return
+    positions = _qt_positions(text)
     for tok in tokenize(text, filename):
         attr = _KIND_TO_ATTR.get(tok.kind)
         if attr is None:
             continue
-        tok_cursor = QTextCursor(document)
-        tok_cursor.setPosition(content_start + tok.start)
-        tok_cursor.setPosition(content_start + tok.end, QTextCursor.KeepAnchor)
-        tok_cursor.mergeCharFormat(getattr(syntax_formats, attr))
+        _merge_char_format(
+            document,
+            content_start + positions[tok.start],
+            content_start + positions[tok.end],
+            getattr(syntax_formats, attr),
+        )
 
 
-def apply_word_overlay(document, content_start: int, spans, overlay) -> None:
-    """Tint the spans a word-level diff marked as changed."""
-    from PySide6.QtGui import QTextCursor
-
+def apply_word_overlay(document, content_start: int, text: str, spans, overlay) -> None:
+    """Tint the spans of *text* that a word-level diff marked as changed."""
+    positions = _qt_positions(text)
     for span in spans:
         if span.kind != "changed":
             continue
-        ws_cursor = QTextCursor(document)
-        ws_cursor.setPosition(content_start + span.start)
-        ws_cursor.setPosition(content_start + span.end, QTextCursor.KeepAnchor)
-        ws_cursor.mergeCharFormat(overlay)
+        _merge_char_format(
+            document,
+            content_start + positions[span.start],
+            content_start + positions[span.end],
+            overlay,
+        )
+
+
+def _qt_positions(text: str) -> Sequence[int]:
+    """Qt's position of each character index of *text*, and of its end.
+
+    Python counts a character outside the Basic Multilingual Plane (most emoji)
+    as one, but Qt counts its two UTF-16 units, so without this every colour
+    after one landed a character early.
+    """
+    if len(text.encode("utf-16-le")) == 2 * len(text):
+        return range(len(text) + 1)
+    positions = [0]
+    for ch in text:
+        positions.append(positions[-1] + (2 if ord(ch) > 0xFFFF else 1))
+    return positions
+
+
+def _merge_char_format(document, start: int, end: int, char_format: QTextCharFormat) -> None:
+    cursor = QTextCursor(document)
+    cursor.setPosition(start)
+    cursor.setPosition(end, QTextCursor.KeepAnchor)
+    cursor.mergeCharFormat(char_format)
 
 
 def _apply_rewrite_overlay(
@@ -397,9 +421,13 @@ def _apply_rewrite_overlay(
         return
     old_spans, new_spans = spans
     if origin == LineKind.REMOVED:
-        apply_word_overlay(document, content_start, old_spans, syntax_formats.removed_word_overlay)
+        apply_word_overlay(
+            document, content_start, rewrite.old, old_spans, syntax_formats.removed_word_overlay
+        )
     else:
-        apply_word_overlay(document, content_start, new_spans, syntax_formats.added_word_overlay)
+        apply_word_overlay(
+            document, content_start, rewrite.new, new_spans, syntax_formats.added_word_overlay
+        )
 
 
 def _render_no_newline_note(cursor, content: str, formats: DiffFormats) -> None:

@@ -92,3 +92,21 @@ def test_lexer_is_cached():
 def text_at(_tokens, src: str, t: SyntaxToken) -> str:
     """Helper: return src[t.start:t.end]."""
     return src[t.start : t.end]
+
+
+def test_offsets_count_a_leading_byte_order_mark():
+    """Pygments drops a BOM before lexing; the caller's text still has it."""
+    text = "﻿import os"
+
+    tokens = tokenize(text, "a.py")
+
+    assert any(text[t.start : t.end] == "import" for t in tokens if t.kind == "syntax_keyword")
+
+
+def test_offsets_stay_inside_the_text_even_where_pygments_added_a_newline():
+    text = "// note"
+
+    tokens = tokenize(text, "a.c")
+
+    assert tokens
+    assert all(t.end <= len(text) for t in tokens)
