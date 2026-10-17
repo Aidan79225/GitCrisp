@@ -238,3 +238,30 @@ def test_add_worktrees_whose_folders_share_a_name(fresh_repo, tmp_path):
     impl.add_worktree(str(tmp_path / "b" / "app"), "two", create_branch=True, base_ref="master")
 
     assert {wt.branch for wt in impl.list_worktrees()} == {"master", "one", "two"}
+
+
+def test_a_lock_reason_git_wrote_is_read_as_utf8(fresh_repo, linked_worktree):
+    """Read in the locale code page (cp950 here), git's UTF-8 reason raised
+    UnicodeDecodeError and every worktree vanished from the list."""
+    reason = "測試中 Łódź"
+    subprocess.run(
+        ["git", "worktree", "lock", "--reason", reason, str(linked_worktree)],
+        cwd=fresh_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    wts = Pygit2Repository(str(fresh_repo)).list_worktrees()
+
+    assert next(wt for wt in wts if not wt.is_main).lock_reason == reason
+
+
+def test_a_lock_reason_is_written_as_utf8(fresh_repo, linked_worktree):
+    """git reads the reason as UTF-8; the locale code page gave it mojibake,
+    or raised after the lock was already taken for a character it lacks."""
+    reason = "🔒 Łódź 測試中"
+
+    Pygit2Repository(str(fresh_repo)).lock_worktree(str(linked_worktree), reason=reason)
+
+    locked = fresh_repo / ".git" / "worktrees" / linked_worktree.name / "locked"
+    assert locked.read_bytes() == reason.encode("utf-8")
