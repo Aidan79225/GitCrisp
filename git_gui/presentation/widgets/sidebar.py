@@ -131,7 +131,6 @@ class SidebarWidget(QWidget):
         self._remote_tag_cache = remote_tag_cache
         self._repo_path = repo_path
         self._worktree_branches: set[str] = set()
-        self._smart_checkout = None
         # Bumped by every reload. A load that finishes after a newer one was
         # started — a previous repo's, or a superseded F5 — is dropped.
         self._load_generation = 0
@@ -364,28 +363,9 @@ class SidebarWidget(QWidget):
             {"label": "Delete", "action": "delete", "branch": branch},
         ]
 
-    def set_smart_checkout(self, sc) -> None:
-        """Route the sidebar's ``trigger_branch_action("checkout", ...)`` through
-        SmartCheckout when set. Falls back to direct command if None."""
-        self._smart_checkout = sc
-
-    def _checkout(self, branch: str) -> None:
-        sc = self._smart_checkout
-        if sc is None:
-            self.checkout_branch_requested.emit(branch)
-            return
-        try:
-            sc.execute(branch)
-        except Exception:
-            # SmartCheckout only absorbs the worktree collision. The sidebar
-            # has nowhere to report anything else, so the unified
-            # `_on_checkout_branch` flow runs the checkout again and logs why
-            # it failed. A failed checkout leaves HEAD and the tree untouched.
-            self.checkout_branch_requested.emit(branch)
-
     def trigger_branch_action(self, action: str, branch: str) -> None:
         if action == "checkout":
-            self._checkout(branch)
+            self.checkout_branch_requested.emit(branch)
         elif action == "checkout_in_new_worktree":
             self.checkout_in_new_worktree_requested.emit(branch)
         elif action == "merge":
