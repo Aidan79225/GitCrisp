@@ -14,7 +14,7 @@ from git_gui.presentation.services.repo_change_detector import RepoChangeDetecto
 @pytest.fixture
 def repo(tmp_path):
     p = tmp_path / "r"
-    repo = pygit2.init_repository(str(p))
+    repo = pygit2.init_repository(str(p), initial_head="master")
     repo.config["user.name"] = "T"
     repo.config["user.email"] = "t@e.com"
     sig = pygit2.Signature("T", "t@e.com")
