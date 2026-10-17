@@ -19,6 +19,8 @@ class ReloadCoordinatorMixin:
             return
         self._sidebar.reload()
         self._graph.reload()
+        if self._reflog_pane is not None:
+            self._reflog_pane.reload()
         if self._right_stack.currentIndex() == 1:
             self._working_tree.reload()
         if self._queries is not None:
