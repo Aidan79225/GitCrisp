@@ -124,3 +124,30 @@ def test_a_repo_row_names_its_folder(qtbot):
     row = w._model.itemFromIndex(_open_row_index(w, "C:/a/one"))
 
     assert _painted_lines(w, row) == ["one", "C:/a/one"]
+
+
+# ── Clicking ────────────────────────────────────────────────────────────────
+def _switches_after_clicking(w: RepoListWidget, index) -> list[str]:
+    switched: list[str] = []
+    w.repo_switch_requested.connect(switched.append)
+    w._tree.clicked.emit(index)
+    return switched
+
+
+def test_clicking_the_active_repo_does_not_reopen_it(qtbot):
+    w = _shown_list(qtbot, _FakeStore(open_=_OPEN, active="C:/a/one"))
+
+    assert _switches_after_clicking(w, _open_row_index(w, "C:/a/one")) == []
+
+
+def test_clicking_another_open_repo_switches_to_it(qtbot):
+    w = _shown_list(qtbot, _FakeStore(open_=_OPEN, active="C:/a/one"))
+
+    assert _switches_after_clicking(w, _open_row_index(w, "C:/a/two")) == ["C:/a/two"]
+
+
+def test_clicking_the_active_worktree_does_not_reopen_it(qtbot):
+    w = _shown_list(qtbot, _FakeStore(open_=["C:/a/one"], active="C:/wt/review"))
+    row = _worktree_row(w, "C:/wt/review", "feature/login")
+
+    assert _switches_after_clicking(w, w._model.indexFromItem(row)) == []
