@@ -77,7 +77,7 @@ class _FileDelegate(CheckIndicatorDelegate):
 
 
 class _LoadSignals(QObject):
-    done = Signal(list, set)  # files, partial
+    done = Signal(list, set, int)  # files, partial, load generation
 
 
 class WorkingTreeWidget(QWidget):
@@ -104,6 +104,10 @@ class WorkingTreeWidget(QWidget):
         self._queries = queries
         self._commands = commands
         self._repo_path = repo_path
+        # Bumped on every repo switch. A load hands its generation back with
+        # its result, so one that finishes after the switch is recognised as
+        # the previous repo's and dropped.
+        self._load_generation = 0
 
         # ── Conflict banner (hidden by default) ─────────────────────────
         self._conflict_banner = QWidget()
@@ -216,9 +220,11 @@ class WorkingTreeWidget(QWidget):
         self.update_conflict_banner(RepoState.CLEAN)
         self._file_model.set_commands(commands)
         self._hunk_diff.set_buses(queries, commands)
-        if queries is None:
-            self._file_model.reload([], set())
-            self._hunk_diff.clear()
+        # The old repo's list would stage its paths through the new repo's
+        # commands, so it goes, along with any status still on its way.
+        self._load_generation += 1
+        self._file_model.reload([], set())
+        self._hunk_diff.clear()
 
     def set_repo_path(self, path: str | None) -> None:
         """Update the active repo path used by _ignore_file and any other
@@ -236,6 +242,7 @@ class WorkingTreeWidget(QWidget):
         would throw the user back to the all-files view after each one.
         """
         queries = self._queries
+        generation = self._load_generation
 
         signals = _LoadSignals()
         signals.done.connect(self._on_reload_done)
@@ -244,12 +251,12 @@ class WorkingTreeWidget(QWidget):
         def _worker():
             raw_files = queries.get_working_tree.execute()
             files, partial = _deduplicate(raw_files)
-            signals.done.emit(files, partial)
+            signals.done.emit(files, partial, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_reload_done(self, files: list[FileStatus], partial: set[str]) -> None:
-        if self._queries is None:
+    def _on_reload_done(self, files: list[FileStatus], partial: set[str], generation: int) -> None:
+        if self._queries is None or generation != self._load_generation:
             return
         selected_path = self._selected_path()
         files = _conflicts_first(files)

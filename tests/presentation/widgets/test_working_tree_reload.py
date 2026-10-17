@@ -119,3 +119,40 @@ def test_a_reload_falls_back_to_all_files_when_the_selected_file_is_gone(qtbot, 
 
     assert not w._file_view.currentIndex().isValid()
     assert w._hunk_diff._all_paths == ["b.txt"]
+
+
+# ── A repo switch drops whatever the old repo still has in flight ────────────
+
+
+def test_a_late_status_from_the_old_repo_does_not_fill_the_new_repos_list(qtbot, panel):
+    import threading
+
+    w, old_queries = panel
+    release = threading.Event()
+
+    def _slow_status():
+        release.wait(timeout=5)
+        return [_fs("only_in_A.txt", StagingState.UNSTAGED)]
+
+    old_queries.get_working_tree.execute.side_effect = _slow_status
+    w.reload()
+
+    new_queries, new_commands = MagicMock(), MagicMock()
+    new_queries.get_working_tree_diff_map.execute.return_value = {}
+    new_queries.list_submodules.execute.return_value = []
+    w.set_buses(new_queries, new_commands)
+    _load(qtbot, w, new_queries, [_fs("only_in_B.txt", StagingState.UNSTAGED)])
+
+    release.set()
+    qtbot.wait(200)
+
+    assert _listed(w) == [("only_in_B.txt", StagingState.UNSTAGED)]
+
+
+def test_a_repo_switch_empties_the_list_until_the_new_repo_loads(qtbot, panel):
+    w, queries = panel
+    _load(qtbot, w, queries, [_fs("a.txt", StagingState.UNSTAGED)])
+
+    w.set_buses(MagicMock(), MagicMock())
+
+    assert _listed(w) == []

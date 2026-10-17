@@ -26,6 +26,7 @@ def _make_commit_widget(qtbot) -> WorkingTreeWidget:
     w._chk_amend = QCheckBox()
     w._btn_commit = QPushButton("Commit")
     w._draft_msg = ""
+    w._load_generation = 0
     # __init__ is bypassed, so mirror the one signal the commit path relies on.
     w._chk_amend.toggled.connect(w._on_amend_toggled)
     qtbot.addWidget(w)
