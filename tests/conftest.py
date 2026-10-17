@@ -101,7 +101,7 @@ def _theme_manager(_isolated_theme_settings, _isolated_check_icon_dir):
 @pytest.fixture
 def repo_path(tmp_path) -> Path:
     """Creates a temp git repo with one commit on 'master'."""
-    repo = pygit2.init_repository(str(tmp_path))
+    repo = pygit2.init_repository(str(tmp_path), initial_head="master")
     repo.config["user.name"] = "Test User"
     repo.config["user.email"] = "test@example.com"
     sig = pygit2.Signature("Test User", "test@example.com")

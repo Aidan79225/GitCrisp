@@ -17,7 +17,7 @@ def fresh_repo(tmp_path):
     """Empty-ish repo with one commit on master."""
     p = tmp_path / "main"
     p.mkdir()
-    repo = pygit2.init_repository(str(p))
+    repo = pygit2.init_repository(str(p), initial_head="master")
     repo.config["user.name"] = "T"
     repo.config["user.email"] = "t@e.com"
     sig = pygit2.Signature("T", "t@e.com")

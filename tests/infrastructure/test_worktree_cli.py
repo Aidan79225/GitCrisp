@@ -24,7 +24,7 @@ from git_gui.infrastructure.worktree_cli import (
 def repo_with_worktree(tmp_path):
     """Create a main repo + a sibling worktree on a feature branch."""
     main = tmp_path / "main"
-    repo = pygit2.init_repository(str(main))
+    repo = pygit2.init_repository(str(main), initial_head="master")
     repo.config["user.name"] = "T"
     repo.config["user.email"] = "t@e.com"
     sig = pygit2.Signature("T", "t@e.com")
