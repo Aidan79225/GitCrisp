@@ -89,7 +89,8 @@ class WorktreeOps:
             if is_locked:
                 locked_file = common_dir / "worktrees" / name / "locked"
                 try:
-                    lock_reason = locked_file.read_text().strip() or None
+                    reason = locked_file.read_text(encoding="utf-8", errors="replace")
+                    lock_reason = reason.strip() or None
                 except OSError:
                     lock_reason = None
             result.append(
@@ -166,7 +167,7 @@ class WorktreeOps:
             locked_file.touch()
         if reason is not None:
             try:
-                locked_file.write_text(reason)
+                locked_file.write_text(reason, encoding="utf-8")
             except OSError as e:
                 logger.warning("Failed to write lock reason for worktree %r: %s", name, e)
 
