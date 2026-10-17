@@ -4,7 +4,7 @@ import re
 import shutil
 import subprocess
 
-from git_gui.resources import subprocess_kwargs
+from git_gui.infrastructure.git_process import run_git
 
 
 class WorktreeCommandError(Exception):
@@ -66,17 +66,7 @@ class WorktreeCli:
         if shutil.which(self._git) is None:
             raise WorktreeCommandError(f"`{self._git}` executable not found on PATH")
         try:
-            subprocess.run(
-                [self._git, *args],
-                cwd=self._cwd,
-                check=True,
-                capture_output=True,
-                # git writes paths in its messages as UTF-8 whatever the
-                # locale code page is, and a failed decode loses the message.
-                encoding="utf-8",
-                errors="replace",
-                **subprocess_kwargs(),
-            )
+            run_git([self._git, *args], cwd=self._cwd, check=True)
         except subprocess.CalledProcessError as e:
             message = (e.stderr or "").strip() or (e.stdout or "").strip() or str(e)
             raise WorktreeCommandError(message) from e
