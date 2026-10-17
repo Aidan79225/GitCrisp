@@ -59,7 +59,11 @@ class SharedHScroll(QObject):
 
         reach = max((e.horizontalScrollBar().maximum() for e in editors), default=0)
         self._bar.setRange(0, reach)
-        self._bar.setPageStep(max(self._container.width(), 1))
+        # A page is what one editor shows, the width its own range is measured
+        # against. Side by side, two editors split the pane, so the pane's
+        # width would page past half of every line.
+        page = max((e.viewport().width() for e in editors), default=self._container.width())
+        self._bar.setPageStep(max(page, 1))
         # One character, so arrow keys and track clicks move by something that
         # lines up with the text.
         step = editors[0].fontMetrics().horizontalAdvance("0") if editors else 1
