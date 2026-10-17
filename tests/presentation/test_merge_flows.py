@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from git_gui.domain.entities import Branch, MergeStrategy
+from git_gui.presentation.dialogs.merge_dialog import MergeRequest
 from git_gui.presentation.main_window.merge_rebase_flows import MergeRebaseFlowsMixin
 
+MODULE = "git_gui.presentation.main_window.merge_rebase_flows"
 OID = "a" * 40
 
 
@@ -45,3 +48,33 @@ def test_a_failed_merge_analysis_is_logged_not_raised(host):
         "Merge commit aaaaaaa — ERROR: object not found"
     )
     assert host.reloaded == 1
+
+
+def _accept_merge(host, start_merge, *, identity_set: bool) -> None:
+    host._queries.get_branches.execute.return_value = [Branch("feature", False, False, OID)]
+    with (
+        patch(f"{MODULE}.MergeDialog") as dialog_cls,
+        patch(f"{MODULE}.ensure_identity", return_value=identity_set),
+    ):
+        dialog = dialog_cls.return_value
+        dialog.exec.return_value = dialog_cls.Accepted
+        dialog.result_value.return_value = MergeRequest(MergeStrategy.NO_FF, "Merge")
+        start_merge()
+
+
+@pytest.mark.parametrize(
+    ("start", "command"),
+    [
+        (lambda h: h._on_merge("feature"), "merge"),
+        (lambda h: h._on_merge_commit(OID), "merge_commit"),
+    ],
+    ids=["branch", "commit"],
+)
+def test_a_merge_waits_for_a_git_identity(host, start, command):
+    """Without one the merge writes MERGE_HEAD and the merged index, then
+    fails to sign the commit, leaving the repo half merged."""
+    _accept_merge(host, lambda: start(host), identity_set=False)
+    getattr(host._commands, command).execute.assert_not_called()
+
+    _accept_merge(host, lambda: start(host), identity_set=True)
+    getattr(host._commands, command).execute.assert_called_once()
