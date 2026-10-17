@@ -8,6 +8,9 @@ from git_gui.presentation.bus import CommandBus
 
 class WorkingTreeModel(QAbstractListModel):
     files_changed = Signal()
+    # A checkbox click runs in a mouse handler, where an exception would only
+    # reach the crash log; this carries the reason to the panel instead.
+    operation_failed = Signal(str)
 
     def __init__(self, commands, parent=None) -> None:
         super().__init__(parent)
@@ -50,11 +53,16 @@ class WorkingTreeModel(QAbstractListModel):
             return False
         fs = self._files[index.row()]
         # Toggle based on current state: Checked → unstage, anything else → stage
-        current = self.data(index, Qt.CheckStateRole)
-        if current == Qt.CheckState.Checked:
-            self._commands.unstage_files.execute([fs.path])
-        else:
-            self._commands.stage_files.execute([fs.path])
+        unstaging = self.data(index, Qt.CheckStateRole) == Qt.CheckState.Checked
+        try:
+            if unstaging:
+                self._commands.unstage_files.execute([fs.path])
+            else:
+                self._commands.stage_files.execute([fs.path])
+        except Exception as e:
+            verb = "Unstage" if unstaging else "Stage"
+            self.operation_failed.emit(f"{verb} failed for {fs.path}: {e}")
+            return False
         self.files_changed.emit()
         return True
 
