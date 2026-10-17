@@ -175,26 +175,10 @@ class RepoLifecycleMixin:
         self._right_stack.setCurrentIndex(0)
 
         self._start_change_detector(path)
-        self._rebuild_smart_checkout()
 
         # Load worktree list, paint badges/sidebar entries, refresh repo list.
         self._load_worktrees_for_active_repo()
         self._refresh_state_banners()
-
-    def _rebuild_smart_checkout(self) -> None:
-        """Bind SmartCheckout to the buses of the repo just opened."""
-        from git_gui.presentation.services.smart_checkout import SmartCheckout
-
-        if self._smart_checkout is not None:
-            self._smart_checkout.deleteLater()
-            self._smart_checkout = None
-        self._smart_checkout = SmartCheckout(
-            checkout=self._commands.checkout,
-            finder=self._queries.find_worktree_for_branch,
-            parent=self,
-        )
-        self._smart_checkout.switch_to_worktree_requested.connect(self._switch_repo)
-        self._sidebar.set_smart_checkout(self._smart_checkout)
 
     def _save_repo_store(self) -> None:
         """Write the repo list out, reporting a failed write rather than raising.
@@ -234,11 +218,9 @@ class RepoLifecycleMixin:
         self._queries = None
         self._commands = None
         self._repo_path = None
-        self._smart_checkout = None
         self._worktree_paths_by_branch = {}
         self._sidebar.set_repo_path(None)
         self._sidebar.set_buses(None, None)
-        self._sidebar.set_smart_checkout(None)
         self._sidebar.set_worktree_branches(set())
         self._graph.set_repo_path(None)
         self._graph.set_buses(None, None)
