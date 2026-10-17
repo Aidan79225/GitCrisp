@@ -9,7 +9,7 @@ import pygit2
 import pytest
 
 from git_gui.infrastructure.pygit2 import Pygit2Repository
-from git_gui.infrastructure.worktree_cli import WorktreeDirtyError
+from git_gui.infrastructure.worktree_cli import WorktreeCommandError, WorktreeDirtyError
 
 
 @pytest.fixture
@@ -285,3 +285,34 @@ def test_a_new_branch_starts_at_the_base_branch_not_a_same_named_tag(fresh_repo,
     )
 
     assert repo.references["refs/heads/from-rel"].target == branch_tip
+
+
+def test_a_failed_add_does_not_leave_the_new_branch_behind(fresh_repo, tmp_path):
+    """The branch was created before the worktree, so a refused target left it
+    behind and retrying the same name failed with "reference already exists"."""
+    occupied = tmp_path / "occupied"
+    occupied.mkdir()
+    (occupied / "keep.txt").write_text("mine\n")
+    impl = Pygit2Repository(str(fresh_repo))
+
+    with pytest.raises(WorktreeCommandError):
+        impl.add_worktree(str(occupied), "newfeat", create_branch=True, base_ref="master")
+
+    assert "newfeat" not in pygit2.Repository(str(fresh_repo)).branches.local
+
+
+def test_a_failing_post_checkout_hook_keeps_the_worktree_s_branch(fresh_repo, tmp_path):
+    """git keeps the worktree when only its post-checkout hook fails, yet
+    still exits non-zero; deleting the branch then would strand it."""
+    hook = fresh_repo / ".git" / "hooks" / "post-checkout"
+    hook.write_text("#!/bin/sh\nexit 1\n", newline="\n")
+    hook.chmod(0o755)
+    target = tmp_path / "wt-hooked"
+
+    with pytest.raises(WorktreeCommandError):
+        Pygit2Repository(str(fresh_repo)).add_worktree(
+            str(target), "hooked", create_branch=True, base_ref="master"
+        )
+
+    assert (target / "a.txt").exists()
+    assert "hooked" in pygit2.Repository(str(fresh_repo)).branches.local
