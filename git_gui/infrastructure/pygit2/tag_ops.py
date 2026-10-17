@@ -74,7 +74,9 @@ class TagOps:
             result = subprocess.run(
                 ["git", "ls-remote", "--tags", remote],
                 capture_output=True,
-                text=True,
+                # git prints tag names as UTF-8 whatever the locale's code page.
+                encoding="utf-8",
+                errors="replace",
                 cwd=self._repo.workdir,
                 env=self._git_env,
                 **subprocess_kwargs(),
