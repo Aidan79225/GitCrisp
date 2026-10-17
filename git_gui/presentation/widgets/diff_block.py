@@ -292,8 +292,8 @@ def make_diff_editor() -> QPlainTextEdit:
     editor.setLineWrapMode(QPlainTextEdit.NoWrap)
     editor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    # Apply monospace font via stylesheet — this survives the theme manager's
-    # global w.setFont() pass that would otherwise override a setFont() call.
+    # Only the family is fixed here, so the size still follows the theme's
+    # typography scale.
     editor.setStyleSheet(
         "QPlainTextEdit { font-family: 'Consolas', 'Courier New', 'Menlo', 'Monaco', monospace; }"
     )
