@@ -27,12 +27,12 @@ class WorktreeCli:
     """Thin wrapper around `git worktree remove` executed via subprocess.
 
     pygit2 lacks a "remove worktree with directory cleanup" call, so we
-    shell out to the git CLI. The repo's main working directory is used
-    as cwd so relative-path resolution matches the user's invocation.
+    shell out to the git CLI. `repo_dir` is only the cwd that selects the
+    repository, so worktree paths must be absolute.
     """
 
-    def __init__(self, repo_workdir: str, git_executable: str = "git") -> None:
-        self._cwd = repo_workdir
+    def __init__(self, repo_dir: str, git_executable: str = "git") -> None:
+        self._cwd = repo_dir
         self._git = git_executable
 
     def remove(self, worktree_path: str, *, force: bool) -> None:
