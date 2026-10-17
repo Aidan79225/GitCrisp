@@ -289,13 +289,16 @@ class DiffWidget(QWidget):
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
+        self._clear_commit()
+        self.update_state_banner("CLEAN")
+
+    def _clear_commit(self) -> None:
         self._current_oid = None
         self._detail.clear()
         self._msg_view.clear()
         self._diff_model.reload([])
         self._clear_blocks()
         self._set_empty_state(True)
-        self.update_state_banner("CLEAN")
 
     def eventFilter(self, obj, event):
         # Block mouse selection / drag on the read-only commit message but
@@ -318,22 +321,19 @@ class DiffWidget(QWidget):
     def load_commit(self, oid: str) -> None:
         self._current_oid = oid
 
-        # Fetch commit detail + refs. If the commit no longer exists (e.g. the
-        # graph selection points at a rebased/reset commit), clear the panel
-        # and bail out instead of crashing.
+        # Fetch everything before changing what is on screen. If the commit no
+        # longer exists (the graph selection points at a rebased/reset commit)
+        # or its files cannot be read (a blob-less partial clone), clear the
+        # panel rather than leave this commit's header over the last one's diff.
         try:
             commit = self._queries.get_commit_detail.execute(oid)
+            branches = self._queries.get_branches.execute()
+            files = self._queries.get_commit_files.execute(oid)
         except Exception as e:
             logger.warning("Failed to load commit %r: %s", oid, e)
-            self._current_oid = None
-            self._detail.clear()
-            self._msg_view.clear()
-            self._diff_model.reload([])
-            self._clear_blocks()
-            self._set_empty_state(True)
+            self._clear_commit()
             return
         self._set_empty_state(False)
-        branches = self._queries.get_branches.execute()
         refs = [b.name for b in branches if b.target_oid == oid]
         self._detail.set_commit(commit, refs)
 
@@ -352,7 +352,6 @@ class DiffWidget(QWidget):
         self._msg_view.show_message(msg)
 
         # Files — no auto-selection; show all files' hunks as bordered blocks
-        files = self._queries.get_commit_files.execute(oid)
         self._diff_model.reload(self._apply_path_filter(files))
         self._render_all_files(oid)
 
@@ -579,6 +578,7 @@ class DiffWidget(QWidget):
             try:
                 result = queries.get_commit_diff_map.execute(oid)
             except Exception:
+                logger.warning("Failed to load the diffs of commit %r", oid, exc_info=True)
                 result = {}
             signals.done.emit(result)
 
