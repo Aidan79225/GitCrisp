@@ -14,9 +14,9 @@ from git_gui.presentation.widgets.check_indicator import check_indicator_rect
 class FileListView(QListView):
     """QListView with two custom click behaviors:
 
-    1. Clicking the checkbox indicator toggles the check state WITHOUT changing
+    1. Left-clicking the checkbox indicator toggles the check state WITHOUT changing
        the row selection (so the blue highlight on another row is preserved).
-    2. Clicking an already-selected row deselects it and emits ``deselected``,
+    2. Left-clicking an already-selected row deselects it and emits ``deselected``,
        without delegating to ``super()`` so Qt cannot re-select. Esc does the
        same from the keyboard.
 
@@ -78,6 +78,11 @@ class FileListView(QListView):
         return check_indicator_rect(self.style(), opt, self)
 
     def mousePressEvent(self, event) -> None:
+        # The right button's press comes before its context menu, so toggling
+        # or deselecting here would stage a file the user only meant to inspect.
+        if event.button() != Qt.LeftButton:
+            super().mousePressEvent(event)
+            return
         clicked = self.indexAt(event.pos())
 
         # Case 1: click on the checkbox indicator → toggle without selection change
