@@ -1,6 +1,10 @@
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pygit2
+import pytest
 
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 
@@ -77,3 +81,108 @@ def test_discard_hunk_reverts_only_that_hunk(repo_path):
     assert "line 2\n" in text
     assert "CHANGED line 2" not in text
     assert "CHANGED line 18\n" in text
+
+
+def _symlink_or_skip(target: str, link: Path) -> None:
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot create symlinks")
+
+
+def test_discard_restores_the_line_endings_checkout_would_write(repo_path):
+    impl = Pygit2Repository(str(repo_path))
+    (repo_path / ".gitattributes").write_bytes(b"*.bat text eol=crlf\n")
+    (repo_path / "run.bat").write_bytes(b"@echo off\r\necho hi\r\n")
+    impl.stage([".gitattributes", "run.bat"])
+    impl.commit("seed bat")
+    (repo_path / "run.bat").write_bytes(b"@echo off\r\necho bye\r\n")
+
+    impl.discard_file("run.bat")
+
+    assert (repo_path / "run.bat").read_bytes() == b"@echo off\r\necho hi\r\n"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no executable bit on Windows")
+def test_discard_restores_a_deleted_script_as_executable(repo_path):
+    impl = Pygit2Repository(str(repo_path))
+    script = repo_path / "run.sh"
+    script.write_text("#!/bin/sh\necho hi\n")
+    script.chmod(0o755)
+    impl.stage(["run.sh"])
+    impl.commit("seed script")
+    script.unlink()
+
+    impl.discard_file("run.sh")
+
+    assert script.stat().st_mode & 0o111
+
+
+def test_discard_points_a_retargeted_symlink_back_without_touching_its_target(repo_path):
+    impl = Pygit2Repository(str(repo_path))
+    (repo_path / "defaults.yml").write_text("defaults\n")
+    (repo_path / "local.yml").write_text("local\n")
+    link = repo_path / "cfg"
+    _symlink_or_skip("defaults.yml", link)
+    impl.stage(["defaults.yml", "local.yml", "cfg"])
+    impl.commit("seed link")
+    link.unlink()
+    os.symlink("local.yml", link)
+
+    impl.discard_file("cfg")
+
+    assert os.readlink(link) == "defaults.yml"
+    assert (repo_path / "local.yml").read_text() == "local\n"
+
+
+def test_discard_of_a_glob_like_name_leaves_the_files_it_would_match_alone(repo_path):
+    impl = Pygit2Repository(str(repo_path))
+    (repo_path / "f[1].txt").write_text("bracket\n")
+    (repo_path / "f1.txt").write_text("plain\n")
+    impl.stage(["f[1].txt", "f1.txt"])
+    impl.commit("seed glob-like names")
+    (repo_path / "f[1].txt").write_text("bracket edited\n")
+    (repo_path / "f1.txt").write_text("plain edited\n")
+
+    impl.discard_file("f[1].txt")
+
+    assert (repo_path / "f[1].txt").read_text() == "bracket\n"
+    assert (repo_path / "f1.txt").read_text() == "plain edited\n"
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def test_discard_on_a_moved_submodule_does_not_raise(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+    child, parent = tmp_path / "child", tmp_path / "parent"
+    for repo in (child, parent):
+        repo.mkdir()
+        _git(repo, "init", "-q")
+        _git(repo, "config", "user.email", "t@t")
+        _git(repo, "config", "user.name", "t")
+        _git(repo, "commit", "-q", "--allow-empty", "-m", "root")
+    _git(parent, "submodule", "add", "-q", str(child), "sub")
+    _git(parent, "commit", "-q", "-m", "add sub")
+    head_gitlink = pygit2.Repository(str(parent)).head.peel(pygit2.Commit).tree["sub"].id
+    _git(
+        parent / "sub",
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "moved",
+    )
+    _git(parent, "add", "sub")
+    impl = Pygit2Repository(str(parent))
+
+    impl.discard_file("sub")
+
+    assert impl._repo.index["sub"].id == head_gitlink

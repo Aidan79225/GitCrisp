@@ -86,14 +86,7 @@ class StageOps:
                 head_has_blob = False
 
         if head_has_blob:
-            entry = head_commit.tree[path]
-            self._repo.index.add(pygit2.IndexEntry(path, entry.id, entry.filemode))
-            self._repo.index.write()
-            self._repo.index.read()
-            blob = self._repo.get(entry.id)
-            os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
-            with open(full, "wb") as f:
-                f.write(blob.data)
+            self._checkout_from_head(path)
         else:
             try:
                 self._repo.index.remove(path)
@@ -103,6 +96,21 @@ class StageOps:
                 pass
             if os.path.exists(full):
                 os.remove(full)
+
+    def _checkout_from_head(self, path: str) -> None:
+        # git CLI, not a raw blob write: checkout must apply eol/autocrlf and
+        # smudge filters (LFS), restore the file mode, and replace a symlink
+        # rather than write through it. Literal pathspecs keep `*` or `[` in a
+        # name from discarding other files' changes too.
+        subprocess.run(
+            ["git", "--literal-pathspecs", "checkout", "HEAD", "--", path],
+            cwd=self._repo.workdir,
+            env=self._git_env,
+            check=True,
+            capture_output=True,
+            **subprocess_kwargs(),
+        )
+        self._repo.index.read()
 
     def discard_hunk(self, path: str, hunk_header: str) -> None:
         patch = self._build_hunk_patch(path, hunk_header, staged=False)
