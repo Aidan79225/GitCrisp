@@ -259,3 +259,16 @@ def test_first_parent_edge_keeps_the_commits_own_colour(qtbot):
     lanes = _compute_lanes([_make_commit("b", "B", parents=["a"]), _make_commit("a", "A")])
     assert lanes[0].edges_out == [(0, 0, lanes[0].color_idx)]
     assert lanes[1].color_idx == lanes[0].color_idx
+
+
+def test_the_working_tree_row_shows_no_hash(qtbot):
+    """The uncommitted-changes row is not a commit, so it has no sha to show.
+
+    Slicing its sentinel oid put "WORKING_" where the hash belongs.
+    """
+    from git_gui.domain.entities import WORKING_TREE_OID
+
+    model = GraphModel([_make_commit(WORKING_TREE_OID), _make_commit("abcdef1234")], {})
+
+    assert model.data(model.index(0, 0), INFO_ROLE).short_oid == ""
+    assert model.data(model.index(1, 0), INFO_ROLE).short_oid == "abcdef12"
