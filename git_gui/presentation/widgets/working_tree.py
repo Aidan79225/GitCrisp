@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 
 from PySide6.QtCore import QObject, QRect, Qt, Signal
@@ -83,7 +84,9 @@ class _LoadSignals(QObject):
 class WorkingTreeWidget(QWidget):
     reload_requested = Signal()
     commit_completed = Signal(str)  # emits first line of commit message
-    commit_failed = Signal(str)  # emits error reason
+    # Error reason, for a commit or any other change made from this panel;
+    # MainWindow shows it in the operations log.
+    commit_failed = Signal(str)
     working_tree_empty = Signal()  # emitted when reload finds no changes
     submodule_open_requested = Signal(str)  # forwarded from inner HunkDiffWidget
     file_history_requested = Signal(str)  # repo-relative path
@@ -202,6 +205,7 @@ class WorkingTreeWidget(QWidget):
             shortcut.activated.connect(self._on_commit_shortcut)
         self._chk_amend.toggled.connect(self._on_amend_toggled)
         self._file_model.files_changed.connect(self._on_files_changed)
+        self._file_model.operation_failed.connect(self.commit_failed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
         self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
         self._hunk_diff.submodule_open_requested.connect(self.submodule_open_requested)
@@ -336,42 +340,48 @@ class WorkingTreeWidget(QWidget):
         )
         if reply != QMessageBox.Yes:
             return
-        self._commands.discard_file.execute(path)
+        try:
+            self._commands.discard_file.execute(path)
+        except Exception as e:
+            self.commit_failed.emit(f"Discard failed for {path}: {e}")
+        # Refreshed either way: a discard can fail half-way through.
         self._on_files_changed()
 
     def _ignore_file(self, path: str) -> None:
-        import os
-
         if not self._repo_path:
             return
-        gitignore_path = os.path.join(self._repo_path, ".gitignore")
-        entry = path + "\n"
-        if os.path.exists(gitignore_path):
-            with open(gitignore_path, encoding="utf-8") as f:
-                existing = f.read()
-            if path in existing.splitlines():
-                return
-            if not existing.endswith("\n") and existing:
-                entry = "\n" + entry
-        with open(gitignore_path, "a", encoding="utf-8") as f:
-            f.write(entry)
+        try:
+            _append_to_gitignore(self._repo_path, path)
+        except (OSError, UnicodeError) as e:
+            self.commit_failed.emit(f"Add to .gitignore failed: {e}")
+            return
         self._on_files_changed()
 
     def _on_stage_all(self) -> None:
-        raw_files = self._queries.get_working_tree.execute()
-        files, partial = _deduplicate(raw_files)
-        paths = list({f.path for f in files if f.status != StagingState.STAGED} | partial)
-        if paths:
+        try:
+            raw_files = self._queries.get_working_tree.execute()
+            files, partial = _deduplicate(raw_files)
+            paths = list({f.path for f in files if f.status != StagingState.STAGED} | partial)
+            if not paths:
+                return
             self._commands.stage_files.execute(paths)
-            self._on_files_changed()
+        except Exception as e:
+            self.commit_failed.emit(f"Stage All failed: {e}")
+            return
+        self._on_files_changed()
 
     def _on_unstage_all(self) -> None:
-        raw_files = self._queries.get_working_tree.execute()
-        files, partial = _deduplicate(raw_files)
-        paths = list({f.path for f in files if f.status == StagingState.STAGED} | partial)
-        if paths:
+        try:
+            raw_files = self._queries.get_working_tree.execute()
+            files, partial = _deduplicate(raw_files)
+            paths = list({f.path for f in files if f.status == StagingState.STAGED} | partial)
+            if not paths:
+                return
             self._commands.unstage_files.execute(paths)
-            self._on_files_changed()
+        except Exception as e:
+            self.commit_failed.emit(f"Unstage All failed: {e}")
+            return
+        self._on_files_changed()
 
     def _on_commit_shortcut(self) -> None:
         # Same guard a click has: a disabled button must not commit by keyboard.
@@ -553,6 +563,21 @@ class WorkingTreeWidget(QWidget):
             self.cherry_pick_abort_requested.emit()
         elif state == "REVERTING":
             self.revert_abort_requested.emit()
+
+
+def _append_to_gitignore(repo_path: str, path: str) -> None:
+    """Add *path* to the repo's top-level .gitignore unless it is already listed."""
+    gitignore_path = os.path.join(repo_path, ".gitignore")
+    entry = path + "\n"
+    if os.path.exists(gitignore_path):
+        with open(gitignore_path, encoding="utf-8") as f:
+            existing = f.read()
+        if path in existing.splitlines():
+            return
+        if not existing.endswith("\n") and existing:
+            entry = "\n" + entry
+    with open(gitignore_path, "a", encoding="utf-8") as f:
+        f.write(entry)
 
 
 def _conflicts_first(files: list[FileStatus]) -> list[FileStatus]:
