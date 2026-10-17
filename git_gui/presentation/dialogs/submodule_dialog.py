@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+import threading
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -15,6 +16,11 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
 )
+
+
+class _AddSignals(QObject):
+    finished = Signal()
+    failed = Signal(str)
 
 
 class _SubmoduleAddDialog(QDialog):
@@ -65,6 +71,7 @@ class SubmoduleDialog(QDialog):
         self._queries = queries
         self._commands = commands
         self._workdir = repo_workdir
+        self._busy = False
 
         self._table = QTableWidget(0, 3)
         self._table.setHorizontalHeaderLabels(["Path", "URL", "HEAD"])
@@ -133,11 +140,48 @@ class SubmoduleDialog(QDialog):
         if not path or not url:
             QMessageBox.warning(self, "Invalid input", "Path and URL are required.")
             return
-        try:
-            self._commands.add_submodule.execute(path, url)
-        except Exception as e:
-            QMessageBox.warning(self, "Add submodule failed", str(e))
+        self._start_add(path, url)
+
+    def _start_add(self, path: str, url: str) -> None:
+        # `git submodule add` clones over the network, so it must not block the event loop.
+        self._set_busy(True)
+        signals = _AddSignals(self)
+        signals.finished.connect(self._on_add_finished)
+        signals.failed.connect(self._on_add_failed)
+
+        def _worker():
+            try:
+                self._commands.add_submodule.execute(path, url)
+                signals.finished.emit()
+            except Exception as e:
+                signals.failed.emit(str(e))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_add_finished(self) -> None:
+        self._set_busy(False)
         self._refresh()
+
+    def _on_add_failed(self, message: str) -> None:
+        self._set_busy(False)
+        self._refresh()
+        QMessageBox.warning(self, "Add submodule failed", message)
+
+    def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
+        for btn in (
+            self._add_btn,
+            self._edit_btn,
+            self._remove_btn,
+            self._open_btn,
+            self._close_btn,
+        ):
+            btn.setEnabled(not busy)
+
+    def reject(self) -> None:
+        if self._busy:
+            return
+        super().reject()
 
     def _on_edit(self) -> None:
         path = self._selected_path()
