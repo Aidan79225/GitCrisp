@@ -3,7 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QDesktopServices, QTextCharFormat, QTextCursor
+from PySide6.QtGui import (
+    QDesktopServices,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+    QTextFormat,
+    QTextFragment,
+)
 from PySide6.QtWidgets import QLabel, QTextBrowser, QVBoxLayout, QWidget
 
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
@@ -13,6 +20,27 @@ from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_mana
 # both to the same place.
 ACTION_SCHEME = "gitcrisp-action"
 
+# Marks the text log_error wrote. A theme change has to give it the new error
+# colour, and once written its old colour is all that would tell it apart.
+_ERROR_TEXT = QTextFormat.UserProperty
+
+
+def _fragments(document: QTextDocument) -> list[QTextFragment]:
+    fragments = []
+    block = document.begin()
+    while block.isValid():
+        fragments.extend(it.fragment() for it in block)
+        block = block.next()
+    return fragments
+
+
+def _colour_role(fmt: QTextCharFormat) -> ColorRole:
+    if fmt.isAnchor():
+        return ColorRole.ON_PRIMARY_CONTAINER
+    if fmt.boolProperty(_ERROR_TEXT):
+        return ColorRole.ERROR
+    return ColorRole.ON_SURFACE
+
 
 class LogPanel(QWidget):
     action_triggered = Signal(str)  # the action id from a clicked log link
@@ -21,7 +49,6 @@ class LogPanel(QWidget):
         super().__init__(parent)
         self._expanded = False
 
-        c = get_theme_manager().current.colors
         self._header = QLabel("▶ Operations Log")
         self._header.setCursor(Qt.PointingHandCursor)
         self._header.mousePressEvent = lambda _: self.toggle()
@@ -41,11 +68,6 @@ class LogPanel(QWidget):
         self._body.setFont(font)
         self._body.setVisible(False)
 
-        self._fmt_default = QTextCharFormat()
-        self._fmt_default.setForeground(c.as_qcolor(ColorRole.ON_SURFACE))
-        self._fmt_error = QTextCharFormat()
-        self._fmt_error.setForeground(c.as_qcolor(ColorRole.ERROR))
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -64,15 +86,27 @@ class LogPanel(QWidget):
         self._fmt_default.setForeground(c.as_qcolor(ColorRole.ON_SURFACE))
         self._fmt_error = QTextCharFormat()
         self._fmt_error.setForeground(c.as_qcolor(ColorRole.ERROR))
-        # Recolor existing log lines by reapplying the default format to
-        # everything that isn't an error line. We can't tell which is
-        # which after the fact, so just normalize the whole document
-        # foreground via the document's char format.
-        cursor = self._body.textCursor()
-        cursor.select(QTextCursor.Document)
-        cursor.mergeCharFormat(self._fmt_default)
-        cursor.clearSelection()
-        self._body.setTextCursor(cursor)
+        self._fmt_error.setProperty(_ERROR_TEXT, True)
+        self._recolour_log()
+
+    def _recolour_log(self) -> None:
+        """Give each fragment written so far its role's colour in this theme."""
+        colors = get_theme_manager().current.colors
+        document = self._body.document()
+        # Read every range before writing any: a merge can split or join fragments.
+        ranges = [
+            (f.position(), f.position() + f.length(), _colour_role(f.charFormat()))
+            for f in _fragments(document)
+        ]
+        cursor = QTextCursor(document)
+        cursor.beginEditBlock()
+        for start, end, role in ranges:
+            fmt = QTextCharFormat()
+            fmt.setForeground(colors.as_qcolor(role))
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.KeepAnchor)
+            cursor.mergeCharFormat(fmt)
+        cursor.endEditBlock()
 
     def log(self, message: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
