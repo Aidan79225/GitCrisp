@@ -8,6 +8,7 @@ diff pane it hands off to, and the commit list gives way while it is open.
 from __future__ import annotations
 
 import threading
+from itertools import accumulate
 
 from PySide6.QtCore import QEvent, QObject, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QTextCursor
@@ -54,8 +55,18 @@ def _elide(text: str, limit: int) -> str:
 
 
 def _syntax_spans(lines: list[BlameLine], path: str) -> list[SyntaxToken]:
-    """Syntax tokens over the document `set_lines` builds from `lines`."""
-    return tokenize("\n".join(line.text for line in lines), path)
+    """Syntax tokens over the document `set_lines` builds from `lines`.
+
+    Offsets are document positions, which count UTF-16 units: `tokenize`
+    counts code points, so each emoji or other astral character would
+    otherwise shift every token after it one place to the left.
+    """
+    text = "\n".join(line.text for line in lines)
+    positions = list(accumulate((2 if ord(ch) > 0xFFFF else 1 for ch in text), initial=0))
+    return [
+        SyntaxToken(positions[token.start], positions[token.end], token.kind)
+        for token in tokenize(text, path)
+    ]
 
 
 class _LoadSignals(QObject):

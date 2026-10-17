@@ -364,3 +364,28 @@ def test_a_theme_change_recolours_in_a_single_document_change(qtbot):
     w._editor.restyle()
 
     assert len(changes) <= 1
+
+
+# ── Syntax colours past an astral character ──────────────────────────────────
+
+
+def test_an_emoji_does_not_shift_the_colours_after_it(qtbot):
+    """A document counts an emoji as two positions; a Python string as one."""
+    from PySide6.QtGui import QTextCursor
+
+    lines = [
+        _line(1, 'x = "\U0001f389"', AAA, run_start=True),
+        _line(2, "def foo():", AAA, run_start=False),
+    ]
+    w, _ = _window(qtbot, lines=lines, path="x.py")
+    keyword = get_theme_manager().current.colors.syntax_keyword.lower()
+
+    def colour_at(position: int) -> str:
+        cursor = QTextCursor(w._editor.document())
+        cursor.setPosition(position)
+        cursor.setPosition(position + 1, QTextCursor.KeepAnchor)
+        return cursor.charFormat().foreground().color().name().lower()
+
+    def_start = w._editor.document().findBlockByNumber(1).position()
+    assert [colour_at(def_start + i) for i in range(3)] == [keyword] * 3
+    assert colour_at(def_start + 3) != keyword, "the space after def stays plain"
