@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
-from git_gui.domain.entities import Branch
+from git_gui.domain.entities import Branch, LocalBranchInfo, Remote
 from git_gui.presentation.main_window import MainWindow
 
 MODULE = "git_gui.presentation.main_window.remote_op_queue"
@@ -181,3 +181,31 @@ def test_push_or_pull_with_no_branch_checked_out_says_why_nothing_ran(qtbot, slo
     assert win._remote_running is False
     win._log_panel.expand.assert_called_once_with()
     assert "check out a branch" in win._log_panel.log_error.call_args.args[0].lower()
+
+
+def _pull_with_upstream(qtbot, upstream: str | None) -> MainWindow:
+    win = _make_window(qtbot)
+    win._queries = _queries_on_branch("fix")
+    win._queries.list_local_branches_with_upstream.execute.return_value = [
+        LocalBranchInfo("fix", upstream, "0123456789", "Fix it")
+    ]
+    win._queries.list_remotes.execute.return_value = [
+        Remote(name, f"https://example.com/{name}.git", f"https://example.com/{name}.git")
+        for name in ("origin", "upstream")
+    ]
+    with patch.object(win, "_reload"):
+        win._on_pull()
+        _wait_until_idle(qtbot, win)
+    return win
+
+
+def test_pull_takes_the_branch_its_upstream_names_on_that_remote(qtbot):
+    win = _pull_with_upstream(qtbot, "upstream/main")
+
+    win._commands.pull.execute.assert_called_once_with("upstream", "main")
+
+
+def test_pull_with_no_upstream_takes_the_same_named_branch_from_origin(qtbot):
+    win = _pull_with_upstream(qtbot, None)
+
+    win._commands.pull.execute.assert_called_once_with("origin", "fix")
