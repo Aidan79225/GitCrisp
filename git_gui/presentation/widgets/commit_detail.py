@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter
+from dataclasses import dataclass
+
+from PySide6.QtCore import QEvent, QRect, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
 from git_gui.domain.entities import Commit
@@ -26,6 +28,18 @@ def _muted() -> QColor:
 PAD = 12
 AVATAR_SIZE = 36
 AVATAR_GAP = 10
+TEXT_LEFT = PAD + AVATAR_SIZE + AVATAR_GAP
+AUTHOR_LABEL = "Author: "
+
+
+@dataclass(frozen=True)
+class _AuthorLine:
+    """Line 1 as laid out: the author, cut to end before the timestamp starts."""
+
+    author: str
+    author_x: int
+    timestamp: str
+    timestamp_x: int
 
 
 class CommitDetailWidget(QWidget):
@@ -38,6 +52,7 @@ class CommitDetailWidget(QWidget):
         self._refs: list[str] = []
         self._avatar_hash: str | None = None
         self._oid_rect: QRect | None = None
+        self._cut_author_rect: QRect | None = None
         # Clickable ref badges painted on line 2: (rect, copy text).
         self._badge_rects: list[tuple[QRect, str]] = []
         self.setMouseTracking(True)
@@ -61,6 +76,7 @@ class CommitDetailWidget(QWidget):
         self._refs = []
         self._avatar_hash = None
         self._oid_rect = None
+        self._cut_author_rect = None
         self._badge_rects = []
         self.update()
 
@@ -76,7 +92,6 @@ class CommitDetailWidget(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         fm = painter.fontMetrics()
         line_h = fm.height()
-        w = self.width()
         c = self._commit
         on_surface = get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE)
         on_badge = get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE)
@@ -86,19 +101,19 @@ class CommitDetailWidget(QWidget):
         avatar_rect = QRect(PAD, avatar_y, AVATAR_SIZE, AVATAR_SIZE)
         pixmap = self._avatar_loader.get_pixmap(c.author)
         paint_avatar(painter, avatar_rect, c.author, pixmap)
-        text_left = PAD + AVATAR_SIZE + AVATAR_GAP
+        text_left = TEXT_LEFT
 
         # ── Line 1: Author + datetime ────────────────────────────────────────
         y = PAD
+        line1 = self._author_line(c, fm)
         painter.setPen(_muted())
-        painter.drawText(text_left, y + fm.ascent(), "Author: ")
-        label_w = fm.horizontalAdvance("Author: ")
+        painter.drawText(text_left, y + fm.ascent(), AUTHOR_LABEL)
         painter.setPen(on_surface)
-        painter.drawText(text_left + label_w, y + fm.ascent(), c.author)
-        ts = c.timestamp.strftime("%Y-%m-%d %H:%M")
-        ts_w = fm.horizontalAdvance(ts)
+        painter.drawText(line1.author_x, y + fm.ascent(), line1.author)
         painter.setPen(_muted())
-        painter.drawText(w - PAD - ts_w, y + fm.ascent(), ts)
+        painter.drawText(line1.timestamp_x, y + fm.ascent(), line1.timestamp)
+        author_slot = QRect(line1.author_x, y, line1.timestamp_x - line1.author_x, line_h)
+        self._cut_author_rect = author_slot if line1.author != c.author else None
 
         # ── Line 2: Hash + ref badges ────────────────────────────────────────
         y += line_h + PAD
@@ -142,6 +157,31 @@ class CommitDetailWidget(QWidget):
         painter.drawText(x, y + fm.ascent(), parents_text)
 
         painter.end()
+
+    def _author_line(self, commit: Commit, fm: QFontMetrics) -> _AuthorLine:
+        """Line 1's layout, with the timestamp's place taken first.
+
+        "Name <email>" is often wider than a diff pane beside blame or the
+        reflog, so the author is what gives way.
+        """
+        timestamp = commit.timestamp.strftime("%Y-%m-%d %H:%M")
+        timestamp_x = self.width() - PAD - fm.horizontalAdvance(timestamp)
+        author_x = TEXT_LEFT + fm.horizontalAdvance(AUTHOR_LABEL)
+        room = max(timestamp_x - PAD - author_x, 0)
+        author = fm.elidedText(commit.author, Qt.ElideRight, room)
+        return _AuthorLine(author, author_x, timestamp, timestamp_x)
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.ToolTip:
+            self.setToolTip(self._tooltip_at(event.pos()))
+        return super().event(event)
+
+    def _tooltip_at(self, pos) -> str:
+        """The whole author, over an author that had to be cut to fit."""
+        rect = self._cut_author_rect
+        if self._commit is not None and rect is not None and rect.contains(pos):
+            return self._commit.author
+        return ""
 
     def _copyable_at(self, pos) -> str | None:
         """Return the text to copy if a clickable element is under `pos`."""
