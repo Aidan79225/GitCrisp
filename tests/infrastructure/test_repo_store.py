@@ -212,3 +212,48 @@ class TestJsonRepoStoreSettings:
         )
         store.load()
         assert store.get_repo_setting("/repo/a", "first_parent", False) is False
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        '{"open": ["C:/a"',
+        "null",
+        "[]",
+        '{"open": null}',
+        '{"settings": [1]}',
+    ],
+)
+def test_an_unreadable_repos_file_loads_as_an_empty_store(store, store_path, content):
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(content, encoding="utf-8")
+
+    store.load()
+
+    assert store.get_open_repos() == []
+    assert store.get_recent_repos() == []
+    assert store.get_active() is None
+
+
+def test_a_repos_file_saved_with_a_bom_still_loads(store, store_path):
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(json.dumps({"open": ["/repo/a"]}), encoding="utf-8-sig")
+
+    store.load()
+
+    assert store.get_open_repos() == ["/repo/a"]
+
+
+def test_entries_of_the_wrong_type_are_dropped_and_the_rest_kept(store, store_path):
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(
+        json.dumps({"open": ["/repo/a", 7], "recent": "/repo/b", "active": 3}),
+        encoding="utf-8",
+    )
+
+    store.load()
+
+    assert store.get_open_repos() == ["/repo/a"]
+    assert store.get_recent_repos() == []
+    assert store.get_active() is None
