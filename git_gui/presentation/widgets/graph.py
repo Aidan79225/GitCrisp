@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -199,6 +200,32 @@ class _SearchBar(QWidget):
         return self._input
 
 
+class _ElidedLabel(QLabel):
+    """A one-line label that shortens its text to the width it is given.
+
+    A plain QLabel's minimum width is its whole text, so a long file path
+    became the commit list's minimum width and squeezed the diff pane.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._full_text = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def set_full_text(self, text: str) -> None:
+        self._full_text = text
+        self.setAccessibleName(text)
+        self._elide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        width = self.contentsRect().width()
+        self.setText(self.fontMetrics().elidedText(self._full_text, Qt.ElideMiddle, width))
+
+
 class _PathFilterBar(QWidget):
     """Chip showing the path the commit list is currently filtered to."""
 
@@ -213,7 +240,7 @@ class _PathFilterBar(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        self._label = QLabel()
+        self._label = _ElidedLabel()
         self._label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self._label, 1)
 
@@ -236,7 +263,7 @@ class _PathFilterBar(QWidget):
 
     def open(self, path: str) -> None:
         self._path = path
-        self._label.setText(f"History of  {path}")
+        self._label.set_full_text(f"History of  {path}")
         self._label.setToolTip(path)
         self.setVisible(True)
 
