@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, QSize, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFrame,
     QLabel,
     QMessageBox,
     QScrollArea,
@@ -71,6 +72,9 @@ class HunkDiffWidget(QWidget):
         self._current_path: str | None = None
         self._all_paths: list[str] | None = None  # None = single-file or empty mode
         self._submodule_paths: set[str] = set()
+        # The all-files view's blocks by path, so a reload can find the height
+        # each one had before it is rebuilt as a skeleton.
+        self._aggregate_blocks: dict[str, QFrame] = {}
 
         # Lazy loading — initialized after scroll area is created (see below)
         self._loader: ViewportBlockLoader | None = None
@@ -127,6 +131,7 @@ class HunkDiffWidget(QWidget):
         """
         self._current_path = None
         self._all_paths = list(paths)
+        last_heights = self._aggregate_block_heights()
         if not paths:
             self._clear_layout()
             return
@@ -142,6 +147,12 @@ class HunkDiffWidget(QWidget):
         block_refs = []
         for path in shown:
             frame, inner = self._make_file_block(path)
+            # A skeleton is far shorter than the block it stands for. Holding
+            # the block's last height until it is realised keeps the content
+            # above the user's place the same height, so the unchanged scroll
+            # value still shows the same file after a stage or discard.
+            frame.setMinimumHeight(last_heights.get(path, 0))
+            self._aggregate_blocks[path] = frame
             skeleton = make_skeleton_container()
             inner.addWidget(skeleton)
             self._layout.addWidget(frame)
@@ -171,6 +182,17 @@ class HunkDiffWidget(QWidget):
             signals.done.emit(result)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _aggregate_block_heights(self) -> dict[str, int]:
+        """Each all-files block's height: its content's, or the one it still holds.
+
+        Read from the size hint rather than the geometry, which a block not
+        yet laid out does not have.
+        """
+        return {
+            path: max(frame.sizeHint().height(), frame.minimumHeight())
+            for path, frame in self._aggregate_blocks.items()
+        }
 
     def _make_overflow_notice(self, hidden: int) -> QWidget:
         """A muted one-line notice standing in for files beyond the block cap."""
@@ -297,6 +319,7 @@ class HunkDiffWidget(QWidget):
         if skeleton is not None:
             inner.removeWidget(skeleton)
             skeleton.deleteLater()
+        inner.parentWidget().setMinimumHeight(0)  # the real content now sets it
         for hunk in staged_hunks:
             self._add_hunk_block(
                 hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
@@ -482,6 +505,7 @@ class HunkDiffWidget(QWidget):
         self.discard_hunk_requested.emit(path, hunk_header)
 
     def _clear_layout(self) -> None:
+        self._aggregate_blocks = {}
         while self._layout.count():
             item = self._layout.takeAt(0)
             widget = item.widget()
