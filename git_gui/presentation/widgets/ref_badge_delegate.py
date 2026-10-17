@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter
-from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
+from PySide6.QtGui import QColor
 
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 
@@ -31,28 +29,22 @@ def _color_tag() -> QColor:
 def _badge_color(
     name: str,
     head_branch: str | None = None,
-    remote_branches: frozenset[str] | None = None,
+    remote_branches: frozenset[str] = frozenset(),
 ) -> QColor:
+    """The badge colour for ref `name`.
+
+    Remote-tracking branches are the ones in `remote_branches`: a local branch
+    can hold a slash (``feature/login``) just as ``origin/main`` does.
+    """
     if name == "HEAD" or name.startswith("HEAD ->"):
         return _color_head()
     if head_branch and name == head_branch:
         return _color_head()
     if name.startswith("tag:"):
         return _color_tag()
-    if _is_remote_branch(name, remote_branches):
+    if name in remote_branches:
         return _color_remote()
     return _color_local()
-
-
-def _is_remote_branch(name: str, remote_branches: frozenset[str] | None) -> bool:
-    """Whether ``name`` is a remote-tracking branch.
-
-    A caller that was not told which branches are remote can only guess from
-    the slash, and that guess also takes a local ``feature/login`` for remote.
-    """
-    if remote_branches is None:
-        return "/" in name
-    return name in remote_branches
 
 
 def _badge_display_name(name: str) -> str:
@@ -72,38 +64,3 @@ def _badge_copy_text(name: str) -> str:
     if name.startswith("HEAD -> "):
         return name[len("HEAD -> ") :]
     return name
-
-
-class RefBadgeDelegate(QStyledItemDelegate):
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        branch_names: list[str] = index.data(Qt.UserRole + 1) or []
-        message: str = index.data(Qt.DisplayRole) or ""
-
-        painter.save()
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        rect = option.rect
-        x = rect.left() + 2
-        cy = rect.top() + rect.height() // 2
-        fm = painter.fontMetrics()
-        badge_h = fm.height() + BADGE_V_PAD * 2
-
-        for name in branch_names:
-            display = _badge_display_name(name)
-            badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
-            badge_rect = QRect(x, cy - badge_h // 2, badge_w, badge_h)
-
-            painter.setBrush(QBrush(_badge_color(name)))
-            painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
-
-            painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE))
-            painter.drawText(badge_rect, Qt.AlignCenter, display)
-
-            x += badge_w + BADGE_GAP
-
-        text_rect = QRect(x, rect.top(), max(0, rect.right() - x), rect.height())
-        painter.setPen(option.palette.text().color())
-        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, message)
-
-        painter.restore()

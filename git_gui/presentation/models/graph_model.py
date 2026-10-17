@@ -49,7 +49,7 @@ class CommitInfo:
     branch_names: list[str]
     head_branch: str | None  # name of the HEAD branch (green badge), None if detached
     message: str  # first line of commit message only
-    remote_branches: frozenset[str] | None = None  # remote-tracking branch names; None = unknown
+    remote_branches: frozenset[str] = frozenset()  # remote-tracking branch names
 
 
 def _short_oid(oid: str) -> str:
@@ -182,7 +182,7 @@ class GraphModel(QAbstractTableModel):
         *,
         first_parent: bool = False,
         show_graph: bool = True,
-        remote_branches: frozenset[str] | None = None,
+        remote_branches: frozenset[str] = frozenset(),
     ) -> None:
         super().__init__(parent)
         self._commits = commits
@@ -243,7 +243,7 @@ class GraphModel(QAbstractTableModel):
         *,
         first_parent: bool = False,
         show_graph: bool = True,
-        remote_branches: frozenset[str] | None = None,
+        remote_branches: frozenset[str] = frozenset(),
     ) -> None:
         self.beginResetModel()
         self._commits = commits
