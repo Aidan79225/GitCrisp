@@ -71,10 +71,10 @@ class MergeRebaseFlowsMixin:
         self._reload()
 
     def _on_merge_commit(self, oid: str) -> None:
+        short_oid = oid[:7]
         try:
             analysis = self._queries.get_merge_analysis.execute(oid)
             head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
-            short_oid = oid[:7]
             default_msg = f"Merge commit {short_oid}"
 
             if analysis.is_up_to_date:
