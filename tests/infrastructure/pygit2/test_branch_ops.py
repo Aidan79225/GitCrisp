@@ -103,3 +103,33 @@ def test_checkout_of_the_current_branch_still_succeeds(repo_with_feat_in_a_linke
     impl.checkout("master")
 
     assert impl.repo_state().head_branch == "master"
+
+
+# ── remote branches of a clone ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def clone_with_a_feature_branch(tmp_path):
+    """A clone, so it has the ``origin/HEAD`` symref, of a repo whose
+    ``feature`` branch changes f.txt."""
+    src = tmp_path / "src"
+    src.mkdir()
+    _git(src, "init", "-q", "-b", "master")
+    _git(src, "config", "user.email", "t@t")
+    _git(src, "config", "user.name", "t")
+    (src / "f.txt").write_text("master\n")
+    _git(src, "add", ".")
+    _git(src, "commit", "-q", "-m", "init")
+    _git(src, "checkout", "-q", "-b", "feature")
+    (src / "f.txt").write_text("feature\n")
+    _git(src, "commit", "-q", "-am", "feature work")
+    _git(src, "checkout", "-q", "master")
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", str(src), str(clone))
+    return clone
+
+
+def test_get_branches_leaves_out_the_remote_head_symref(clone_with_a_feature_branch):
+    branches = Pygit2Repository(str(clone_with_a_feature_branch)).get_branches()
+
+    assert sorted(b.name for b in branches if b.is_remote) == ["origin/feature", "origin/master"]
