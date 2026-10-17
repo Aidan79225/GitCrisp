@@ -272,3 +272,21 @@ def test_the_working_tree_row_shows_no_hash(qtbot):
 
     assert model.data(model.index(0, 0), INFO_ROLE).short_oid == ""
     assert model.data(model.index(1, 0), INFO_ROLE).short_oid == "abcdef12"
+
+
+def test_each_row_knows_which_branches_are_remote(qtbot):
+    """A slash cannot tell local feature/foo from origin/main; the row must be told."""
+    refs = {"abc": ["feature/foo", "origin/main"]}
+    remotes = frozenset({"origin/main"})
+
+    model = GraphModel([_make_commit("abc")], refs, remote_branches=remotes)
+
+    assert model.data(model.index(0, 0), INFO_ROLE).remote_branches == remotes
+
+
+def test_a_reload_replaces_which_branches_are_remote(qtbot):
+    model = GraphModel([_make_commit("abc")], {}, remote_branches=frozenset({"origin/old"}))
+
+    model.reload([_make_commit("abc")], {}, remote_branches=frozenset({"origin/new"}))
+
+    assert model.data(model.index(0, 0), INFO_ROLE).remote_branches == {"origin/new"}
