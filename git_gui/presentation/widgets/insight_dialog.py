@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable
+from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import QDate, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
@@ -261,10 +262,22 @@ def _make_card_container(title: str) -> tuple[QFrame, QVBoxLayout]:
     return frame, layout
 
 
+def _local_midnight(day: date) -> datetime:
+    """The start of *day* on the user's clock, with its UTC offset that day."""
+    return datetime(day.year, day.month, day.day).astimezone()
+
+
 class InsightDialog(QDialog):
-    def __init__(self, queries: QueryBus, parent=None) -> None:
+    def __init__(
+        self,
+        queries: QueryBus,
+        parent=None,
+        *,
+        today: Callable[[], date] = date.today,
+    ) -> None:
         super().__init__(parent)
         self._queries = queries
+        self._today = today
         self._load_generation = 0
         self._cancel: threading.Event | None = None
         self._last_render: tuple | None = None
@@ -368,24 +381,19 @@ class InsightDialog(QDialog):
                 return
 
     def _compute_range(self, label: str) -> tuple[datetime | None, datetime | None]:
-        now = datetime.now(tz=UTC)
+        today = self._today()
         if label == "This Week":
-            start = now - timedelta(days=now.weekday())
-            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-            return (start, None)
+            return (_local_midnight(today - timedelta(days=today.weekday())), None)
         if label == "This Month":
-            start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            return (start, None)
+            return (_local_midnight(today.replace(day=1)), None)
         if label == "This Year":
-            start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            return (start, None)
+            return (_local_midnight(today.replace(month=1, day=1)), None)
         if label == "All":
             return (None, None)
         if label == "Custom":
-            qs = self._start_date.date()
-            qe = self._end_date.date()
-            since = datetime(qs.year(), qs.month(), qs.day(), tzinfo=UTC)
-            until = datetime(qe.year(), qe.month(), qe.day(), 23, 59, 59, tzinfo=UTC)
+            since = _local_midnight(self._start_date.date().toPython())
+            day_after = self._end_date.date().toPython() + timedelta(days=1)
+            until = _local_midnight(day_after) - timedelta(seconds=1)
             return (since, until)
         return (None, None)
 
