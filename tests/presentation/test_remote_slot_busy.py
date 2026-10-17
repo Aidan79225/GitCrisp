@@ -49,3 +49,18 @@ def test_remote_branch_delete_is_not_confirmed_while_a_remote_op_runs(qtbot):
     question.assert_not_called()
     win._commands.delete_remote_branch.execute.assert_not_called()
     assert "skipped" in win._log_panel.log_error.call_args.args[0]
+
+
+def test_a_free_slot_lets_the_op_through_without_a_message(qtbot):
+    win = _busy_window(qtbot)
+    win._remote_running = False
+    assert win._remote_slot_busy("Fetch origin") is False
+    win._log_panel.log_error.assert_not_called()
+
+
+def test_a_skipped_interactive_rebase_names_the_op_that_holds_the_slot(qtbot):
+    win = _busy_window(qtbot)
+    win._remote_op_name = "Fetch origin"
+    with patch(_REBASE_DLG):
+        win._on_interactive_rebase_commit("a" * 40)
+    assert "Fetch origin" in win._log_panel.log_error.call_args.args[0]

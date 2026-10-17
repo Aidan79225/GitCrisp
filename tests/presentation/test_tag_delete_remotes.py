@@ -6,10 +6,11 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
+from git_gui.presentation.main_window.remote_op_queue import RemoteOpQueueMixin
 from git_gui.presentation.main_window.tag_flows import TagFlowsMixin
 
 
-class _Host(TagFlowsMixin):
+class _Host(TagFlowsMixin, RemoteOpQueueMixin):
     """Bare composite standing in for MainWindow's attributes."""
 
     def __init__(self) -> None:
@@ -19,6 +20,7 @@ class _Host(TagFlowsMixin):
         self._remote_tag_cache.load.return_value = {"origin": ["v1"], "upstream": ["v1", "v2"]}
         self._repo_path = "/repo"
         self._remote_running = False
+        self._remote_op_name: str | None = None
         self.ops: list[tuple[str, object]] = []
 
     def _reload(self) -> None:
@@ -65,3 +67,10 @@ def test_while_another_remote_op_runs_nothing_is_deleted_and_the_user_is_told(ho
     host._commands.delete_tag.execute.assert_not_called()
     assert host.ops == []
     assert "skipped" in host._log_panel.log_error.call_args.args[0]
+
+
+def test_a_skipped_delete_names_the_op_that_holds_the_slot(host):
+    host._remote_running = True
+    host._remote_op_name = "Fetch origin"
+    host._delete_tag_local_and_remote("v1", ["origin", "upstream"])
+    assert "Fetch origin" in host._log_panel.log_error.call_args.args[0]

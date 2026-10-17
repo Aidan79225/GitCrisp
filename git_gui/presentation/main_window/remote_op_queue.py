@@ -9,6 +9,8 @@ from PySide6.QtWidgets import QMessageBox, QPushButton
 
 from git_gui.presentation.bus import CommandBus, QueryBus
 
+_RETRY_WHEN_FREE = "Try again once it finishes."
+
 
 class _RemoteSignals(QObject):
     """Signal bridge — lives on main thread, emitted from background thread."""
@@ -68,8 +70,7 @@ class RemoteOpQueueMixin:
         *commands* is the bus *fn* works on, the active repo's unless given.
         *push_target* marks the op as a push that may be offered a force push.
         """
-        if self._remote_running:
-            self._report_remote_op_skipped(name)
+        if self._remote_slot_busy(name):
             return
 
         self._log_panel.expand()
@@ -103,14 +104,22 @@ class RemoteOpQueueMixin:
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
 
-    def _report_remote_op_skipped(self, name: str) -> None:
+    def _remote_slot_busy(self, name: str, *, retry_hint: str = _RETRY_WHEN_FREE) -> bool:
+        """Whether another remote op holds the slot, logging *name* as skipped if so.
+
+        An op that asks the user first calls this before asking, so that what
+        they confirm is never dropped.
+        """
+        if self._remote_running:
+            self._report_remote_op_skipped(name, retry_hint)
+        return self._remote_running
+
+    def _report_remote_op_skipped(self, name: str, retry_hint: str = _RETRY_WHEN_FREE) -> None:
         """The user may already have confirmed *name*, so dropping it unannounced
         would leave them believing it ran."""
         running = self._remote_op_name or "another remote operation"
         self._log_panel.expand()
-        self._log_panel.log_error(
-            f"{name} — skipped: {running} is still running. Try again once it finishes."
-        )
+        self._log_panel.log_error(f"{name} — skipped: {running} is still running. {retry_hint}")
 
     def _cancel_remote_op(self) -> None:
         """Ask the running push/pull/fetch to abort by terminating its git
