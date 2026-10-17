@@ -56,6 +56,10 @@ class BranchOps:
             except Exception as e:
                 logger.warning("Skipping unresolvable remote branch %r: %s", name, e)
                 continue
+            # `origin/HEAD` names the remote's default branch rather than being
+            # one; remote_default_branches() reports it.
+            if ref.type == pygit2.enums.ReferenceType.SYMBOLIC:
+                continue
             branches.append(
                 Branch(
                     name=name,
