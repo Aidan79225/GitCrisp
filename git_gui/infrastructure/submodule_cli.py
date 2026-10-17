@@ -26,8 +26,10 @@ class SubmoduleCli:
         if shutil.which(self._git) is None:
             raise SubmoduleCommandError(f"`{self._git}` executable not found on PATH")
         try:
+            # Paths come from the repo, not from a user pattern: without this a
+            # submodule at "lib[1]" makes `rm -f` also delete a tracked "lib1".
             subprocess.run(
-                [self._git, *args],
+                [self._git, "--literal-pathspecs", *args],
                 cwd=self._cwd,
                 check=True,
                 capture_output=True,
