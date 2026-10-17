@@ -49,3 +49,11 @@ def test_default_avatar_cache_lands_in_the_fake_home(_isolated_gitcrisp_home):
     loader = AvatarLoader()
 
     assert _isolated_gitcrisp_home in loader._cache_dir.parents
+
+
+def test_theme_settings_land_in_the_fake_home(_isolated_gitcrisp_home):
+    """Qt resolves AppDataLocation by itself, past every other redirect here."""
+    from git_gui.presentation.theme.settings import custom_theme_path, settings_path
+
+    assert _isolated_gitcrisp_home in settings_path().parents
+    assert _isolated_gitcrisp_home in custom_theme_path().parents
