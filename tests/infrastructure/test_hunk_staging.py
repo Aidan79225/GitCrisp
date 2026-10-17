@@ -108,3 +108,41 @@ def test_discarding_a_hunk_restores_bytes_that_are_not_utf8(repo_path):
     impl.discard_hunk("f.txt", _only_hunk_header(impl))
 
     assert (repo_path / "f.txt").read_bytes() == b"caf\xe9\nb\n"
+
+
+@pytest.mark.parametrize(
+    ("committed", "edited"),
+    [
+        (b"a\nb", b"a\nc"),
+        (b"a\nb\n", b"a\nc"),
+        (b"a\nb", b"a\nb\nc\n"),
+        (b"a\nb\nc", b"A\nb\nc"),
+    ],
+    ids=["neither-side-ends-in-newline", "newline-removed", "newline-added", "context-at-eof"],
+)
+def test_staging_a_hunk_at_a_missing_final_newline_stages_the_file_as_edited(
+    repo_path, committed, edited
+):
+    impl = _edited_repo(repo_path, committed, edited)
+
+    impl.stage_hunk("f.txt", _only_hunk_header(impl))
+
+    assert _staged_bytes(impl) == edited
+
+
+def test_unstaging_a_hunk_at_a_missing_final_newline_restores_head(repo_path):
+    impl = _edited_repo(repo_path, b"a\nb", b"a\nc")
+    impl.stage(["f.txt"])
+    [staged] = impl.get_staged_diff("f.txt")
+
+    impl.unstage_hunk("f.txt", staged.header)
+
+    assert _staged_bytes(impl) == b"a\nb"
+
+
+def test_discarding_a_hunk_at_a_missing_final_newline_restores_head(repo_path):
+    impl = _edited_repo(repo_path, b"a\nb", b"a\nb\nc\n")
+
+    impl.discard_hunk("f.txt", _only_hunk_header(impl))
+
+    assert (repo_path / "f.txt").read_bytes() == b"a\nb"
