@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtWidgets import QDialog
+
 from git_gui.presentation.dialogs.add_worktree_dialog import AddWorktreeDialog
 
 
@@ -101,3 +103,39 @@ def test_add_button_disabled_until_valid(qtbot):
     assert dlg.add_button_enabled() is False
     dlg.set_location("/tmp/x")
     assert dlg.add_button_enabled() is True
+
+
+def _open_on_branch_in_use(qtbot):
+    return _open_dialog(
+        qtbot,
+        branches=["master", "feat/a"],
+        in_use={"feat/a": "/tmp/wt-feat-a"},
+        preselect="feat/a",
+    )
+
+
+def test_a_branch_in_another_worktree_says_where_it_is_checked_out(qtbot):
+    dlg = _open_on_branch_in_use(qtbot)
+    assert dlg._in_use_notice.isVisibleTo(dlg)
+    assert "/tmp/wt-feat-a" in dlg._in_use_label.text()
+
+
+def test_switch_button_asks_to_open_the_worktree_that_has_the_branch(qtbot):
+    dlg = _open_on_branch_in_use(qtbot)
+    received: list = []
+    dlg.switch_to_existing_requested.connect(received.append)
+    dlg._switch_btn.click()
+    assert received == ["/tmp/wt-feat-a"]
+    assert dlg.result() == QDialog.Accepted
+
+
+def test_in_use_notice_hides_for_a_branch_that_is_free(qtbot):
+    dlg = _open_on_branch_in_use(qtbot)
+    dlg.select_branch("master")
+    assert not dlg._in_use_notice.isVisibleTo(dlg)
+
+
+def test_in_use_notice_hides_when_creating_a_new_branch(qtbot):
+    dlg = _open_on_branch_in_use(qtbot)
+    dlg.set_create_new(True)
+    assert not dlg._in_use_notice.isVisibleTo(dlg)

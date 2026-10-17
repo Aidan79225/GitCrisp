@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QStackedWidget,
@@ -86,6 +87,18 @@ class AddWorktreeDialog(QDialog):
         self._create_new_cb = QCheckBox("Create new branch")
         self._create_new_cb.toggled.connect(self._on_create_new_toggled)
 
+        # git allows a branch in one worktree only, so Add cannot proceed
+        # for an in-use branch; offer to switch to that worktree instead.
+        self._in_use_label = QLabel()
+        self._in_use_label.setWordWrap(True)
+        self._switch_btn = QPushButton("Switch to That Worktree")
+        self._switch_btn.clicked.connect(self._on_switch_to_existing)
+        self._in_use_notice = QWidget()
+        notice_row = QHBoxLayout(self._in_use_notice)
+        notice_row.setContentsMargins(0, 0, 0, 0)
+        notice_row.addWidget(self._in_use_label, 1)
+        notice_row.addWidget(self._switch_btn)
+
         # Location row.
         self._location_edit = QLineEdit()
         self._location_edit.textEdited.connect(self._on_location_edited)
@@ -103,6 +116,7 @@ class AddWorktreeDialog(QDialog):
         form = QFormLayout()
         form.addRow("Branch:", self._create_new_cb)
         form.addRow("", self._mode_stack)
+        form.addRow("", self._in_use_notice)
         form.addRow("Location:", loc_row)
         form.addRow("", self._switch_after_cb)
 
@@ -126,6 +140,7 @@ class AddWorktreeDialog(QDialog):
             idx = self._branch_combo.findText(preselect_branch)
             if idx >= 0:
                 self._branch_combo.setCurrentIndex(idx)
+        self._refresh_in_use_notice()
         self._refresh_default_location()
         self._refresh_add_button()
 
@@ -185,12 +200,19 @@ class AddWorktreeDialog(QDialog):
 
     def _on_create_new_toggled(self, on: bool) -> None:
         self._mode_stack.setCurrentIndex(1 if on else 0)
+        self._refresh_in_use_notice()
         self._refresh_default_location()
         self._refresh_add_button()
 
     def _on_branch_changed(self, _text: str) -> None:
+        self._refresh_in_use_notice()
         self._refresh_default_location()
         self._refresh_add_button()
+
+    def _on_switch_to_existing(self) -> None:
+        path = self._branches_in_use[self._current_branch()]
+        self.accept()
+        self.switch_to_existing_requested.emit(path)
 
     def _on_new_name_changed(self, _text: str) -> None:
         self._refresh_default_location()
@@ -215,6 +237,17 @@ class AddWorktreeDialog(QDialog):
         if self.is_create_new():
             return self.new_branch_name()
         return self._branch_combo.currentText().strip()
+
+    def _in_use_path(self) -> str | None:
+        """Where the chosen existing branch is already checked out, if anywhere."""
+        if self.is_create_new():
+            return None
+        return self._branches_in_use.get(self._current_branch())
+
+    def _refresh_in_use_notice(self) -> None:
+        path = self._in_use_path()
+        self._in_use_notice.setVisible(path is not None)
+        self._in_use_label.setText(f"Already checked out at {path}" if path else "")
 
     def _refresh_default_location(self) -> None:
         if self._location_dirty:
