@@ -45,3 +45,32 @@ def test_a_clone_that_prints_a_lot_to_stdout_still_finishes(fake_git):
     worker.start()
     worker.join(timeout=20)
     assert not worker.is_alive(), "clone_repo blocked on git's unread stdout"
+
+
+def test_a_failed_clone_reports_why_git_refused(repo_path, tmp_path):
+    dest = tmp_path / "taken"
+    dest.mkdir()
+    (dest / "file.txt").write_text("already here")
+    with pytest.raises(Exception) as excinfo:
+        clone_repo(str(repo_path), str(dest))
+    assert "already exists and is not an empty directory" in str(excinfo.value)
+
+
+def _git_writing_stderr(text: str, exit_code: int = 0) -> str:
+    return f"import sys\nsys.stderr.write({text!r})\nsys.exit({exit_code})\n"
+
+
+def test_the_failure_message_keeps_a_last_line_without_a_newline(fake_git):
+    fake_git(_git_writing_stderr("Receiving objects:  50% (1/2)\rfatal: boom", exit_code=128))
+    with pytest.raises(Exception) as excinfo:
+        clone_repo("url", "dest")
+    assert str(excinfo.value) == "fatal: boom"
+
+
+def test_progress_lines_reach_the_callback(fake_git):
+    fake_git(
+        _git_writing_stderr("Receiving objects:  50% (1/2)\rReceiving objects: 100% (2/2), done.\n")
+    )
+    seen: list[tuple[str, int]] = []
+    clone_repo("url", "dest", on_progress=lambda p: seen.append((p.phase, p.percent)))
+    assert seen == [("Receiving objects", 50), ("Receiving objects", 100)]
