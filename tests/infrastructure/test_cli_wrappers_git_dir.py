@@ -47,12 +47,17 @@ def unlinked_submodule(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     """
     parent = tmp_path / "parent"
     _git(tmp_path, "init", "-q", "-b", "master", str(parent))
+    (parent / ".gitmodules").write_text(
+        '[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n', encoding="utf-8"
+    )
     _commit(parent, "parent.txt", "parent only")
 
+    # Laid out as `git submodule add` leaves it, minus the network clone.
     workdir = parent / "sub"
     gitdir = parent / ".git" / "modules" / "sub"
     gitdir.parent.mkdir()
     _git(tmp_path, "init", "-q", "-b", "master", f"--separate-git-dir={gitdir}", str(workdir))
+    _git(workdir, "config", "core.worktree", "../../../sub")
     _git(workdir, "config", "user.name", "T")
     _git(workdir, "config", "user.email", "t@example.com")
     oids = {"base": _commit(workdir, "f.txt", "base")}
