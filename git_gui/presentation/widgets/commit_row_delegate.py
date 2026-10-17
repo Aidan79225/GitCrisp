@@ -8,7 +8,7 @@ the widest row in the history.
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QTextLayout, QTextOption
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, CommitInfo
@@ -35,6 +35,43 @@ BADGE_V_PAD = 2
 BADGE_GAP = 4
 
 CELL_PAD = 4  # horizontal padding inside cell
+
+MESSAGE_LINES = 3  # lines every row reserves for the commit subject
+
+
+def _message_line_spans(painter: QPainter, message: str, width: int) -> list[tuple[int, int]]:
+    """Where each of the first MESSAGE_LINES wrapped lines starts and ends.
+
+    Positions count UTF-16 units, as Qt does. A line breaks between words where
+    it can and inside one where it must: CJK text has no spaces to break at.
+    """
+    layout = QTextLayout(message, painter.font(), painter.device())
+    option = QTextOption()
+    option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+    layout.setTextOption(option)
+    layout.beginLayout()
+    spans: list[tuple[int, int]] = []
+    while len(spans) < MESSAGE_LINES:
+        line = layout.createLine()
+        if not line.isValid():
+            break
+        line.setLineWidth(width)
+        spans.append((line.textStart(), line.textStart() + line.textLength()))
+    layout.endLayout()
+    return spans
+
+
+def _wrap_message(painter: QPainter, message: str, width: int) -> list[str]:
+    """The message as at most MESSAGE_LINES lines, the last elided if text is left over."""
+    spans = _message_line_spans(painter, message, width)
+    # Qt's positions count an emoji as two units; slicing the str directly drifts.
+    units = message.encode("utf-16-le")
+    lines = [units[start * 2 : end * 2].decode("utf-16-le") for start, end in spans]
+    last_start, last_end = spans[-1]
+    if last_end * 2 < len(units):
+        rest = units[last_start * 2 :].decode("utf-16-le")
+        lines[-1] = painter.fontMetrics().elidedText(rest, Qt.ElideRight, width)
+    return lines
 
 
 def _badge_line_count(
@@ -65,7 +102,7 @@ class CommitRowDelegate(QStyledItemDelegate):
 
         info: CommitInfo | None = index.data(INFO_ROLE)
         if info is None:
-            return QSize(option.rect.width(), header_h * 2 + line_h * 3 + 8)
+            return QSize(option.rect.width(), header_h * 2 + line_h * MESSAGE_LINES + 8)
 
         indent = row_graph_width(index.data(LANE_ROLE))
         row_w = option.rect.width() if option.rect.width() > 0 else indent + 400
@@ -74,8 +111,8 @@ class CommitRowDelegate(QStyledItemDelegate):
         first_line_w = cell_w - hash_w
         badge_lines = _badge_line_count(fm, info.branch_names, first_line_w, cell_w)
 
-        # author row + badge rows + 3 message lines + padding
-        return QSize(option.rect.width(), header_h * (1 + badge_lines) + line_h * 3 + 8)
+        # author row + badge rows + message lines + padding
+        return QSize(option.rect.width(), header_h * (1 + badge_lines) + line_h * MESSAGE_LINES + 8)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         info: CommitInfo | None = index.data(INFO_ROLE)
@@ -160,43 +197,19 @@ class CommitRowDelegate(QStyledItemDelegate):
         # Total badge lines for message offset
         badge_lines = _badge_line_count(fm, info.branch_names, first_line_max_x, cell_w)
 
-        # ── Message area: word-wrap, max 3 lines, elide with "..." ────────────
         msg_top = rect.top() + header_h * (1 + badge_lines)
-        msg_w = rect.width() - CELL_PAD * 2
-        painter.setPen(_muted_color())
-
-        max_lines = 3
-        words = info.message.split()
-        lines: list[str] = []
-        current = ""
-        for word in words:
-            trial = f"{current} {word}".strip()
-            if fm.horizontalAdvance(trial) > msg_w and current:
-                lines.append(current)
-                current = word
-                if len(lines) == max_lines:
-                    break
-            else:
-                current = trial
-        if current and len(lines) < max_lines:
-            lines.append(current)
-
-        # If text was truncated, add "..." to last line
-        if " ".join(lines) != info.message and lines:
-            last = lines[-1]
-            ellipsis = last + "..."
-            while fm.horizontalAdvance(ellipsis) > msg_w and len(last) > 0:
-                last = last[:-1]
-                ellipsis = last + "..."
-            lines[-1] = ellipsis
-
-        for i, line in enumerate(lines):
-            ly = msg_top + i * line_h
-            line_rect = QRect(rect.left() + CELL_PAD, ly, msg_w, line_h)
-            painter.drawText(line_rect, Qt.AlignVCenter | Qt.AlignLeft, line)
+        first_message_line = QRect(rect.left() + CELL_PAD, msg_top, cell_w, line_h)
+        self._paint_message(painter, info.message, first_message_line)
 
         self._paint_divider(painter, row_rect)
         painter.restore()
+
+    @staticmethod
+    def _paint_message(painter: QPainter, message: str, first_line: QRect) -> None:
+        painter.setPen(_muted_color())
+        for i, line in enumerate(_wrap_message(painter, message, first_line.width())):
+            line_rect = first_line.translated(0, i * first_line.height())
+            painter.drawText(line_rect, Qt.AlignVCenter | Qt.AlignLeft, line)
 
     @staticmethod
     def _paint_divider(painter: QPainter, row_rect: QRect) -> None:
