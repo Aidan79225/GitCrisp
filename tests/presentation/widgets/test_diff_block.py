@@ -133,3 +133,31 @@ def test_make_file_block_collapse_hides_non_header_widgets(qtbot):
     toggle.click()
     assert hunk1.isVisible()
     assert hunk2.isVisible()
+
+
+def test_a_hunk_refits_its_height_when_a_theme_change_brings_a_larger_font(qtbot):
+    """A typography change reaches the hunk as a theme change, with the larger
+    font already set on the editor; keeping the old height clipped the last
+    lines until the commit was selected again."""
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    from git_gui.presentation.theme import get_theme_manager
+    from git_gui.presentation.widgets.diff_block import add_hunk_widget
+
+    hunk = Hunk(header="@@ -1,10 +1,10 @@", lines=[(" ", f"line {i}\n") for i in range(10)])
+    host = QWidget()
+    qtbot.addWidget(host)
+    add_hunk_widget(QVBoxLayout(host), hunk, make_diff_formats())
+    host.show()
+    qtbot.waitExposed(host)
+    editor = host.findChild(QPlainTextEdit)
+    before = editor.height()
+
+    font = editor.font()
+    font.setPointSizeF(font.pointSizeF() * 1.5)
+    editor.setFont(font)
+    manager = get_theme_manager()
+    manager.theme_changed.emit(manager.current)
+
+    assert editor.height() > before
+    qtbot.waitUntil(lambda: editor.verticalScrollBar().maximum() <= 1)

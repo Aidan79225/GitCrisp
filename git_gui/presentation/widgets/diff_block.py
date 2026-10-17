@@ -260,6 +260,20 @@ def make_diff_editor() -> QPlainTextEdit:
     return editor
 
 
+def fit_height_to_lines(editor: QPlainTextEdit, line_count: int) -> None:
+    """Size *editor* to show its laid-out text without scrolling.
+
+    *line_count* is the floor: an editor whose document is not laid out yet
+    (for example, one hidden in a collapsed block) is still sized to its lines.
+    """
+    line_height = editor.fontMetrics().lineSpacing()
+    text_height = max(laid_out_text_height(editor), line_count * line_height)
+    margins = editor.contentsMargins()
+    doc_margin = editor.document().documentMargin() * 2
+    total_height = int(text_height + doc_margin + margins.top() + margins.bottom() + 4)
+    editor.setFixedHeight(max(total_height, 4))
+
+
 # Hunk rendering helpers
 
 
@@ -689,46 +703,28 @@ def add_hunk_widget(
     # --- Diff editor ---
     editor = make_diff_editor()
 
-    def _render(current_formats: DiffFormats) -> int:
+    def _render(current_formats: DiffFormats, current_syntax: SyntaxFormats | None) -> None:
         editor.clear()
         cursor = editor.textCursor()
-        count = render_hunk_content_lines(
+        line_count = render_hunk_content_lines(
             cursor,
             hunk,
             current_formats,
-            syntax_formats=syntax_formats,
+            syntax_formats=current_syntax,
             filename=filename,
         )
         editor.setTextCursor(cursor)
-        return count
+        # Measured on every render: a typography change arrives as a theme
+        # change, with the new font already set on the editor.
+        fit_height_to_lines(editor, line_count)
 
-    line_count = _render(formats)
-
-    line_height = editor.fontMetrics().lineSpacing()
-    # The layout's own block heights, with lines times lineSpacing as a floor:
-    # on Linux the layout gives a block a pixel or two more than the metric
-    # says, and over a long hunk that pushed the last line under the edge.
-    text_height = max(laid_out_text_height(editor), line_count * line_height)
-    margins = editor.contentsMargins()
-    doc_margin = editor.document().documentMargin() * 2
-    total_height = int(text_height + doc_margin + margins.top() + margins.bottom() + 4)
-    editor.setFixedHeight(max(total_height, 4))
+    _render(formats, syntax_formats)
     editor.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
     def _rebuild() -> None:
         restyle_header()
         # Rebuild syntax_formats from the new theme too — but only if syntax was active.
-        new_syntax = make_syntax_formats() if syntax_formats is not None else None
-        editor.clear()
-        cursor = editor.textCursor()
-        render_hunk_content_lines(
-            cursor,
-            hunk,
-            make_diff_formats(),
-            syntax_formats=new_syntax,
-            filename=filename,
-        )
-        editor.setTextCursor(cursor)
+        _render(make_diff_formats(), make_syntax_formats() if syntax_formats is not None else None)
 
     connect_widget(editor, rebuild=_rebuild)
 
