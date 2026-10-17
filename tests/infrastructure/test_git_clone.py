@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -74,3 +75,12 @@ def test_progress_lines_reach_the_callback(fake_git):
     seen: list[tuple[str, int]] = []
     clone_repo("url", "dest", on_progress=lambda p: seen.append((p.phase, p.percent)))
     assert seen == [("Receiving objects", 50), ("Receiving objects", 100)]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="sessions and controlling terminals are POSIX")
+def test_a_clone_runs_without_the_terminal_the_app_was_started_from(fake_git):
+    """ssh would ask that terminal for a passphrase while the dialog waits."""
+    fake_git("import os, sys\nsys.stderr.write(str(os.getsid(0)))\nsys.exit(128)\n")
+    with pytest.raises(RuntimeError) as excinfo:
+        clone_repo("url", "dest")
+    assert int(str(excinfo.value)) != os.getsid(0)

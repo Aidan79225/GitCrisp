@@ -1,9 +1,25 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 from git_gui.resources import subprocess_kwargs
+
+
+def git_popen_kwargs() -> dict[str, Any]:
+    """Popen kwargs for a git process started from the GUI.
+
+    On POSIX git gets a session of its own, so it has no controlling terminal.
+    Launched from a terminal, ssh would otherwise ask for a key's passphrase
+    on it and git would wait there while the GUI shows nothing; without one,
+    ssh asks through SSH_ASKPASS or fails at once.
+    """
+    kwargs = subprocess_kwargs()
+    if os.name == "posix":
+        kwargs["start_new_session"] = True
+    return kwargs
 
 
 def run_git(
@@ -28,5 +44,5 @@ def run_git(
         capture_output=True,
         encoding="utf-8",
         errors="replace",
-        **subprocess_kwargs(),
+        **git_popen_kwargs(),
     )
