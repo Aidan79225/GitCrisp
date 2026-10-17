@@ -47,10 +47,12 @@ class ThemeManager(QObject):
             raise ValueError(f"Invalid theme mode: {mode}")
         if mode == self._mode and not force:
             return
-        self._mode = mode
+        # Saved before it is adopted, so a write that raises leaves the old
+        # mode in force, which is also the one still on screen.
         data = load_settings()
         data["theme_mode"] = mode
         save_settings(data)
+        self._mode = mode
         self._refresh(force=force)
 
     def _refresh(self, force: bool = False) -> None:

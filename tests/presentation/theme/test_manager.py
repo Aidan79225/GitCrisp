@@ -155,3 +155,20 @@ def test_a_malformed_custom_theme_falls_back_to_dark_at_launch(
     mgr = ThemeManager(app)
 
     assert mgr.current.name == load_builtin("dark").name
+
+
+def test_a_settings_write_that_fails_leaves_the_mode_as_it_was(
+    app, isolated_settings, tmp_path, monkeypatch
+):
+    """The mode used to change before the write, so a read-only settings
+    file left mgr.mode saying Light while Dark stayed on screen."""
+    mgr = ThemeManager(app)
+    mgr.set_mode("dark")
+    not_a_directory = tmp_path / "file"
+    not_a_directory.write_text("", encoding="utf-8")
+    monkeypatch.setattr(s, "settings_path", lambda: not_a_directory / "settings.json")
+
+    with pytest.raises(OSError):
+        mgr.set_mode("light")
+
+    assert mgr.mode == "dark"
