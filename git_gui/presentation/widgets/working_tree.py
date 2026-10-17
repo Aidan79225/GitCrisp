@@ -245,10 +245,8 @@ class WorkingTreeWidget(QWidget):
     def _on_reload_done(self, files: list[FileStatus], partial: set[str]) -> None:
         if self._queries is None:
             return
-        sorted_files = sorted(
-            files, key=lambda f: (0 if f.status == StagingState.CONFLICTED else 1, f.path)
-        )
-        self._file_model.reload(sorted_files, partial)
+        files = _conflicts_first(files)
+        self._file_model.reload(files, partial)
         if not files:
             self._hunk_diff.clear()
             self.working_tree_empty.emit()
@@ -508,6 +506,7 @@ class WorkingTreeWidget(QWidget):
     ) -> None:
         if self._queries is None:
             return
+        files = _conflicts_first(files)
         self._file_model.reload(files, partial)
 
         if not files:
@@ -572,6 +571,16 @@ class WorkingTreeWidget(QWidget):
             self.cherry_pick_abort_requested.emit()
         elif state == "REVERTING":
             self.revert_abort_requested.emit()
+
+
+def _conflicts_first(files: list[FileStatus]) -> list[FileStatus]:
+    """List order: conflicted files on top, then by path.
+
+    Every refill must use it. A list that reorders after a checkbox click
+    moves the row under the pointer, and the next click stages whatever slid
+    there, which for a conflicted file marks it resolved.
+    """
+    return sorted(files, key=lambda f: (f.status != StagingState.CONFLICTED, f.path))
 
 
 def _deduplicate(files: list[FileStatus]) -> tuple[list[FileStatus], set[str]]:
