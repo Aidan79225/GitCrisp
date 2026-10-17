@@ -7,6 +7,19 @@ import pygit2
 from git_gui.domain.entities import BlameLine
 
 
+def _git_lines(data: bytes) -> list[str]:
+    """The blob's lines as blame numbers them, without their line endings.
+
+    git ends a line at "\\n" alone. `str.splitlines()` also breaks at a form
+    feed, a lone "\\r", U+2028 and more, and every extra break shifts the
+    rest of the file one line away from its attribution.
+    """
+    lines = data.decode("utf-8", errors="replace").split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return [line.removesuffix("\r") for line in lines]
+
+
 class BlameOps:
     """Per-line authorship for a single file at a single revision.
 
@@ -37,7 +50,7 @@ class BlameOps:
         except KeyError as e:
             raise ValueError(f"{path} does not exist at {at_oid[:8]}") from e
 
-        text_lines = blob.data.decode("utf-8", errors="replace").splitlines()
+        text_lines = _git_lines(blob.data)
 
         # One lookup per distinct commit, not per line: blame reports the
         # committer, but a blame view shows the author, and the commit also
