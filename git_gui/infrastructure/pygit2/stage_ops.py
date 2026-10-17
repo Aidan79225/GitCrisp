@@ -5,7 +5,14 @@ import subprocess
 
 import pygit2
 
+from git_gui.domain.entities import LineKind
 from git_gui.resources import subprocess_kwargs
+
+# Their content is already the whole "\ No newline at end of file" line, and a
+# patch writes that line with no origin character in front.
+_NO_NEWLINE_MARKERS = frozenset(
+    {LineKind.ADDED_EOFNL, LineKind.REMOVED_EOFNL, LineKind.CONTEXT_EOFNL}
+)
 
 
 class StageOps:
@@ -145,7 +152,8 @@ def _single_hunk_patch(path: str, hunk: pygit2.DiffHunk) -> bytes:
     name = os.fsencode(path)
     lines = [b"--- a/" + name + b"\n", b"+++ b/" + name + b"\n", hunk.header.encode()]
     for line in hunk.lines:
-        lines.append(line.origin.encode() + line.raw_content)
+        origin = b"" if line.origin in _NO_NEWLINE_MARKERS else line.origin.encode()
+        lines.append(origin + line.raw_content)
     if not lines[-1].endswith(b"\n"):
         lines[-1] += b"\n"
     return b"".join(lines)
