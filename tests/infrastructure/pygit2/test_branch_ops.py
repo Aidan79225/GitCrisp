@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pygit2
@@ -50,3 +51,55 @@ def test_get_branches_skips_unresolvable_remote_refs(repo_with_dangling_remote_r
     # The resolvable local branch is still returned — the bad remote refs are
     # skipped rather than aborting the whole enumeration.
     assert "master" in names
+
+
+# ── checkout of a branch held by another worktree ───────────────────────────
+
+
+def _git(cwd, *args) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout
+
+
+@pytest.fixture
+def repo_with_feat_in_a_linked_worktree(tmp_path):
+    """Main worktree on a clean ``master``; ``feat`` is checked out in a
+    linked worktree and differs from master in a.txt and only_feat.txt."""
+    main = tmp_path / "main"
+    main.mkdir()
+    _git(main, "init", "-q", "-b", "master")
+    _git(main, "config", "user.email", "t@t")
+    _git(main, "config", "user.name", "t")
+    (main / "a.txt").write_text("master\n")
+    _git(main, "add", ".")
+    _git(main, "commit", "-q", "-m", "init")
+    wt = tmp_path / "wt"
+    _git(main, "worktree", "add", "-q", "-b", "feat", str(wt))
+    (wt / "a.txt").write_text("feat\n")
+    (wt / "only_feat.txt").write_text("feat\n")
+    _git(wt, "add", ".")
+    _git(wt, "commit", "-q", "-m", "feat work")
+    return main
+
+
+def test_checkout_of_a_branch_held_by_another_worktree_leaves_the_tree_alone(
+    repo_with_feat_in_a_linked_worktree,
+):
+    main = repo_with_feat_in_a_linked_worktree
+    impl = Pygit2Repository(str(main))
+
+    with pytest.raises(RuntimeError, match="already used by worktree at"):
+        impl.checkout("feat")
+
+    assert _git(main, "status", "--porcelain") == ""
+    assert (main / "a.txt").read_text() == "master\n"
+    assert _git(main, "symbolic-ref", "HEAD").strip() == "refs/heads/master"
+
+
+def test_checkout_of_the_current_branch_still_succeeds(repo_with_feat_in_a_linked_worktree):
+    impl = Pygit2Repository(str(repo_with_feat_in_a_linked_worktree))
+
+    impl.checkout("master")
+
+    assert impl.repo_state().head_branch == "master"
