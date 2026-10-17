@@ -66,3 +66,28 @@ def test_remove_submodule(parent_repo):
     repo.add_submodule("libs/foo", child_url)
     repo.remove_submodule("libs/foo")
     assert repo.list_submodules() == []
+
+
+def test_list_shows_the_url_of_a_submodule_named_unlike_its_path(parent_repo):
+    repo, child_url, parent_path = parent_repo
+    _run(
+        str(parent_path),
+        "submodule",
+        "add",
+        "--name",
+        "gtest",
+        "--",
+        child_url,
+        "third_party/gtest",
+    )
+    gitmodules_url = subprocess.run(
+        ["git", "config", "-f", ".gitmodules", "submodule.gtest.url"],
+        cwd=parent_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    subs = repo.list_submodules()
+
+    assert [(s.path, s.url) for s in subs] == [("third_party/gtest", gitmodules_url)]
