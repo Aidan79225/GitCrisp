@@ -279,6 +279,7 @@ class HunkDiffWidget(QWidget):
 
         self._layout.addWidget(frame)
         self._layout.addStretch()
+        self._sync_hscroll()
 
     def _realize_block_from_loader(self, path: str, inner, skeleton, entry) -> None:
         """Callback for ViewportBlockLoader — replace skeleton with staged/unstaged hunks."""
