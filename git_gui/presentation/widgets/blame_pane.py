@@ -153,8 +153,13 @@ class _BlameEditor(QPlainTextEdit):
         place — light-theme token colours on a dark surface are unreadable.
         Merging the new formats over the same ranges fixes them without
         disturbing the text, the cursor, or the scroll position.
+
+        The typography scale arrives as a new font just before this, and the
+        gutter was measured in the old one, so it is measured again.
         """
         self._apply_syntax()
+        self._gutter_w = self._measure_gutter()
+        self._sync_gutter_width()
         self._gutter.update()
 
     def _apply_syntax(self) -> None:
