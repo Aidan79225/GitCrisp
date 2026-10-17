@@ -13,11 +13,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QPoint, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, QTimer
 from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
 
 
-class ViewportBlockLoader:
+class ViewportBlockLoader(QObject):
     """Lazy block loader driven by scroll-area viewport intersection.
 
     `realize_fn` is what a block actually becomes — the one thing the two
@@ -29,6 +29,7 @@ class ViewportBlockLoader:
         scroll_area: QScrollArea,
         realize_fn: Callable[[str, QVBoxLayout, QWidget | None, Any], None],
     ) -> None:
+        super().__init__()
         self._scroll_area = scroll_area
         self._realize_fn = realize_fn
         self._block_refs: list[tuple[str, QFrame, QVBoxLayout, QWidget | None]] = []
@@ -44,6 +45,7 @@ class ViewportBlockLoader:
         self._scroll_timer.timeout.connect(self._check_viewport)
 
         scroll_area.verticalScrollBar().valueChanged.connect(lambda _: self._scroll_timer.start())
+        scroll_area.viewport().installEventFilter(self)
 
     def set_blocks(self, block_refs: list[tuple[str, QFrame, QVBoxLayout, QWidget | None]]) -> None:
         self._block_refs = list(block_refs)
@@ -73,6 +75,12 @@ class ViewportBlockLoader:
         self._realized = set()
         self._diff_map = {}
 
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        # Blocks that arrived while the pane was hidden are still waiting.
+        if event.type() == QEvent.Show:
+            self._scroll_timer.start()
+        return False
+
     # Private
 
     def _check_viewport(self) -> None:
@@ -90,6 +98,11 @@ class ViewportBlockLoader:
         try:
             viewport = self._scroll_area.viewport()
             vp_rect = viewport.rect()
+            # A pane the window is not showing (a page the stack keeps behind
+            # another) is never laid out: every new frame stays at (0, 0),
+            # reads as on screen, and the whole commit would be built.
+            if not viewport.isVisible():
+                return
         except RuntimeError:
             return
         for index, (path, frame, inner, skeleton) in enumerate(list(self._block_refs)):
