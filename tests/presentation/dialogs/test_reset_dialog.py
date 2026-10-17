@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from PySide6.QtGui import QTextDocument
+from PySide6.QtWidgets import QLabel
+
 from git_gui.domain.entities import FileStatus, ResetMode
 from git_gui.presentation.dialogs.reset_dialog import ResetDialog
 
@@ -75,3 +78,22 @@ def test_result_mode_returns_selected(qtbot):
     assert dlg.result_mode() == ResetMode.SOFT
     dlg._radio_hard.setChecked(True)
     assert dlg.result_mode() == ResetMode.HARD
+
+
+def _rendered_header(dlg: ResetDialog) -> str:
+    header = next(lbl for lbl in dlg.findChildren(QLabel) if lbl.text().startswith("Reset"))
+    doc = QTextDocument()
+    doc.setHtml(header.text())
+    return doc.toPlainText()
+
+
+def test_header_shows_angle_brackets_in_branch_and_subject_as_text(qtbot):
+    dlg = ResetDialog(
+        "feat/<wip>",
+        "abc1234",
+        "Add Option<T> support & a<b",
+        default_mode=ResetMode.MIXED,
+        dirty_files=[],
+    )
+    qtbot.addWidget(dlg)
+    assert _rendered_header(dlg) == 'Reset feat/<wip> to abc1234 "Add Option<T> support & a<b"'
