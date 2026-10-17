@@ -97,11 +97,11 @@ def test_submit_with_create_new_emits_correct_payload(qtbot):
     assert received[0]["location"] == "/tmp/wt-feat-new"
 
 
-def test_add_button_disabled_until_valid(qtbot):
+def test_add_button_disabled_until_valid(qtbot, tmp_path):
     dlg = _open_dialog(qtbot, branches=["master"])
     dlg.set_location("")
     assert dlg.add_button_enabled() is False
-    dlg.set_location("/tmp/x")
+    dlg.set_location(str(tmp_path / "x"))
     assert dlg.add_button_enabled() is True
 
 
@@ -139,3 +139,32 @@ def test_in_use_notice_hides_when_creating_a_new_branch(qtbot):
     dlg = _open_on_branch_in_use(qtbot)
     dlg.set_create_new(True)
     assert not dlg._in_use_notice.isVisibleTo(dlg)
+
+
+def test_a_location_with_files_in_it_disables_add_and_says_why(qtbot, tmp_path):
+    (tmp_path / "notes.txt").write_text("x")
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location(str(tmp_path))
+    assert dlg.add_button_enabled() is False
+    assert dlg._location_error.isVisibleTo(dlg)
+    assert "exists" in dlg._location_error.text()
+
+
+def test_an_existing_empty_folder_disables_add_because_git_will_not_use_it(qtbot, tmp_path):
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location(str(tmp_path))
+    assert dlg.add_button_enabled() is False
+
+
+def test_a_relative_location_disables_add_and_says_why(qtbot):
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location("wt")
+    assert dlg.add_button_enabled() is False
+    assert "absolute" in dlg._location_error.text()
+
+
+def test_a_new_absolute_location_enables_add_without_a_message(qtbot, tmp_path):
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location(str(tmp_path / "repo-master"))
+    assert dlg.add_button_enabled() is True
+    assert not dlg._location_error.isVisibleTo(dlg)
