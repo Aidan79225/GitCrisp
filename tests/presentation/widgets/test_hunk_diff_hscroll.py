@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from PySide6.QtCore import QEvent
+from PySide6.QtWidgets import QApplication
+
 from git_gui.domain.entities import Hunk, LineKind
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
 
@@ -26,3 +29,15 @@ def test_selecting_a_file_with_long_lines_shows_the_bar(qtbot):
 
     qtbot.waitUntil(lambda: widget._hscroll.isVisible(), timeout=2000)
     assert widget._hscroll.maximum() > 0
+
+
+def test_a_re_measure_still_pending_when_the_pane_is_destroyed_is_dropped(qtbot):
+    """Otherwise it reaches into the destroyed container and raises."""
+    queries = MagicMock()
+    queries.list_submodules.execute.return_value = []
+    widget = HunkDiffWidget(queries, MagicMock())
+    widget.clear()
+
+    widget.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    qtbot.wait(20)

@@ -184,11 +184,13 @@ class HunkDiffWidget(QWidget):
         """Re-measure the shared horizontal bar once the layout has settled.
 
         Deferred: an editor added this turn has no width yet, so its scroll
-        range reads as zero until Qt has laid it out.
+        range reads as zero until Qt has laid it out. Bound to this pane's
+        lifetime, so a re-measure still pending when the pane is destroyed is
+        dropped instead of reaching into the destroyed container.
         """
         from PySide6.QtCore import QTimer
 
-        QTimer.singleShot(0, self._hscroll_sync.refresh)
+        QTimer.singleShot(0, self, self._hscroll_sync.refresh)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
