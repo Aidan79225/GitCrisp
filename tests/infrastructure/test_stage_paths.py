@@ -1,6 +1,7 @@
 """Whole-file stage of paths that are neither plain edits nor plain deletions."""
 
 import os
+import subprocess
 from pathlib import Path
 
 import pygit2
@@ -55,3 +56,28 @@ def test_discarding_a_new_dangling_symlink_removes_it(repo_path):
     impl.discard_file("newlink")
 
     assert not os.path.lexists(link)
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def test_staging_a_deleted_file_resolves_its_modify_delete_conflict(repo_path):
+    (repo_path / "f.txt").write_text("base\n")
+    _git(repo_path, "add", "f.txt")
+    _git(repo_path, "commit", "-qm", "base")
+    _git(repo_path, "checkout", "-qb", "other")
+    _git(repo_path, "rm", "-q", "f.txt")
+    _git(repo_path, "commit", "-qm", "delete f")
+    _git(repo_path, "checkout", "-q", "master")
+    (repo_path / "f.txt").write_text("ours\n")
+    _git(repo_path, "commit", "-qam", "modify f")
+    subprocess.run(["git", "merge", "other"], cwd=repo_path, capture_output=True)
+    impl = Pygit2Repository(str(repo_path))
+    assert impl.has_unresolved_conflicts()
+    (repo_path / "f.txt").unlink()
+
+    impl.stage(["f.txt"])
+
+    assert not impl.has_unresolved_conflicts()
+    assert "f.txt" not in impl._repo.index
