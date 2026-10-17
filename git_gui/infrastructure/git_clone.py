@@ -7,7 +7,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import IO
 
-from git_gui.resources import git_ssh_env, subprocess_kwargs
+from git_gui.infrastructure.git_process import git_popen_kwargs
+from git_gui.resources import git_ssh_env
 
 
 @dataclass
@@ -40,7 +41,7 @@ def clone_repo(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         env=git_ssh_env(),
-        **subprocess_kwargs(),
+        **git_popen_kwargs(),
     )
 
     messages: deque[str] = deque(maxlen=_KEPT_MESSAGE_LINES)
