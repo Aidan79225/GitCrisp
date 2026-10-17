@@ -43,6 +43,7 @@ class CloneDialog(QDialog):
         self.setWindowTitle("Clone Repository")
         self.setMinimumWidth(500)
         self._proc_thread: threading.Thread | None = None
+        self._cloning = False
 
         # URL
         self._url_edit = QLineEdit()
@@ -142,8 +143,7 @@ class CloneDialog(QDialog):
 
         dest = str(Path(folder) / name)
 
-        # Disable inputs
-        self._set_inputs_enabled(False)
+        self._set_cloning(True)
         self._error_label.setVisible(False)
         self._progress_label.setVisible(True)
         self._progress_bar.setVisible(True)
@@ -179,7 +179,7 @@ class CloneDialog(QDialog):
         self.accept()
 
     def _on_failed(self, error: str) -> None:
-        self._set_inputs_enabled(True)
+        self._set_cloning(False)
         self._progress_label.setVisible(False)
         self._progress_bar.setVisible(False)
         self._show_error(error)
@@ -188,9 +188,21 @@ class CloneDialog(QDialog):
         self._error_label.setText(msg)
         self._error_label.setVisible(True)
 
-    def _set_inputs_enabled(self, enabled: bool) -> None:
-        self._url_edit.setEnabled(enabled)
-        self._folder_edit.setEnabled(enabled)
-        self._folder_browse.setEnabled(enabled)
-        self._name_edit.setEnabled(enabled)
-        self._clone_btn.setEnabled(enabled)
+    def _set_cloning(self, cloning: bool) -> None:
+        self._cloning = cloning
+        for widget in (
+            self._url_edit,
+            self._folder_edit,
+            self._folder_browse,
+            self._name_edit,
+            self._clone_btn,
+            self._cancel_btn,
+        ):
+            widget.setEnabled(not cloning)
+
+    def reject(self) -> None:
+        # Nothing can stop git once the clone has started: closing here would
+        # only hide the dialog, and the finished clone would still be opened.
+        if self._cloning:
+            return
+        super().reject()
