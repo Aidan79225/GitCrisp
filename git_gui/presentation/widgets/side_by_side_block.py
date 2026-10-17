@@ -31,6 +31,7 @@ from git_gui.presentation.widgets.diff_block import (
     SyntaxFormats,
     apply_syntax_tokens,
     apply_word_overlay,
+    changed_word_spans,
     make_diff_editor,
     make_diff_formats,
     make_hunk_header_row,
@@ -101,11 +102,12 @@ def _render_row(
     other = row[RIGHT if side == LEFT else LEFT]
     if not cell.changed or other is None or not other.changed:
         return
-    from git_gui.presentation.widgets.word_diff import pair_diff
-
     left_cell, right_cell = row
     assert left_cell is not None and right_cell is not None  # both changed
-    left_spans, right_spans = pair_diff(left_cell.text, right_cell.text)
+    word_spans = changed_word_spans(left_cell.text, right_cell.text)
+    if word_spans is None:
+        return
+    left_spans, right_spans = word_spans
     spans, overlay = (
         (left_spans, syntax_formats.removed_word_overlay)
         if side == LEFT

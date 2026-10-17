@@ -255,3 +255,20 @@ def test_a_long_hunk_is_sized_for_every_row_not_just_the_rendered_slice(qtbot):
     line_height = editors[0].fontMetrics().lineSpacing()
     assert editors[0].height() == editors[1].height()
     assert editors[0].height() >= rows * line_height
+
+
+def test_a_rewritten_minified_line_is_not_word_diffed(qtbot, monkeypatch):
+    """Each side would otherwise run a word diff that is roughly quadratic in
+    tokens over a line tens of thousands of characters long."""
+    from git_gui.presentation.widgets import word_diff
+
+    calls = []
+    monkeypatch.setattr(word_diff, "pair_diff", lambda old, new: calls.append(old) or ([], []))
+    old = "var a=" + "x(1)," * 10_000
+    new = "var b=" + "x(1)," * 10_000
+    hunk = Hunk(header="@@ -1 +1 @@", lines=[("-", old + "\n"), ("+", new + "\n")])
+
+    for side in (LEFT, RIGHT):
+        _rendered(qtbot, hunk, side, filename="bundle.js")
+
+    assert calls == []
