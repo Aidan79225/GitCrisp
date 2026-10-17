@@ -139,3 +139,73 @@ def test_clicking_a_branch_below_the_page_leaves_its_tip_on_screen(graph, inline
     assert _current_oid(graph) == target
     viewport = graph._view.viewport().rect()
     assert viewport.intersects(graph._view.visualRect(graph._view.currentIndex()))
+
+
+# ── A reload asked for while another load is in flight ───────────────────────
+
+
+def _with_side_branch(graph: GraphWidget) -> None:
+    """`side` forks from c5. The walk reaches it only when it is pushed as a tip."""
+    main = _chain(10)
+    side = [
+        Commit(
+            oid="side", message="side", author="A", timestamp=datetime(2026, 1, 2), parents=["c5"]
+        )
+    ]
+
+    def walk(limit, skip=0, extra_tips=None, **_):
+        commits = side + main if "side" in (extra_tips or []) else main
+        return commits[skip : skip + limit]
+
+    graph._queries.get_commit_graph.execute.side_effect = walk
+    graph._queries.get_head_oid.execute.return_value = "c0"
+    graph._queries.get_merge_base.execute.return_value = "c5"
+
+
+def _finish_all(held: _HeldWorkers) -> None:
+    while held.waiting:
+        held.finish_next()
+
+
+def test_a_branch_clicked_while_a_load_is_in_flight_is_loaded_and_selected(graph, held_workers):
+    _with_side_branch(graph)
+    graph.reload()  # the focus-return reload, still running
+
+    graph.reload_with_extra_tip("side")
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "side"
+
+
+def test_a_commit_made_while_a_load_is_in_flight_shows_up(graph, held_workers):
+    before = _chain(5)
+    new = Commit(
+        oid="new", message="new", author="A", timestamp=datetime(2026, 1, 3), parents=["c0"]
+    )
+    # The load in flight read the repo before the commit; any later one after.
+    graph._queries.get_commit_graph.execute.side_effect = [before, [new, *before]]
+    graph.reload()
+
+    graph.reload()  # the post-commit reload
+    _finish_all(held_workers)
+
+    assert graph._model.data(graph._model.index(0, 0), OID_ROLE) == "new"
+
+
+def test_unticking_follow_while_the_file_history_loads_reloads_without_follow(graph, held_workers):
+    graph._queries.get_file_history.execute.return_value = _chain(3)
+    graph.set_path_filter("src/app.py")  # starts the load with follow on
+
+    graph._path_filter_bar._follow.setChecked(False)
+    _finish_all(held_workers)
+
+    assert graph._queries.get_file_history.execute.call_args.kwargs["follow"] is False
+
+
+def test_typing_on_while_a_search_loads_the_history_does_not_restart_the_load(graph, held_workers):
+    graph._search_bar.input_widget.setText("commit 1")
+    graph._search_bar.input_widget.setText("commit 12")
+    _finish_all(held_workers)
+
+    assert graph._queries.get_commit_graph.execute.call_count == 1
+    assert _current_oid(graph) == "c12"

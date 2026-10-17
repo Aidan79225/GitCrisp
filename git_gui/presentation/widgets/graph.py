@@ -284,6 +284,9 @@ class GraphWidget(QWidget):
         self._loaded_count = 0  # how many commits loaded (excluding synthetic)
         self._has_more = True
         self._loading = False
+        # Set when reload() is called while a load is in flight. That load
+        # was asked for earlier, so its result is discarded and loaded again.
+        self._reload_queued = False
         # Bumped on every repo switch. A load hands its generation back with
         # its result, so one that finishes after the switch is recognised as
         # the previous repo's and dropped.
@@ -432,6 +435,7 @@ class GraphWidget(QWidget):
         # load. Waiting on it kept the new repo from loading.
         self._load_generation += 1
         self._loading = False
+        self._reload_queued = False
         # Reset per-click state — the previous repo's selection is meaningless
         # in the new repo. Reset _reload_limit too so the new repo starts at
         # PAGE_SIZE; otherwise a previously-doubled limit (e.g. 2000 for a
@@ -515,10 +519,6 @@ class GraphWidget(QWidget):
             self.reload()
 
     def reload(self, extra_tips: list[str] | None = None, limit: int | None = None) -> None:
-        if self._loading:
-            return
-        self._loading = True
-        self._capture_scroll_anchor()
         # Sticky semantic: a bare reload() preserves both the user's last-
         # clicked diverged branch (extra_tips) and the load size that was
         # needed to draw its lane (limit). Auto-reloads from the change
@@ -526,10 +526,17 @@ class GraphWidget(QWidget):
         # regress to PAGE_SIZE — losing the merge base from the loaded set
         # and reverting the diverged lane to a floating circle.
         # set_buses() explicitly clears state on repo switch.
-        effective_tips = extra_tips if extra_tips is not None else self._extra_tips
-        effective_limit = limit if limit is not None else self._reload_limit
-        self._extra_tips = effective_tips
-        self._reload_limit = effective_limit
+        if extra_tips is not None:
+            self._extra_tips = extra_tips
+        if limit is not None:
+            self._reload_limit = limit
+        if self._loading:
+            self._reload_queued = True
+            return
+        self._loading = True
+        self._capture_scroll_anchor()
+        effective_tips = self._extra_tips
+        effective_limit = self._reload_limit
         queries = self._queries
         fp = self._first_parent
         path = self._path_filter
@@ -642,12 +649,7 @@ class GraphWidget(QWidget):
         if self._queries is None:
             return
 
-        # If the user toggled the view mode or changed the path filter while
-        # this load was in-flight, the in-flight reload() call was dropped by
-        # the `if self._loading` guard. Pick up the change now by triggering
-        # another reload.
-        if first_parent != self._first_parent or path_filter != self._path_filter:
-            self.reload()
+        if self._reload_if_stale(first_parent, path_filter):
             return
 
         # A pinned tip rides along past the end of the page, so the page can
@@ -753,15 +755,38 @@ class GraphWidget(QWidget):
             self._pending_search = None
             self._run_search(needle)
 
+    def _reload_if_stale(self, first_parent: bool, path_filter: str | None) -> bool:
+        """Load again if the result in hand no longer answers what is wanted.
+
+        It is stale when a reload was asked for while it was in flight (a
+        branch click, a post-commit reload, a toggled mode), or when it was
+        fetched in a mode that has since changed. Returns whether it was,
+        so the caller drops the result instead of drawing it.
+        """
+        stale = (
+            self._reload_queued
+            or first_parent != self._first_parent
+            or path_filter != self._path_filter
+        )
+        if stale:
+            self._reload_queued = False
+            self.reload()
+        return stale
+
     def _on_load_failed(self, generation: int) -> None:
         """A load raised instead of producing a result.
 
-        Only the guard needs clearing. Left set, it turns away every reload
+        The guard needs clearing. Left set, it turns away every reload
         after this one — which is how deleting the repo on screen froze the
-        graph, on that repo and on every repo switched to afterwards.
+        graph, on that repo and on every repo switched to afterwards. A
+        reload asked for meanwhile still runs.
         """
-        if generation == self._load_generation:
-            self._loading = False
+        if generation != self._load_generation:
+            return
+        self._loading = False
+        if self._reload_queued:
+            self._reload_queued = False
+            self.reload()
 
     def _land_on_pending_target(self) -> None:
         """Scroll to and select the commit a click asked for.
@@ -869,10 +894,7 @@ class GraphWidget(QWidget):
         if self._queries is None:
             return
 
-        # User toggled mid-flight: discard the appended page (it was fetched
-        # in the wrong mode) and re-run a full reload in the new mode.
-        if first_parent != self._first_parent or path_filter != self._path_filter:
-            self.reload()
+        if self._reload_if_stale(first_parent, path_filter):
             return
 
         if not more:
@@ -1248,10 +1270,13 @@ class GraphWidget(QWidget):
 
         # If not all commits are loaded yet, reload with a large limit so the
         # search covers the full history. The reload callback will re-trigger
-        # the search via _run_search_after_load.
+        # the search via _run_search_after_load. Later keystrokes only swap
+        # the needle: asking again would discard the load already running.
         if self._has_more:
+            full_load_running = self._pending_search is not None
             self._pending_search = needle
-            self.reload(limit=999_999)
+            if not full_load_running:
+                self.reload(limit=999_999)
             return
 
         self._run_search(needle)
