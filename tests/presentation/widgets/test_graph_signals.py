@@ -47,6 +47,7 @@ def _make_widget(qtbot, commits: list[Commit] | None = None) -> GraphWidget:
     w._pending_scroll_oid = None
     w._pending_merge_base = None
     w._pending_search = None
+    w._limit_before_search = None
     w._extra_tips = None
     w._selected_oid = None
     w._scroll_anchor_oid = None
