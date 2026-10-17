@@ -63,3 +63,48 @@ def test_unstage_hunk_unstages_only_one_hunk(multi_hunk_repo):
     unstaged = impl.get_file_diff("WORKING_TREE", "multi.txt")
     assert len(unstaged) == 1
     assert "CHANGED line 2" in "".join(c for _, c in unstaged[0].lines)
+
+
+def _edited_repo(repo_path: Path, committed: bytes, edited: bytes) -> Pygit2Repository:
+    """f.txt committed with *committed*, then rewritten as *edited*, byte for byte."""
+    impl = Pygit2Repository(str(repo_path))
+    impl._repo.config["core.autocrlf"] = False
+    (repo_path / "f.txt").write_bytes(committed)
+    impl.stage(["f.txt"])
+    impl.commit("seed f.txt")
+    (repo_path / "f.txt").write_bytes(edited)
+    return impl
+
+
+def _only_hunk_header(impl: Pygit2Repository) -> str:
+    [hunk] = impl.get_file_diff("WORKING_TREE", "f.txt")
+    return hunk.header
+
+
+def _staged_bytes(impl: Pygit2Repository) -> bytes:
+    impl._repo.index.read()
+    return impl._repo[impl._repo.index["f.txt"].id].data
+
+
+def test_staging_a_hunk_keeps_bytes_that_are_not_utf8(repo_path):
+    impl = _edited_repo(repo_path, b"caf\xe9\nline2\nline3\n", b"caf\xe9\nLINE2\nline3\n")
+
+    impl.stage_hunk("f.txt", _only_hunk_header(impl))
+
+    assert _staged_bytes(impl) == b"caf\xe9\nLINE2\nline3\n"
+
+
+def test_staging_an_added_non_utf8_line_stages_the_bytes_on_disk(repo_path):
+    impl = _edited_repo(repo_path, b"a\nb\nc\n", b"a\ncaf\xe9\nc\n")
+
+    impl.stage_hunk("f.txt", _only_hunk_header(impl))
+
+    assert _staged_bytes(impl) == b"a\ncaf\xe9\nc\n"
+
+
+def test_discarding_a_hunk_restores_bytes_that_are_not_utf8(repo_path):
+    impl = _edited_repo(repo_path, b"caf\xe9\nb\n", b"cafe\nb\n")
+
+    impl.discard_hunk("f.txt", _only_hunk_header(impl))
+
+    assert (repo_path / "f.txt").read_bytes() == b"caf\xe9\nb\n"
