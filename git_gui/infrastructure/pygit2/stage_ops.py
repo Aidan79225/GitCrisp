@@ -82,30 +82,30 @@ class StageOps:
             except KeyError:
                 head_has_blob = False
 
+        # The work tree goes first and the index second: when the file cannot
+        # be replaced (on Windows, another program holding it open), the
+        # discard then fails with the staged change still in place.
         if head_has_blob:
-            self._checkout_from_head(path)
+            self._restore_from_head(path, "--worktree")
+            self._restore_from_head(path, "--staged")
         else:
+            if os.path.lexists(full):
+                os.remove(full)
             try:
                 self._repo.index.remove(path)
                 self._repo.index.write()
                 self._repo.index.read()
             except (KeyError, OSError):
                 pass
-            if os.path.lexists(full):
-                os.remove(full)
 
-    def _checkout_from_head(self, path: str) -> None:
-        # git CLI, not a raw blob write: checkout must apply eol/autocrlf and
-        # smudge filters (LFS), restore the file mode, and replace a symlink
+    def _restore_from_head(self, path: str, where: str) -> None:
+        # git CLI, not a raw blob write: a restore applies eol/autocrlf and
+        # smudge filters (LFS), restores the file mode, and replaces a symlink
         # rather than write through it. Literal pathspecs keep `*` or `[` in a
-        # name from discarding other files' changes too.
-        subprocess.run(
-            ["git", "--literal-pathspecs", "checkout", "HEAD", "--", path],
-            cwd=self._repo.workdir,
-            env=self._git_env,
-            check=True,
-            capture_output=True,
-            **subprocess_kwargs(),
+        # name from discarding other files' changes too. Not `git checkout
+        # HEAD -- path`: it writes the index even when the file write fails.
+        self._run_git_checked(
+            ["--literal-pathspecs", "restore", "--source=HEAD", where, "--", path]
         )
         self._repo.index.read()
 
