@@ -213,3 +213,23 @@ def test_an_author_that_fits_beside_the_date_is_drawn_whole(qtbot):
     painted = _paint(info, 2 * _text_width(AUTHOR + DATE))
 
     assert _drawn_author(painted).text == AUTHOR
+
+
+# ── Badge colours ────────────────────────────────────────────────────────────
+
+
+def test_a_local_branch_with_a_slash_is_not_painted_as_a_remote(qtbot):
+    from git_gui.presentation.theme import ColorRole, get_theme_manager
+
+    colors = get_theme_manager().current.colors
+    info = _info(
+        branch_names=["feature/login", "origin/main"],
+        remote_branches=frozenset({"origin/main"}),
+    )
+
+    painted = _paint(info, 4 * _text_width(f"feature/login origin/main {SHA}"))
+
+    assert [colour for _, colour in painted.badges] == [
+        colors.as_qcolor(ColorRole.REF_BADGE_BRANCH_BG),
+        colors.as_qcolor(ColorRole.REF_BADGE_REMOTE_BG),
+    ]

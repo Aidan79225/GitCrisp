@@ -28,16 +28,31 @@ def _color_tag() -> QColor:
     return get_theme_manager().current.colors.as_qcolor(ColorRole.REF_BADGE_TAG_BG)
 
 
-def _badge_color(name: str, head_branch: str | None = None) -> QColor:
+def _badge_color(
+    name: str,
+    head_branch: str | None = None,
+    remote_branches: frozenset[str] | None = None,
+) -> QColor:
     if name == "HEAD" or name.startswith("HEAD ->"):
         return _color_head()
     if head_branch and name == head_branch:
         return _color_head()
     if name.startswith("tag:"):
         return _color_tag()
-    if "/" in name:
+    if _is_remote_branch(name, remote_branches):
         return _color_remote()
     return _color_local()
+
+
+def _is_remote_branch(name: str, remote_branches: frozenset[str] | None) -> bool:
+    """Whether ``name`` is a remote-tracking branch.
+
+    A caller that was not told which branches are remote can only guess from
+    the slash, and that guess also takes a local ``feature/login`` for remote.
+    """
+    if remote_branches is None:
+        return "/" in name
+    return name in remote_branches
 
 
 def _badge_display_name(name: str) -> str:

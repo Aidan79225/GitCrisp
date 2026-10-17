@@ -228,7 +228,8 @@ class CommitRowDelegate(QStyledItemDelegate):
                 continue  # not even room for an ellipsis
             cy = first_line.top() + badge.line * first_line.height() + first_line.height() // 2
             rect = QRect(first_line.left() + badge.x, cy - badge_h // 2, badge.width, badge_h)
-            _paint_badge(painter, rect, _badge_color(badge.name, info.head_branch), badge.label)
+            color = _badge_color(badge.name, info.head_branch, info.remote_branches)
+            _paint_badge(painter, rect, color, badge.label)
 
         painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
         painter.drawText(first_line, Qt.AlignVCenter | Qt.AlignRight, info.short_oid)
