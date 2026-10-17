@@ -165,3 +165,58 @@ class TestOpenStartupSession:
         from main import _open_startup_session
 
         assert _open_startup_session(str(tmp_path)) is not None
+
+
+class TestFindValidRepoKeepsUnreachablePaths:
+    """A repo on a drive, share or mount that is not there right now is out of
+    reach, not gone: its parent is missing too, unlike a deleted worktree's."""
+
+    @staticmethod
+    def _store(tmp_path, open_paths=(), recent_paths=(), active=None) -> JsonRepoStore:
+        store = JsonRepoStore(tmp_path / "repos.json")
+        store.load()
+        for path in recent_paths:
+            store.add_open(str(path))
+            store.close_repo(str(path))
+        for path in reversed(open_paths):
+            store.add_open(str(path))
+        if active is not None:
+            store.set_active(str(active))
+        return store
+
+    @staticmethod
+    def _repo(path):
+        path.mkdir(parents=True)
+        pygit2.init_repository(str(path))
+        return path
+
+    def test_an_open_repo_on_a_missing_volume_stays_open(self, tmp_path):
+        from main import _find_valid_repo
+
+        valid = self._repo(tmp_path / "valid")
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = self._store(tmp_path, open_paths=[valid, offline], active=valid)
+
+        assert _find_valid_repo(store) == str(valid)
+        assert store.get_open_repos() == [str(valid), str(offline)]
+
+    def test_a_recent_repo_on_a_missing_volume_stays_recent(self, tmp_path):
+        from main import _find_valid_repo
+
+        valid = self._repo(tmp_path / "valid")
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = self._store(tmp_path, open_paths=[valid], recent_paths=[offline])
+
+        _find_valid_repo(store)
+
+        assert store.get_recent_repos() == [str(offline)]
+
+    def test_an_active_repo_on_a_missing_volume_yields_to_the_next_open_one(self, tmp_path):
+        from main import _find_valid_repo
+
+        valid = self._repo(tmp_path / "valid")
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = self._store(tmp_path, open_paths=[offline, valid], active=offline)
+
+        assert _find_valid_repo(store) == str(valid)
+        assert store.get_open_repos() == [str(offline), str(valid)]

@@ -23,35 +23,47 @@ def _is_git_repo(path: str) -> bool:
     return pygit2.discover_repository(path) is not None
 
 
+def _is_stale(path: str) -> bool:
+    """Whether *path* is gone for good, rather than out of reach for now.
+
+    A path that is there but no longer a repository is stale, and so is one
+    deleted from a folder that is still there (a removed worktree). One whose
+    parent is missing too sits on a drive, share or mount that is not there
+    right now, and is kept for when it is.
+    """
+    stored = Path(path)
+    if stored.is_dir():
+        return not _is_git_repo(path)
+    return stored.parent.is_dir()
+
+
 def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
-    """Return a valid repo to open, pruning every stored path that no longer
-    resolves to a git repository.
+    """Return a valid repo to open, pruning every stored path that is stale.
 
     Pruning scans the *entire* open and recent lists — not just up to the first
     valid entry — so stale paths (e.g. a deleted worktree) never linger across
     sessions, rendering as repo rows that fail with "Repository not found" when
     switched to. Returns the active repo if still valid, otherwise the first
-    surviving open repo, otherwise None.
+    valid open repo, otherwise None.
     """
 
     def _valid(p: str | None) -> bool:
         return bool(p) and Path(p).is_dir() and _is_git_repo(p)
 
     for path in list(repo_store.get_open_repos()) + list(repo_store.get_recent_repos()):
-        if not _valid(path):
+        if _is_stale(path):
             repo_store.forget(path)
 
     # Keep a still-valid active repo even if it isn't in the open list (e.g. an
     # active worktree, recorded via set_active without add_open). Otherwise fall
-    # back to the first surviving open repo.
+    # back to the first valid open repo.
     active = repo_store.get_active()
     if _valid(active):
         selected = active
     else:
-        if active is not None:
+        if active is not None and _is_stale(active):
             repo_store.forget(active)  # clear a dead active not in open/recent
-        open_repos = repo_store.get_open_repos()
-        selected = open_repos[0] if open_repos else None
+        selected = next((p for p in repo_store.get_open_repos() if _valid(p)), None)
 
     if selected is not None:
         repo_store.set_active(selected)
