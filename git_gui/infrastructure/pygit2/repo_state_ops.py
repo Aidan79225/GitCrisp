@@ -56,9 +56,10 @@ class RepoStateOps:
         against the wrong remote.
 
         Also carries ``GIT_SSH_COMMAND`` so remote ops (push/pull/fetch) don't
-        fail on first-time SSH host-key verification.
+        fail on first-time SSH host-key verification, unless this repo's
+        config, which includes the user's global one, names an ssh command.
         """
-        env = git_ssh_env()
+        env = git_ssh_env(config=self._repo.config)
         env["GIT_DIR"] = self._repo.path
         if self._repo.workdir:
             env["GIT_WORK_TREE"] = self._repo.workdir
