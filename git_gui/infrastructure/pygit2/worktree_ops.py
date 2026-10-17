@@ -155,7 +155,9 @@ class WorktreeOps:
     def remove_worktree(self, path: str, *, force: bool) -> None:
         from git_gui.infrastructure.worktree_cli import WorktreeCli
 
-        cli = WorktreeCli(self._repo.workdir)
+        # Not the session's workdir: that may be the worktree being removed,
+        # and Windows will not delete a process's current directory.
+        cli = WorktreeCli(str(self._common_dir()))
         cli.remove(path, force=force)
 
     def lock_worktree(self, path: str, *, reason: str | None = None) -> None:
