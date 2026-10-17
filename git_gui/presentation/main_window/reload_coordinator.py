@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import logging
+
+from git_gui.domain.entities import RepoState
+
+logger = logging.getLogger(__name__)
+
 
 class ReloadCoordinatorMixin:
     """Central sync — fans out reloads to sidebar/graph and refreshes banners.
@@ -39,12 +45,23 @@ class ReloadCoordinatorMixin:
 
     def _refresh_state_banners(self) -> None:
         """Show the open repo's merge/rebase state, or none, in both panes."""
+        state = self._read_repo_state()
+        merge_msg = self._read_merge_msg() if state is RepoState.MERGING else None
+        self._working_tree.update_conflict_banner(state.name, merge_msg)
+        self._diff.update_state_banner(state.name)
+
+    def _read_repo_state(self) -> RepoState:
         try:
-            state_info = self._queries.get_repo_state.execute()
-            state_name = state_info.state.name
-            merge_msg = self._queries.get_merge_msg.execute() if state_name == "MERGING" else None
-            self._working_tree.update_conflict_banner(state_name, merge_msg)
-            self._diff.update_state_banner(state_name)
-        except Exception:
-            self._working_tree.update_conflict_banner("CLEAN")
-            self._diff.update_state_banner("CLEAN")
+            return self._queries.get_repo_state.execute().state
+        except Exception as e:
+            logger.warning("Reading the repo state failed: %s", e)
+            return RepoState.CLEAN
+
+    def _read_merge_msg(self) -> str | None:
+        # Read apart from the state: a merge whose message cannot be read is
+        # still a merge, and showing it as clean would hide Abort and offer Amend.
+        try:
+            return self._queries.get_merge_msg.execute()
+        except Exception as e:
+            logger.warning("Reading the merge message failed: %s", e)
+            return None
