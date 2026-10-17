@@ -43,8 +43,8 @@ class Pygit2Repository(
 
     def __init__(self, path: str) -> None:
         self._repo = pygit2.Repository(_resolve_gitdir(path))
-        self._commit_ops = CommitOpsCli(self._repo.workdir)
-        self._file_history = FileHistoryCli(self._repo.workdir)
+        self._commit_ops = CommitOpsCli(self._repo.workdir, git_dir=self._repo.path)
+        self._file_history = FileHistoryCli(self._repo.workdir, git_dir=self._repo.path)
         # Remote-op cancellation state, consumed by RemoteOps: the active
         # push/pull/fetch subprocess and a lock guarding it (the UI thread
         # terminates it while a worker thread runs the op).
