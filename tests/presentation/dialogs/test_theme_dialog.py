@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from PySide6.QtWidgets import QApplication, QDialog, QRadioButton
 
@@ -239,3 +241,54 @@ def test_dialog_opens_when_the_saved_custom_theme_is_malformed(
     get_theme_manager().set_mode("dark")
 
     assert isinstance(ThemeDialog(), QDialog)
+
+
+def _save_light_based_custom_theme_then_switch_to_dark(tmp_path, monkeypatch) -> Path:
+    from git_gui.presentation.theme import settings as s
+
+    custom_path = tmp_path / "custom_theme.json"
+    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+    get_theme_manager().set_mode("light")
+    dlg = ThemeDialog()
+    _radios(dlg)["custom"].setChecked(True)
+    dlg._on_apply()
+    get_theme_manager().set_mode("dark")
+    return custom_path
+
+
+def test_reapplying_a_saved_custom_theme_keeps_the_tokens_it_has_no_swatch_for(
+    app, reset_theme, tmp_path, monkeypatch
+):
+    """The swatches showed the saved file, but syntax colours and is_dark
+    were saved from the active builtin: Light surfaces under Dark's pale
+    syntax colours, with no swatch to repair them."""
+    import json
+
+    from git_gui.presentation.theme.loader import load_builtin
+
+    custom_path = _save_light_based_custom_theme_then_switch_to_dark(tmp_path, monkeypatch)
+    dlg = ThemeDialog()
+    _radios(dlg)["custom"].setChecked(True)
+    dlg._on_apply()
+
+    payload = json.loads(custom_path.read_text(encoding="utf-8"))
+    assert payload["colors"]["syntax_string"] == load_builtin("light").colors.syntax_string
+    assert payload["is_dark"] is False
+
+
+def test_reset_takes_the_unswatched_tokens_back_to_the_active_theme_too(
+    app, reset_theme, tmp_path, monkeypatch
+):
+    import json
+
+    from git_gui.presentation.theme.loader import load_builtin
+
+    custom_path = _save_light_based_custom_theme_then_switch_to_dark(tmp_path, monkeypatch)
+    dlg = ThemeDialog()
+    _radios(dlg)["custom"].setChecked(True)
+    dlg._on_reset()
+    dlg._on_apply()
+
+    payload = json.loads(custom_path.read_text(encoding="utf-8"))
+    assert payload["colors"]["syntax_string"] == load_builtin("dark").colors.syntax_string
