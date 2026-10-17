@@ -202,3 +202,24 @@ def test_thread_uncaught_exception_is_logged(tmp_path, monkeypatch):
     assert "test-worker" in content
     assert "RuntimeError" in content
     assert "thread boom" in content
+
+
+def test_records_past_the_size_limit_survive_another_process_holding_the_log(tmp_path, monkeypatch):
+    """A second GitCrisp keeps the log open, and Windows will not rename an
+    open file, so every rollover fails; the records must still reach disk."""
+    log_file = _point_log_dir_at(tmp_path, monkeypatch)
+    monkeypatch.setattr(logging_setup, "_MAX_BYTES", 2000)
+    monkeypatch.setattr(logging, "raiseExceptions", False)
+    logging_setup.setup_logging()
+    logger = logging.getLogger("test.held_log")
+
+    with open(log_file, "a", encoding="utf-8"):
+        for i in range(100):
+            logger.warning("record-%03d", i)
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
+    written = "".join(
+        path.read_text(encoding="utf-8") for path in log_file.parent.glob("gitcrisp.log*")
+    )
+    assert [i for i in range(100) if f"record-{i:03d}" not in written] == []
