@@ -37,6 +37,7 @@ BADGE_V_PAD = 2
 BADGE_GAP = 4
 
 CELL_PAD = 4  # horizontal padding inside cell
+AUTHOR_DATE_GAP = 8  # least space between the author and the date
 
 MESSAGE_LINES = 3  # lines every row reserves for the commit subject
 
@@ -187,16 +188,11 @@ class CommitRowDelegate(QStyledItemDelegate):
         header_h = line_h + 8  # single-line row height (text + padding)
 
         # ── Sub-row 1: author (left) + datetime (right) ──────────────────────
-        r1 = QRect(rect.left() + CELL_PAD, rect.top(), rect.width() - CELL_PAD * 2, header_h)
-        # Strip email from author: "Alice <a@a.com>" → "Alice"
-        author_name = info.author.split("<")[0].strip() if "<" in info.author else info.author
-        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
-        painter.drawText(r1, Qt.AlignVCenter | Qt.AlignLeft, author_name)
-        painter.setPen(_muted_color())
-        painter.drawText(r1, Qt.AlignVCenter | Qt.AlignRight, info.timestamp)
+        cell_w = rect.width() - CELL_PAD * 2
+        header = QRect(rect.left() + CELL_PAD, rect.top(), cell_w, header_h)
+        self._paint_author_and_date(painter, info, header)
 
         # ── Sub-row 2+: branch badges (left, multi-line) + hash (right, first line) ─
-        cell_w = rect.width() - CELL_PAD * 2
         first_ref_line = QRect(rect.left() + CELL_PAD, rect.top() + header_h, cell_w, header_h)
         badge_lines = self._paint_refs(painter, info, first_ref_line)
 
@@ -206,6 +202,19 @@ class CommitRowDelegate(QStyledItemDelegate):
 
         self._paint_divider(painter, row_rect)
         painter.restore()
+
+    @staticmethod
+    def _paint_author_and_date(painter: QPainter, info: CommitInfo, line: QRect) -> None:
+        """The date at the right, and the author left of it, elided short of the date."""
+        fm = painter.fontMetrics()
+        # Strip email from author: "Alice <a@a.com>" → "Alice"
+        author_name = info.author.split("<")[0].strip() if "<" in info.author else info.author
+        author_room = line.width() - fm.horizontalAdvance(info.timestamp) - AUTHOR_DATE_GAP
+        author = fm.elidedText(author_name, Qt.ElideRight, author_room)
+        painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
+        painter.drawText(line, Qt.AlignVCenter | Qt.AlignLeft, author)
+        painter.setPen(_muted_color())
+        painter.drawText(line, Qt.AlignVCenter | Qt.AlignRight, info.timestamp)
 
     @staticmethod
     def _paint_refs(painter: QPainter, info: CommitInfo, first_line: QRect) -> int:
