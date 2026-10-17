@@ -33,6 +33,7 @@ class _SwitchReason(Enum):
 class _RepoRequest:
     path: str
     reason: _SwitchReason = _SwitchReason.SWITCH
+    after: str | None = None  # the open repo an OPEN is listed after; None lists it first
 
 
 class _WorktreeOpSignals(QObject):
@@ -215,7 +216,7 @@ class RepoLifecycleMixin:
 
     def _record_in_store(self, request: _RepoRequest) -> None:
         if request.reason is _SwitchReason.OPEN:
-            self._repo_store.add_open(request.path)
+            self._repo_store.add_open(request.path, after=request.after)
         else:
             self._repo_store.set_active(request.path)
 
@@ -253,8 +254,8 @@ class RepoLifecycleMixin:
         self.setWindowTitle("GitCrisp")
         self._install_git_menu()
 
-    def _on_repo_open(self, path: str) -> None:
-        self._request_repo(_RepoRequest(path, _SwitchReason.OPEN))
+    def _on_repo_open(self, path: str, after: str | None = None) -> None:
+        self._request_repo(_RepoRequest(path, _SwitchReason.OPEN, after=after))
 
     def _on_repo_close(self, path: str) -> None:
         successor = self._repo_after_closing(path)
