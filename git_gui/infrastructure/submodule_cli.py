@@ -7,7 +7,8 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
-from git_gui.resources import git_ssh_env, subprocess_kwargs
+from git_gui.infrastructure.git_process import run_git
+from git_gui.resources import git_ssh_env
 
 
 class SubmoduleCommandError(Exception):
@@ -31,16 +32,11 @@ class SubmoduleCli:
         try:
             # Paths come from the repo, not from a user pattern: without this a
             # submodule at "lib[1]" makes `rm -f` also delete a tracked "lib1".
-            completed = subprocess.run(
+            completed = run_git(
                 [self._git, "--literal-pathspecs", *args],
                 cwd=self._cwd,
-                check=True,
-                capture_output=True,
-                # git prints paths in UTF-8 whatever the console code page is.
-                encoding="utf-8",
-                errors="replace",
                 env=git_ssh_env(),
-                **subprocess_kwargs(),
+                check=True,
             )
         except subprocess.CalledProcessError as e:
             stderr = (e.stderr or "").strip() or (e.stdout or "").strip() or str(e)

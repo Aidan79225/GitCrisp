@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 from datetime import UTC, datetime
 
 import pygit2
 
 from git_gui.domain.entities import Tag
-from git_gui.resources import subprocess_kwargs
+from git_gui.infrastructure.git_process import run_git
 
 logger = logging.getLogger(__name__)
 
@@ -93,15 +92,8 @@ class TagOps:
         Raises ``RuntimeError`` when the remote cannot be listed, so that a
         caller cannot take an unreachable remote for one without tags.
         """
-        result = subprocess.run(
-            ["git", "ls-remote", "--tags", remote],
-            capture_output=True,
-            # git prints tag names as UTF-8 whatever the locale's code page.
-            encoding="utf-8",
-            errors="replace",
-            cwd=self._repo.workdir,
-            env=self._git_env,
-            **subprocess_kwargs(),
+        result = run_git(
+            ["git", "ls-remote", "--tags", remote], cwd=self._repo.workdir, env=self._git_env
         )
         if result.returncode != 0:
             raise RuntimeError(

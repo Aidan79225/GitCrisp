@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
-from git_gui.resources import subprocess_kwargs
+from git_gui.infrastructure.git_process import run_git
 
 
 class CommitOpsCommandError(Exception):
@@ -67,17 +66,7 @@ class CommitOpsCli:
         if shutil.which(self._git) is None:
             raise CommitOpsCommandError(f"`{self._git}` executable not found on PATH")
         try:
-            result = subprocess.run(
-                [self._git, *argv],
-                cwd=self._cwd,
-                capture_output=True,
-                # git writes UTF-8; `text=True` alone would decode with the
-                # locale (cp950, cp1252), and a failed decode loses the output.
-                encoding="utf-8",
-                errors="replace",
-                env=self._env(env_overrides),
-                **subprocess_kwargs(),
-            )
+            result = run_git([self._git, *argv], cwd=self._cwd, env=self._env(env_overrides))
         except FileNotFoundError as e:
             raise CommitOpsCommandError(f"`{self._git}` executable not found on PATH") from e
         if result.returncode == 0:

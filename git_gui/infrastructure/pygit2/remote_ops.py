@@ -7,6 +7,7 @@ import subprocess
 import pygit2
 
 from git_gui.domain.entities import Remote, RemoteBranchDeleteResult
+from git_gui.infrastructure.git_process import run_git
 from git_gui.resources import subprocess_kwargs
 
 
@@ -132,15 +133,10 @@ class RemoteOps:
         if not branches:
             return []
         refspecs = [f"refs/heads/{b}" for b in branches]
-        result = subprocess.run(
+        result = run_git(
             ["git", "push", "--porcelain", remote, "--delete", *refspecs],
             cwd=self._repo.workdir,
-            capture_output=True,
-            # git prints ref names as UTF-8 whatever the locale's code page.
-            encoding="utf-8",
-            errors="replace",
             env=self._git_env,
-            **subprocess_kwargs(),
         )
         # No per-ref status at all (e.g. couldn't reach the remote): surface stderr.
         if result.returncode != 0 and not result.stdout.strip():
