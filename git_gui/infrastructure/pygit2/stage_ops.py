@@ -27,7 +27,8 @@ class StageOps:
     def stage(self, paths: list[str]) -> None:
         for path in paths:
             full = os.path.join(self._repo.workdir, path)
-            if os.path.exists(full):
+            # lexists: a symlink whose target is missing is still there to stage.
+            if os.path.lexists(full):
                 self._repo.index.add(path)
             else:
                 # Working-tree deletion → stage the deletion
@@ -108,7 +109,7 @@ class StageOps:
                 self._repo.index.read()
             except (KeyError, OSError):
                 pass
-            if os.path.exists(full):
+            if os.path.lexists(full):
                 os.remove(full)
 
     def discard_hunk(self, path: str, hunk_header: str) -> None:
