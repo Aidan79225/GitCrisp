@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import os
 import shlex
-import subprocess
 from pathlib import Path
 
 import pygit2
 
 from git_gui.domain.entities import MergeAnalysisResult, MergeStrategy
+from git_gui.infrastructure.git_process import run_git
 from git_gui.infrastructure.pygit2.repo_state_ops import REBASE_STATES
-from git_gui.resources import subprocess_kwargs
 
 
 def _editor_copying(source_path: str) -> str:
@@ -148,14 +147,7 @@ class MergeRebaseOps:
         else:
             env["GIT_EDITOR"] = "true"
         try:
-            result = subprocess.run(
-                ["git", "rebase", "--continue"],
-                cwd=self._repo.workdir,
-                capture_output=True,
-                text=True,
-                env=env,
-                **subprocess_kwargs(),
-            )
+            result = run_git(["git", "rebase", "--continue"], cwd=self._repo.workdir, env=env)
             if result.returncode != 0:
                 msg = (
                     result.stderr.strip()
@@ -200,14 +192,7 @@ class MergeRebaseOps:
         env["GIT_EDITOR"] = "true"
 
         try:
-            result = subprocess.run(
-                ["git", "rebase", "-i", target_oid],
-                cwd=self._repo.workdir,
-                capture_output=True,
-                text=True,
-                env=env,
-                **subprocess_kwargs(),
-            )
+            result = run_git(["git", "rebase", "-i", target_oid], cwd=self._repo.workdir, env=env)
             if result.returncode != 0:
                 # A stopped rebase is a conflict, not a failure — leave the repo
                 # as it is and let the conflict banner drive it from here.
