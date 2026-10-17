@@ -115,9 +115,11 @@ class BranchOps:
         return result
 
     def create_branch(self, name: str, from_oid: str) -> Branch:
-        commit = self._repo.get(from_oid)
+        # Any revision, not only an object id: the Branches dialog lets the
+        # user type the start point, as HEAD, a tag or master~1.
+        commit = self._repo.revparse_single(from_oid).peel(pygit2.Commit)
         self._repo.create_branch(name, commit, False)
-        return Branch(name=name, is_remote=False, is_head=False, target_oid=from_oid)
+        return Branch(name=name, is_remote=False, is_head=False, target_oid=str(commit.id))
 
     def _refresh_index(self) -> None:
         """Reload the in-memory index from disk before a checkout.
