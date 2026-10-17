@@ -219,7 +219,7 @@ _ROW_H_PADDING = 8
 class _RepoItemDelegate(QStyledItemDelegate):
     """Two-line item delegate for repo rows.
 
-    Line 1: the repo name (Path.name), default font.
+    Line 1: the row's label — the repo name, or a worktree's branch — default font.
     Line 2: _display_path(path), smaller font, dimmer color, middle-elided.
 
     Header rows (marked with "header" in Qt.UserRole + 1) keep their default
@@ -241,7 +241,7 @@ class _RepoItemDelegate(QStyledItemDelegate):
             super().paint(painter, option, index)
             return
 
-        name = Path(path).name
+        name = index.data(Qt.DisplayRole)
         disp = _display_path(path)
         is_active = bool(index.data(_IS_ACTIVE_ROLE))
 
