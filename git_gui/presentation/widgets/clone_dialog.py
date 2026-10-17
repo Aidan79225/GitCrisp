@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from git_gui.infrastructure.git_clone import CloneProgress, clone_repo
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 
-_REPO_NAME_RE = re.compile(r"[/:]([^/:]+?)(?:\.git)?/?$")
+_REPO_NAME_RE = re.compile(r"[/:\\]([^/:\\]+?)(?:\.git)?[/\\]?$")
 
 
 def _parse_repo_name(url: str) -> str:
