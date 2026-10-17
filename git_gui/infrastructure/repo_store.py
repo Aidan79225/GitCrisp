@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,21 @@ def _str_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _replace_file(path: Path, text: str) -> None:
+    # Write a sibling file and swap it in, so a crash, power loss or full disk
+    # mid-write leaves the previous file whole rather than truncated.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 class JsonRepoStore:
@@ -61,7 +78,7 @@ class JsonRepoStore:
             "active": self._active,
             "settings": self._settings,
         }
-        self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        _replace_file(self._path, json.dumps(data, indent=2))
 
     def get_open_repos(self) -> list[str]:
         return list(self._open)
