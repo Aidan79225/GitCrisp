@@ -166,9 +166,9 @@ def test_get_tags_lightweight(repo_path, repo_impl):
 
 
 def test_get_remote_tags_no_remote(repo_impl):
-    """Repos without remotes return an empty list."""
-    tags = repo_impl.get_remote_tags("origin")
-    assert tags == []
+    """A remote that cannot be listed raises: [] would mean it has no tags."""
+    with pytest.raises(RuntimeError):
+        repo_impl.get_remote_tags("origin")
 
 
 def test_get_tags_annotated(repo_path, repo_impl):
