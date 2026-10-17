@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pygit2
+
 from git_gui.resources import get_resource_path, git_ssh_env
 
 
@@ -24,6 +26,7 @@ def test_git_ssh_env_sets_accept_new(monkeypatch):
     first-time SSH connection to an unknown host trusts the key instead of
     failing on an unanswerable interactive prompt."""
     monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
     env = git_ssh_env()
     assert "StrictHostKeyChecking=accept-new" in env["GIT_SSH_COMMAND"]
 
@@ -43,3 +46,24 @@ def test_git_ssh_env_extends_base_without_mutating():
     assert env["GIT_DIR"] == "/repo/.git"
     assert "StrictHostKeyChecking=accept-new" in env["GIT_SSH_COMMAND"]
     assert "GIT_SSH_COMMAND" not in base
+
+
+def test_git_ssh_env_leaves_the_users_git_ssh_in_charge():
+    """git ranks GIT_SSH_COMMAND above GIT_SSH, so adding it would replace
+    the client the user chose (PuTTY's plink, say)."""
+    env = git_ssh_env({"GIT_SSH": "plink.exe"})
+    assert "GIT_SSH_COMMAND" not in env
+
+
+def test_git_ssh_env_leaves_a_configured_core_ssh_command_in_charge(tmp_path):
+    """git ranks GIT_SSH_COMMAND above core.sshCommand, so adding it would
+    replace the command the repository is configured to use."""
+    repo = pygit2.init_repository(str(tmp_path))
+    repo.config["core.sshCommand"] = "ssh -i ~/.ssh/id_work -o IdentitiesOnly=yes"
+    env = git_ssh_env({}, config=repo.config)
+    assert "GIT_SSH_COMMAND" not in env
+
+
+def test_git_ssh_env_adds_accept_new_when_the_config_names_no_ssh_command():
+    env = git_ssh_env({}, config={"user.name": "T"})
+    assert "StrictHostKeyChecking=accept-new" in env["GIT_SSH_COMMAND"]
