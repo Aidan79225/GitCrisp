@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QRect, Qt, Signal
 from PySide6.QtGui import QBrush, QKeySequence, QPainter, QShortcut
@@ -392,33 +393,38 @@ class WorkingTreeWidget(QWidget):
         self._on_files_changed()
 
     def _on_stage_all(self) -> None:
+        self._apply_to_all(
+            lambda f: f.status != StagingState.STAGED,
+            lambda paths: self._commands.stage_files.execute(paths),
+            "Stage All",
+        )
+
+    def _on_unstage_all(self) -> None:
+        self._apply_to_all(
+            lambda f: f.status == StagingState.STAGED,
+            lambda paths: self._commands.unstage_files.execute(paths),
+            "Unstage All",
+        )
+
+    def _apply_to_all(
+        self,
+        select: Callable[[FileStatus], bool],
+        run: Callable[[list[str]], object],
+        action: str,
+    ) -> None:
+        """Run *run* on every selected file, plus every partly staged one,
+        which has changes on both sides of the index."""
         # Closing the last repo can leave this panel on screen with no buses.
         if self._queries is None:
             return
         try:
-            raw_files = self._queries.get_working_tree.execute()
-            files, partial = _deduplicate(raw_files)
-            paths = list({f.path for f in files if f.status != StagingState.STAGED} | partial)
+            files, partial = _deduplicate(self._queries.get_working_tree.execute())
+            paths = list({f.path for f in files if select(f)} | partial)
             if not paths:
                 return
-            self._commands.stage_files.execute(paths)
+            run(paths)
         except Exception as e:
-            self.commit_failed.emit(f"Stage All failed: {e}")
-            return
-        self._on_files_changed()
-
-    def _on_unstage_all(self) -> None:
-        if self._queries is None:
-            return
-        try:
-            raw_files = self._queries.get_working_tree.execute()
-            files, partial = _deduplicate(raw_files)
-            paths = list({f.path for f in files if f.status == StagingState.STAGED} | partial)
-            if not paths:
-                return
-            self._commands.unstage_files.execute(paths)
-        except Exception as e:
-            self.commit_failed.emit(f"Unstage All failed: {e}")
+            self.commit_failed.emit(f"{action} failed: {e}")
             return
         self._on_files_changed()
 
