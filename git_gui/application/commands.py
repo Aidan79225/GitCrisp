@@ -4,6 +4,7 @@ from git_gui.domain.entities import (
     Branch,
     Commit,
     MergeStrategy,
+    RebaseAction,
     RemoteBranchDeleteResult,
     ResetMode,
     Worktree,
@@ -406,7 +407,7 @@ class InteractiveRebase:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
 
-    def execute(self, target_oid: str, entries: list[tuple[str, str]]) -> None:
+    def execute(self, target_oid: str, entries: list[tuple[RebaseAction, str]]) -> None:
         self._writer.interactive_rebase(target_oid, entries)
 
 

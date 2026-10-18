@@ -229,6 +229,14 @@ class ResetMode(StrEnum):
     HARD = "HARD"
 
 
+class RebaseAction(StrEnum):
+    # Lower-case values: each one is written verbatim as a `git rebase -i` todo keyword.
+    PICK = "pick"
+    SQUASH = "squash"
+    FIXUP = "fixup"
+    DROP = "drop"
+
+
 @dataclass(frozen=True)
 class MergeAnalysisResult:
     can_ff: bool
