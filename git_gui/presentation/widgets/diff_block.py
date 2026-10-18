@@ -605,6 +605,19 @@ def make_hunk_header_row(
     return header_row, restyle
 
 
+def laid_out_text_height(editor: QPlainTextEdit) -> float:
+    """The height the document's blocks take once laid out, in pixels."""
+    document = editor.document()
+    layout = document.documentLayout()
+    height = 0.0
+    block = document.begin()
+    while block.isValid():
+        layout.ensureBlockLayout(block)
+        height += layout.blockBoundingRect(block).height()
+        block = block.next()
+    return height
+
+
 def add_hunk_widget(
     parent_layout: QVBoxLayout,
     hunk: Hunk,
@@ -654,9 +667,13 @@ def add_hunk_widget(
     line_count = _render(formats)
 
     line_height = editor.fontMetrics().lineSpacing()
+    # The layout's own block heights, with lines times lineSpacing as a floor:
+    # on Linux the layout gives a block a pixel or two more than the metric
+    # says, and over a long hunk that pushed the last line under the edge.
+    text_height = max(laid_out_text_height(editor), line_count * line_height)
     margins = editor.contentsMargins()
     doc_margin = editor.document().documentMargin() * 2
-    total_height = int(line_count * line_height + doc_margin + margins.top() + margins.bottom() + 4)
+    total_height = int(text_height + doc_margin + margins.top() + margins.bottom() + 4)
     editor.setFixedHeight(max(total_height, 4))
     editor.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
