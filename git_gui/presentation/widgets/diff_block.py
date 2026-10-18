@@ -6,8 +6,14 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPainter, QTextBlockFormat, QTextCharFormat, QTextCursor
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QPainter,
+    QTextBlockFormat,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -322,7 +328,36 @@ def fit_height_to_lines(editor: QPlainTextEdit, line_count: int) -> None:
 # Hunk rendering helpers
 
 
-_CHUNK_SIZE = 100
+# Lines per slice of a long hunk: enough that ordinary hunks land in one pass,
+# small enough that a generated file does not freeze the window while it renders.
+CHUNK_SIZE = 100
+
+
+def render_in_chunks(
+    document: QTextDocument, total: int, render_range: Callable[[int, int], None]
+) -> None:
+    """Render rows 0 to *total* through *render_range*, the first slice now.
+
+    The rest follow one slice per event-loop turn. *document* is the timer's
+    context: when its widget is deleted (e.g. _clear_blocks during a commit or
+    repo switch) the document goes with it and Qt cancels the pending slice,
+    which otherwise dereferenced a dangling QTextDocument, an access violation
+    on Windows.
+    """
+    render_range(0, min(CHUNK_SIZE, total))
+
+    def render_from(start: int) -> None:
+        try:
+            end = min(start + CHUNK_SIZE, total)
+            render_range(start, end)
+            if end < total:
+                QTimer.singleShot(0, document, lambda: render_from(end))
+        except RuntimeError:
+            pass
+
+    if total > CHUNK_SIZE:
+        QTimer.singleShot(0, document, lambda: render_from(CHUNK_SIZE))
+
 
 # As wide as a numbered line's "1234 1234  ", so a note lines up with the code.
 _UNNUMBERED_GUTTER = " " * 11
@@ -570,11 +605,9 @@ def render_hunk_content_lines(
     syntax_formats: SyntaxFormats | None = None,
     filename: str | None = None,
 ) -> int:
-    """Insert the +/-/context lines of *hunk* into *cursor*.
+    """Insert the +/-/context lines of *hunk* into *cursor*, returning the line count.
 
-    For small hunks (<= _CHUNK_SIZE lines), renders synchronously.
-    For large hunks, renders the first chunk immediately and schedules
-    the rest via QTimer.singleShot to keep the UI responsive.
+    A long hunk renders in slices; see render_in_chunks.
 
     When *syntax_formats* and *filename* are both given, the syntax pass
     layers Pygments-driven coloring on each rendered line, and adjacent -/+
@@ -585,63 +618,20 @@ def render_hunk_content_lines(
 
     pair_index = _build_pair_index(hunk.lines) if syntax_formats and filename else {}
 
-    total = len(hunk.lines)
-    if total <= _CHUNK_SIZE:
+    def render_range(start: int, end: int) -> None:
         _render_lines_range(
             cursor,
             hunk,
             formats,
-            0,
-            total,
+            start,
+            end,
             syntax_formats=syntax_formats,
             filename=filename,
             pair_index=pair_index,
         )
-        return total
 
-    _render_lines_range(
-        cursor,
-        hunk,
-        formats,
-        0,
-        _CHUNK_SIZE,
-        syntax_formats=syntax_formats,
-        filename=filename,
-        pair_index=pair_index,
-    )
-
-    from PySide6.QtCore import QTimer
-
-    state = {"start": _CHUNK_SIZE}
-
-    # The cursor's document is the context: when its parent widget is deleted
-    # (e.g. _clear_blocks during commit/repo switch), the document is destroyed
-    # and Qt cancels the pending callback. Without this guard the callback fires
-    # and dereferences a dangling QTextDocument → access violation on Windows.
-    document = cursor.document()
-
-    def _next_chunk():
-        try:
-            start = state["start"]
-            end = min(start + _CHUNK_SIZE, total)
-            _render_lines_range(
-                cursor,
-                hunk,
-                formats,
-                start,
-                end,
-                syntax_formats=syntax_formats,
-                filename=filename,
-                pair_index=pair_index,
-            )
-            state["start"] = end
-            if end < total:
-                QTimer.singleShot(0, document, _next_chunk)
-        except RuntimeError:
-            pass
-
-    QTimer.singleShot(0, document, _next_chunk)
-    return total
+    render_in_chunks(cursor.document(), len(hunk.lines), render_range)
+    return len(hunk.lines)
 
 
 # Shared per-hunk widget builder
