@@ -10,7 +10,9 @@ import json
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
-from git_gui.presentation.services.update_checker import fetch_latest_release
+import pytest
+
+from git_gui.presentation.services.update_checker import UpdateChecker, fetch_latest_release
 
 
 def _fake_response(payload: dict, status: int = 200):
@@ -57,78 +59,33 @@ def test_returns_none_on_malformed_json():
         assert fetch_latest_release("https://api.github.com/...") is None
 
 
-from unittest.mock import patch as _patch
+_FETCH = "git_gui.presentation.services.update_checker.fetch_latest_release"
 
 
 def test_update_checker_emits_when_remote_is_newer(qtbot):
-    from git_gui.presentation.services.update_checker import UpdateChecker
-
     checker = UpdateChecker(current_version="0.15.1")
     fake_result = ("v0.16.0", "https://github.com/.../releases/tag/v0.16.0")
-    with _patch(
-        "git_gui.presentation.services.update_checker.fetch_latest_release",
-        return_value=fake_result,
-    ):
+    with patch(_FETCH, return_value=fake_result):
         with qtbot.waitSignal(checker.update_available, timeout=2000) as blocker:
             checker.check()
     assert blocker.args == ["v0.16.0", "https://github.com/.../releases/tag/v0.16.0"]
 
 
-def test_update_checker_silent_when_remote_equal(qtbot):
-    from git_gui.presentation.services.update_checker import UpdateChecker
-
-    checker = UpdateChecker(current_version="0.16.0")
+@pytest.mark.parametrize(
+    ("current_version", "fetch_result"),
+    [
+        pytest.param("0.16.0", ("v0.16.0", "https://..."), id="remote-equal"),
+        pytest.param("0.16.0", ("v0.15.1", "https://..."), id="remote-older"),
+        pytest.param("0.15.1", None, id="fetch-failed"),
+        pytest.param("0.15.1", ("nightly-foo", "https://..."), id="remote-tag-unparseable"),
+    ],
+)
+def test_update_checker_stays_silent(qtbot, current_version, fetch_result):
+    checker = UpdateChecker(current_version=current_version)
     received: list[tuple] = []
     checker.update_available.connect(lambda *a: received.append(a))
-    with _patch(
-        "git_gui.presentation.services.update_checker.fetch_latest_release",
-        return_value=("v0.16.0", "https://..."),
-    ):
-        checker.check()
-        qtbot.wait(200)
-    assert received == []
-
-
-def test_update_checker_silent_when_remote_older(qtbot):
-    from git_gui.presentation.services.update_checker import UpdateChecker
-
-    checker = UpdateChecker(current_version="0.16.0")
-    received: list[tuple] = []
-    checker.update_available.connect(lambda *a: received.append(a))
-    with _patch(
-        "git_gui.presentation.services.update_checker.fetch_latest_release",
-        return_value=("v0.15.1", "https://..."),
-    ):
-        checker.check()
-        qtbot.wait(200)
-    assert received == []
-
-
-def test_update_checker_silent_when_fetch_returns_none(qtbot):
-    from git_gui.presentation.services.update_checker import UpdateChecker
-
-    checker = UpdateChecker(current_version="0.15.1")
-    received: list[tuple] = []
-    checker.update_available.connect(lambda *a: received.append(a))
-    with _patch(
-        "git_gui.presentation.services.update_checker.fetch_latest_release",
-        return_value=None,
-    ):
-        checker.check()
-        qtbot.wait(200)
-    assert received == []
-
-
-def test_update_checker_silent_when_remote_tag_unparseable(qtbot):
-    from git_gui.presentation.services.update_checker import UpdateChecker
-
-    checker = UpdateChecker(current_version="0.15.1")
-    received: list[tuple] = []
-    checker.update_available.connect(lambda *a: received.append(a))
-    with _patch(
-        "git_gui.presentation.services.update_checker.fetch_latest_release",
-        return_value=("nightly-foo", "https://..."),
-    ):
-        checker.check()
-        qtbot.wait(200)
+    with patch(_FETCH, return_value=fetch_result):
+        # _on_finished was connected first, so it has run once this arrives.
+        with qtbot.waitSignal(checker._result_ready, timeout=2000):
+            checker.check()
     assert received == []
