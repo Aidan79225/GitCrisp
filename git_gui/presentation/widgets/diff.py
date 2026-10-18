@@ -113,9 +113,6 @@ class DiffWidget(QWidget):
         self._path_filter: str | None = None
         self._submodule_paths: set[str] = set()
 
-        # Lazy loading — initialized after scroll area is created (see below)
-        self._loader: ViewportBlockLoader | None = None
-
         # ── State banner (merge/rebase in progress) ─────────────────────────
         self._state_banner = QWidget()
         banner_layout = QHBoxLayout(self._state_banner)
@@ -192,7 +189,6 @@ class DiffWidget(QWidget):
         self._scroll_area.setFrameShape(QScrollArea.NoFrame)
         self._scroll_area.setWidget(self._scroll_content)
 
-        # Re-point the lazy diff loader at the unified scroll area.
         self._loader = ViewportBlockLoader(self._scroll_area, self._realize_block)
 
         layout = QVBoxLayout(self)
@@ -417,8 +413,7 @@ class DiffWidget(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-        if self._loader:
-            self._loader.clear()
+        self._loader.clear()
         self._sync_hscroll()
 
     def _refresh_submodule_paths(self) -> None:
@@ -531,8 +526,6 @@ class DiffWidget(QWidget):
         """Clear and render one file as a bordered block."""
         self._refresh_submodule_paths()
         self._clear_blocks()
-        if self._loader:
-            self._loader.clear()
         block = self._build_file_block(path, hunks)
         self._diff_layout.addWidget(block)
         self._diff_layout.addStretch()
