@@ -14,11 +14,10 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtWidgets import QWidget
 
 from git_gui.domain.entities import Commit
-from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.widgets.graph import MAX_RELOAD_LIMIT, PAGE_SIZE, GraphWidget
+from tests.presentation.widgets.graph_menu_helpers import graph_widget
 
 
 class _InlineThread:
@@ -67,35 +66,7 @@ def _commits(n: int, prefix: str = "c") -> list[Commit]:
 
 
 def _widget(qtbot) -> GraphWidget:
-    """A GraphWidget without its heavy __init__ — the same shape the other
-    graph tests use."""
-    w = GraphWidget.__new__(GraphWidget)
-    QWidget.__init__(w)
-    w._queries = MagicMock()
-    w._model = GraphModel([], {})
-    w._loading = False
-    w._reload_queued = False
-    w._load_generation = 0
-    w._loaded_count = 0
-    w._has_more = False
-    w._reload_limit = PAGE_SIZE
-    w._pending_scroll_oid = None
-    w._pending_merge_base = None
-    w._pending_search = None
-    w._extra_tips = None
-    w._selected_oid = None
-    w._scroll_anchor_oid = None
-    w._first_parent = False
-    w._path_filter = None
-    w._path_filter_bar = MagicMock()
-    w._path_filter_bar.follow.return_value = True
-    w._stash_btn = MagicMock()
-    w._view = MagicMock()
-    w._search_bar = MagicMock()
-    w._search_matches = []
-    w._search_idx = -1
-    qtbot.addWidget(w)
-    return w
+    return graph_widget(qtbot, MagicMock())
 
 
 def _deliver(w: GraphWidget, commits: list[Commit]) -> None:

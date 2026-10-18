@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 from PySide6.QtWidgets import QMenu
 
 from git_gui.domain.entities import Remote, RepoState, RepoStateInfo
-from git_gui.presentation.widgets.graph import GraphWidget
+from tests.presentation.widgets.graph_menu_helpers import graph_widget
 
 
 @dataclass
@@ -35,17 +35,6 @@ class _FakeQueryBus:
         self.get_repo_state = _FakeQuery(lambda: state)
         self.get_head_oid = _FakeQuery(lambda: head_oid)
         self.is_ancestor = _FakeQuery(is_ancestor)
-
-
-def _make_widget_with_queries(qtbot, queries) -> GraphWidget:
-    # GraphWidget.__init__ does a lot — bypass it for these unit tests.
-    w = GraphWidget.__new__(GraphWidget)
-    w._queries = queries
-    from PySide6.QtWidgets import QWidget
-
-    QWidget.__init__(w)
-    qtbot.addWidget(w)
-    return w
 
 
 @dataclass
@@ -90,7 +79,7 @@ def test_detached_head_disables_everything(qtbot):
         state=RepoStateInfo(state=RepoState.DETACHED_HEAD, head_branch=None),
         head_oid="aaaaaaaaaaaa",
     )
-    w = _make_widget_with_queries(qtbot, queries)
+    w = graph_widget(qtbot, queries)
     menu = QMenu()
     menu.setToolTipsVisible(True)
     w._add_merge_rebase_section(menu, oid="bbbbbbbbbbbb", branches_on_commit=["feature"])
@@ -107,7 +96,7 @@ def test_merging_state_disables_everything(qtbot):
         state=RepoStateInfo(state=RepoState.MERGING, head_branch="main"),
         head_oid="aaaaaaaaaaaa",
     )
-    w = _make_widget_with_queries(qtbot, queries)
+    w = graph_widget(qtbot, queries)
     menu = QMenu()
     menu.setToolTipsVisible(True)
     w._add_merge_rebase_section(menu, oid="bbbbbbbbbbbb", branches_on_commit=["feature"])
@@ -123,7 +112,7 @@ def test_head_commit_with_no_other_branches_hides_section(qtbot):
         state=RepoStateInfo(state=RepoState.CLEAN, head_branch="main"),
         head_oid="aaaaaaaaaaaa",
     )
-    w = _make_widget_with_queries(qtbot, queries)
+    w = graph_widget(qtbot, queries)
     menu = QMenu()
     w._add_merge_rebase_section(menu, oid="aaaaaaaaaaaa", branches_on_commit=[])
 
@@ -136,7 +125,7 @@ def test_ancestor_branch_merge_disabled_with_already_up_to_date(qtbot):
         head_oid="head1234567",
         is_ancestor=lambda a, d: a == "anc12345678" and d == "head1234567",
     )
-    w = _make_widget_with_queries(qtbot, queries)
+    w = graph_widget(qtbot, queries)
     menu = QMenu()
     menu.setToolTipsVisible(True)
     w._add_merge_rebase_section(menu, oid="anc12345678", branches_on_commit=["old-branch"])
@@ -159,7 +148,7 @@ def test_normal_commit_emits_signals(qtbot):
         state=RepoStateInfo(state=RepoState.CLEAN, head_branch="main"),
         head_oid="head1234567",
     )
-    w = _make_widget_with_queries(qtbot, queries)
+    w = graph_widget(qtbot, queries)
 
     received_branch_merge: list[str] = []
     received_commit_merge: list[str] = []
@@ -199,7 +188,7 @@ def test_multiple_branches_use_submenus(qtbot):
         state=RepoStateInfo(state=RepoState.CLEAN, head_branch="main"),
         head_oid="head1234567",
     )
-    w = _make_widget_with_queries(qtbot, queries)
+    w = graph_widget(qtbot, queries)
     menu = QMenu()
     w._add_merge_rebase_section(menu, oid="other123456", branches_on_commit=["a", "b"])
 
@@ -221,7 +210,7 @@ def test_single_action_stays_top_level(qtbot):
         head_oid="aaaaaaaaaaaa",
         # Make oid == head so no commit-targeted actions
     )
-    w = _make_widget_with_queries(qtbot, queries)
+    w = graph_widget(qtbot, queries)
     menu = QMenu()
     # oid == head_oid → no commit merge/rebase, only branch actions
     w._add_merge_rebase_section(menu, oid="aaaaaaaaaaaa", branches_on_commit=["feature"])
@@ -242,7 +231,7 @@ def _menu_with_new_section(
             is_ancestor_of_head if a == target_oid and d == head_oid else False
         ),
     )
-    w = _make_widget_with_queries(qtbot, queries)
+    w = graph_widget(qtbot, queries)
     menu = QMenu()
     w._add_merge_rebase_section(menu, target_oid, branches_on_commit=[])
     return menu
@@ -351,13 +340,7 @@ def _bus_with_remotes(*names: str) -> MagicMock:
 def test_emit_remote_delete_splits_remote_and_branch(qtbot):
     """`_emit_remote_delete` should split the qualified name into the
     remote and the branch on it, and emit (remote, branch)."""
-    from git_gui.presentation.widgets.graph import GraphWidget
-
-    w = GraphWidget.__new__(GraphWidget)
-    from PySide6.QtWidgets import QWidget
-
-    QWidget.__init__(w)
-    qtbot.addWidget(w)
+    w = graph_widget(qtbot)
 
     w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
@@ -371,13 +354,7 @@ def test_emit_remote_delete_splits_remote_and_branch(qtbot):
 def test_emit_remote_delete_handles_slash_in_branch_name(qtbot):
     """Branch names can contain slashes (e.g. 'feature/foo'). The split
     must keep them in the branch."""
-    from git_gui.presentation.widgets.graph import GraphWidget
-
-    w = GraphWidget.__new__(GraphWidget)
-    from PySide6.QtWidgets import QWidget
-
-    QWidget.__init__(w)
-    qtbot.addWidget(w)
+    w = graph_widget(qtbot)
 
     w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
@@ -390,13 +367,7 @@ def test_emit_remote_delete_handles_slash_in_branch_name(qtbot):
 
 def test_emit_remote_delete_bails_on_malformed_name(qtbot):
     """A name with no slash means the input is malformed; no signal."""
-    from git_gui.presentation.widgets.graph import GraphWidget
-
-    w = GraphWidget.__new__(GraphWidget)
-    from PySide6.QtWidgets import QWidget
-
-    QWidget.__init__(w)
-    qtbot.addWidget(w)
+    w = graph_widget(qtbot)
 
     w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
@@ -409,13 +380,7 @@ def test_emit_remote_delete_bails_on_malformed_name(qtbot):
 
 def test_emit_remote_delete_bails_on_empty_remote(qtbot):
     """A leading slash means empty remote — bail."""
-    from git_gui.presentation.widgets.graph import GraphWidget
-
-    w = GraphWidget.__new__(GraphWidget)
-    from PySide6.QtWidgets import QWidget
-
-    QWidget.__init__(w)
-    qtbot.addWidget(w)
+    w = graph_widget(qtbot)
 
     w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
