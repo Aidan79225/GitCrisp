@@ -6,7 +6,10 @@ import threading
 from unittest.mock import patch
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 
+from git_gui.infrastructure.git_clone import CloneCancelled
 from git_gui.presentation.widgets.clone_dialog import CloneDialog, _parse_repo_name
 
 _CLONE_REPO = "git_gui.presentation.widgets.clone_dialog.clone_repo"
@@ -39,7 +42,7 @@ def _dialog(qtbot) -> CloneDialog:
 def clone_gate():
     """Make clone_repo wait until the test sets the returned event."""
     gate = threading.Event()
-    with patch(_CLONE_REPO, side_effect=lambda url, dest, on_progress=None: gate.wait(5)):
+    with patch(_CLONE_REPO, side_effect=lambda url, dest, **_: gate.wait(5)):
         yield gate
         gate.set()
 
@@ -96,3 +99,45 @@ def test_a_failed_clone_shows_gits_reason(qtbot):
 def test_a_failure_without_gits_output_shows_the_error_itself(qtbot):
     dialog = _fail_clone(qtbot, OSError("git executable not found"))
     assert dialog._error_label.text() == "git executable not found"
+
+
+@pytest.fixture
+def clone_until_cancelled():
+    """Make clone_repo run until it is cancelled; yields whether it saw the cancel."""
+    seen: list[bool] = []
+
+    def clone(url, dest, on_progress=None, cancelled=None):
+        seen.append(cancelled is not None and cancelled.wait(5))
+        raise CloneCancelled("cancelled")
+
+    with patch(_CLONE_REPO, side_effect=clone):
+        yield seen
+
+
+@pytest.mark.parametrize(
+    "dismiss",
+    [
+        pytest.param(lambda d: d._cancel_btn.click(), id="cancel"),
+        pytest.param(lambda d: QTest.keyClick(d, Qt.Key.Key_Escape), id="escape"),
+        pytest.param(lambda d: d.close(), id="close"),
+    ],
+)
+def test_dismissing_the_dialog_mid_clone_stops_the_clone(qtbot, clone_until_cancelled, dismiss):
+    dialog = _dialog(qtbot)
+    dialog._on_clone()
+
+    dismiss(dialog)
+
+    qtbot.waitUntil(lambda: bool(clone_until_cancelled))
+    assert clone_until_cancelled == [True]
+
+
+def test_a_cancelled_clone_is_not_reported_as_a_failure(qtbot, clone_until_cancelled):
+    dialog = _dialog(qtbot)
+    dialog._on_clone()
+
+    dialog.reject()
+    qtbot.waitUntil(lambda: bool(clone_until_cancelled))
+    qtbot.wait(200)
+
+    assert dialog._error_label.text() == ""

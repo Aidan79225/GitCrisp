@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from git_gui.infrastructure.git_clone import CloneProgress, clone_repo
+from git_gui.infrastructure.git_clone import CloneCancelled, CloneProgress, clone_repo
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 
 _REPO_NAME_RE = re.compile(r"[/:\\]([^/:\\]+?)(?:\.git)?[/\\]?$")
@@ -156,14 +156,18 @@ class CloneDialog(QDialog):
         signals.failed.connect(self._on_failed)
         self._clone_signals = signals  # prevent GC
 
+        cancelled = self._cancel_requested
+
         def _worker():
             try:
 
                 def _report(p: CloneProgress):
                     signals.progress.emit(p.phase, p.percent)
 
-                clone_repo(url, dest, on_progress=_report)
+                clone_repo(url, dest, on_progress=_report, cancelled=cancelled)
                 signals.finished.emit(dest)
+            except CloneCancelled:
+                pass  # The dialog closed when the user cancelled; there is nothing to show.
             except Exception as e:
                 signals.failed.emit(str(e))
 
@@ -201,9 +205,9 @@ class CloneDialog(QDialog):
             widget.setEnabled(not cloning)
 
     def reject(self) -> None:
-        # clone_repo cannot stop git yet, so a cancelled clone runs on until git
-        # exits by itself. The dialog still closes at once, so a stalled clone
-        # cannot hold the app behind it, and that clone is never opened.
+        # The clone stops git and removes what it wrote in the background; the
+        # dialog closes without waiting, so a git slow to die cannot hold the
+        # app behind it, and a clone that finished meanwhile is still not opened.
         if self._cloning:
             self._cancel_requested.set()
         super().reject()
