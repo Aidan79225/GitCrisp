@@ -6,11 +6,11 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget
 
 from git_gui.domain.entities import WORKING_TREE_OID, Commit, RepoState, RepoStateInfo
-from git_gui.presentation.models.graph_model import INFO_ROLE, GraphModel
+from git_gui.presentation.models.graph_model import INFO_ROLE
 from git_gui.presentation.widgets.graph import GraphWidget
+from tests.presentation.widgets.graph_menu_helpers import graph_widget
 
 
 def _make_commit(oid: str = "aaa", msg: str = "hello", parents: list[str] | None = None) -> Commit:
@@ -27,35 +27,7 @@ HEAD_OID = "deadbeefdeadbeef"
 
 
 def _make_widget(qtbot) -> GraphWidget:
-    """Create a minimal GraphWidget bypassing its full __init__."""
-    w = GraphWidget.__new__(GraphWidget)
-    QWidget.__init__(w)
-
-    w._queries = object()  # truthy sentinel; _on_reload_done just checks `is None`
-    w._model = GraphModel([], {})
-    w._loading = False
-    w._reload_queued = False
-    w._load_generation = 0
-    w._loaded_count = 0
-    w._has_more = True
-    w._reload_limit = 50
-    w._pending_scroll_oid = None
-    w._pending_merge_base = None
-    w._extra_tips = None
-    w._selected_oid = None
-    w._scroll_anchor_oid = None
-    w._pending_search = None
-    w._first_parent = False
-    # Path filter state — the commit list defaults to the full graph.
-    w._path_filter = None
-    w._path_filter_bar = MagicMock()
-    w._path_filter_bar.follow.return_value = True
-
-    # _stash_btn is called with setVisible; use a simple mock
-    w._stash_btn = MagicMock()
-
-    qtbot.addWidget(w)
-    return w
+    return graph_widget(qtbot, MagicMock())
 
 
 def _state_info(state: RepoState) -> RepoStateInfo:

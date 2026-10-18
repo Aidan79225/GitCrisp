@@ -5,12 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import MagicMock
 
-from PySide6.QtWidgets import QWidget
-
 from git_gui.domain.entities import Commit
-from git_gui.presentation.models.graph_model import LANE_ROLE, GraphModel
+from git_gui.presentation.models.graph_model import LANE_ROLE
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.graph_lane_painter import row_graph_width
+from tests.presentation.widgets.graph_menu_helpers import graph_widget
 
 
 def _make_commit(oid: str, parents: list[str] | None = None) -> Commit:
@@ -24,33 +23,9 @@ def _make_commit(oid: str, parents: list[str] | None = None) -> Commit:
 
 
 def _make_widget(qtbot) -> GraphWidget:
-    """Minimal GraphWidget with __init__ bypassed, as the sibling graph tests do."""
-    w = GraphWidget.__new__(GraphWidget)
-    QWidget.__init__(w)
-    w._queries = MagicMock()
-    w._model = GraphModel([], {})
-    w._loading = False
-    w._reload_queued = False
-    w._load_generation = 0
-    w._loaded_count = 0
-    w._has_more = True
-    w._reload_limit = 50
-    w._pending_scroll_oid = None
-    w._pending_merge_base = None
-    w._pending_search = None
-    w._extra_tips = None
-    w._selected_oid = None
-    w._scroll_anchor_oid = None
-    w._first_parent = False
-    w._path_filter = None
+    w = graph_widget(qtbot, MagicMock())
     w._path_filter_bar = MagicMock()
     w._path_filter_bar.follow.return_value = True
-    w._view = MagicMock()
-    w._stash_btn = MagicMock()
-    w._search_bar = MagicMock()
-    w._search_matches = []
-    w._search_idx = -1
-    qtbot.addWidget(w)
     return w
 
 
