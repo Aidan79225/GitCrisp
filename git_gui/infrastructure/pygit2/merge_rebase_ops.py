@@ -1,13 +1,26 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
+from pathlib import Path
 
 import pygit2
 
 from git_gui.domain.entities import MergeAnalysisResult, MergeStrategy
 from git_gui.infrastructure.pygit2.repo_state_ops import REBASE_STATES
 from git_gui.resources import subprocess_kwargs
+
+
+def _editor_copying(source_path: str) -> str:
+    """A GIT_EDITOR / GIT_SEQUENCE_EDITOR command that replaces the file git
+    hands the editor with the contents of *source_path*.
+
+    git runs the editor through its own sh (bundled with Git for Windows), so
+    ``cp`` is always there. A Python interpreter is not: in the frozen release
+    ``sys.executable`` is GitCrisp itself.
+    """
+    return "cp " + shlex.quote(Path(source_path).as_posix())
 
 
 class MergeRebaseOps:
@@ -116,7 +129,6 @@ class MergeRebaseOps:
         self._run_git("rebase", "--abort")
 
     def rebase_continue(self, message: str = "") -> None:
-        import sys
         import tempfile
 
         env = self._git_env
@@ -131,12 +143,7 @@ class MergeRebaseOps:
             )
             msg_file.write(message)
             msg_file.close()
-            # Use python to copy the temp file content into the editor target
-            python = sys.executable.replace("\\", "/")
-            msg_path = msg_file.name.replace("\\", "/")
-            env["GIT_EDITOR"] = (
-                f"{python} -c \"import shutil,sys; shutil.copy('{msg_path}', sys.argv[1])\""
-            )
+            env["GIT_EDITOR"] = _editor_copying(msg_file.name)
         else:
             env["GIT_EDITOR"] = "true"
         try:
@@ -168,7 +175,6 @@ class MergeRebaseOps:
         *entries* is a list of (action, oid) tuples in replay order.
         Actions: "pick", "squash", "fixup", "drop".
         """
-        import sys
         import tempfile
 
         # Use the merge-base as the actual rebase target so git's internal
@@ -196,11 +202,7 @@ class MergeRebaseOps:
         todo_file.close()
 
         env = self._git_env
-        python = sys.executable.replace("\\", "/")
-        todo_path = todo_file.name.replace("\\", "/")
-        env["GIT_SEQUENCE_EDITOR"] = (
-            f"{python} -c \"import shutil,sys; shutil.copy('{todo_path}', sys.argv[1])\""
-        )
+        env["GIT_SEQUENCE_EDITOR"] = _editor_copying(todo_file.name)
         # Prevent interactive editor from opening for squash/fixup messages
         env["GIT_EDITOR"] = "true"
 
