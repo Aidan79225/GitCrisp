@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from html import escape
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import (
@@ -32,6 +33,10 @@ def _fragments(document: QTextDocument) -> list[QTextFragment]:
         fragments.extend(it.fragment() for it in block)
         block = block.next()
     return fragments
+
+
+def _timestamp() -> str:
+    return datetime.now().strftime("%H:%M:%S")
 
 
 def _colour_role(fmt: QTextCharFormat) -> ColorRole:
@@ -109,12 +114,10 @@ class LogPanel(QWidget):
         cursor.endEditBlock()
 
     def log(self, message: str) -> None:
-        ts = datetime.now().strftime("%H:%M:%S")
-        self._append(f"[{ts}] {message}", self._fmt_default)
+        self._append(f"[{_timestamp()}] {message}", self._fmt_default)
 
     def log_error(self, message: str) -> None:
-        ts = datetime.now().strftime("%H:%M:%S")
-        self._append(f"[{ts}] {message}", self._fmt_error)
+        self._append(f"[{_timestamp()}] {message}", self._fmt_error)
 
     def log_link(self, message: str, url: str) -> None:
         """Append a single row with ``message`` rendered as a clickable hyperlink to ``url``.
@@ -123,24 +126,7 @@ class LogPanel(QWidget):
         inject markup. The row uses the timestamp prefix and the theme's
         on_primary_container color for the link.
         """
-        from html import escape
-
-        ts = datetime.now().strftime("%H:%M:%S")
-        safe_msg = escape(message)
-        safe_url = escape(url, quote=True)
-        c = get_theme_manager().current.colors
-        link_color = c.as_qcolor(ColorRole.ON_PRIMARY_CONTAINER).name()
-        on_surface = c.as_qcolor(ColorRole.ON_SURFACE).name()
-        cursor = self._body.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        if self._body.document().characterCount() > 1:
-            cursor.insertBlock()
-        cursor.insertHtml(
-            f'<span style="color: {on_surface};">[{ts}] </span>'
-            f'<a href="{safe_url}" style="color: {link_color};">{safe_msg}</a>'
-        )
-        self._body.setTextCursor(cursor)
-        self._body.ensureCursorVisible()
+        self._append_link_row("", url, message)
 
     def _on_anchor_clicked(self, url) -> None:
         if url.scheme() == ACTION_SCHEME:
@@ -155,23 +141,7 @@ class LogPanel(QWidget):
         that reports it, where the reader is already looking. A permanent
         control would have to be found; this one arrives.
         """
-        from html import escape
-
-        ts = datetime.now().strftime("%H:%M:%S")
-        c = get_theme_manager().current.colors
-        link_color = c.as_qcolor(ColorRole.ON_PRIMARY_CONTAINER).name()
-        on_surface = c.as_qcolor(ColorRole.ON_SURFACE).name()
-        href = escape(f"{ACTION_SCHEME}:/{action_id}", quote=True)
-        cursor = self._body.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        if self._body.document().characterCount() > 1:
-            cursor.insertBlock()
-        cursor.insertHtml(
-            f'<span style="color: {on_surface};">[{ts}] {escape(message)}  ·  </span>'
-            f'<a href="{href}" style="color: {link_color};">{escape(action_label)}</a>'
-        )
-        self._body.setTextCursor(cursor)
-        self._body.ensureCursorVisible()
+        self._append_link_row(f"{message}  ·  ", f"{ACTION_SCHEME}:/{action_id}", action_label)
 
     def expand(self) -> None:
         self._expanded = True
@@ -188,6 +158,26 @@ class LogPanel(QWidget):
             self.collapse()
         else:
             self.expand()
+
+    def _append_link_row(self, prefix: str, href: str, label: str) -> None:
+        """A timestamped row of `prefix` text ending in a themed link to `href`."""
+        c = get_theme_manager().current.colors
+        link_color = c.as_qcolor(ColorRole.ON_PRIMARY_CONTAINER).name()
+        on_surface = c.as_qcolor(ColorRole.ON_SURFACE).name()
+        self._append_html(
+            f'<span style="color: {on_surface};">[{_timestamp()}] {escape(prefix)}</span>'
+            f'<a href="{escape(href, quote=True)}" style="color: {link_color};">'
+            f"{escape(label)}</a>"
+        )
+
+    def _append_html(self, html: str) -> None:
+        cursor = self._body.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        if self._body.document().characterCount() > 1:
+            cursor.insertBlock()
+        cursor.insertHtml(html)
+        self._body.setTextCursor(cursor)
+        self._body.ensureCursorVisible()
 
     def _append(self, text: str, fmt: QTextCharFormat) -> None:
         cursor = self._body.textCursor()
