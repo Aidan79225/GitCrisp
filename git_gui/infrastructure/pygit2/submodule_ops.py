@@ -77,20 +77,7 @@ class SubmoduleOps:
         if not sm_paths:
             return result
 
-        # Parse URLs from .gitmodules config file
-        url_map: dict[str, str] = {}
-        gitmodules_path = os.path.join(self._repo.workdir, ".gitmodules")
-        if os.path.exists(gitmodules_path):
-            try:
-                cfg = pygit2.Config(gitmodules_path)
-                for entry in cfg:
-                    # entry.name is like "submodule.libs/foo.url"
-                    parts = entry.name.split(".")
-                    if len(parts) >= 3 and parts[0] == "submodule" and parts[-1] == "url":
-                        sm_path = ".".join(parts[1:-1])
-                        url_map[sm_path] = entry.value
-            except Exception as e:
-                logger.warning("Failed to parse .gitmodules at %r: %s", gitmodules_path, e)
+        url_map = self._gitmodules_urls_by_path()
 
         # Get head SHAs via git ls-files -s (gitlink entries have mode 160000)
         sha_map: dict[str, str] = {}
@@ -118,6 +105,29 @@ class SubmoduleOps:
             head = sha_map.get(path)
             result.append(Submodule(path=path, url=url, head_sha=head))
         return result
+
+    def _gitmodules_urls_by_path(self) -> dict[str, str]:
+        gitmodules_path = os.path.join(self._repo.workdir, ".gitmodules")
+        if not os.path.exists(gitmodules_path):
+            return {}
+        # Sections are keyed by submodule name ("submodule.<name>.url"), which
+        # differs from the path after `add --name` or `git mv`; a section with
+        # no path entry uses its name as the path.
+        url_by_name: dict[str, str] = {}
+        path_by_name: dict[str, str] = {}
+        try:
+            for entry in pygit2.Config(gitmodules_path):
+                section, _, rest = entry.name.partition(".")
+                name, _, key = rest.rpartition(".")
+                if section != "submodule" or not name:
+                    continue
+                if key == "url":
+                    url_by_name[name] = entry.value
+                elif key == "path":
+                    path_by_name[name] = entry.value
+        except Exception as e:
+            logger.warning("Failed to parse .gitmodules at %r: %s", gitmodules_path, e)
+        return {path_by_name.get(name, name): url for name, url in url_by_name.items()}
 
     def add_submodule(self, path: str, url: str) -> None:
         self._submodule_cli().add(path=path, url=url)
