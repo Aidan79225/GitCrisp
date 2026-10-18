@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import NamedTuple
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal, SignalInstance
@@ -35,7 +36,11 @@ from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
 from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
 from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
-from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
+from git_gui.presentation.widgets.viewport_block_loader import (
+    BlockRef,
+    DiffMapSignals,
+    ViewportBlockLoader,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -540,44 +545,37 @@ class DiffWidget(QWidget):
 
     def _render_all_files(self, oid: str) -> None:
         """Render all file blocks as skeletons immediately, then fetch diffs in background."""
-        import threading
-
-        from PySide6.QtCore import QObject, Signal
-
         self._refresh_submodule_paths()
         self._clear_blocks()
+        self._loader.set_blocks(self._build_skeleton_blocks())
+        self._blocks_generation += 1
+        self._fetch_diff_map(oid, self._blocks_generation)
 
-        block_refs = []
+    def _build_skeleton_blocks(self) -> list[BlockRef]:
+        """Lay out a skeleton block per file, up to the cap, and return them.
 
-        # Each block is a frame subtree registered with the theme manager, and
-        # building one per file held the window for seconds on a commit that
-        # touches thousands. The rest stay reachable through the file list.
+        Each block is a frame subtree registered with the theme manager, and
+        building one per file held the window for seconds on a commit that
+        touches thousands. The rest stay reachable through the file list.
+        """
+        block_refs: list[BlockRef] = []
         row_count = self._diff_model.rowCount()
         for row in range(min(row_count, MAX_AGGREGATE_FILE_BLOCKS)):
-            index = self._diff_model.index(row)
-            file_status = self._diff_model.data(index, Qt.UserRole)
+            file_status = self._diff_model.data(self._diff_model.index(row), Qt.UserRole)
             if file_status is None:
                 continue
-            path = file_status.path
-            frame, inner, skeleton = self._build_skeleton_block(path)
+            frame, inner, skeleton = self._build_skeleton_block(file_status.path)
             self._diff_layout.addWidget(frame)
-            block_refs.append((path, frame, inner, skeleton))
+            block_refs.append((file_status.path, frame, inner, skeleton))
         if row_count > MAX_AGGREGATE_FILE_BLOCKS:
             self._diff_layout.addWidget(make_overflow_notice(row_count - MAX_AGGREGATE_FILE_BLOCKS))
-
         self._diff_layout.addStretch()
+        return block_refs
 
-        self._loader.set_blocks(block_refs)
-        self._blocks_generation += 1
-        generation = self._blocks_generation
-
-        # Dispatch background fetch
+    def _fetch_diff_map(self, oid: str, generation: int) -> None:
+        """Fetch every file's diff of *oid* off the UI thread, for the blocks of *generation*."""
         queries = self._queries
-
-        class _MapSignals(QObject):
-            done = Signal(object, int)  # dict, blocks generation
-
-        signals = _MapSignals()
+        signals = DiffMapSignals()
         signals.done.connect(self._on_diff_map_loaded)
         self._diff_map_signals = signals  # prevent GC
 

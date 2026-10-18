@@ -13,8 +13,22 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
+
+# A file's block: its path, its frame, the layout hunks go into, and the
+# skeleton standing in for them until it is realised.
+BlockRef = tuple[str, QFrame, QVBoxLayout, QWidget | None]
+
+
+class DiffMapSignals(QObject):
+    """Brings a diff map fetched off the UI thread back to it.
+
+    It carries the generation of the blocks the fetch was started for, so a
+    map that lands after those blocks were replaced can be told apart.
+    """
+
+    done = Signal(object, int)  # diff map keyed by path, blocks generation
 
 
 class ViewportBlockLoader(QObject):
@@ -32,7 +46,7 @@ class ViewportBlockLoader(QObject):
         super().__init__()
         self._scroll_area = scroll_area
         self._realize_fn = realize_fn
-        self._block_refs: list[tuple[str, QFrame, QVBoxLayout, QWidget | None]] = []
+        self._block_refs: list[BlockRef] = []
         # Positions in _block_refs, not paths: a commit that changes a file's
         # type lists the path twice, and tracking by path left the second
         # block a skeleton for good.
@@ -47,7 +61,7 @@ class ViewportBlockLoader(QObject):
         scroll_area.verticalScrollBar().valueChanged.connect(lambda _: self._scroll_timer.start())
         scroll_area.viewport().installEventFilter(self)
 
-    def set_blocks(self, block_refs: list[tuple[str, QFrame, QVBoxLayout, QWidget | None]]) -> None:
+    def set_blocks(self, block_refs: list[BlockRef]) -> None:
         self._block_refs = list(block_refs)
         self._realized = set()
         self._diff_map = {}
