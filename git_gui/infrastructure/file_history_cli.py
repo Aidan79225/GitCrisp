@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
 import shutil
 
-from git_gui.infrastructure.git_process import run_git
+from git_gui.infrastructure.git_process import git_run_dir, pinned_git_env, run_git
 
 
 class FileHistoryError(Exception):
@@ -25,9 +24,10 @@ class FileHistoryCli:
     """
 
     def __init__(
-        self, repo_workdir: str, git_executable: str = "git", *, git_dir: str | None = None
+        self, repo_workdir: str | None, git_executable: str = "git", *, git_dir: str | None = None
     ) -> None:
-        self._cwd = repo_workdir
+        self._cwd = git_run_dir(repo_workdir, git_dir)
+        self._work_tree = repo_workdir
         self._git = git_executable
         self._git_dir = git_dir
 
@@ -65,7 +65,7 @@ class FileHistoryCli:
         args += ["--", path]
 
         try:
-            proc = run_git(args, cwd=self._cwd, env=self._env())
+            proc = run_git(args, cwd=self._cwd, env=pinned_git_env(self._git_dir, self._work_tree))
         except OSError as e:
             raise FileHistoryError(f"Failed to run git log: {e}") from e
 
@@ -74,10 +74,3 @@ class FileHistoryCli:
 
         oids = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         return oids[skip:]
-
-    def _env(self) -> dict[str, str]:
-        env = os.environ.copy()
-        if self._git_dir is not None:
-            env["GIT_DIR"] = self._git_dir
-            env["GIT_WORK_TREE"] = self._cwd
-        return env
