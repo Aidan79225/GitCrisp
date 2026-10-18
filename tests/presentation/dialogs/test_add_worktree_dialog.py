@@ -180,9 +180,7 @@ def test_a_new_absolute_location_enables_add_without_a_message(qtbot, tmp_path):
     assert not dlg._location_error.isVisibleTo(dlg)
 
 
-def test_a_location_that_cannot_be_accessed_disables_add_and_says_why(
-    qtbot, tmp_path, monkeypatch
-):
+def test_a_location_that_cannot_be_accessed_disables_add_and_says_why(qtbot, tmp_path, monkeypatch):
     denied = tmp_path / "denied" / "wt"
     real_stat = Path.stat
 
