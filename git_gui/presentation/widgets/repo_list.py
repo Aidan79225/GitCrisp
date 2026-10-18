@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pygit2
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QPersistentModelIndex, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -64,15 +64,19 @@ class _RepoTree(QTreeView):
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
-        from PySide6.QtCore import QPersistentModelIndex
-
         self._hover_idx = QPersistentModelIndex()
         self._drop_indicator_y: int | None = None  # y position in viewport
         self._drag_origin: QPoint | None = None
+        self._drag_row = QPersistentModelIndex()
 
     def mousePressEvent(self, event) -> None:
-        pressed_left = event.button() == Qt.LeftButton
-        self._drag_origin = event.position().toPoint() if pressed_left else None
+        # The row is kept from the press itself: a press on blank space or an
+        # expand arrow leaves currentIndex() on whatever was clicked before.
+        origin = event.position().toPoint()
+        pressed = self.indexAt(origin)
+        grabbed = event.button() == Qt.LeftButton and pressed.data(Qt.UserRole + 1) == "open"
+        self._drag_origin = origin if grabbed else None
+        self._drag_row = QPersistentModelIndex(pressed) if grabbed else QPersistentModelIndex()
         super().mousePressEvent(event)
 
     def _is_drag_gesture(self, event) -> bool:
@@ -83,10 +87,7 @@ class _RepoTree(QTreeView):
 
     def startDrag(self, supportedActions) -> None:
         """Override Qt's drag start to use our own mime data (repo path as text)."""
-        idx = self.currentIndex()
-        if not idx.isValid() or idx.data(Qt.UserRole + 1) != "open":
-            return
-        path = idx.data(Qt.UserRole)
+        path = self._drag_row.data(Qt.UserRole) if self._drag_row.isValid() else None
         if not path:
             return
         from PySide6.QtCore import QMimeData
