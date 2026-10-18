@@ -7,7 +7,14 @@ def test_install_git_menu_adds_two_actions(qtbot):
     window = QMainWindow()
     qtbot.addWidget(window)
     install_git_menu(
-        window, queries=None, commands=None, repo_workdir=None, on_open_submodule=lambda p: None
+        window,
+        queries=None,
+        commands=None,
+        repo_workdir=None,
+        on_open_submodule=lambda p: None,
+        on_open_worktrees_dialog=lambda: None,
+        on_open_reflog=lambda: None,
+        on_checkout_branch=lambda _b: None,
     )
     bar = window.menuBar()
     titles = [a.text() for a in bar.actions()]
@@ -38,6 +45,8 @@ def test_checkout_in_the_branches_dialog_reaches_the_windows_checkout(qtbot):
         commands=MagicMock(),
         repo_workdir=None,
         on_open_submodule=lambda p: None,
+        on_open_worktrees_dialog=lambda: None,
+        on_open_reflog=lambda: None,
         on_checkout_branch=checked_out.append,
     )
 
@@ -50,3 +59,50 @@ def test_checkout_in_the_branches_dialog_reaches_the_windows_checkout(qtbot):
         window._git_branches_action.trigger()
 
     assert checked_out == ["feat"]
+
+
+def _install(window: QMainWindow, *, session, repo_workdir: str | None, **callbacks) -> None:
+    defaults = {
+        "on_open_submodule": lambda _p: None,
+        "on_open_worktrees_dialog": lambda: None,
+        "on_open_reflog": lambda: None,
+        "on_checkout_branch": lambda _b: None,
+    }
+    install_git_menu(
+        window,
+        queries=session,
+        commands=session,
+        repo_workdir=repo_workdir,
+        **{**defaults, **callbacks},
+    )
+
+
+def _enabled_items(window: QMainWindow) -> dict[str, bool]:
+    return {a.text(): a.isEnabled() for a in window._git_menu.actions() if not a.isSeparator()}
+
+
+def test_with_no_repo_open_every_git_item_is_disabled_rather_than_dead(qtbot):
+    window = QMainWindow()
+    qtbot.addWidget(window)
+    _install(window, session=None, repo_workdir=None)
+    assert not any(_enabled_items(window).values())
+
+
+def test_with_a_repo_open_every_git_item_is_enabled(qtbot):
+    from unittest.mock import MagicMock
+
+    window = QMainWindow()
+    qtbot.addWidget(window)
+    _install(window, session=MagicMock(), repo_workdir="/repo")
+    assert all(_enabled_items(window).values())
+
+
+def test_the_reflog_item_calls_back_without_arguments(qtbot):
+    from unittest.mock import MagicMock
+
+    window = QMainWindow()
+    qtbot.addWidget(window)
+    opened = MagicMock()
+    _install(window, session=MagicMock(), repo_workdir="/repo", on_open_reflog=opened)
+    next(a for a in window._git_menu.actions() if a.text() == "Ref&log...").trigger()
+    opened.assert_called_once_with()

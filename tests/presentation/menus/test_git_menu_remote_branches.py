@@ -16,6 +16,9 @@ def test_remote_branches_action_installed_and_opens(qtbot):
         commands=commands,
         repo_workdir="/repo",
         on_open_submodule=lambda _p: None,
+        on_open_worktrees_dialog=lambda: None,
+        on_open_reflog=lambda: None,
+        on_checkout_branch=lambda _b: None,
     )
 
     action = win._git_remote_branches_action
