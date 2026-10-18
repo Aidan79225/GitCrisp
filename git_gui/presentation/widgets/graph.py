@@ -120,6 +120,50 @@ def _btn_style() -> str:
     )
 
 
+def _ref_labels(
+    branches: list[Branch], tags: list[Tag], head_oid: str
+) -> tuple[dict[str, list[str]], str | None]:
+    """The badge labels for each commit, and the checked-out local branch.
+
+    HEAD gets a badge of its own only when detached, when no local branch is.
+    """
+    refs: dict[str, list[str]] = {}
+    head_branch: str | None = None
+    for b in branches:
+        refs.setdefault(b.target_oid, []).append(b.name)
+        if b.is_head and not b.is_remote:
+            head_branch = b.name
+    for t in tags:
+        refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
+    if head_oid and not head_branch:
+        refs.setdefault(head_oid, []).insert(0, "HEAD")
+    return refs, head_branch
+
+
+_WORKING_TREE_MESSAGES = {
+    RepoState.MERGING: "Merge in progress (conflicts)",
+    RepoState.REBASING: "Rebase in progress",
+}
+
+
+def _working_tree_row(
+    state: RepoState, head_oid: str, merge_head: str | None, commits: list[Commit]
+) -> Commit:
+    """The synthetic row for uncommitted changes, drawn on top of HEAD."""
+    parents = [head_oid] if head_oid else []
+    # The walk does not push MERGE_HEAD. A parent that never arrives as a
+    # row would hold its lane open to the bottom.
+    if state is RepoState.MERGING and merge_head and any(c.oid == merge_head for c in commits):
+        parents.append(merge_head)
+    return Commit(
+        oid=WORKING_TREE_OID,
+        message=_WORKING_TREE_MESSAGES.get(state, "Uncommitted Changes"),
+        author="",
+        timestamp=datetime.now(),
+        parents=parents,
+    )
+
+
 def _add_one_or_submenu(
     menu: QMenu, title: str, labels: list[str], single_label: Callable[[str], str]
 ) -> list[QAction]:
@@ -749,113 +793,83 @@ class GraphWidget(QWidget):
         if self._reload_if_stale(first_parent, path_filter):
             return
 
-        # A pinned tip rides along past the end of the page, so the page can
-        # come back longer than the limit. Both of these read the walk, not
-        # the list: `>=` because a full page still means there is more, and
-        # the clamp because `skip` counts walker positions — counting the
-        # pinned row would step over a real commit on the next page.
-        self._loaded_count = min(len(commits), self._reload_limit)
-        self._has_more = len(commits) >= self._reload_limit
-
-        refs: dict[str, list[str]] = {}
-        head_branch: str | None = None
-        for b in branches:
-            refs.setdefault(b.target_oid, []).append(b.name)
-            if b.is_head and not b.is_remote:
-                head_branch = b.name
-        for t in tags:
-            refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
-
-        # Show HEAD badge only when detached (no local branch is HEAD)
-        if head_oid and not head_branch:
-            refs.setdefault(head_oid, []).insert(0, "HEAD")
-
-        all_commits = list(commits)
+        self._count_page(commits)
+        refs, head_branch = _ref_labels(branches, tags, head_oid)
+        rows = list(commits)
         # The synthetic "Uncommitted Changes" row is anchored to HEAD's parents,
         # which say nothing about a path-filtered listing — skip it there.
         if is_dirty and path_filter is None:
             state = repo_state_info.state if repo_state_info else RepoState.CLEAN
-            if state is RepoState.MERGING:
-                message = "Merge in progress (conflicts)"
-                # The walk does not push MERGE_HEAD. A parent that never
-                # arrives as a row would hold its lane open to the bottom.
-                merge_head_loaded = any(c.oid == merge_head for c in commits)
-                parents = [head_oid, merge_head] if merge_head_loaded else [head_oid]
-            elif state is RepoState.REBASING:
-                message = "Rebase in progress"
-                parents = [head_oid] if head_oid else []
-            else:
-                message = "Uncommitted Changes"
-                parents = [head_oid] if head_oid else []
-            parents = [p for p in parents if p]
-            synthetic = Commit(
-                oid=WORKING_TREE_OID,
-                message=message,
-                author="",
-                timestamp=datetime.now(),
-                parents=parents,
-            )
-            all_commits.insert(0, synthetic)
-
+            rows.insert(0, _working_tree_row(state, head_oid, merge_head, commits))
         self._model.reload(
-            all_commits,
+            rows,
             refs,
             head_branch,
             first_parent=first_parent,
             show_graph=path_filter is None,
             remote_branches=frozenset(b.name for b in branches if b.is_remote),
         )
+        if not self._settle_pending_scroll():
+            self._restore_view_state()
+        self._run_pending_search()
 
-        retrying = False
-        if self._pending_scroll_oid:
-            loaded_oids = self._loaded_oids()
-            target_loaded = self._pending_scroll_oid in loaded_oids
-            base_loaded = (
-                self._pending_merge_base is None or self._pending_merge_base in loaded_oids
-            )
-            if target_loaded and base_loaded:
-                self._land_on_pending_target()
-                self._pending_scroll_oid = None
-                self._pending_merge_base = None
-            elif self._has_more and self._reload_limit < MAX_RELOAD_LIMIT:
-                tips = self._extra_tips
-                new_limit = min(self._reload_limit * 2, MAX_RELOAD_LIMIT)
-                self._loading = False
-                self.reload(extra_tips=tips, limit=new_limit)
-                retrying = True
-            elif self._path_filter is not None and not target_loaded:
-                self._show_in_full_graph(
-                    self._pending_scroll_oid, self._extra_tips or [self._pending_scroll_oid]
-                )
-                retrying = True
-            else:
-                # No more commits OR cap reached — the converging lane couldn't
-                # be fully loaded. Still scroll+select the target if we managed
-                # to load it (e.g. an old branch tip pinned via extra_tips);
-                # only give up silently when the target itself is absent.
-                if self._pending_scroll_oid in loaded_oids:
-                    self._land_on_pending_target()
-                self._pending_scroll_oid = None
-                self._pending_merge_base = None
+    def _count_page(self, commits: list[Commit]) -> None:
+        """Record how far the walk got and whether it has more.
 
-        # Restore the previous selection so the highlighted row stays in sync
-        # with the diff pane. The model reset above wiped the view's current
-        # row; without this restore the user sees a diff pane with content but
-        # no corresponding highlight in the graph. Skipped during retry — the
-        # next reload will run this branch. A selection whose row is gone is
-        # forgotten, or a click on that commit when it returns would not
-        # reach the diff pane.
-        if not retrying and self._selected_oid is not None:
-            if not self._restore_selection_no_scroll(self._selected_oid):
-                self._selected_oid = None
+        A pinned tip rides along past the end of the page, so the page can
+        come back longer than the limit. Both of these read the walk, not
+        the list: `>=` because a full page still means there is more, and
+        the clamp because `skip` counts walker positions — counting the
+        pinned row would step over a real commit on the next page.
+        """
+        self._loaded_count = min(len(commits), self._reload_limit)
+        self._has_more = len(commits) >= self._reload_limit
 
-        # Restore the user's scroll position. Auto-refreshes (e.g., on focus
-        # return) used to silently jump the viewport back to the top because
-        # QTableView resets its scrollbar after a model reset.
-        if not retrying:
-            self._restore_scroll_anchor()
+    def _settle_pending_scroll(self) -> bool:
+        """Land on the commit a click asked for, or load further to find it.
 
-        # If a search was deferred until all commits were loaded, run it now.
+        Returns whether another load was started; that load, not this one,
+        then restores the view.
+        """
+        target = self._pending_scroll_oid
+        if not target:
+            return False
+        loaded = self._loaded_oids()
+        target_loaded = target in loaded
+        base_loaded = self._pending_merge_base is None or self._pending_merge_base in loaded
+        if target_loaded and base_loaded:
+            self._land_on_pending_target()
+        elif self._has_more and self._reload_limit < MAX_RELOAD_LIMIT:
+            new_limit = min(self._reload_limit * 2, MAX_RELOAD_LIMIT)
+            self.reload(extra_tips=self._extra_tips, limit=new_limit)
+            return True
+        elif self._path_filter is not None and not target_loaded:
+            self._show_in_full_graph(target, self._extra_tips or [target])
+            return True
+        elif target_loaded:
+            # The walk ran out, or hit the cap, before the merge base: the
+            # converging lane is incomplete, but the target (an old branch
+            # tip pinned via extra_tips, say) is still worth landing on.
+            self._land_on_pending_target()
+        self._pending_scroll_oid = None
+        self._pending_merge_base = None
+        return False
+
+    def _restore_view_state(self) -> None:
+        """Put back the highlight and the scroll position a model reset wiped.
+
+        Without the highlight, the diff pane shows a commit no row is marked
+        for; without the scroll, every auto-refresh jumped to the top. A
+        selection whose row is gone is forgotten, or a click on that commit
+        when it returns would not reach the diff pane.
+        """
+        selected = self._selected_oid
+        if selected is not None and not self._restore_selection_no_scroll(selected):
+            self._selected_oid = None
+        self._restore_scroll_anchor()
+
+    def _run_pending_search(self) -> None:
+        """Run the search that was waiting for the whole history to load."""
         if self._pending_search:
             needle = self._pending_search
             self._pending_search = None
