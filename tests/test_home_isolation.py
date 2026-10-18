@@ -71,4 +71,4 @@ def test_the_checkbox_tick_lands_in_the_fake_home(_isolated_gitcrisp_home):
     match = re.search(r'QCheckBox::indicator:checked \{[^}]*image: url\("([^"]+)"\)', qss)
 
     assert match
-    assert _isolated_gitcrisp_home in Path(match.group(1)).parents
+    assert _isolated_gitcrisp_home in Path(match.group(1).strip("'\"")).parents
