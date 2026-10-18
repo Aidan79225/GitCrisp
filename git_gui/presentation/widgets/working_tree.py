@@ -489,28 +489,32 @@ class WorkingTreeWidget(QWidget):
             return
 
         self._draft_msg = self._msg_edit.toPlainText()
-        head_message = self._head_commit_message()
+        try:
+            head_message = self._head_commit_message()
+        except Exception as e:
+            self._refuse_amend(f"Could not read the last commit: {e}")
+            return
         if head_message is None:
-            # Unborn branch — nothing to amend. Bounce the checkbox back.
-            self._chk_amend.blockSignals(True)
-            self._chk_amend.setChecked(False)
-            self._chk_amend.blockSignals(False)
-            self.commit_failed.emit("Nothing to amend — this branch has no commits yet.")
+            self._refuse_amend("Nothing to amend — this branch has no commits yet.")
             return
         self._msg_edit.setPlainText(head_message)
         self._btn_commit.setText("Amend Commit")
+
+    def _refuse_amend(self, reason: str) -> None:
+        """Untick without running the handler: the editor still holds the draft."""
+        self._chk_amend.blockSignals(True)
+        self._chk_amend.setChecked(False)
+        self._chk_amend.blockSignals(False)
+        self.commit_failed.emit(reason)
 
     def _head_commit_message(self) -> str | None:
         """Message of the commit HEAD points at, or None on an unborn branch."""
         if self._queries is None:
             return None
-        try:
-            head_oid = self._queries.get_head_oid.execute()
-            if not head_oid:
-                return None
-            return self._queries.get_commit_detail.execute(head_oid).message
-        except Exception:
+        head_oid = self._queries.get_head_oid.execute()
+        if not head_oid:
             return None
+        return self._queries.get_commit_detail.execute(head_oid).message
 
     def _confirm_amend_published(self) -> bool:
         """Warn before amending a commit a remote branch still points at.
@@ -521,8 +525,10 @@ class WorkingTreeWidget(QWidget):
         try:
             head_oid = self._queries.get_head_oid.execute()
             branches = self._queries.get_branches.execute()
-        except Exception:
-            return True  # can't tell — don't block the user
+        except Exception as e:
+            # Can't tell, so don't block the user; but leave a trace of why.
+            logger.warning("Could not check whether HEAD has been pushed: %s", e)
+            return True
         published = [b.name for b in branches if b.is_remote and b.target_oid == head_oid]
         if not published:
             return True

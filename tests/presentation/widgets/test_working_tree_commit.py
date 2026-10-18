@@ -207,3 +207,19 @@ def test_amend_is_available_on_a_detached_head(qtbot):
     w.update_conflict_banner("DETACHED_HEAD")
 
     assert w._chk_amend.isEnabled() is True
+
+
+def test_a_head_that_cannot_be_read_is_reported_as_such_not_as_an_unborn_branch(qtbot):
+    """Told 'no commits yet' about a repo with commits, the user is sent the
+    wrong way, and the real error was never seen anywhere."""
+    w, queries, _ = _amend_widget(qtbot)
+    queries.get_commit_detail.execute.side_effect = KeyError("Commit not found")
+    received: list[str] = []
+    w.commit_failed.connect(received.append)
+
+    w._chk_amend.setChecked(True)
+
+    assert w._chk_amend.isChecked() is False
+    assert len(received) == 1
+    assert "Commit not found" in received[0]
+    assert "no commits yet" not in received[0]
