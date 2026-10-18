@@ -64,3 +64,10 @@ def test_a_skipped_interactive_rebase_names_the_op_that_holds_the_slot(qtbot):
     with patch(_REBASE_DLG):
         win._on_interactive_rebase_commit("a" * 40)
     assert "Fetch origin" in win._log_panel.log_error.call_args.args[0]
+
+
+def test_a_skipped_remote_branch_delete_names_the_op_that_holds_the_slot(qtbot):
+    win = _busy_window(qtbot)
+    win._remote_op_name = "Fetch origin"
+    win._on_delete_remote_branch("origin", "topic")
+    assert "Fetch origin" in win._log_panel.log_error.call_args.args[0]

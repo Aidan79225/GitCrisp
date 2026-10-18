@@ -126,14 +126,7 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
 
     def _on_delete_remote_branch(self, remote: str, branch: str) -> None:
         op_name = f"Delete {remote}/{branch}"
-        if self._remote_running:
-            # The remote-op slot drops a request made while it is busy; say
-            # so before asking, rather than after the user has confirmed.
-            self._log_panel.expand()
-            self._log_panel.log_error(
-                f"{op_name} — skipped: another remote operation is running. "
-                "Try again once it finishes."
-            )
+        if self._remote_slot_busy(op_name):
             return
         commands = self._commands
         reply = QMessageBox.question(
