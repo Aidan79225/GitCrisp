@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from git_gui.presentation.theme import get_theme_manager
 from git_gui.presentation.theme import settings as _settings
 from git_gui.presentation.theme.loader import load_builtin
+from git_gui.presentation.theme.tokens import Theme
 from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
 
 _MODES: list[tuple[str, str]] = [
@@ -211,10 +212,7 @@ class ThemeDialog(QDialog):
         self._base_theme_mode = mode
         self._base_theme = self._mgr.theme_for_mode(mode)
         self._reset_to_base_state()
-        for token, hex_value in self._working_colors.items():
-            self._apply_swatch_color(token, hex_value)
-        for i, hex_value in enumerate(self._working_lane_colors):
-            self._apply_lane_swatch_color(i, hex_value)
+        self._show_working_colors()
 
     def _build_custom_panel(self) -> QGroupBox:
         from PySide6.QtWidgets import QGridLayout, QPushButton, QSlider, QToolBox
@@ -296,13 +294,23 @@ class ThemeDialog(QDialog):
         return panel
 
     def _reset_to_base_state(self) -> None:
-        c = self._base_theme.colors
-        self._working_colors = {}
-        for _, tokens in _GROUPS:
-            for token in tokens:
-                self._working_colors[token] = getattr(c, token)
+        self._fill_working_state(self._base_theme)
+
+    def _fill_working_state(self, theme: Theme) -> None:
+        c = theme.colors
+        self._working_colors = {
+            token: getattr(c, token) for _, tokens in _GROUPS for token in tokens
+        }
         self._working_lane_colors = list(c.graph_lane_colors)
-        self._prefill_theme = self._base_theme
+        self._prefill_theme = theme
+
+    def _show_working_colors(self) -> None:
+        for token, hex_value in self._working_colors.items():
+            self._apply_swatch_color(token, hex_value)
+        # A saved theme may list more lanes than the dialog has buttons for;
+        # those extra lanes are kept as they are and saved back unchanged.
+        for i, hex_value in enumerate(self._working_lane_colors[: len(self._lane_buttons)]):
+            self._apply_lane_swatch_color(i, hex_value)
 
     def _apply_swatch_color(self, token: str, hex_value: str) -> None:
         btn = self._swatch_buttons[token]
@@ -389,17 +397,14 @@ class ThemeDialog(QDialog):
         if self._selected_mode() != "custom":
             return
         self._reset_to_base_state()
-        for token, hex_value in self._working_colors.items():
-            self._apply_swatch_color(token, hex_value)
-        for i, hex_value in enumerate(self._working_lane_colors):
-            self._apply_lane_swatch_color(i, hex_value)
+        self._show_working_colors()
 
     def _write_custom_theme(self) -> None:
         import dataclasses
         import json
 
         from git_gui.presentation.theme import settings as _settings
-        from git_gui.presentation.theme.tokens import Colors, Theme
+        from git_gui.presentation.theme.tokens import Colors
 
         # Tokens without a swatch come from the theme the swatches were
         # filled from, so a saved theme never pairs one theme's surfaces
@@ -435,18 +440,8 @@ class ThemeDialog(QDialog):
             theme = load_theme(path)
         except (OSError, ThemeValidationError):
             return
-
-        c = theme.colors
-        for token in list(self._working_colors.keys()):
-            if hasattr(c, token):
-                self._working_colors[token] = getattr(c, token)
-                if token in self._swatch_buttons:
-                    self._apply_swatch_color(token, getattr(c, token))
-        self._working_lane_colors = list(c.graph_lane_colors)
-        for i, hex_value in enumerate(self._working_lane_colors):
-            if i < len(self._lane_buttons):
-                self._apply_lane_swatch_color(i, hex_value)
-        self._prefill_theme = theme
+        self._fill_working_state(theme)
+        self._show_working_colors()
 
 
 def _theme_to_json(theme) -> dict:
