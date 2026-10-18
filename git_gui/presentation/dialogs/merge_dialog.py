@@ -97,13 +97,6 @@ class MergeDialog(QDialog):
         self._message_edit.setEnabled(will_commit)
         self._message_label.setEnabled(will_commit)
 
-        # Safety net: disable Merge button if ff-only but can't ff
-        merge_btn = self._buttons.button(QDialogButtonBox.Ok)
-        if self._radio_ff_only.isChecked() and not self._can_ff:
-            merge_btn.setEnabled(False)
-        else:
-            merge_btn.setEnabled(True)
-
     def result_value(self) -> MergeRequest:
         if self._radio_no_ff.isChecked():
             strategy = MergeStrategy.NO_FF
