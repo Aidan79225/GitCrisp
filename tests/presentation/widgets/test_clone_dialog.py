@@ -45,25 +45,34 @@ def clone_gate():
         gate.set()
 
 
-def test_cancel_is_disabled_while_a_clone_runs(qtbot, clone_gate):
+def test_cancel_stays_available_while_a_clone_runs(qtbot, clone_gate):
     dialog = _dialog(qtbot)
     dialog._on_clone()
-    assert not dialog._cancel_btn.isEnabled()
-    clone_gate.set()
-    qtbot.waitUntil(lambda: not dialog.isVisible())
+    assert dialog._cancel_btn.isEnabled()
 
 
-def test_closing_the_dialog_mid_clone_is_ignored(qtbot, clone_gate):
+def test_cancelling_mid_clone_closes_the_dialog(qtbot, clone_gate):
+    dialog = _dialog(qtbot)
+    dialog._on_clone()
+
+    dialog._cancel_btn.click()
+
+    assert not dialog.isVisible()
+
+
+def test_a_clone_cancelled_midway_is_not_opened_when_git_finishes(qtbot, clone_gate):
     dialog = _dialog(qtbot)
     completed: list[str] = []
     dialog.clone_completed.connect(completed.append)
     dialog._on_clone()
+    reported: list[str] = []
+    dialog._clone_signals.finished.connect(reported.append)
 
     dialog.reject()
-
-    assert dialog.isVisible()
     clone_gate.set()
-    qtbot.waitUntil(lambda: bool(completed))
+    qtbot.waitUntil(lambda: bool(reported))
+
+    assert completed == []
 
 
 def _fail_clone(qtbot, error: Exception) -> CloneDialog:
