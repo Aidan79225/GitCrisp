@@ -317,19 +317,20 @@ class ThemeDialog(QDialog):
         btn.setText(hex_value)
         # The label beside it names the token for sighted users only.
         btn.setAccessibleName(f"{token} colour {hex_value}")
-        fg = _readable_fg_for(hex_value)
-        btn.setStyleSheet(
-            f"QPushButton {{ background-color: {hex_value}; color: {fg}; "
-            f"border: 1px solid #888; padding: 0px; }}"
-        )
+        btn.setStyleSheet(self._swatch_style(hex_value, _readable_fg_for(hex_value)))
 
     def _apply_lane_swatch_color(self, idx: int, hex_value: str) -> None:
         btn = self._lane_buttons[idx]
         btn.setText("")
         btn.setAccessibleName(f"Graph lane {idx} colour {hex_value}")
-        btn.setStyleSheet(
-            f"QPushButton {{ background-color: {hex_value}; "
-            f"border: 1px solid #888; padding: 0px; }}"
+        btn.setStyleSheet(self._swatch_style(hex_value))
+
+    def _swatch_style(self, background: str, text: str | None = None) -> str:
+        text_rule = f"color: {text}; " if text else ""
+        border = self._mgr.current.colors.outline
+        return (
+            f"QPushButton {{ background-color: {background}; {text_rule}"
+            f"border: 1px solid {border}; padding: 0px; }}"
         )
 
     def _open_picker(self, token: str) -> None:
