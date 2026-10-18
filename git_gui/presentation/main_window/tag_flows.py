@@ -34,13 +34,16 @@ class TagFlowsMixin(AskedRepoGuardMixin):
         self._sidebar.tag_delete_requested.connect(self._on_delete_tag)
 
     def _on_create_tag(self, oid: str) -> None:
+        commands = self._commands
         dialog = CreateTagDialog(self, can_push=self._has_origin())
         if dialog.exec() != QDialog.Accepted:
             return
         name = dialog.tag_name()
+        if self._repo_switched_while_asking(commands, f"Create tag {name}"):
+            return
         message = dialog.tag_message()
         try:
-            self._commands.create_tag.execute(name, oid, message)
+            commands.create_tag.execute(name, oid, message)
             kind = "annotated" if message else "lightweight"
             self._log_panel.log(f"Created {kind} tag: {name}")
         except Exception as e:

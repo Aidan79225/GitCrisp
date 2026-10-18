@@ -5,9 +5,10 @@ from collections.abc import Callable
 from git_gui.presentation.dialogs.identity_dialog import ensure_identity
 from git_gui.presentation.dialogs.interactive_rebase_dialog import InteractiveRebaseDialog
 from git_gui.presentation.dialogs.merge_dialog import MergeDialog, MergeRequest
+from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 
 
-class MergeRebaseFlowsMixin:
+class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
     """Merge and rebase operations — merge, rebase, interactive rebase,
     abort/continue for both, plus the shared interactive-rebase helper.
 
@@ -63,6 +64,7 @@ class MergeRebaseFlowsMixin:
     ) -> None:
         """Merge the commit *resolve_target* finds into HEAD once the user
         confirms it in the merge dialog. *label* names the target in the log."""
+        commands = self._commands
         try:
             target_oid = resolve_target()
             if target_oid is None:
@@ -73,7 +75,7 @@ class MergeRebaseFlowsMixin:
                 self._log_panel.log(f"Merge {label}: already up to date")
                 return
             req = self._ask_merge(label, head_branch, analysis.can_ff, default_message)
-            if req is None:
+            if req is None or self._repo_switched_while_asking(commands, f"Merge {label}"):
                 return
             head_before = self.head_before_operation()
             run(req)
