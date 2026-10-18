@@ -14,22 +14,11 @@ OID_ROLE = Qt.UserRole  # str — the commit OID
 LANE_ROLE = Qt.UserRole + 1  # LaneData — graph drawing instructions for the row
 INFO_ROLE = Qt.UserRole + 2  # CommitInfo — author/badges/message for the row
 
-LANE_COLORS = [
-    "#4fc1ff",  # blue
-    "#f9c74f",  # yellow
-    "#90be6d",  # green
-    "#f8961e",  # orange
-    "#c77dff",  # purple
-    "#f94144",  # red
-    "#43aa8b",  # teal
-    "#adb5bd",  # grey
-]
-
 
 @dataclass
 class LaneData:
     lane: int  # which lane the commit node sits in
-    color_idx: int  # index into LANE_COLORS for this lane
+    color_idx: int  # this lane's colour; the painter wraps it to the theme's lane colours
     n_lanes: int  # total lane count (used to size column)
     lines: list[tuple[int, int, int]] = field(default_factory=list)
     # (top_lane, bot_lane, color_idx) — pass-through lines spanning full row height
@@ -92,7 +81,7 @@ def _compute_lanes(commits: list[Commit], first_parent: bool = False) -> list[La
         else:
             my_lane = len(active)
             active.append(oid)
-            colors.append(next_color % len(LANE_COLORS))
+            colors.append(next_color)
             next_color += 1
             has_incoming = False
 
@@ -111,13 +100,13 @@ def _compute_lanes(commits: list[Commit], first_parent: bool = False) -> list[La
             elif None in new_active:
                 slot = new_active.index(None)
                 new_active[slot] = p
-                new_colors[slot] = next_color % len(LANE_COLORS)
+                new_colors[slot] = next_color
                 next_color += 1
                 extra_parent_lanes.append(slot)
             else:
                 slot = len(new_active)
                 new_active.append(p)
-                new_colors.append(next_color % len(LANE_COLORS))
+                new_colors.append(next_color)
                 next_color += 1
                 extra_parent_lanes.append(slot)
 
