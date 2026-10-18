@@ -178,3 +178,22 @@ def test_a_new_absolute_location_enables_add_without_a_message(qtbot, tmp_path):
     dlg.set_location(str(tmp_path / "repo-master"))
     assert dlg.add_button_enabled() is True
     assert not dlg._location_error.isVisibleTo(dlg)
+
+
+def test_a_location_that_cannot_be_accessed_disables_add_and_says_why(
+    qtbot, tmp_path, monkeypatch
+):
+    denied = tmp_path / "denied" / "wt"
+    real_stat = Path.stat
+
+    def stat(self, *args, **kwargs):
+        if self == denied:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_stat(self, *args, **kwargs)
+
+    dlg = _open_dialog(qtbot, branches=["master"])
+    monkeypatch.setattr(Path, "stat", stat)
+    dlg.set_location(str(denied))
+    assert dlg.add_button_enabled() is False
+    assert dlg._location_error.isVisibleTo(dlg)
+    assert "cannot be accessed" in dlg._location_error.text()
