@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QPainter, QTextBlockFormat, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QPainter, QTextBlockFormat, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -117,7 +117,6 @@ _LONG_LINE_LIMIT = 2000
 class DiffFormats:
     fmt_added: QTextCharFormat
     fmt_removed: QTextCharFormat
-    fmt_header: QTextCharFormat
     fmt_default: QTextCharFormat
     blk_added: QTextBlockFormat
     blk_removed: QTextBlockFormat
@@ -232,9 +231,6 @@ def make_diff_formats() -> DiffFormats:
     fmt_removed = QTextCharFormat()
     fmt_removed.setForeground(on_surface)
 
-    fmt_header = QTextCharFormat()
-    fmt_header.setForeground(QColor(_hunk_header_color()))
-
     fmt_default = QTextCharFormat()
     fmt_default.setForeground(on_surface)
 
@@ -249,7 +245,6 @@ def make_diff_formats() -> DiffFormats:
     return DiffFormats(
         fmt_added=fmt_added,
         fmt_removed=fmt_removed,
-        fmt_header=fmt_header,
         fmt_default=fmt_default,
         blk_added=blk_added,
         blk_removed=blk_removed,
@@ -315,13 +310,6 @@ def fit_height_to_lines(editor: QPlainTextEdit, line_count: int) -> None:
 
 
 # Hunk rendering helpers
-
-
-def render_hunk_header_line(cursor, hunk: Hunk, formats: DiffFormats) -> None:
-    """Insert the @@ header line of *hunk* into *cursor* using the header char format."""
-    cursor.setBlockFormat(formats.blk_default)
-    cursor.setCharFormat(formats.fmt_header)
-    cursor.insertText(hunk.header + "\n")
 
 
 _CHUNK_SIZE = 100
@@ -648,16 +636,6 @@ def render_hunk_content_lines(
     return total
 
 
-def render_hunk_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
-    """Render one complete hunk (header line + content lines) into *cursor*.
-
-    Returns the total number of lines inserted (1 header + len(hunk.lines) content).
-    """
-    render_hunk_header_line(cursor, hunk, formats)
-    content_count = render_hunk_content_lines(cursor, hunk, formats)
-    return 1 + content_count
-
-
 # Shared per-hunk widget builder
 
 
@@ -718,7 +696,6 @@ def add_hunk_widget(
     extra_left_widgets: list[QWidget] | None = None,
     extra_right_widgets: list[QWidget] | None = None,
     on_header_clicked: Callable[[], None] | None = None,
-    on_header_context_menu: Callable[[object], None] | None = None,
     syntax_formats: SyntaxFormats | None = None,
     filename: str | None = None,
 ) -> None:
