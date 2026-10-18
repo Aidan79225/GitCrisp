@@ -1361,15 +1361,30 @@ class GraphWidget(QWidget):
         """Put back the reload limit the search's full-history load replaced.
 
         Kept, it made every later auto-reload walk and lay out the whole
-        history. A full load still in flight is no longer wanted, so it is
-        replaced by one of the restored size.
+        history. It never drops below the rows on screen or the selected one,
+        and the list is reloaded to that size at once: left holding the whole
+        history over a smaller limit, the next auto-reload cut away whatever
+        the user had scrolled to or selected. A full load still in flight is
+        no longer wanted, so it is replaced the same way.
         """
         if self._limit_before_search is None:
             return
-        self._reload_limit = self._limit_before_search
+        self._reload_limit = max(self._limit_before_search, self._commits_in_view())
         self._limit_before_search = None
-        if self._loading:
+        if self._queries is not None:
             self.reload()
+
+    def _commits_in_view(self) -> int:
+        """How many commits a reload needs to keep every row on screen and the selected one."""
+        rows = self._model.rowCount()
+        if rows == 0:
+            return 0
+        bottom = self._view.indexAt(self._view.viewport().rect().bottomLeft())
+        last_row = bottom.row() if bottom.isValid() else rows - 1
+        last_row = max(last_row, self._view.currentIndex().row())
+        first_oid = self._model.data(self._model.index(0, 0), OID_ROLE)
+        working_tree_rows = 1 if first_oid == WORKING_TREE_OID else 0
+        return last_row + 1 - working_tree_rows
 
     def _on_search_text_changed(self, text: str) -> None:
         needle = text.strip().lower()

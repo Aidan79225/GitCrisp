@@ -481,3 +481,38 @@ def test_a_branch_past_the_whole_paged_file_history_is_shown_in_the_full_graph(
 
     assert graph._path_filter is None
     assert _current_oid(graph) == "side"
+
+
+# ── Closing a search over the whole history ──────────────────────────────────
+
+
+def test_a_match_selected_far_down_stays_selected_after_the_search_closes(graph, inline_workers):
+    graph.reload()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+    graph._on_search_navigate(1)  # c12, then c120
+    graph._close_search()
+
+    graph.reload()  # the focus-return auto-reload
+
+    assert _current_oid(graph) == "c120"
+
+
+def _top_oid(graph: GraphWidget) -> str | None:
+    return graph._model.data(graph._view.indexAt(graph._view.viewport().rect().topLeft()), OID_ROLE)
+
+
+def test_rows_scrolled_to_after_the_search_closes_survive_a_reload(graph, inline_workers):
+    graph.resize(400, 300)
+    graph.show()
+    graph.reload()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+    graph._close_search()
+    scrollbar = graph._view.verticalScrollBar()
+    scrollbar.setValue(scrollbar.maximum())
+    top = _top_oid(graph)
+
+    graph.reload()
+
+    assert _top_oid(graph) == top
