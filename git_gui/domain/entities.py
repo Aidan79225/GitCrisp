@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import NamedTuple
 
 WORKING_TREE_OID = "WORKING_TREE"
 
@@ -209,11 +210,19 @@ class ResetMode(StrEnum):
 
 
 class RebaseAction(StrEnum):
-    # Lower-case values: each one is written verbatim as a `git rebase -i` todo keyword.
+    """What an interactive rebase does with a commit; values are git's todo verbs."""
+
     PICK = "pick"
     SQUASH = "squash"
     FIXUP = "fixup"
     DROP = "drop"
+
+
+class RebaseTodoEntry(NamedTuple):
+    """One line of an interactive rebase's todo list."""
+
+    action: RebaseAction
+    oid: str
 
 
 @dataclass(frozen=True)
