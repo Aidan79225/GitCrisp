@@ -30,8 +30,12 @@ class TagOps:
             name = ref_name[len("refs/tags/") :]
             target = self._repo.get(ref.target)
             if isinstance(target, pygit2.Tag):
-                # Annotated tag — peel to get the commit OID
-                peeled = ref.peel(pygit2.Commit)
+                # Annotated tag — peel to get the commit OID. Some repos tag a
+                # tree or a blob (git.git, linux), which no commit row can show.
+                peeled = ref.peel()
+                if not isinstance(peeled, pygit2.Commit):
+                    logger.debug("Skipping tag %r of a %s", name, peeled.type_str)
+                    continue
                 commit_oid = str(peeled.id)
                 ts = (
                     datetime.fromtimestamp(target.tagger.time, tz=UTC).astimezone()
@@ -70,7 +74,9 @@ class TagOps:
             result = subprocess.run(
                 ["git", "ls-remote", "--tags", remote],
                 capture_output=True,
-                text=True,
+                # git prints tag names as UTF-8 whatever the locale's code page.
+                encoding="utf-8",
+                errors="replace",
                 cwd=self._repo.workdir,
                 env=self._git_env,
                 **subprocess_kwargs(),

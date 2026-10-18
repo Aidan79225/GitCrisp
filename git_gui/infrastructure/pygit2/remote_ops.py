@@ -136,7 +136,9 @@ class RemoteOps:
             ["git", "push", "--porcelain", remote, "--delete", *refspecs],
             cwd=self._repo.workdir,
             capture_output=True,
-            text=True,
+            # git prints ref names as UTF-8 whatever the locale's code page.
+            encoding="utf-8",
+            errors="replace",
             env=self._git_env,
             **subprocess_kwargs(),
         )
@@ -161,7 +163,10 @@ class RemoteOps:
                 cwd=self._repo.workdir,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
+                # git prints ref names and messages as UTF-8 whatever the
+                # locale's code page.
+                encoding="utf-8",
+                errors="replace",
                 env=self._git_env,
                 **_popen_group_kwargs(),
             )
