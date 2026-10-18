@@ -315,3 +315,29 @@ def test_apply_tells_the_user_when_the_settings_cannot_be_saved(
     dlg._on_apply()
 
     assert warnings
+
+
+def test_a_custom_theme_that_cannot_be_saved_leaves_the_settings_as_they_were(
+    app, reset_theme, tmp_path, monkeypatch
+):
+    """The text scale was saved before the custom theme, so Apply reported a
+    failure while settings.json already held a scale nobody saw until the
+    next launch."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from git_gui.presentation.theme import settings as s
+
+    not_a_directory = tmp_path / "file"
+    not_a_directory.write_text("", encoding="utf-8")
+    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(s, "custom_theme_path", lambda: not_a_directory / "custom_theme.json")
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: None)
+    get_theme_manager().set_mode("dark")
+    before = s.load_settings()
+    dlg = ThemeDialog()
+    _radios(dlg)["custom"].setChecked(True)
+    dlg._typo_slider.setValue(150)
+
+    dlg._on_apply()
+
+    assert s.load_settings() == before

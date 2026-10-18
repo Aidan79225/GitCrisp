@@ -367,21 +367,12 @@ class ThemeDialog(QDialog):
 
     def _save_and_apply(self) -> None:
         mode = self._selected_mode()
-        self._save_typography_scale()
+        # The custom file goes first, so a failure there leaves the saved
+        # scale and mode as they were, matching what is still on screen.
         if mode == "custom":
             self._write_custom_theme()
-        # force=True so _apply runs and picks up the new typography_scale
-        # even if the mode itself didn't change.
-        self._mgr.set_mode(mode, force=True)
+        self._mgr.set_appearance(mode, self._typo_slider.value() / 100.0)
         self._save_avatar_setting()
-
-    def _save_typography_scale(self) -> None:
-        scale = self._typo_slider.value() / 100.0
-        data = _settings.load_settings()
-        if data.get("typography_scale") == scale:
-            return
-        data["typography_scale"] = scale
-        _settings.save_settings(data)
 
     def _save_avatar_setting(self) -> None:
         enabled = self._gravatar_checkbox.isChecked()
