@@ -15,6 +15,7 @@ from git_gui.infrastructure.worktree_cli import (
     WorktreeCli,
     WorktreeCommandError,
     WorktreeDirtyError,
+    WorktreeHasSubmodulesError,
     WorktreeLockedError,
 )
 
@@ -153,8 +154,21 @@ def test_a_worktree_with_submodules_can_be_force_removed(worktree_with_submodule
     main, wt = worktree_with_submodule
     cli = WorktreeCli(str(main))
 
-    with pytest.raises(WorktreeDirtyError):
+    with pytest.raises(WorktreeHasSubmodulesError):
         cli.remove(str(wt), force=False)
     cli.remove(str(wt), force=True)
 
     assert not wt.exists()
+
+
+def test_a_clean_worktree_with_submodules_is_not_reported_dirty(worktree_with_submodule):
+    """git refuses initialised submodules before it looks for changes at all.
+    Reported as dirty, a clean worktree prompted "has uncommitted changes", and
+    forcing it deleted the submodules' unpushed commits without a word."""
+    main, wt = worktree_with_submodule
+
+    with pytest.raises(WorktreeHasSubmodulesError) as refused:
+        WorktreeCli(str(main)).remove(str(wt), force=False)
+
+    assert not isinstance(refused.value, WorktreeDirtyError)
+    assert wt.exists()

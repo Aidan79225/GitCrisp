@@ -13,17 +13,23 @@ class WorktreeCommandError(Exception):
 
 
 class WorktreeDirtyError(WorktreeCommandError):
-    """Removal refused because the worktree has uncommitted changes or
-    initialised submodules, either of which forcing it would discard."""
+    """Removal refused because the worktree has uncommitted changes."""
+
+
+class WorktreeHasSubmodulesError(WorktreeCommandError):
+    """Removal refused because the worktree holds initialised submodules.
+
+    Forcing it deletes their repositories, unpushed commits included. git
+    refuses before it looks for changes, so the worktree may be dirty too.
+    """
 
 
 class WorktreeLockedError(WorktreeCommandError):
     """Removal refused because the worktree is locked."""
 
 
-_DIRTY_RE = re.compile(
-    r"\b(is dirty|contains modified or untracked files|containing submodules)\b", re.IGNORECASE
-)
+_DIRTY_RE = re.compile(r"\b(is dirty|contains modified or untracked files)\b", re.IGNORECASE)
+_SUBMODULES_RE = re.compile(r"\bcontaining submodules\b", re.IGNORECASE)
 _LOCKED_RE = re.compile(r"\b(is locked|locked working tree)\b", re.IGNORECASE)
 
 
@@ -58,7 +64,8 @@ class WorktreeCli:
 
     def remove(self, worktree_path: str, *, force: bool) -> None:
         """Remove a worktree. Raises `WorktreeDirtyError` /
-        `WorktreeLockedError` / `WorktreeCommandError`."""
+        `WorktreeHasSubmodulesError` / `WorktreeLockedError` /
+        `WorktreeCommandError`."""
         args = ["worktree", "remove"]
         if force:
             # Once overrides uncommitted changes; a lock needs it a second time.
@@ -69,6 +76,8 @@ class WorktreeCli:
             message = str(e)
             if _DIRTY_RE.search(message):
                 raise WorktreeDirtyError(message) from e
+            if _SUBMODULES_RE.search(message):
+                raise WorktreeHasSubmodulesError(message) from e
             if _LOCKED_RE.search(message):
                 raise WorktreeLockedError(message) from e
             raise
