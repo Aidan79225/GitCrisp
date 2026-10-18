@@ -27,6 +27,7 @@ from git_gui.presentation.widgets.diff_block import (
     make_diff_formats,
     make_file_block,
     make_overflow_notice,
+    make_skeleton_container,
     make_syntax_formats,
 )
 from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
@@ -470,8 +471,6 @@ class DiffWidget(QWidget):
 
     def _build_skeleton_block(self, path: str):
         """Build a file block with a skeleton placeholder. Returns (frame, inner, skeleton)."""
-        from git_gui.presentation.widgets.diff_block import make_skeleton_container
-
         is_submodule = path in self._submodule_paths
         on_click = (lambda p=path: self.submodule_open_requested.emit(p)) if is_submodule else None
         frame, inner = make_file_block(
