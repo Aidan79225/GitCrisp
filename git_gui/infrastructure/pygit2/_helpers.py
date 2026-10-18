@@ -65,6 +65,28 @@ def _patches_for_path(diff: pygit2.Diff, path: str) -> list[pygit2.Patch]:
     ]
 
 
+def _patch_path(patch: pygit2.Patch) -> str:
+    return patch.delta.new_file.path or patch.delta.old_file.path
+
+
+def _empty_tree(repo: pygit2.Repository) -> pygit2.Tree:
+    return repo.get(repo.TreeBuilder().write())
+
+
+def _head_tree(repo: pygit2.Repository) -> pygit2.Tree:
+    """HEAD's tree, or the empty tree before the first commit."""
+    if repo.head_is_unborn:
+        return _empty_tree(repo)
+    return repo.head.peel(pygit2.Commit).tree
+
+
+def _staged_diff(
+    repo: pygit2.Repository, flags: pygit2.enums.DiffOption = pygit2.enums.DiffOption.NORMAL
+) -> pygit2.Diff:
+    """The index against HEAD: what the next commit would change."""
+    return repo.index.diff_to_tree(_head_tree(repo), flags=flags)
+
+
 _UNTRACKED_MAX_LINES = 5000
 _UNTRACKED_MAX_BYTES = 1_048_576
 

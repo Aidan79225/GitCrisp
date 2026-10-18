@@ -14,8 +14,11 @@ from git_gui.domain.entities import (
 )
 from git_gui.infrastructure.pygit2._helpers import (
     _diff_to_hunks,
+    _head_tree,
     _map_statuses,
+    _patch_path,
     _patches_for_path,
+    _staged_diff,
     _submodule_diff_hunk,
     _synthesise_conflict_hunk,
     _synthesise_untracked_hunk,
@@ -73,15 +76,8 @@ class DiffOps:
 
         # Staged: index vs HEAD
         try:
-            if self._repo.head_is_unborn:
-                empty_tree_oid = self._repo.TreeBuilder().write()
-                empty_tree = self._repo.get(empty_tree_oid)
-                staged_diff = self._repo.index.diff_to_tree(empty_tree)
-            else:
-                head_commit = self._repo.head.peel(pygit2.Commit)
-                staged_diff = self._repo.index.diff_to_tree(head_commit.tree)
-            for patch in staged_diff:
-                path = patch.delta.new_file.path or patch.delta.old_file.path
+            for patch in _staged_diff(self._repo):
+                path = _patch_path(patch)
                 if not path:
                     continue
                 if wanted is not None and path not in wanted:
@@ -97,9 +93,8 @@ class DiffOps:
 
         # Unstaged: workdir vs index
         try:
-            unstaged_diff = self._repo.diff()
-            for patch in unstaged_diff:
-                path = patch.delta.new_file.path or patch.delta.old_file.path
+            for patch in self._repo.diff():
+                path = _patch_path(patch)
                 if not path:
                     continue
                 if wanted is not None and path not in wanted:
@@ -155,28 +150,16 @@ class DiffOps:
     def _diff_workfile_against_head(self, path: str) -> list[Hunk]:
         """Diff the working-tree file against the HEAD version."""
         try:
-            head_commit = self._repo.head.peel(pygit2.Commit)
-            diff = self._repo.diff(head_commit.tree, flags=pygit2.GIT_DIFF_FORCE_TEXT)
-            for patch in diff:
-                if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
-                    return _diff_to_hunks(patch)
+            diff = self._repo.diff(_head_tree(self._repo), flags=pygit2.GIT_DIFF_FORCE_TEXT)
+            return _hunks_for_path(diff, path)
         except Exception as e:
             logger.warning("Failed to diff %r against HEAD: %s", path, e)
         return []
 
     def get_staged_diff(self, path: str) -> list[Hunk]:
-        # Diff the index against HEAD tree to show what is staged for commit.
-        # For unborn HEAD (no commits yet), diff against an empty tree.
         # When the index has conflicts, diff_to_tree may fail — return empty.
         try:
-            if self._repo.head_is_unborn:
-                empty_tree_oid = self._repo.TreeBuilder().write()
-                empty_tree = self._repo.get(empty_tree_oid)
-                diff = self._repo.index.diff_to_tree(empty_tree)
-            else:
-                head_commit = self._repo.head.peel(pygit2.Commit)
-                diff = self._repo.index.diff_to_tree(head_commit.tree)
-            return _hunks_for_path(diff, path)
+            return _hunks_for_path(_staged_diff(self._repo), path)
         except Exception as e:
             logger.warning("Failed to compute staged diff for %r: %s", path, e)
         return []
