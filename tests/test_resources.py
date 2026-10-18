@@ -67,3 +67,13 @@ def test_git_ssh_env_leaves_a_configured_core_ssh_command_in_charge(tmp_path):
 def test_git_ssh_env_adds_accept_new_when_the_config_names_no_ssh_command():
     env = git_ssh_env({}, config={"user.name": "T"})
     assert "StrictHostKeyChecking=accept-new" in env["GIT_SSH_COMMAND"]
+
+
+def test_git_ssh_env_turns_off_git_terminal_prompts():
+    """Started from a terminal, git would ask for a username on it and wait
+    there with the GUI showing nothing; with prompts off it fails at once."""
+    assert git_ssh_env({})["GIT_TERMINAL_PROMPT"] == "0"
+
+
+def test_git_ssh_env_keeps_a_terminal_prompt_setting_the_user_made():
+    assert git_ssh_env({"GIT_TERMINAL_PROMPT": "1"})["GIT_TERMINAL_PROMPT"] == "1"
