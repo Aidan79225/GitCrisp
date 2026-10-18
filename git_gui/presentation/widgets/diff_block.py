@@ -80,15 +80,11 @@ class _ClickableLabel(_ElidedLabel):
         super().mousePressEvent(ev)
 
 
-from git_gui.domain.entities import Hunk, LineKind
+from git_gui.domain.entities import NO_NEWLINE_MARKERS, Hunk, LineKind
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets import word_diff
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
-from git_gui.presentation.widgets.side_by_side import (
-    NO_NEWLINE_MARKERS,
-    no_newline_note,
-    parse_hunk_header,
-)
+from git_gui.presentation.widgets.side_by_side import no_newline_note, parse_hunk_header
 from git_gui.presentation.widgets.syntax_highlighter import tokenize
 
 # Style constants
