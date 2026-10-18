@@ -280,3 +280,13 @@ def test_a_reload_replaces_which_branches_are_remote(qtbot):
     model.reload([_make_commit("abc")], {}, remote_branches=frozenset({"origin/new"}))
 
     assert model.data(model.index(0, 0), INFO_ROLE).remote_branches == {"origin/new"}
+
+
+def test_a_ninth_lane_gets_its_own_colour_index_for_the_theme_to_wrap(qtbot):
+    """How many lane colours there are is the theme's to say, so the model never wraps."""
+    tips = [_make_commit(f"tip{i}", parents=["root"]) for i in range(9)]
+
+    model = GraphModel([*tips, _make_commit("root")], {})
+
+    ninth = model.data(model.index(8, 0), LANE_ROLE)
+    assert (ninth.lane, ninth.color_idx) == (8, 8)
