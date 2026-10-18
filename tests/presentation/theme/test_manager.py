@@ -258,3 +258,10 @@ def test_a_new_text_scale_is_shown_even_when_the_mode_is_unchanged(
 
     assert app.font().pointSize() > unscaled
     assert s.load_settings()["typography_scale"] == 2.0
+
+
+def test_a_misspelt_mode_is_refused_rather_than_taking_another_branch(app, isolated_settings):
+    mgr = ThemeManager(app)
+
+    with pytest.raises(ValueError):
+        mgr.set_mode("Custom")
