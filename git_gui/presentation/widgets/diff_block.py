@@ -527,79 +527,94 @@ def _render_no_newline_note(cursor, content: str, formats: DiffFormats) -> None:
     cursor.insertText(_UNNUMBERED_GUTTER + no_newline_note(content) + "\n")
 
 
+def _next_numbers(origin: str, old: int, new: int) -> tuple[int, int]:
+    """The old and new line numbers after a line of *origin*.
+
+    A no-newline marker is not a line of either file, so it counts for neither.
+    """
+    if origin == LineKind.ADDED:
+        return old, new + 1
+    if origin == LineKind.REMOVED:
+        return old + 1, new
+    if origin in NO_NEWLINE_MARKERS:
+        return old, new
+    return old + 1, new + 1
+
+
+def _numbers_before(hunk: Hunk, start: int) -> tuple[int, int]:
+    """The old and new line numbers of hunk.lines[start]."""
+    old, new = parse_hunk_header(hunk.header)
+    for origin, _ in hunk.lines[:start]:
+        old, new = _next_numbers(origin, old, new)
+    return old, new
+
+
+def _line_style(
+    origin: str, old: int, new: int, formats: DiffFormats
+) -> tuple[QTextBlockFormat, QTextCharFormat, str]:
+    """The block format, char format and numbered gutter of one code line."""
+    if origin == LineKind.ADDED:
+        return formats.blk_added, formats.fmt_added, f"     {new:>4}  "
+    if origin == LineKind.REMOVED:
+        return formats.blk_removed, formats.fmt_removed, f"{old:>4}       "
+    return formats.blk_default, formats.fmt_default, f"{old:>4} {new:>4}  "
+
+
+def _highlight_line(
+    document,
+    content_start: int,
+    text: str,
+    origin: str,
+    rewrite: _Rewrite | None,
+    syntax_formats: SyntaxFormats,
+    filename: str,
+) -> None:
+    """Layer syntax colour, and the words a rewrite changed, over one inserted line."""
+    apply_syntax_tokens(document, content_start, text, filename, syntax_formats)
+    if rewrite is not None:
+        _apply_rewrite_overlay(document, content_start, origin, rewrite, syntax_formats)
+
+
 def _render_lines_range(
     cursor,
-    hunk,
-    formats,
-    start,
-    end,
-    syntax_formats=None,
-    filename=None,
-    pair_index=None,
+    hunk: Hunk,
+    formats: DiffFormats,
+    start: int,
+    end: int,
+    syntax_formats: SyntaxFormats | None = None,
+    filename: str | None = None,
+    pair_index: dict[int, _Rewrite] | None = None,
 ) -> None:
-    """Render hunk.lines[start:end] into cursor, tracking line numbers.
+    """Render hunk.lines[start:end] into cursor, numbered from the hunk header.
 
-    When *syntax_formats* and *filename* are both given, layer Pygments-driven
-    syntax coloring onto the inserted content via mergeCharFormat.
-    When *pair_index* is given, also apply a word-level overlay to changed
-    spans of paired -/+ lines.
+    When *syntax_formats* and *filename* are both given, each line is also
+    syntax-coloured, and a line *pair_index* pairs with its rewrite gets a
+    word-level overlay on the spans that changed.
     """
-    old_line, new_line = parse_hunk_header(hunk.header)
-    for origin, _ in hunk.lines[:start]:
-        if origin == LineKind.ADDED:
-            new_line += 1
-        elif origin == LineKind.REMOVED:
-            old_line += 1
-        elif origin not in NO_NEWLINE_MARKERS:
-            old_line += 1
-            new_line += 1
-
-    apply_syntax = syntax_formats is not None and filename is not None
+    old, new = _numbers_before(hunk, start)
     pair_index = pair_index or {}
-
     for idx in range(start, end):
         origin, content = hunk.lines[idx]
-        if origin == LineKind.ADDED:
-            cursor.setBlockFormat(formats.blk_added)
-            cursor.setCharFormat(formats.fmt_added)
-            prefix = f"     {new_line:>4}  "
-            new_line += 1
-        elif origin == LineKind.REMOVED:
-            cursor.setBlockFormat(formats.blk_removed)
-            cursor.setCharFormat(formats.fmt_removed)
-            prefix = f"{old_line:>4}       "
-            old_line += 1
-        elif origin in NO_NEWLINE_MARKERS:
+        if origin in NO_NEWLINE_MARKERS:
             _render_no_newline_note(cursor, content, formats)
             continue
-        else:
-            cursor.setBlockFormat(formats.blk_default)
-            cursor.setCharFormat(formats.fmt_default)
-            prefix = f"{old_line:>4} {new_line:>4}  "
-            old_line += 1
-            new_line += 1
-
+        block_format, char_format, prefix = _line_style(origin, old, new, formats)
+        old, new = _next_numbers(origin, old, new)
+        cursor.setBlockFormat(block_format)
+        cursor.setCharFormat(char_format)
         line_with_eol = content if content.endswith("\n") else content + "\n"
-        full_text = prefix + line_with_eol
-        content_doc_start = cursor.position() + len(prefix)
-        cursor.insertText(full_text)
-
-        if not apply_syntax:
-            continue
-
-        content_text = line_with_eol.rstrip("\n")
-        if not content_text:
-            continue
-
-        # Pass 2 — syntax tokens
-        apply_syntax_tokens(
-            cursor.document(), content_doc_start, content_text, filename, syntax_formats
-        )
-
-        # Pass 3 — word-level overlay (only for paired -/+)
-        if idx in pair_index:
-            _apply_rewrite_overlay(
-                cursor.document(), content_doc_start, origin, pair_index[idx], syntax_formats
+        content_start = cursor.position() + len(prefix)
+        cursor.insertText(prefix + line_with_eol)
+        text = line_with_eol.rstrip("\n")
+        if syntax_formats is not None and filename is not None and text:
+            _highlight_line(
+                cursor.document(),
+                content_start,
+                text,
+                origin,
+                pair_index.get(idx),
+                syntax_formats,
+                filename,
             )
 
 
