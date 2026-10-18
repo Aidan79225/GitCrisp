@@ -392,15 +392,9 @@ class HunkDiffWidget(QWidget):
         hunk: Hunk,
         is_staged: bool,
         is_untracked: bool,
-        path: str | None = None,
-        parent_layout: QVBoxLayout | None = None,
+        path: str,
+        parent_layout: QVBoxLayout,
     ) -> None:
-        # Use explicitly passed path, fall back to self._current_path for backward compat
-        if path is None:
-            path = self._current_path
-        # Use explicitly passed layout, fall back to self._layout for backward compat
-        target_layout = parent_layout if parent_layout is not None else self._layout
-
         header = hunk.header
 
         checkbox = QCheckBox()
@@ -439,7 +433,7 @@ class HunkDiffWidget(QWidget):
             else None
         )
         add_hunk_view(
-            target_layout,
+            parent_layout,
             hunk,
             self._formats,
             extra_left_widgets=[checkbox],
@@ -461,7 +455,7 @@ class HunkDiffWidget(QWidget):
         self.hunk_toggled.emit()
 
     def _stage_or_unstage(
-        self, path: str, hunk_header: str, checked: bool, is_untracked: bool
+        self, path: str, hunk_header: str, checked: bool, is_untracked: bool = False
     ) -> None:
         # Whole-file add (untracked → stage, or staged-add → unstage):
         # the synthesised "@@ -0,0 +1,N @@" hunk can't be processed by
