@@ -3,9 +3,10 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMessageBox
 
 from git_gui.presentation.dialogs.identity_dialog import ensure_identity
+from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 
 
-class StashFlowsMixin:
+class StashFlowsMixin(AskedRepoGuardMixin):
     """Stash operations — pop, apply, drop, create, and clicked preview.
 
     Mixin — not instantiable on its own. Relies on composite-provided
@@ -38,6 +39,8 @@ class StashFlowsMixin:
         self._reload()
 
     def _on_stash_drop(self, index: int) -> None:
+        op_name = f"Stash drop @{{{index}}}"
+        commands = self._commands
         reply = QMessageBox.question(
             self,
             "Drop Stash",
@@ -45,17 +48,18 @@ class StashFlowsMixin:
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, op_name):
             return
         try:
-            self._commands.drop_stash.execute(index)
+            commands.drop_stash.execute(index)
             self._log_panel.log(f"Stash drop: @{{{index}}}")
         except Exception as e:
             self._log_panel.expand()
-            self._log_panel.log_error(f"Stash drop @{{{index}}} — ERROR: {e}")
+            self._log_panel.log_error(f"{op_name} — ERROR: {e}")
         self._reload()
 
     def _on_stash_requested(self) -> None:
+        commands = self._commands
         result = QMessageBox.question(
             self,
             "Stash Changes",
@@ -66,9 +70,11 @@ class StashFlowsMixin:
             return
         if not ensure_identity(self, self._queries, self._commands):
             return
+        if self._repo_switched_while_asking(commands, "Stash"):
+            return
         branch = self._get_current_branch() or "unknown"
         try:
-            self._commands.stash.execute(f"WIP on {branch}")
+            commands.stash.execute(f"WIP on {branch}")
             self._log_panel.log(f"Stash: WIP on {branch}")
         except Exception as e:
             self._log_panel.expand()

@@ -14,9 +14,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
 
-from git_gui.domain.entities import Branch, Worktree
+from git_gui.domain.entities import Branch, ResetMode, Worktree
 from git_gui.presentation.main_window import MainWindow
 
 
@@ -179,3 +179,63 @@ def test_a_local_tag_delete_confirmed_as_another_repo_opens_deletes_nothing(qtbo
         win._on_delete_tag("v1")
     asked_in.delete_tag.execute.assert_not_called()
     win._commands.delete_tag.execute.assert_not_called()
+
+
+def _accepted_as_another_repo_opens(qtbot, win: MainWindow, dialog_cls: MagicMock) -> None:
+    """Make the patched *dialog_cls* accept once the pending switch has landed."""
+    dialog_cls.Accepted = QDialog.Accepted
+    dialog_cls.return_value.exec.side_effect = _answering(qtbot, win, QDialog.Accepted)
+
+
+def test_a_reset_to_commit_confirmed_as_another_repo_opens_resets_nothing(qtbot, win):
+    asked_in = win._commands
+    with patch("git_gui.presentation.main_window.reset_flow.ResetDialog") as dialog_cls:
+        _accepted_as_another_repo_opens(qtbot, win, dialog_cls)
+        dialog_cls.return_value.result_mode.return_value = ResetMode.HARD
+        win._on_reset_to_commit("c" * 40, ResetMode.HARD)
+    asked_in.reset_branch.execute.assert_not_called()
+    win._commands.reset_branch.execute.assert_not_called()
+
+
+def test_a_merge_confirmed_as_another_repo_opens_merges_nothing(qtbot, win):
+    win._queries.get_merge_analysis.execute.return_value = MagicMock(is_up_to_date=False)
+    asked_in = win._commands
+    flows = "git_gui.presentation.main_window.merge_rebase_flows"
+    with (
+        patch(f"{flows}.MergeDialog") as dialog_cls,
+        patch(f"{flows}.ensure_identity", return_value=True),
+    ):
+        _accepted_as_another_repo_opens(qtbot, win, dialog_cls)
+        win._on_merge_commit("c" * 40)
+    asked_in.merge_commit.execute.assert_not_called()
+    win._commands.merge_commit.execute.assert_not_called()
+
+
+def test_a_tag_created_as_another_repo_opens_is_not_created_or_pushed(qtbot, win):
+    asked_in = win._commands
+    with patch("git_gui.presentation.main_window.tag_flows.CreateTagDialog") as dialog_cls:
+        _accepted_as_another_repo_opens(qtbot, win, dialog_cls)
+        dialog_cls.return_value.push_requested.return_value = True
+        win._on_create_tag("c" * 40)
+    for bus in (asked_in, win._commands):
+        bus.create_tag.execute.assert_not_called()
+        bus.push_tag.execute.assert_not_called()
+
+
+def test_a_stash_drop_confirmed_as_another_repo_opens_drops_nothing(qtbot, win):
+    asked_in = win._commands
+    with patch.object(QMessageBox, "question", side_effect=_answering(qtbot, win, QMessageBox.Yes)):
+        win._on_stash_drop(0)
+    asked_in.drop_stash.execute.assert_not_called()
+    win._commands.drop_stash.execute.assert_not_called()
+
+
+def test_a_stash_confirmed_as_another_repo_opens_stashes_nothing(qtbot, win):
+    asked_in = win._commands
+    with (
+        patch.object(QMessageBox, "question", side_effect=_answering(qtbot, win, QMessageBox.Yes)),
+        patch("git_gui.presentation.main_window.stash_flows.ensure_identity", return_value=True),
+    ):
+        win._on_stash_requested()
+    asked_in.stash.execute.assert_not_called()
+    win._commands.stash.execute.assert_not_called()
