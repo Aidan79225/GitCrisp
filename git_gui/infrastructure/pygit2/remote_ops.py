@@ -7,13 +7,9 @@ import subprocess
 import pygit2
 
 from git_gui.domain.entities import Remote, RemoteBranchDeleteResult
+from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.infrastructure.git_process import run_git
 from git_gui.resources import subprocess_kwargs
-
-
-class RemoteOperationCancelled(RuntimeError):
-    """Raised by `_run_git` when the user cancels an in-flight remote operation
-    (push / pull / fetch) via `cancel_remote_op`."""
 
 
 def _popen_group_kwargs() -> dict:
