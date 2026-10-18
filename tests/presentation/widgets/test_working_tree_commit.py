@@ -7,30 +7,15 @@ from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QLabel,
     QMessageBox,
-    QPlainTextEdit,
-    QPushButton,
-    QWidget,
 )
 
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
+from tests.presentation.widgets.working_tree_helpers import working_tree_widget
 
 
 def _make_commit_widget(qtbot) -> WorkingTreeWidget:
-    """Create a WorkingTreeWidget with minimal init bypass for commit-path tests."""
-    w = WorkingTreeWidget.__new__(WorkingTreeWidget)
-    QWidget.__init__(w)
-    w._msg_edit = QPlainTextEdit()
-    w._chk_amend = QCheckBox()
-    w._btn_commit = QPushButton("Commit")
-    w._draft_msg = ""
-    w._load_generation = 0
-    # __init__ is bypassed, so mirror the one signal the commit path relies on.
-    w._chk_amend.toggled.connect(w._on_amend_toggled)
-    qtbot.addWidget(w)
-    return w
+    return working_tree_widget(qtbot)
 
 
 def test_on_commit_emits_failed_when_create_commit_raises(qtbot, monkeypatch):
@@ -172,8 +157,6 @@ def test_amend_without_remote_ref_on_head_does_not_ask(qtbot, monkeypatch):
 def test_amend_is_disabled_during_a_merge(qtbot):
     """An in-progress merge has its own commit path; Amend must not be reachable."""
     w, _, _ = _amend_widget(qtbot)
-    w._conflict_banner = QWidget()
-    w._banner_label = QLabel()
     w._chk_amend.setChecked(True)
 
     w.update_conflict_banner("MERGING")
@@ -187,8 +170,6 @@ def test_amend_is_disabled_during_a_merge(qtbot):
 
 def test_detached_head_still_rejects_an_empty_message(qtbot):
     w, _, commands = _amend_widget(qtbot)
-    w._conflict_banner = QWidget()
-    w._banner_label = QLabel()
     w.update_conflict_banner("DETACHED_HEAD")
     received: list[str] = []
     w.commit_failed.connect(received.append)
@@ -201,8 +182,6 @@ def test_detached_head_still_rejects_an_empty_message(qtbot):
 
 def test_amend_is_available_on_a_detached_head(qtbot):
     w, _, _ = _amend_widget(qtbot)
-    w._conflict_banner = QWidget()
-    w._banner_label = QLabel()
 
     w.update_conflict_banner("DETACHED_HEAD")
 

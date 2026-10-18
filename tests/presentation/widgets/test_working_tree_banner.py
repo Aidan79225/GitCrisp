@@ -5,58 +5,26 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtWidgets import QWidget
 
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
+from tests.presentation.widgets.working_tree_helpers import working_tree_widget
 
 
 def _make_widget(qtbot) -> WorkingTreeWidget:
-    """Create a WorkingTreeWidget with minimal init bypass.
-
-    Stubs `_queries` with a configured identity so `_on_commit`'s identity
-    check passes; tests that exercise the missing-identity path override
-    `get_identity.execute.return_value` themselves.
-    """
-    w = WorkingTreeWidget.__new__(WorkingTreeWidget)
-    QWidget.__init__(w)
-    from PySide6.QtWidgets import (
-        QCheckBox,
-        QHBoxLayout,
-        QLabel,
-        QPlainTextEdit,
-        QPushButton,
-    )
-
-    w._conflict_banner = QWidget()
-    banner_layout = QHBoxLayout(w._conflict_banner)
-    w._banner_label = QLabel("")
-    w._btn_abort = QPushButton("Abort")
-    w._btn_commit = QPushButton("Commit")
-    w._msg_edit = QPlainTextEdit()
-    w._chk_amend = QCheckBox()
-    w._draft_msg = ""
-    banner_layout.addWidget(w._banner_label, 1)
-    banner_layout.addWidget(w._btn_abort)
-    w._conflict_banner.setVisible(False)
-    w._btn_abort.clicked.connect(w._on_abort_clicked)
-    w._queries = MagicMock()
-    w._queries.get_identity.execute.return_value = ("Alice", "alice@example.com")
-    w._commands = MagicMock()
-    qtbot.addWidget(w)
-    return w
+    return working_tree_widget(qtbot)
 
 
 def test_banner_hidden_when_clean(qtbot):
     w = _make_widget(qtbot)
     w.update_conflict_banner("CLEAN")
-    assert w._conflict_banner.isVisible() is False
+    assert w._conflict_banner.isVisibleTo(w) is False
     assert w._btn_commit.text() == "Commit"
 
 
 def test_banner_visible_during_merge(qtbot):
     w = _make_widget(qtbot)
     w.update_conflict_banner("MERGING")
-    assert w._conflict_banner.isVisible() is True
+    assert w._conflict_banner.isVisibleTo(w) is True
     assert "Merge" in w._banner_label.text()
     assert w._btn_commit.text() == "Finish Merge"
 
@@ -64,7 +32,7 @@ def test_banner_visible_during_merge(qtbot):
 def test_banner_visible_during_rebase(qtbot):
     w = _make_widget(qtbot)
     w.update_conflict_banner("REBASING")
-    assert w._conflict_banner.isVisible() is True
+    assert w._conflict_banner.isVisibleTo(w) is True
     assert "Rebase" in w._banner_label.text()
     assert w._btn_commit.text() == "Continue Rebase"
 
@@ -108,7 +76,7 @@ def test_commit_button_emits_rebase_continue(qtbot):
 def test_banner_visible_during_cherry_pick(qtbot):
     w = _make_widget(qtbot)
     w.update_conflict_banner("CHERRY_PICKING")
-    assert w._conflict_banner.isVisible() is True
+    assert w._conflict_banner.isVisibleTo(w) is True
     assert "Cherry-pick" in w._banner_label.text()
     assert "Continue Cherry-pick" in w._btn_commit.text()
 
@@ -116,7 +84,7 @@ def test_banner_visible_during_cherry_pick(qtbot):
 def test_banner_visible_during_revert(qtbot):
     w = _make_widget(qtbot)
     w.update_conflict_banner("REVERTING")
-    assert w._conflict_banner.isVisible() is True
+    assert w._conflict_banner.isVisibleTo(w) is True
     assert "Revert" in w._banner_label.text()
     assert "Continue Revert" in w._btn_commit.text()
 

@@ -10,21 +10,13 @@ from __future__ import annotations
 
 import pygit2
 import pytest
-from PySide6.QtWidgets import QWidget
 
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
+from tests.presentation.widgets.working_tree_helpers import working_tree_widget
 
 
 def _make_minimal(qtbot, repo_path: str | None) -> WorkingTreeWidget:
-    """Build a WorkingTreeWidget bypassing its heavy __init__. We only
-    need _repo_path and a no-op _on_files_changed for _ignore_file
-    exercise; everything else is irrelevant for these tests."""
-    w = WorkingTreeWidget.__new__(WorkingTreeWidget)
-    QWidget.__init__(w)
-    w._repo_path = repo_path
-    w._on_files_changed = lambda: None
-    qtbot.addWidget(w)
-    return w
+    return working_tree_widget(qtbot, repo_path)
 
 
 def test_ignore_file_creates_gitignore_when_missing(qtbot, tmp_path):
