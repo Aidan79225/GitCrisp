@@ -57,6 +57,7 @@ class CloneDialog(QDialog):
         self.setMinimumWidth(500)
         self._proc_thread: threading.Thread | None = None
         self._cloning = False
+        self._cancel_requested = threading.Event()
 
         # URL
         self._url_edit = QLineEdit()
@@ -188,6 +189,8 @@ class CloneDialog(QDialog):
         self._progress_bar.setValue(percent)
 
     def _on_finished(self, dest: str) -> None:
+        if self._cancel_requested.is_set():
+            return
         self.clone_completed.emit(dest)
         self.accept()
 
@@ -209,13 +212,13 @@ class CloneDialog(QDialog):
             self._folder_browse,
             self._name_edit,
             self._clone_btn,
-            self._cancel_btn,
         ):
             widget.setEnabled(not cloning)
 
     def reject(self) -> None:
-        # Nothing can stop git once the clone has started: closing here would
-        # only hide the dialog, and the finished clone would still be opened.
+        # clone_repo cannot stop git yet, so a cancelled clone runs on until git
+        # exits by itself. The dialog still closes at once, so a stalled clone
+        # cannot hold the app behind it, and that clone is never opened.
         if self._cloning:
-            return
+            self._cancel_requested.set()
         super().reject()
