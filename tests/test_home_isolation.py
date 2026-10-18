@@ -68,7 +68,7 @@ def test_the_checkbox_tick_lands_in_the_fake_home(_isolated_gitcrisp_home):
     from git_gui.presentation.theme.qss_template import render
 
     qss = render(load_builtin("light"))
-    match = re.search(r"QCheckBox::indicator:checked \{[^}]*image: url\(([^)]+)\)", qss)
+    match = re.search(r'QCheckBox::indicator:checked \{[^}]*image: url\("([^"]+)"\)', qss)
 
     assert match
     assert _isolated_gitcrisp_home in Path(match.group(1).strip("'\"")).parents
