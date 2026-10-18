@@ -1,6 +1,7 @@
-"""A commit list or sidebar that cannot load says why in the operations log.
+"""A commit list, sidebar or changed-files list that cannot load says why in
+the operations log.
 
-Both widgets clear what they showed and emit the reason, but nothing listened:
+Each widget clears what it showed and emit the reason, but nothing listened:
 the user saw an empty pane and the reason went only to the file log.
 """
 
@@ -47,3 +48,14 @@ def test_a_failed_sidebar_load_is_reported(qtbot):
     message = win._log_panel.log_error.call_args.args[0]
     assert "branches and tags" in message
     assert "annotated tag on a tree" in message
+
+
+def test_a_failed_changed_files_load_is_reported(qtbot):
+    win = _make_window(qtbot)
+
+    win._working_tree.load_failed.emit("index file corrupt")
+
+    win._log_panel.expand.assert_called_once_with()
+    message = win._log_panel.log_error.call_args.args[0]
+    assert "changed files" in message
+    assert "index file corrupt" in message
