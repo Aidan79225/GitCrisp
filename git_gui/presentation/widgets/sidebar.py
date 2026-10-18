@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from datetime import UTC, datetime
 
 from PySide6.QtCore import QObject, QSize, Qt, Signal
@@ -16,6 +15,7 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets.background import BackgroundRunner, start_daemon_thread
 from git_gui.presentation.widgets.highlighting_tree import HighlightingTreeView
 from git_gui.resources import get_resource_path
 
@@ -124,11 +124,14 @@ class SidebarWidget(QWidget):
         remote_tag_cache=None,
         repo_path: str | None = None,
         parent=None,
+        *,
+        run_in_background: BackgroundRunner = start_daemon_thread,
     ) -> None:
         super().__init__(parent)
         self._queries = queries
         self._commands = commands
         self._remote_tag_cache = remote_tag_cache
+        self._run_in_background = run_in_background
         self._repo_path = repo_path
         self._worktree_branches: set[str] = set()
         # Bumped by every reload. A load that finishes after a newer one was
@@ -192,7 +195,7 @@ class SidebarWidget(QWidget):
                 return
             signals.done.emit(generation, *loaded)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        self._run_in_background(_worker)
 
     def _on_worker_done(
         self,
