@@ -94,10 +94,6 @@ class RightPanelMixin:
         pane.deleteLater()
         self._splitter.setSizes(self._graph_sizes)
 
-    def _close_blame_panes(self) -> None:
-        """Blame shows a file from the repo being left behind."""
-        self._close_blame_pane()
-
     def _on_working_tree_empty(self) -> None:
         """Working tree has no changes — switch back to commit info and refresh graph."""
         self._graph.reload()
