@@ -21,8 +21,8 @@ from git_gui.presentation.widgets.ref_badge_delegate import (
 )
 
 
-def _muted() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE_VARIANT)
+def _colour(role: ColorRole) -> QColor:
+    return get_theme_manager().current.colors.as_qcolor(role)
 
 
 PAD = 12
@@ -30,6 +30,13 @@ AVATAR_SIZE = 36
 AVATAR_GAP = 10
 TEXT_LEFT = PAD + AVATAR_SIZE + AVATAR_GAP
 AUTHOR_LABEL = "Author: "
+COMMIT_LABEL = "Commit: "
+PARENT_LABEL = "Parent: "
+LINE_COUNT = 3  # author, then the hash with its badges, then the parents
+
+
+def _line_top(line: int, line_h: int) -> int:
+    return PAD + line * (line_h + PAD)
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,28 @@ class _AuthorLine:
     author_x: int
     timestamp: str
     timestamp_x: int
+
+
+@dataclass(frozen=True)
+class _Badge:
+    rect: QRect
+    ref: str  # as the graph names it, which decides the colour
+    label: str
+    copy_text: str
+
+
+@dataclass(frozen=True)
+class _DetailLayout:
+    """Where each part of the header goes, for painting and hit-testing alike."""
+
+    avatar: QRect
+    author_top: int
+    author_line: _AuthorLine
+    cut_author: QRect | None  # the author's slot, when the author had to be cut
+    oid: QRect
+    badges: tuple[_Badge, ...]
+    parents_top: int
+    parents_x: int
 
 
 class CommitDetailWidget(QWidget):
@@ -53,10 +82,6 @@ class CommitDetailWidget(QWidget):
         self._head_branch: str | None = None
         self._remote_branches: frozenset[str] = frozenset()
         self._avatar_hash: str | None = None
-        self._oid_rect: QRect | None = None
-        self._cut_author_rect: QRect | None = None
-        # Clickable ref badges painted on line 2: (rect, copy text).
-        self._badge_rects: list[tuple[QRect, str]] = []
         self.setMouseTracking(True)
         connect_widget(self)
         self._avatar_loader = get_avatar_loader()
@@ -78,17 +103,13 @@ class CommitDetailWidget(QWidget):
         self._avatar_hash = self._avatar_loader.hash_for_author(commit.author)
         # Prime the cache; first call may kick off async fetch.
         self._avatar_loader.get_pixmap(commit.author)
-        fm = self.fontMetrics()
-        self.setFixedHeight(fm.height() * 3 + PAD * 4)
+        self.setFixedHeight(self.fontMetrics().height() * LINE_COUNT + PAD * (LINE_COUNT + 1))
         self.update()
 
     def clear(self) -> None:
         self._commit = None
         self._refs = []
         self._avatar_hash = None
-        self._oid_rect = None
-        self._cut_author_rect = None
-        self._badge_rects = []
         self.update()
 
     def _on_avatar_ready(self, email_hash: str) -> None:
@@ -98,76 +119,96 @@ class CommitDetailWidget(QWidget):
     def paintEvent(self, event) -> None:
         if self._commit is None:
             return
-
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        fm = painter.fontMetrics()
+        layout = self._layout(self._commit, painter.fontMetrics())
+        paint_avatar(
+            painter,
+            layout.avatar,
+            self._commit.author,
+            self._avatar_loader.get_pixmap(self._commit.author),
+        )
+        self._paint_author_line(painter, layout)
+        self._paint_hash_and_badges(painter, layout, self._commit.oid)
+        self._paint_parents(painter, layout, self._commit.parents)
+        painter.end()
+
+    def _layout(self, commit: Commit, fm: QFontMetrics) -> _DetailLayout:
         line_h = fm.height()
-        c = self._commit
-        on_surface = get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE)
-        on_badge = get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE)
+        author_top, oid_top, parents_top = (_line_top(line, line_h) for line in range(LINE_COUNT))
+        author_line = self._author_line(commit, fm)
+        author_slot = QRect(
+            author_line.author_x, author_top, author_line.timestamp_x - author_line.author_x, line_h
+        )
+        oid = QRect(
+            TEXT_LEFT + fm.horizontalAdvance(COMMIT_LABEL),
+            oid_top,
+            fm.horizontalAdvance(commit.oid),
+            line_h,
+        )
+        return _DetailLayout(
+            avatar=QRect(PAD, (self.height() - AVATAR_SIZE) // 2, AVATAR_SIZE, AVATAR_SIZE),
+            author_top=author_top,
+            author_line=author_line,
+            cut_author=author_slot if author_line.author != commit.author else None,
+            oid=oid,
+            badges=self._badges(fm, oid.x() + oid.width() + BADGE_GAP * 2, oid_top + line_h // 2),
+            parents_top=parents_top,
+            parents_x=TEXT_LEFT + fm.horizontalAdvance(PARENT_LABEL),
+        )
 
-        # ── Avatar (left, vertically centered) ───────────────────────────────
-        avatar_y = (self.height() - AVATAR_SIZE) // 2
-        avatar_rect = QRect(PAD, avatar_y, AVATAR_SIZE, AVATAR_SIZE)
-        pixmap = self._avatar_loader.get_pixmap(c.author)
-        paint_avatar(painter, avatar_rect, c.author, pixmap)
-        text_left = TEXT_LEFT
+    def _badges(self, fm: QFontMetrics, x: int, centre_y: int) -> tuple[_Badge, ...]:
+        """The ref badges in a row from `x`, centred on the hash's line."""
+        badge_h = fm.height() + BADGE_V_PAD * 2
+        badges = []
+        for ref in self._refs:
+            label = _badge_display_name(ref)
+            badge_w = fm.horizontalAdvance(label) + BADGE_H_PAD * 2
+            rect = QRect(x, centre_y - badge_h // 2, badge_w, badge_h)
+            badges.append(_Badge(rect, ref, label, _badge_copy_text(ref)))
+            x += badge_w + BADGE_GAP
+        return tuple(badges)
 
-        # ── Line 1: Author + datetime ────────────────────────────────────────
-        y = PAD
-        line1 = self._author_line(c, fm)
-        painter.setPen(_muted())
-        painter.drawText(text_left, y + fm.ascent(), AUTHOR_LABEL)
-        painter.setPen(on_surface)
-        painter.drawText(line1.author_x, y + fm.ascent(), line1.author)
-        painter.setPen(_muted())
-        painter.drawText(line1.timestamp_x, y + fm.ascent(), line1.timestamp)
-        author_slot = QRect(line1.author_x, y, line1.timestamp_x - line1.author_x, line_h)
-        self._cut_author_rect = author_slot if line1.author != c.author else None
+    @staticmethod
+    def _draw_label(painter: QPainter, top: int, label: str) -> None:
+        painter.setPen(_colour(ColorRole.ON_SURFACE_VARIANT))
+        painter.drawText(TEXT_LEFT, top + painter.fontMetrics().ascent(), label)
 
-        # ── Line 2: Hash + ref badges ────────────────────────────────────────
-        y += line_h + PAD
-        painter.setPen(_muted())
-        painter.drawText(text_left, y + fm.ascent(), "Commit: ")
-        x = text_left + fm.horizontalAdvance("Commit: ")
+    def _paint_author_line(self, painter: QPainter, layout: _DetailLayout) -> None:
+        line = layout.author_line
+        baseline = layout.author_top + painter.fontMetrics().ascent()
+        self._draw_label(painter, layout.author_top, AUTHOR_LABEL)
+        painter.setPen(_colour(ColorRole.ON_SURFACE))
+        painter.drawText(line.author_x, baseline, line.author)
+        painter.setPen(_colour(ColorRole.ON_SURFACE_VARIANT))
+        painter.drawText(line.timestamp_x, baseline, line.timestamp)
+
+    def _paint_hash_and_badges(self, painter: QPainter, layout: _DetailLayout, oid: str) -> None:
+        baseline = layout.oid.top() + painter.fontMetrics().ascent()
+        self._draw_label(painter, layout.oid.top(), COMMIT_LABEL)
         oid_font = QFont(painter.font())
         oid_font.setUnderline(True)
         painter.setFont(oid_font)
-        painter.setPen(on_surface)
-        painter.drawText(x, y + fm.ascent(), c.oid)
-        oid_w = fm.horizontalAdvance(c.oid)
-        self._oid_rect = QRect(x, y, oid_w, line_h)
-        # Restore the default font for whatever follows on this line.
+        painter.setPen(_colour(ColorRole.ON_SURFACE))
+        painter.drawText(layout.oid.x(), baseline, oid)
         oid_font.setUnderline(False)
         painter.setFont(oid_font)
-        x += oid_w + BADGE_GAP * 2
+        for badge in layout.badges:
+            self._paint_badge(painter, badge)
 
-        badge_h = line_h + BADGE_V_PAD * 2
-        cy = y + line_h // 2
-        self._badge_rects = []
-        for name in self._refs:
-            display = _badge_display_name(name)
-            badge_w = fm.horizontalAdvance(display) + BADGE_H_PAD * 2
-            badge_rect = QRect(x, cy - badge_h // 2, badge_w, badge_h)
-            painter.setBrush(QBrush(_badge_color(name, self._head_branch, self._remote_branches)))
-            painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(badge_rect, BADGE_RADIUS, BADGE_RADIUS)
-            painter.setPen(on_badge)
-            painter.drawText(badge_rect, Qt.AlignCenter, display)
-            self._badge_rects.append((badge_rect, _badge_copy_text(name)))
-            x += badge_w + BADGE_GAP
+    def _paint_badge(self, painter: QPainter, badge: _Badge) -> None:
+        fill = _badge_color(badge.ref, self._head_branch, self._remote_branches)
+        painter.setBrush(QBrush(fill))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(badge.rect, BADGE_RADIUS, BADGE_RADIUS)
+        painter.setPen(_colour(ColorRole.ON_BADGE))
+        painter.drawText(badge.rect, Qt.AlignCenter, badge.label)
 
-        # ── Line 3: Parent(s) ────────────────────────────────────────────────
-        y += line_h + PAD
-        painter.setPen(_muted())
-        painter.drawText(text_left, y + fm.ascent(), "Parent: ")
-        x = text_left + fm.horizontalAdvance("Parent: ")
-        painter.setPen(on_surface)
-        parents_text = "  ".join(c.parents) if c.parents else "(none)"
-        painter.drawText(x, y + fm.ascent(), parents_text)
-
-        painter.end()
+    def _paint_parents(self, painter: QPainter, layout: _DetailLayout, parents: list[str]) -> None:
+        baseline = layout.parents_top + painter.fontMetrics().ascent()
+        self._draw_label(painter, layout.parents_top, PARENT_LABEL)
+        painter.setPen(_colour(ColorRole.ON_SURFACE))
+        painter.drawText(layout.parents_x, baseline, "  ".join(parents) if parents else "(none)")
 
     def _author_line(self, commit: Commit, fm: QFontMetrics) -> _AuthorLine:
         """Line 1's layout, with the timestamp's place taken first.
@@ -189,19 +230,19 @@ class CommitDetailWidget(QWidget):
 
     def _tooltip_at(self, pos) -> str:
         """The whole author, over an author that had to be cut to fit."""
-        rect = self._cut_author_rect
-        if self._commit is not None and rect is not None and rect.contains(pos):
-            return self._commit.author
-        return ""
+        if self._commit is None:
+            return ""
+        cut = self._layout(self._commit, self.fontMetrics()).cut_author
+        return self._commit.author if cut is not None and cut.contains(pos) else ""
 
     def _copyable_at(self, pos) -> str | None:
         """Return the text to copy if a clickable element is under `pos`."""
-        if self._commit is not None and self._oid_rect is not None and self._oid_rect.contains(pos):
+        if self._commit is None:
+            return None
+        layout = self._layout(self._commit, self.fontMetrics())
+        if layout.oid.contains(pos):
             return self._commit.oid
-        for rect, text in self._badge_rects:
-            if rect.contains(pos):
-                return text
-        return None
+        return next((badge.copy_text for badge in layout.badges if badge.rect.contains(pos)), None)
 
     def mouseMoveEvent(self, event) -> None:
         pos = event.position().toPoint()
@@ -218,13 +259,14 @@ class CommitDetailWidget(QWidget):
     def mousePressEvent(self, event) -> None:
         pos = event.position().toPoint()
         if event.button() == Qt.LeftButton and self._commit is not None:
-            if self._oid_rect is not None and self._oid_rect.contains(pos):
+            layout = self._layout(self._commit, self.fontMetrics())
+            if layout.oid.contains(pos):
                 self.commit_oid_copy_requested.emit(self._commit.oid)
                 event.accept()
                 return
-            for rect, text in self._badge_rects:
-                if rect.contains(pos):
-                    self.ref_copy_requested.emit(text)
+            for badge in layout.badges:
+                if badge.rect.contains(pos):
+                    self.ref_copy_requested.emit(badge.copy_text)
                     event.accept()
                     return
         super().mousePressEvent(event)

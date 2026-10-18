@@ -46,9 +46,12 @@ def _painted_badge_colours(detail: CommitDetailWidget) -> dict[str, int]:
     image = QImage(detail.size(), QImage.Format_ARGB32)
     image.fill(QColor(0, 0, 0, 0))
     detail.render(image)
+    badges = detail._layout(detail._commit, detail.fontMetrics()).badges
     return {
-        name: image.pixelColor(rect.left() + BADGE_H_PAD // 2, rect.center().y()).rgb()
-        for rect, name in detail._badge_rects
+        badge.copy_text: image.pixelColor(
+            badge.rect.left() + BADGE_H_PAD // 2, badge.rect.center().y()
+        ).rgb()
+        for badge in badges
     }
 
 
