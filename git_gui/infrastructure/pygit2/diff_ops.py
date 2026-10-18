@@ -29,7 +29,7 @@ class DiffOps:
     index, and the working tree — including untracked/conflict synthesis.
 
     Mixin — not instantiable on its own. Relies on `self._repo` set up
-    by the composite class.
+    by the composite class, and on CommitOps' `_diff_against_parent`.
     """
 
     _repo: pygit2.Repository  # provided by the composite
@@ -58,17 +58,13 @@ class DiffOps:
             if status & pygit2.GIT_STATUS_WT_NEW:
                 return _synthesise_untracked_hunk(self._repo.workdir, path)
             return []
-        commit = self._repo.get(oid)
-        if commit.parents:
-            diff = self._repo.diff(commit.parents[0].tree, commit.tree)
-        else:
-            empty_tree_oid = self._repo.TreeBuilder().write()
-            empty_tree = self._repo.get(empty_tree_oid)
-            diff = self._repo.diff(empty_tree, commit.tree)
-        for patch in diff:
+        # Every match, not the first: a type change comes as a deletion and an
+        # addition of the one path.
+        hunks: list[Hunk] = []
+        for patch in self._diff_against_parent(oid):
             if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
-                return _diff_to_hunks(patch)
-        return []
+                hunks.extend(_diff_to_hunks(patch))
+        return hunks
 
     def get_working_tree_diff_map(
         self, paths: list[str] | None = None

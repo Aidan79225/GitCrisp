@@ -39,3 +39,12 @@ def test_a_type_change_diff_shows_the_old_content_and_the_link_target(repo_path)
 
     assert (LineKind.REMOVED, "# Test Repo\n") in lines
     assert (LineKind.ADDED, "docs/README.md") in lines
+
+
+def test_selecting_a_type_changed_file_shows_both_sides_of_its_diff(repo_path):
+    impl, oid = _commit_file_turned_into_symlink(repo_path)
+
+    lines = [line for hunk in impl.get_file_diff(oid, "README.md") for line in hunk.lines]
+
+    assert (LineKind.REMOVED, "# Test Repo\n") in lines
+    assert (LineKind.ADDED, "docs/README.md") in lines
