@@ -263,9 +263,29 @@ def _make_card_container(title: str) -> tuple[QFrame, QVBoxLayout]:
     return frame, layout
 
 
+# Windows' localtime() rejects times before the epoch and after year 3000, and
+# astimezone() probes a day either side of the time it converts. The date
+# pickers offer 1752 to 9999, and a day outside this window would raise, so the
+# range is left open at that end instead.
+_FIRST_CONVERTIBLE_DAY = date(1970, 1, 3)
+_LAST_CONVERTIBLE_DAY = date(2999, 12, 30)
+
+
 def _local_midnight(day: date) -> datetime:
     """The start of *day* on the user's clock, with its UTC offset that day."""
     return datetime(day.year, day.month, day.day).astimezone()
+
+
+def _start_of(day: date) -> datetime | None:
+    """Local midnight opening *day*, or None (no lower bound) before the window."""
+    return _local_midnight(day) if day >= _FIRST_CONVERTIBLE_DAY else None
+
+
+def _end_of(day: date) -> datetime | None:
+    """The last local second of *day*, or None (no upper bound) past the window."""
+    if day > _LAST_CONVERTIBLE_DAY:
+        return None
+    return _local_midnight(day + timedelta(days=1)) - timedelta(seconds=1)
 
 
 def _day_of(picked: QDate) -> date:
@@ -396,9 +416,8 @@ class InsightDialog(QDialog):
         if label == "All":
             return (None, None)
         if label == "Custom":
-            since = _local_midnight(_day_of(self._start_date.date()))
-            day_after = _day_of(self._end_date.date()) + timedelta(days=1)
-            until = _local_midnight(day_after) - timedelta(seconds=1)
+            since = _start_of(_day_of(self._start_date.date()))
+            until = _end_of(_day_of(self._end_date.date()))
             return (since, until)
         return (None, None)
 
