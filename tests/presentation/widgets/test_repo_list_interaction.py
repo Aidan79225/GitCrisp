@@ -151,3 +151,23 @@ def test_clicking_the_active_worktree_does_not_reopen_it(qtbot):
     row = _worktree_row(w, "C:/wt/review", "feature/login")
 
     assert _switches_after_clicking(w, w._model.indexFromItem(row)) == []
+
+
+# ── Dragging from outside a row ─────────────────────────────────────────────
+def test_a_drag_from_blank_space_does_not_carry_the_last_clicked_repo(qtbot, monkeypatch):
+    w = _shown_list(qtbot, _FakeStore(open_=_OPEN, active="C:/a/one"))
+    dragged: list[str] = []
+    monkeypatch.setattr(w._tree, "startDrag", lambda _actions: dragged.append("drag"))
+    viewport = w._tree.viewport()
+    QTest.mouseClick(
+        viewport,
+        Qt.LeftButton,
+        Qt.NoModifier,
+        w._tree.visualRect(_open_row_index(w, "C:/a/one")).center(),
+    )
+    blank = QPoint(viewport.width() // 2, viewport.height() - 10)
+    assert not w._tree.indexAt(blank).isValid()
+
+    _press_and_drag(w, blank, -(QApplication.startDragDistance() + 40))
+
+    assert dragged == []
