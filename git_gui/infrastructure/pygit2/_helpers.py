@@ -53,6 +53,18 @@ def _diff_to_hunks(patch: pygit2.Patch) -> list[Hunk]:
     return result
 
 
+def _patches_for_path(diff: pygit2.Diff, path: str) -> list[pygit2.Patch]:
+    """Every patch touching *path*: a type change is a deletion and an addition of it.
+
+    Matched on the deltas so no patch is generated for the other files.
+    """
+    return [
+        diff[index]
+        for index, delta in enumerate(diff.deltas)
+        if path in (delta.new_file.path, delta.old_file.path)
+    ]
+
+
 _UNTRACKED_MAX_LINES = 5000
 _UNTRACKED_MAX_BYTES = 1_048_576
 
