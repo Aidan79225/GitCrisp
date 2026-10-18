@@ -341,13 +341,8 @@ class DiffWidget(QWidget):
         if not msg.endswith("\n"):
             msg += "\n"
         # Each commit starts with the message expanded — collapse state
-        # is per-commit, not per-session.
-        self._msg_toggle.blockSignals(True)
+        # is per-commit, not per-session. The toggle expands the view itself.
         self._msg_toggle.setChecked(True)
-        self._msg_toggle.blockSignals(False)
-        self._msg_toggle.setArrowType(Qt.DownArrow)
-        self._msg_view.set_expanded(True)
-
         self._msg_view.show_message(msg)
 
         # Files — no auto-selection; show all files' hunks as bordered blocks
