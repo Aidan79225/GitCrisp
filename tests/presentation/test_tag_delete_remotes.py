@@ -96,3 +96,49 @@ def test_a_repo_switch_while_the_delete_runs_prunes_the_cache_of_the_repo_it_ran
     _switch_repo(host)
     host.finish_ops()
     assert {c.args[0] for c in host._remote_tag_cache.save.call_args_list} == {"/repo"}
+
+
+def _refuse(*refusing: str):
+    def _delete(remote: str, _name: str) -> None:
+        if remote in refusing:
+            raise RuntimeError(f"{remote} is unreachable")
+
+    return _delete
+
+
+def test_a_remote_that_fails_does_not_stop_the_delete_on_the_others(host):
+    host._commands.delete_remote_tag.execute.side_effect = _refuse("origin")
+    host._delete_tag_local_and_remote("v1", ["origin", "upstream"])
+    with pytest.raises(RuntimeError):
+        host.finish_ops()
+    assert call("upstream", "v1") in host._commands.delete_remote_tag.execute.call_args_list
+
+
+def test_the_error_names_the_remotes_that_still_have_the_tag(host):
+    host._commands.delete_remote_tag.execute.side_effect = _refuse("origin")
+    host._delete_tag_local_and_remote("v1", ["origin", "upstream"])
+    with pytest.raises(RuntimeError, match=r"still on origin \(origin is unreachable\)$"):
+        host.finish_ops()
+
+
+def test_only_the_remotes_it_left_keep_the_tag_in_the_cache(host):
+    host._commands.delete_remote_tag.execute.side_effect = _refuse("origin")
+    host._delete_tag_local_and_remote("v1", ["origin", "upstream"])
+    with pytest.raises(RuntimeError):
+        host.finish_ops()
+    saved = host._remote_tag_cache.save.call_args.args[1]
+    assert saved == {"origin": ["v1"], "upstream": ["v2"]}
+
+
+def test_a_cancel_stops_the_delete_before_the_remaining_remotes(host):
+    from git_gui.infrastructure.pygit2.remote_ops import RemoteOperationCancelled
+
+    def _cancel_on_origin(remote: str, _name: str) -> None:
+        if remote == "origin":
+            raise RemoteOperationCancelled("Operation cancelled")
+
+    host._commands.delete_remote_tag.execute.side_effect = _cancel_on_origin
+    host._delete_tag_local_and_remote("v1", ["origin", "upstream"])
+    with pytest.raises(RemoteOperationCancelled):
+        host.finish_ops()
+    assert call("upstream", "v1") not in host._commands.delete_remote_tag.execute.call_args_list
