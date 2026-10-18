@@ -1,4 +1,4 @@
-"""Tests for the blame window."""
+"""Tests for the blame pane."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ LINES = [
 ]
 
 
-def _window(qtbot, lines=None, path="src/app.py", at_oid=None) -> tuple[BlamePane, MagicMock]:
+def _pane(qtbot, lines=None, path="src/app.py", at_oid=None) -> tuple[BlamePane, MagicMock]:
     queries = MagicMock()
     queries.get_blame.execute.return_value = list(LINES if lines is None else lines)
     w = BlamePane(queries, path, at_oid)
@@ -73,17 +73,16 @@ def test_elide_leaves_short_text_alone_and_truncates_long_text():
 # ── Loading ──────────────────────────────────────────────────────────────────
 
 
-def test_loads_the_file_and_shows_the_revision_in_the_title(qtbot):
-    w, queries = _window(qtbot)
+def test_loads_the_file_and_shows_the_revision_in_the_status_line(qtbot):
+    w, queries = _pane(qtbot)
     queries.get_blame.execute.assert_called_once_with("src/app.py", at_oid=None)
     assert w._editor.toPlainText() == "first\nsecond\nthird"
-    assert "src/app.py" in w.windowTitle()
-    assert "HEAD" in w.windowTitle()
+    assert w._status.full_text() == "src/app.py @ HEAD"
 
 
-def test_title_names_the_revision_when_blaming_an_older_commit(qtbot):
-    w, _ = _window(qtbot, at_oid=AAA)
-    assert AAA[:8] in w.windowTitle()
+def test_the_status_line_names_the_revision_when_blaming_an_older_commit(qtbot):
+    w, _ = _pane(qtbot, at_oid=AAA)
+    assert w._status.full_text() == f"src/app.py @ {AAA[:SHA_CHARS]}"
 
 
 def test_failure_is_surfaced_rather_than_swallowed(qtbot):
@@ -97,7 +96,7 @@ def test_failure_is_surfaced_rather_than_swallowed(qtbot):
 
 def test_a_result_for_a_revision_the_user_left_is_discarded(qtbot):
     """The user can walk back through revisions faster than blame returns."""
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     w._oid = "some-other-revision"
 
     w._on_loaded([_line(1, "stale", AAA, run_start=True)], [], "src/app.py", "")
@@ -117,7 +116,7 @@ def test_theme_change_recolours_the_code(qtbot):
     original = manager.mode
     try:
         manager.set_mode("light")
-        w, _ = _window(qtbot, lines=[_line(1, '"hello"', AAA, run_start=True)])
+        w, _ = _pane(qtbot, lines=[_line(1, '"hello"', AAA, run_start=True)])
 
         def string_color() -> str:
             cursor = QTextCursor(w._editor.document())
@@ -140,7 +139,7 @@ def test_theme_change_recolours_the_code(qtbot):
 
 
 def test_line_lookup_is_bounded(qtbot):
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     assert w._editor.line_at_block(0).text == "first"
     assert w._editor.line_at_block(2).text == "third"
     assert w._editor.line_at_block(3) is None
@@ -148,7 +147,7 @@ def test_line_lookup_is_bounded(qtbot):
 
 
 def test_gutter_widens_with_the_line_number_column(qtbot):
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     narrow = w._editor.gutter_width()
     w._editor.set_lines([_line(n, "x", AAA, run_start=n == 1) for n in range(1, 10001)], [])
     assert w._editor.gutter_width() > narrow
@@ -162,7 +161,7 @@ def test_the_gutter_carries_the_author_and_nothing_else(qtbot):
     """
     from PySide6.QtGui import QFontMetrics
 
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     editor = w._editor
     fm = QFontMetrics(editor.font())
 
@@ -180,7 +179,7 @@ def test_the_gutter_carries_the_author_and_nothing_else(qtbot):
 
 def test_the_sha_and_date_are_still_reachable_on_the_line(qtbot):
     """Dropping the columns is only fair because the tooltip carries them."""
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     w.show()
     # The document's top margin means y=0 is above the first block; find the
     # first y that lands on one rather than assuming where it starts.
@@ -212,7 +211,7 @@ def test_opening_does_not_emit_before_the_user_picks_a_line(qtbot):
 
 
 def test_selecting_a_line_emits_its_commit(qtbot):
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     got: list[str] = []
     w.commit_selected.connect(got.append)
 
@@ -224,7 +223,7 @@ def test_selecting_a_line_emits_its_commit(qtbot):
 
 def test_moving_within_a_run_does_not_re_emit(qtbot):
     """Emitting per line would re-drive the main window on every arrow key."""
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     got: list[str] = []
     w.commit_selected.connect(got.append)
 
@@ -239,7 +238,7 @@ def test_moving_within_a_run_does_not_re_emit(qtbot):
 
 
 def test_blame_before_reblames_at_the_parent_and_enables_back(qtbot):
-    w, queries = _window(qtbot)
+    w, queries = _pane(qtbot)
     queries.get_commit_detail.execute.return_value = MagicMock(parents=["parent-oid"])
 
     w._blame_before(BBB)
@@ -251,7 +250,7 @@ def test_blame_before_reblames_at_the_parent_and_enables_back(qtbot):
 
 def test_blame_before_a_parentless_commit_reports_and_stays_put(qtbot):
     """A root commit — or a graft boundary in a shallow clone — has nothing before it."""
-    w, queries = _window(qtbot)
+    w, queries = _pane(qtbot)
     queries.get_commit_detail.execute.return_value = MagicMock(parents=[])
 
     w._blame_before(BBB)
@@ -262,7 +261,7 @@ def test_blame_before_a_parentless_commit_reports_and_stays_put(qtbot):
 
 
 def test_back_returns_to_the_previous_revision(qtbot):
-    w, queries = _window(qtbot)
+    w, queries = _pane(qtbot)
     queries.get_commit_detail.execute.return_value = MagicMock(parents=["parent-oid"])
     w._blame_before(BBB)
     qtbot.waitUntil(lambda: w._oid == "parent-oid")
@@ -280,7 +279,7 @@ def test_back_is_absent_until_there_is_a_dig_to_climb_out_of(qtbot):
     It undoes one step of "Blame before this commit" and nothing else, so it
     is only there once such a step has been taken.
     """
-    w, queries = _window(qtbot)
+    w, queries = _pane(qtbot)
     assert w._back_btn.isHidden()
 
     queries.get_commit_detail.execute.return_value = MagicMock(parents=["parent-oid"])
@@ -291,15 +290,15 @@ def test_back_is_absent_until_there_is_a_dig_to_climb_out_of(qtbot):
 
 
 def test_back_does_nothing_with_an_empty_history(qtbot):
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     w._go_back()
     assert w._oid is None
 
 
 def test_a_long_author_widens_the_gutter_no_further_than_the_cap(qtbot):
     """The gutter grows with the widest author shown, up to AUTHOR_CHARS of them."""
-    at_cap, _ = _window(qtbot, lines=[replace(LINES[0], author="W" * AUTHOR_CHARS)])
-    past_cap, _ = _window(qtbot, lines=[replace(LINES[0], author="W" * (AUTHOR_CHARS * 3))])
+    at_cap, _ = _pane(qtbot, lines=[replace(LINES[0], author="W" * AUTHOR_CHARS)])
+    past_cap, _ = _pane(qtbot, lines=[replace(LINES[0], author="W" * (AUTHOR_CHARS * 3))])
 
     assert past_cap._editor.gutter_width() <= at_cap._editor.gutter_width()
 
@@ -313,7 +312,7 @@ def test_picking_a_line_of_the_first_run_loads_its_commit(qtbot):
     The diff pane still holds the revision blame was opened from; treating line
     1's commit as already emitted dropped the user's first pick of it.
     """
-    w, _ = _window(qtbot, at_oid="x" * 40)
+    w, _ = _pane(qtbot, at_oid="x" * 40)
     got: list[str] = []
     w.commit_selected.connect(got.append)
 
@@ -324,7 +323,7 @@ def test_picking_a_line_of_the_first_run_loads_its_commit(qtbot):
 
 def test_a_gutter_click_on_the_line_the_cursor_is_already_on_loads_its_commit(qtbot):
     """Loading leaves the cursor on line 1, so clicking it moves nothing."""
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     got: list[str] = []
     w.commit_selected.connect(got.append)
 
@@ -353,7 +352,7 @@ def test_the_file_is_tokenized_off_the_gui_thread(qtbot, monkeypatch):
         return real_tokenize(text, path)
 
     monkeypatch.setattr(blame_pane, "tokenize", spy)
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     w._editor.restyle()
 
     assert tokenizing_threads, "the file is still tokenized, just not here"
@@ -363,7 +362,7 @@ def test_the_file_is_tokenized_off_the_gui_thread(qtbot, monkeypatch):
 def test_a_theme_change_recolours_in_a_single_document_change(qtbot):
     """One change per token re-laid out the document once per token."""
     lines = [_line(n, f"value_{n} = {n}  # note", AAA, run_start=n == 1) for n in range(1, 51)]
-    w, _ = _window(qtbot, lines=lines)
+    w, _ = _pane(qtbot, lines=lines)
     changes: list[tuple[int, int, int]] = []
     w._editor.document().contentsChange.connect(lambda *change: changes.append(change))
 
@@ -383,7 +382,7 @@ def test_an_emoji_does_not_shift_the_colours_after_it(qtbot):
         _line(1, 'x = "\U0001f389"', AAA, run_start=True),
         _line(2, "def foo():", AAA, run_start=False),
     ]
-    w, _ = _window(qtbot, lines=lines, path="x.py")
+    w, _ = _pane(qtbot, lines=lines, path="x.py")
     keyword = get_theme_manager().current.colors.syntax_keyword.lower()
 
     def colour_at(position: int) -> str:
@@ -406,7 +405,7 @@ def test_the_gutter_widens_with_a_larger_font_after_a_theme_change(qtbot):
     Measured once at load, the gutter kept its old width: author names ran
     into the line numbers and the numbers were clipped.
     """
-    w, _ = _window(qtbot)
+    w, _ = _pane(qtbot)
     editor = w._editor
     before = editor.gutter_width()
     font = editor.font()
@@ -431,14 +430,14 @@ def test_a_long_path_does_not_widen_the_pane(qtbot):
     The splitter could not narrow the blame column below the path's length,
     and took the space from the diff pane instead.
     """
-    short, _ = _window(qtbot, path="a.py")
-    long, _ = _window(qtbot, path=LONG_PATH)
+    short, _ = _pane(qtbot, path="a.py")
+    long, _ = _pane(qtbot, path=LONG_PATH)
 
     assert long.minimumSizeHint().width() == short.minimumSizeHint().width()
 
 
 def test_a_cut_path_stays_whole_in_the_tooltip(qtbot):
-    w, _ = _window(qtbot, path=LONG_PATH)
+    w, _ = _pane(qtbot, path=LONG_PATH)
     w.show()
     narrowest = w.minimumSizeHint().width()
     w.resize(narrowest, 400)
@@ -463,7 +462,7 @@ def test_a_line_git_keeps_whole_stays_one_line_beside_its_gutter(qtbot, inside):
         _line(1, f"a{inside}b", AAA, run_start=True),
         _line(2, "c", BBB, run_start=True),
     ]
-    w, _ = _window(qtbot, lines=lines)
+    w, _ = _pane(qtbot, lines=lines)
     document = w._editor.document()
 
     assert document.blockCount() == len(lines)
