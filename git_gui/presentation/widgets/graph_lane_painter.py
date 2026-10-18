@@ -16,6 +16,7 @@ from git_gui.presentation.theme import ColorRole, get_theme_manager
 LANE_W = 16  # pixels per lane column
 NODE_R = 5  # commit node circle radius (outline centre)
 NODE_STROKE_W = 2  # commit node outline thickness
+LANE_STROKE_W = 2  # thickness of every lane line and edge, so rows join seamlessly
 GRAPH_GAP = 4  # breathing room between the last lane and the commit info
 MAX_GRAPH_LANES = 16  # cap so a very wide graph can't crowd out the commit info
 
@@ -30,6 +31,14 @@ def _selection_color() -> QColor:
 
 def _node_fill_color() -> QColor:
     return get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE)
+
+
+def _lane_color(lane_colors: list[str], color_idx: int) -> QColor:
+    return QColor(lane_colors[color_idx % len(lane_colors)])
+
+
+def _lane_pen(lane_colors: list[str], color_idx: int) -> QPen:
+    return QPen(_lane_color(lane_colors, color_idx), LANE_STROKE_W)
 
 
 def _lane_center_x(rect_left: int, lane: int) -> int:
@@ -82,41 +91,36 @@ def paint_lanes(painter: QPainter, rect: QRect, lane_data: LaneData, *, selected
     painter.setClipRect(rect)
 
     lane_colors = _lane_colors()
-    n_colors = len(lane_colors)
-
     left = rect.left()
     top = rect.top()
     bot = rect.bottom()
     mid = (top + bot) // 2
+    node_x = _lane_center_x(left, lane_data.lane)
 
-    # 1. Pass-through lines (full row height, diagonal if lane changes)
     for top_lane, bot_lane, ci in lane_data.lines:
-        painter.setPen(QPen(QColor(lane_colors[ci % n_colors]), 2))
+        painter.setPen(_lane_pen(lane_colors, ci))
         painter.drawLine(_lane_center_x(left, top_lane), top, _lane_center_x(left, bot_lane), bot)
-
-    # 2. Incoming line (top of cell → commit node, only if lane was active above)
     if lane_data.has_incoming:
-        painter.setPen(QPen(QColor(lane_colors[lane_data.color_idx % n_colors]), 2))
-        lx = _lane_center_x(left, lane_data.lane)
-        painter.drawLine(lx, top, lx, mid)
-
-    # 2b. Incoming edges from converging lanes (top of cell → commit node, diagonal)
+        painter.setPen(_lane_pen(lane_colors, lane_data.color_idx))
+        painter.drawLine(node_x, top, node_x, mid)
     for from_lane, to_lane, ci in lane_data.edges_in:
-        painter.setPen(QPen(QColor(lane_colors[ci % n_colors]), 2))
+        painter.setPen(_lane_pen(lane_colors, ci))
         painter.drawLine(_lane_center_x(left, from_lane), top, _lane_center_x(left, to_lane), mid)
-
-    # 3. Outgoing edges (commit node → bottom of cell, straight or diagonal)
     for from_lane, to_lane, ci in lane_data.edges_out:
-        painter.setPen(QPen(QColor(lane_colors[ci % n_colors]), 2))
+        painter.setPen(_lane_pen(lane_colors, ci))
         painter.drawLine(_lane_center_x(left, from_lane), mid, _lane_center_x(left, to_lane), bot)
 
-    # 4. Commit node — hollow circle drawn last so it sits on top of the lines.
-    #    The fill matches the row background so lines passing under the node are
-    #    masked out rather than showing through the middle.
-    lx = _lane_center_x(left, lane_data.lane)
-    node_color = QColor(lane_colors[lane_data.color_idx % n_colors])
-    painter.setBrush(_selection_color() if selected else _node_fill_color())
-    painter.setPen(QPen(node_color, NODE_STROKE_W))
-    painter.drawEllipse(QPointF(lx, mid), NODE_R, NODE_R)
-
+    node_color = _lane_color(lane_colors, lane_data.color_idx)
+    _paint_node(painter, QPointF(node_x, mid), node_color, selected=selected)
     painter.restore()
+
+
+def _paint_node(painter: QPainter, centre: QPointF, color: QColor, *, selected: bool) -> None:
+    """The commit's hollow circle, painted after the lines so it sits on top.
+
+    The fill matches the row background so lines passing under the node are
+    masked out rather than showing through the middle.
+    """
+    painter.setBrush(_selection_color() if selected else _node_fill_color())
+    painter.setPen(QPen(color, NODE_STROKE_W))
+    painter.drawEllipse(centre, NODE_R, NODE_R)
