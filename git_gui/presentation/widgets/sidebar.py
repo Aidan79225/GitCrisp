@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import UTC
+from datetime import UTC, datetime
 
 from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QStandardItem, QStandardItemModel
@@ -38,6 +38,7 @@ _TARGET_OID_ROLE = Qt.UserRole + 3
 # local tip. Clicking the branch pushes it into the walk too, so a local branch
 # that is behind still shows what its remote is holding ahead of it.
 _UPSTREAM_OID_ROLE = Qt.UserRole + 4
+_EPOCH = datetime.fromtimestamp(0, tz=UTC)
 
 
 def _get_cloud_icon() -> QIcon:
@@ -57,6 +58,18 @@ def _get_cloud_icon() -> QIcon:
     p.fillRect(tinted.rect(), color)
     p.end()
     return QIcon(tinted)
+
+
+def _row(label: str, value: str, kind: str, oid: str | None) -> QStandardItem:
+    """A sidebar entry: its menu acts on *value*; a click shows commit *oid*."""
+    row = QStandardItem(label)
+    row.setEditable(False)
+    row.setData(value, Qt.UserRole)
+    row.setData(kind, Qt.UserRole + 1)
+    if oid:
+        row.setData(oid, _TARGET_OID_ROLE)
+    row.setSizeHint(QSize(0, _ROW_HEIGHT))
+    return row
 
 
 class _LoadSignals(QObject):
@@ -212,87 +225,57 @@ class SidebarWidget(QWidget):
         upstreams: dict[str, str],
     ) -> None:
         self._model.clear()
-
         local = [b for b in branches if not b.is_remote]
         remote = [b for b in branches if b.is_remote]
-        remote_oids = {b.name: b.target_oid for b in remote}
-
-        # Local branches — highlight HEAD
-        local_header = QStandardItem("LOCAL BRANCHES")
-        local_header.setEditable(False)
-        local_header.setData("header", Qt.UserRole + 1)
-        local_header.setSizeHint(QSize(0, _ROW_HEIGHT))
-        for b in local:
-            child = QStandardItem(b.name)
-            child.setEditable(False)
-            child.setData(b.name, Qt.UserRole)
-            child.setData("branch", Qt.UserRole + 1)
-            child.setData(b.target_oid, _TARGET_OID_ROLE)
-            upstream_oid = remote_oids.get(upstreams.get(b.name, ""))
-            if upstream_oid and upstream_oid != b.target_oid:
-                child.setData(upstream_oid, _UPSTREAM_OID_ROLE)
-            child.setSizeHint(QSize(0, _ROW_HEIGHT))
-            if b.is_head:
-                child.setData(True, _IS_HEAD_ROLE)
-            local_header.appendRow(child)
-        self._model.appendRow(local_header)
-
-        # Remote branches
+        self._add_local_branches(local, remote, upstreams)
         self._add_section(
-            "REMOTE BRANCHES", [(b.name, b.name, "remote_branch", b.target_oid) for b in remote]
+            "REMOTE BRANCHES",
+            [_row(b.name, b.name, "remote_branch", b.target_oid) for b in remote],
         )
-
-        # Stashes — most recent first. Stashes without a timestamp fall to the end.
-        from datetime import datetime
-
-        _stash_epoch = datetime.fromtimestamp(0, tz=UTC)
-        stashes_sorted = sorted(
-            stashes,
-            key=lambda s: s.timestamp or _stash_epoch,
-            reverse=True,
-        )
-        self._add_section(
-            "STASHES", [(s.message, str(s.index), "stash", s.oid) for s in stashes_sorted]
-        )
-
-        # Tags — sorted by name descending. Cloud icon for remote tags.
-        tags_sorted = sorted(tags, key=lambda t: _tag_sort_key(t.name), reverse=True)
-        tag_header = QStandardItem("TAGS")
-        tag_header.setEditable(False)
-        tag_header.setData("header", Qt.UserRole + 1)
-        tag_header.setSizeHint(QSize(0, _ROW_HEIGHT))
-        cloud_icon = _get_cloud_icon()
-        for t in tags_sorted:
-            child = QStandardItem(t.name)
-            child.setEditable(False)
-            child.setData(t.name, Qt.UserRole)
-            child.setData("tag", Qt.UserRole + 1)
-            child.setData(t.target_oid, _TARGET_OID_ROLE)
-            child.setSizeHint(QSize(0, _ROW_HEIGHT))
-            if t.name in remote_tag_names:
-                child.setIcon(cloud_icon)
-            tag_header.appendRow(child)
-        self._model.appendRow(tag_header)
-
+        self._add_stashes(stashes)
+        self._add_tags(tags, remote_tag_names)
         self._tree.expandAll()
         self._refresh_branch_badges()
 
-    def _add_section(self, title: str, items: list[tuple]) -> None:
+    def _add_local_branches(
+        self, local: list[Branch], remote: list[Branch], upstreams: dict[str, str]
+    ) -> None:
+        remote_oids = {b.name: b.target_oid for b in remote}
+        rows = []
+        for b in local:
+            row = _row(b.name, b.name, "branch", b.target_oid)
+            upstream_oid = remote_oids.get(upstreams.get(b.name, ""))
+            if upstream_oid and upstream_oid != b.target_oid:
+                row.setData(upstream_oid, _UPSTREAM_OID_ROLE)
+            if b.is_head:
+                row.setData(True, _IS_HEAD_ROLE)
+            rows.append(row)
+        self._add_section("LOCAL BRANCHES", rows)
+
+    def _add_stashes(self, stashes: list[Stash]) -> None:
+        # A stash without a timestamp falls to the end.
+        newest_first = sorted(stashes, key=lambda s: s.timestamp or _EPOCH, reverse=True)
+        self._add_section(
+            "STASHES", [_row(s.message, str(s.index), "stash", s.oid) for s in newest_first]
+        )
+
+    def _add_tags(self, tags: list[Tag], remote_tag_names: set[str]) -> None:
+        cloud_icon = _get_cloud_icon()
+        rows = []
+        for t in sorted(tags, key=lambda t: _tag_sort_key(t.name), reverse=True):
+            row = _row(t.name, t.name, "tag", t.target_oid)
+            if t.name in remote_tag_names:
+                row.setIcon(cloud_icon)
+            rows.append(row)
+        self._add_section("TAGS", rows)
+
+    def _add_section(self, title: str, rows: list[QStandardItem]) -> None:
         header = QStandardItem(title)
         header.setEditable(False)
         header.setData("header", Qt.UserRole + 1)
         header.setSizeHint(QSize(0, _ROW_HEIGHT))
-        for item in items:
-            label, value, kind = item[0], item[1], item[2]
-            oid = item[3] if len(item) > 3 else None
-            child = QStandardItem(label)
-            child.setEditable(False)
-            child.setData(value, Qt.UserRole)
-            child.setData(kind, Qt.UserRole + 1)
-            if oid:
-                child.setData(oid, _TARGET_OID_ROLE)
-            child.setSizeHint(QSize(0, _ROW_HEIGHT))
-            header.appendRow(child)
+        for row in rows:
+            header.appendRow(row)
         self._model.appendRow(header)
 
     def _on_click(self, index) -> None:
