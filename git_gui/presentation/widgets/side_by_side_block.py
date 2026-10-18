@@ -13,8 +13,8 @@ Both editors are ordinary hunk editors with their scrollbars off, so the pane's
 one horizontal bar (SharedHScroll) finds them and drives them together — which
 is what keeps the two sides showing the same columns of a long line.
 
-Nothing selects this yet; the View-menu preference that reaches it is the
-wiring layer.
+`hunk_view.add_hunk_view` is the one place that chooses this view over the
+unified one, from the View-menu preference.
 """
 
 from __future__ import annotations
