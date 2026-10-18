@@ -82,6 +82,16 @@ def _painted_row(delegate, option, index) -> list[tuple[int, int, int, str]]:
     return calls
 
 
+def _option_for(pane, height: int) -> QStyleOptionViewItem:
+    """The option the view hands its delegate for a 400px-wide row."""
+    option = QStyleOptionViewItem()
+    option.initFrom(pane._view)
+    option.font = pane._view.font()
+    option.fontMetrics = QFontMetrics(option.font)
+    option.rect = QRect(0, 0, 400, height)
+    return option
+
+
 def _pane(
     qtbot, entries=None, *, expect_rows: int | None = None, branch: str | None = "master"
 ) -> tuple[ReflogPane, MagicMock]:
@@ -543,13 +553,8 @@ def test_the_summary_gets_the_width_the_metadata_used_to_hold(qtbot):
     """
     pane, _ = _pane(qtbot)
     delegate = pane._view.itemDelegate()
-    option = QStyleOptionViewItem()
-    option.initFrom(pane._view)
-    option.font = pane._view.font()
-    option.fontMetrics = QFontMetrics(option.font)
-    option.rect = QRect(0, 0, 400, 50)
 
-    painted = _painted_row(delegate, option, pane._model.index(0, 0))
+    painted = _painted_row(delegate, _option_for(pane, 50), pane._model.index(0, 0))
 
     summary_end = max(x + w for x, _y, w, text in painted if text == ENTRIES[0].summary)
     metadata = {text for *_rest, text in painted}
@@ -561,13 +566,10 @@ def test_the_summary_gets_the_width_the_metadata_used_to_hold(qtbot):
 def test_the_two_lines_do_not_overlap(qtbot):
     pane, _ = _pane(qtbot)
     delegate = pane._view.itemDelegate()
-    option = QStyleOptionViewItem()
-    option.initFrom(pane._view)
-    option.font = pane._view.font()
-    option.fontMetrics = QFontMetrics(option.font)
-    option.rect = QRect(0, 0, 400, delegate.sizeHint(option, pane._model.index(0, 0)).height())
+    index = pane._model.index(0, 0)
+    option = _option_for(pane, delegate.sizeHint(_option_for(pane, 0), index).height())
 
-    painted = _painted_row(delegate, option, pane._model.index(0, 0))
+    painted = _painted_row(delegate, option, index)
     summary_y = next(y for _x, y, _w, text in painted if text == ENTRIES[0].summary)
     meta_y = next(y for _x, y, _w, text in painted if text.startswith("@{"))
 
@@ -579,13 +581,8 @@ def test_the_row_is_tall_enough_for_both_lines(qtbot):
     """The view pinned rows to the header's 30px default, clipping the row."""
     pane, _ = _pane(qtbot)
     delegate = pane._view.itemDelegate()
-    option = QStyleOptionViewItem()
-    option.initFrom(pane._view)
-    option.font = pane._view.font()
-    option.fontMetrics = QFontMetrics(option.font)
-    option.rect = QRect(0, 0, 400, 50)
 
-    wanted = delegate.sizeHint(option, pane._model.index(0, 0)).height()
+    wanted = delegate.sizeHint(_option_for(pane, 50), pane._model.index(0, 0)).height()
     assert pane._view.rowHeight(0) >= wanted
 
 
