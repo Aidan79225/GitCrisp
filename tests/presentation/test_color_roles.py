@@ -43,9 +43,13 @@ def test_the_multi_colour_token_is_not_a_role():
     assert "graph_lane_colors" not in {str(role) for role in ColorRole}
 
 
-def test_every_badge_kind_resolves_to_a_status_colour(theme_colors):
-    for kind in (*FileDelta, StagingState.CONFLICTED):
-        assert theme_colors.status_color(kind).isValid()
+def test_every_known_badge_kind_has_a_colour_of_its_own(theme_colors):
+    """The unknown grey is valid too, so isValid() alone could not catch a
+    renamed domain value quietly turning its badges grey."""
+    unknown = theme_colors.as_qcolor(ColorRole.STATUS_UNKNOWN)
+    known = [delta for delta in FileDelta if delta is not FileDelta.UNKNOWN]
+    for kind in (*known, StagingState.CONFLICTED):
+        assert theme_colors.status_color(kind) != unknown, kind
 
 
 def test_an_unmapped_badge_kind_falls_back_to_unknown(theme_colors):
