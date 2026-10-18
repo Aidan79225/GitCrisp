@@ -54,6 +54,11 @@ def _kill_process_tree(proc: subprocess.Popen) -> None:
                 pass
 
 
+def _raise_if_git_failed(returncode: int, stdout: str, stderr: str) -> None:
+    if returncode != 0:
+        raise RuntimeError(stderr.strip() or stdout.strip() or f"exit code {returncode}")
+
+
 def _parse_porcelain_delete(
     remote: str, stdout: str, branches: list[str]
 ) -> list[RemoteBranchDeleteResult]:
@@ -109,19 +114,19 @@ class RemoteOps:
     _repo: pygit2.Repository  # provided by the composite
 
     def push(self, remote: str, branch: str) -> None:
-        self._run_git("push", remote, branch)
+        self._run_cancellable_remote_git("push", remote, branch)
 
     def force_push(self, remote: str, branch: str) -> None:
-        self._run_git("push", "--force-with-lease", remote, branch)
+        self._run_cancellable_remote_git("push", "--force-with-lease", remote, branch)
 
     def pull(self, remote: str, branch: str) -> None:
-        self._run_git("pull", "--rebase", remote, branch)
+        self._run_cancellable_remote_git("pull", "--rebase", remote, branch)
 
     def fetch(self, remote: str) -> None:
-        self._run_git("fetch", remote)
+        self._run_cancellable_remote_git("fetch", remote)
 
     def fetch_all_prune(self) -> None:
-        self._run_git("fetch", "--all", "--prune")
+        self._run_cancellable_remote_git("fetch", "--all", "--prune")
 
     def delete_remote_branches(
         self, remote: str, branches: list[str]
@@ -144,6 +149,17 @@ class RemoteOps:
         return _parse_porcelain_delete(remote, result.stdout, branches)
 
     def _run_git(self, *args: str) -> None:
+        """Run a local git command, such as a merge or rebase, to completion.
+
+        It stays out of the remote-op slot: started while a fetch is in flight,
+        it would otherwise take that fetch's place, and Cancel would stop the
+        wrong process or none.
+        """
+        result = run_git(["git", *args], cwd=self._repo.workdir, env=self._git_env)
+        _raise_if_git_failed(result.returncode, result.stdout, result.stderr)
+
+    def _run_cancellable_remote_git(self, *args: str) -> None:
+        """Run a push, pull or fetch as the one remote op `cancel_remote_op` can stop."""
         # Popen (not subprocess.run) so cancel_remote_op can terminate the
         # process mid-transfer. The active handle is published under a lock so
         # the UI thread can reach it while this worker thread blocks on
@@ -172,15 +188,14 @@ class RemoteOps:
                 self._remote_cancel_requested = False
         if cancelled:
             raise RemoteOperationCancelled("Operation cancelled")
-        if proc.returncode != 0:
-            msg = stderr.strip() or stdout.strip() or f"exit code {proc.returncode}"
-            raise RuntimeError(msg)
+        _raise_if_git_failed(proc.returncode, stdout, stderr)
 
     def cancel_remote_op(self) -> None:
         """Terminate the in-flight git push/pull/fetch subprocess, if any.
 
         Safe to call from any thread (the UI thread calls this while the worker
-        thread is blocked in `_run_git`). A no-op when nothing is running.
+        thread is blocked in `_run_cancellable_remote_git`). A no-op when
+        nothing is running.
         """
         with self._remote_proc_lock:
             proc = self._active_remote_proc
