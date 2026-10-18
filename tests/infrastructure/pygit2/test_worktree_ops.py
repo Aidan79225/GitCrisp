@@ -202,3 +202,14 @@ def test_remove_worktree_dirty_without_force_raises(fresh_repo, tmp_path):
     impl = Pygit2Repository(str(fresh_repo))
     with pytest.raises(WorktreeDirtyError):
         impl.remove_worktree(str(wt_path), force=False)
+
+
+def test_a_session_can_remove_the_worktree_it_is_open_on(linked_worktree):
+    """git ran inside the worktree being removed, and Windows will not delete a
+    process's current directory: the files and registration went, the empty
+    folder stayed, and the removal was reported as a failure."""
+    impl = Pygit2Repository(str(linked_worktree))
+
+    impl.remove_worktree(str(linked_worktree), force=False)
+
+    assert not linked_worktree.exists()
