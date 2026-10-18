@@ -4,10 +4,11 @@ import os
 import shutil
 import stat
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from git_gui.resources import git_ssh_env, subprocess_kwargs
+from git_gui.infrastructure.git_process import run_git
+from git_gui.resources import git_ssh_env
 
 
 class SubmoduleCommandError(Exception):
@@ -19,11 +20,23 @@ class SubmoduleCli:
 
     pygit2 lacks reliable support for submodule add/remove/url-change, so we
     shell out to the `git` CLI. The repo working directory is used as cwd.
+
+    Pass `env` with GIT_DIR and GIT_WORK_TREE to pin git to that repository.
+    Without it git finds the repository from the working directory, which in
+    a submodule whose `.git` link is missing walks up to the parent, and an
+    inherited GIT_DIR outranks either.
     """
 
-    def __init__(self, repo_workdir: str, git_executable: str = "git") -> None:
+    def __init__(
+        self,
+        repo_workdir: str,
+        git_executable: str = "git",
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> None:
         self._cwd = repo_workdir
         self._git = git_executable
+        self._env = env
 
     def _run(self, *args: str) -> str:
         if shutil.which(self._git) is None:
@@ -31,16 +44,11 @@ class SubmoduleCli:
         try:
             # Paths come from the repo, not from a user pattern: without this a
             # submodule at "lib[1]" makes `rm -f` also delete a tracked "lib1".
-            completed = subprocess.run(
+            completed = run_git(
                 [self._git, "--literal-pathspecs", *args],
                 cwd=self._cwd,
+                env=git_ssh_env() if self._env is None else self._env,
                 check=True,
-                capture_output=True,
-                # git prints paths in UTF-8 whatever the console code page is.
-                encoding="utf-8",
-                errors="replace",
-                env=git_ssh_env(),
-                **subprocess_kwargs(),
             )
         except subprocess.CalledProcessError as e:
             stderr = (e.stderr or "").strip() or (e.stdout or "").strip() or str(e)

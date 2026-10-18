@@ -15,6 +15,7 @@ from git_gui.infrastructure.worktree_cli import (
     WorktreeCli,
     WorktreeCommandError,
     WorktreeDirtyError,
+    WorktreeHasSubmodulesError,
     WorktreeLockedError,
 )
 
@@ -88,3 +89,91 @@ def test_remove_unknown_path_raises_generic(repo_with_worktree, tmp_path):
     bogus = tmp_path / "does-not-exist"
     with pytest.raises(WorktreeCommandError):
         cli.remove(str(bogus), force=False)
+
+
+def test_force_remove_leaves_a_lock_in_force(repo_with_worktree):
+    """git's second --force overrides the lock but also skips the changes
+    check, so passing it for every force deleted a locked worktree's changes
+    with no uncommitted-changes prompt."""
+    main, wt = repo_with_worktree
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "lock", "--reason", "busy", str(wt)],
+        check=True,
+        capture_output=True,
+    )
+    (wt / "a.txt").write_text("changed\n")
+    cli = WorktreeCli(str(main))
+
+    with pytest.raises(WorktreeLockedError):
+        cli.remove(str(wt), force=True)
+
+    assert (wt / "a.txt").read_text() == "changed\n"
+
+
+def test_a_dirty_worktree_under_a_non_ascii_folder_is_reported_dirty(repo_with_worktree, tmp_path):
+    """git's message names the path in UTF-8; decoded in the locale code page
+    (cp950, cp1252) the read failed, the message was lost, and the user got a
+    bare exit status instead of the force prompt."""
+    main, _ = repo_with_worktree
+    wt = tmp_path / "Łódź 功能" / "wt"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "other", str(wt)],
+        cwd=main,
+        check=True,
+        capture_output=True,
+    )
+    (wt / "a.txt").write_text("changed\n")
+
+    with pytest.raises(WorktreeDirtyError):
+        WorktreeCli(str(main)).remove(str(wt), force=False)
+
+
+def _git(cwd, *args):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+@pytest.fixture
+def worktree_with_submodule(repo_with_worktree, tmp_path, monkeypatch):
+    """A clean linked worktree whose submodule has been initialised."""
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+    main, _ = repo_with_worktree
+    child = tmp_path / "child"
+    child.mkdir()
+    _git(child, "init", "-q")
+    _git(child, "config", "user.name", "T")
+    _git(child, "config", "user.email", "t@e.com")
+    _git(child, "commit", "-q", "--allow-empty", "-m", "c")
+    _git(main, "submodule", "add", str(child), "sub")
+    _git(main, "commit", "-q", "-m", "add sub")
+    wt = tmp_path / "wt-sub"
+    _git(main, "worktree", "add", "-b", "with-sub", str(wt))
+    _git(wt, "submodule", "update", "--init")
+    return main, wt
+
+
+def test_a_worktree_with_submodules_can_be_force_removed(worktree_with_submodule):
+    """git refuses "working trees containing submodules" without --force; that
+    message matched neither pattern, so the force prompt never appeared."""
+    main, wt = worktree_with_submodule
+    cli = WorktreeCli(str(main))
+
+    with pytest.raises(WorktreeHasSubmodulesError):
+        cli.remove(str(wt), force=False)
+    cli.remove(str(wt), force=True)
+
+    assert not wt.exists()
+
+
+def test_a_clean_worktree_with_submodules_is_not_reported_dirty(worktree_with_submodule):
+    """git refuses initialised submodules before it looks for changes at all.
+    Reported as dirty, a clean worktree prompted "has uncommitted changes", and
+    forcing it deleted the submodules' unpushed commits without a word."""
+    main, wt = worktree_with_submodule
+
+    with pytest.raises(WorktreeHasSubmodulesError) as refused:
+        WorktreeCli(str(main)).remove(str(wt), force=False)
+
+    assert not isinstance(refused.value, WorktreeDirtyError)
+    assert wt.exists()

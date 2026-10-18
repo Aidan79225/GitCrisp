@@ -64,7 +64,7 @@ class SubmoduleOps:
     def _submodule_cli(self):
         from git_gui.infrastructure.submodule_cli import SubmoduleCli
 
-        return SubmoduleCli(self._repo.workdir)
+        return SubmoduleCli(self._repo.workdir, env=self._git_env)
 
     def list_submodules(self) -> list[Submodule]:
         result: list[Submodule] = []
