@@ -34,13 +34,15 @@ def test_run_git_failure_raises_runtimeerror(repo_impl):
 def test_cancel_terminates_running_git(repo_path, tmp_path, monkeypatch):
     """A long-running git process is killed promptly on cancel, and _run_git
     surfaces RemoteOperationCancelled rather than hanging on the child's pipes."""
-    # Fake `git` that blocks — stands in for a slow fetch/push. The extra `sleep`
-    # child mimics git's transport helper, so a plain terminate() of the top
-    # process would leave a grandchild holding the pipes open.
+    # Fake `git` whose fetch blocks — stands in for a slow fetch/push. The extra
+    # `sleep` child mimics git's transport helper, so a plain terminate() of the
+    # top process would leave a grandchild holding the pipes open. Any other
+    # subcommand (the `git config --get` the adapter runs first, to learn the
+    # user's ssh command) returns at once, as real git would.
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     fake_git = fake_bin / "git"
-    fake_git.write_text("#!/bin/sh\nsleep 30\n")
+    fake_git.write_text('#!/bin/sh\ncase "$1" in fetch|push|pull) sleep 30 ;; *) exit 1 ;; esac\n')
     fake_git.chmod(0o755)
     monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ["PATH"])
 

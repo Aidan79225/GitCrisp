@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import os
+from typing import NamedTuple
 
 import pygit2
 
 from git_gui.domain.entities import RepoState, RepoStateInfo
 from git_gui.infrastructure.git_process import run_git
-from git_gui.resources import git_ssh_env
+from git_gui.resources import GitConfig, git_ssh_env
+
+_SSH_COMMAND_KEY = "core.sshCommand"
+
+
+class _SshCommandAnswer(NamedTuple):
+    remote_urls: tuple[str, ...]
+    is_set: bool
+
 
 # Keyed by `pygit2.enums.RepositoryState` — the legacy `pygit2.GIT_REPOSITORY_*`
 # constants this used to read were removed in pygit2 1.20. Because they were
@@ -45,6 +54,7 @@ class RepoStateOps:
     """
 
     _repo: pygit2.Repository  # provided by the composite
+    _ssh_command_answer: _SshCommandAnswer | None = None
 
     @property
     def _git_env(self) -> dict:
@@ -56,13 +66,39 @@ class RepoStateOps:
         against the wrong remote.
 
         Also carries ``GIT_SSH_COMMAND`` so remote ops (push/pull/fetch) don't
-        fail on first-time SSH host-key verification.
+        fail on first-time SSH host-key verification, unless this repo's
+        config, which includes the user's global one, names an ssh command.
         """
-        env = git_ssh_env()
+        env = os.environ.copy()
         env["GIT_DIR"] = self._repo.path
         if self._repo.workdir:
             env["GIT_WORK_TREE"] = self._repo.workdir
-        return env
+        return git_ssh_env(env, config=self._ssh_config(env))
+
+    def _ssh_config(self, env: dict[str, str]) -> GitConfig:
+        """The config that says whether the user named an ssh command.
+
+        libgit2 does not evaluate ``includeIf "hasconfig:remote.*.url:..."``
+        (git 2.36+), the usual way to give a second account its own
+        ``core.sshCommand``, so only git itself can say such a key is set.
+        Asking it costs a process on every git call, the auto-reload's dirty
+        check among them, so its answer is kept until the remote URLs that
+        such an include matches on change.
+        """
+        if _SSH_COMMAND_KEY in self._repo.config:
+            return self._repo.config
+        remote_urls = tuple(remote.url or "" for remote in self._repo.remotes)
+        answer = self._ssh_command_answer
+        if answer is None or answer.remote_urls != remote_urls:
+            answer = _SshCommandAnswer(remote_urls, self._git_resolves(_SSH_COMMAND_KEY, env))
+            self._ssh_command_answer = answer
+        return frozenset({_SSH_COMMAND_KEY}) if answer.is_set else frozenset()
+
+    def _git_resolves(self, key: str, env: dict[str, str]) -> bool:
+        result = run_git(
+            ["git", "config", "--get", key], cwd=self._repo.workdir or self._repo.path, env=env
+        )
+        return result.returncode == 0
 
     def get_head_oid(self) -> str | None:
         if self._repo.head_is_unborn:

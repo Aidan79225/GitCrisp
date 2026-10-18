@@ -84,3 +84,17 @@ def test_a_clone_runs_without_the_terminal_the_app_was_started_from(fake_git):
     with pytest.raises(RuntimeError) as excinfo:
         clone_repo("url", "dest")
     assert int(str(excinfo.value)) != os.getsid(0)
+
+
+def test_a_clone_into_an_empty_folder_fills_that_folder(repo_path, tmp_path):
+    dest = tmp_path / "empty"
+    dest.mkdir()
+    clone_repo(str(repo_path), str(dest))
+    assert (dest / ".git").is_dir()
+
+
+def test_a_failed_clone_leaves_no_folder_behind(tmp_path):
+    dest = tmp_path / "new"
+    with pytest.raises(RuntimeError):
+        clone_repo(str(tmp_path / "no-such-repo"), str(dest))
+    assert not dest.exists()
