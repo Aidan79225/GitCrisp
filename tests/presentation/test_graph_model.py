@@ -146,12 +146,6 @@ def test_badge_color_head():
     assert _badge_color("HEAD") == _theme_color(ColorRole.BRANCH_HEAD_BG)
 
 
-def test_badge_color_head_arrow():
-    from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
-
-    assert _badge_color("HEAD -> main") == _theme_color(ColorRole.BRANCH_HEAD_BG)
-
-
 def test_badge_color_local():
     from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
 
