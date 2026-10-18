@@ -117,3 +117,18 @@ def test_an_active_repo_that_will_not_open_can_still_be_clicked(make_repo, start
         window._repo_list._on_item_clicked(_repo_row(window, broken))
 
     assert switch.args == [str(broken)]
+
+
+def test_repos_pruned_after_launch_leave_the_repo_list(make_repo, tmp_path, start_window):
+    """The pruning finishes after the window has drawn the list from the store."""
+    good = make_repo("good")
+    deleted = make_repo("deleted")
+    window = start_window(open_paths=[good, deleted], active=good)
+    window._repo_store.forget(str(deleted))
+
+    app_main._reload_repo_list(window)
+
+    model = window._repo_list._model
+    sections = [model.item(row) for row in range(model.rowCount())]
+    listed = {s.child(row).data(Qt.UserRole) for s in sections for row in range(s.rowCount())}
+    assert listed == {str(good)}

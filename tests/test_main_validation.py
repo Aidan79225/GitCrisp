@@ -26,6 +26,16 @@ def _startup_repo(store: JsonRepoStore) -> str | None:
     return started.path if started else None
 
 
+def _prune_in_background(store: JsonRepoStore, qtbot) -> None:
+    """Run the pruning main.py starts once the window is up, and wait for it."""
+    from main import _GoneRepoPruner
+
+    pruned: list[bool] = []
+    pruner = _GoneRepoPruner(store, on_pruned=lambda: pruned.append(True))
+    pruner.start()
+    qtbot.waitUntil(lambda: pruned == [True], timeout=5000)
+
+
 class TestFindValidRepoPruning:
     def test_prunes_non_git_directory_from_store(self, tmp_path):
         """A stored path that exists as a dir but is not a git repo gets pruned."""
@@ -72,7 +82,7 @@ class TestFindValidRepoPruning:
         assert result is None
         assert store.get_active() is None
 
-    def test_prunes_dead_open_repo_when_active_is_valid(self, tmp_path):
+    def test_prunes_dead_open_repo_when_active_is_valid(self, tmp_path, qtbot):
         """A dead path deeper in the open list is pruned even when the active
         repo is valid.
 
@@ -94,9 +104,9 @@ class TestFindValidRepoPruning:
         assert store.get_active() == str(valid_repo)
         assert str(dead) in store.get_open_repos()
 
-        result = _startup_repo(store)
+        assert _startup_repo(store) == str(valid_repo)
+        _prune_in_background(store, qtbot)
 
-        assert result == str(valid_repo)
         assert str(dead) not in store.get_open_repos()
         assert str(dead) not in store.get_recent_repos()
 
@@ -122,7 +132,7 @@ class TestFindValidRepoPruning:
 
         assert result == str(worktree)
 
-    def test_prunes_dead_recent_repo(self, tmp_path):
+    def test_prunes_dead_recent_repo(self, tmp_path, qtbot):
         """A dead path in the recent list is forgotten, not just left to fail."""
         valid_repo = tmp_path / "valid_repo"
         valid_repo.mkdir()
@@ -138,7 +148,7 @@ class TestFindValidRepoPruning:
         store.save()
         assert str(dead) in store.get_recent_repos()
 
-        _startup_repo(store)
+        _prune_in_background(store, qtbot)
 
         assert str(dead) not in store.get_recent_repos()
 
@@ -226,3 +236,58 @@ class TestFindValidRepoKeepsUnreachablePaths:
         _startup_repo(store)
 
         assert sorted(probed) == sorted({str(offline), str(valid)})
+
+
+def _probes_recorded(monkeypatch) -> list[str]:
+    import main
+
+    probed: list[str] = []
+    probe = main._stored_repo_state
+    monkeypatch.setattr(main, "_stored_repo_state", lambda p: probed.append(p) or probe(p))
+    return probed
+
+
+def _store_of(tmp_path, open_paths=(), recent_paths=()) -> JsonRepoStore:
+    return TestFindValidRepoKeepsUnreachablePaths._store(
+        tmp_path, open_paths=open_paths, recent_paths=recent_paths
+    )
+
+
+class TestStartupProbesOnlyWhatItOpens:
+    """Startup runs before the window shows, and each probe of a path on an
+    unreachable share waits out a network timeout, about twenty seconds on
+    Windows, with nothing on screen."""
+
+    def test_a_recent_repo_is_not_probed_before_the_window(self, tmp_path, monkeypatch):
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = _store_of(tmp_path, open_paths=[valid], recent_paths=[offline])
+        probed = _probes_recorded(monkeypatch)
+
+        assert _startup_repo(store) == str(valid)
+
+        assert str(offline) not in probed
+
+    def test_open_repos_after_the_one_that_opens_are_not_probed(self, tmp_path, monkeypatch):
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = _store_of(tmp_path, open_paths=[valid, offline])
+        probed = _probes_recorded(monkeypatch)
+
+        _startup_repo(store)
+
+        assert probed == [str(valid)]
+
+    def test_the_pruning_after_launch_keeps_repos_out_of_reach(self, tmp_path, qtbot):
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        dead = tmp_path / "deleted_worktree"
+        offline_open = tmp_path / "unmounted" / "work" / "open"
+        offline_recent = tmp_path / "unmounted" / "work" / "recent"
+        store = _store_of(
+            tmp_path, open_paths=[valid, offline_open, dead], recent_paths=[offline_recent]
+        )
+
+        _prune_in_background(store, qtbot)
+
+        assert store.get_open_repos() == [str(valid), str(offline_open)]
+        assert store.get_recent_repos() == [str(offline_recent)]
