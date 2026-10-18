@@ -43,17 +43,24 @@ class ThemeManager(QObject):
         return self._mode
 
     def set_mode(self, mode: str, force: bool = False) -> None:
-        if mode not in _VALID_MODES:
-            raise ValueError(f"Invalid theme mode: {mode}")
+        _check_mode(mode)
         if mode == self._mode and not force:
             return
+        self._save_and_adopt(mode, {})
+
+    def set_appearance(self, mode: str, typography_scale: float) -> None:
+        """Adopt a mode and text scale together: both are saved, or neither."""
+        _check_mode(mode)
+        self._save_and_adopt(mode, {"typography_scale": typography_scale})
+
+    def _save_and_adopt(self, mode: str, other_settings: dict) -> None:
         # Saved before it is adopted, so a write that raises leaves the old
         # mode in force, which is also the one still on screen.
         data = load_settings()
-        data["theme_mode"] = mode
+        data.update(other_settings, theme_mode=mode)
         save_settings(data)
         self._mode = mode
-        self._refresh(force=force)
+        self._refresh(force=True)
 
     def _refresh(self, force: bool = False) -> None:
         new_theme = self._resolve_theme()
@@ -116,8 +123,7 @@ class ThemeManager(QObject):
 
     def theme_for_mode(self, mode: str) -> Theme:
         """Resolve a mode name to a Theme without changing the active mode."""
-        if mode not in _VALID_MODES:
-            raise ValueError(f"Invalid theme mode: {mode}")
+        _check_mode(mode)
         if mode == "light":
             return load_builtin("light")
         if mode == "dark":
@@ -151,6 +157,11 @@ class ThemeManager(QObject):
     def _on_system_scheme_changed(self, *_args) -> None:
         if self._mode == "system":
             self._refresh()
+
+
+def _check_mode(mode: str) -> None:
+    if mode not in _VALID_MODES:
+        raise ValueError(f"Invalid theme mode: {mode}")
 
 
 def _font_for(widget: QWidget, theme_font: QFont) -> QFont:
