@@ -29,6 +29,14 @@ def _read_head_branch(workdir: str) -> tuple[str | None, str]:
     return head.shorthand, str(head.target)
 
 
+def _read_lock_reason(lock_file: Path) -> str | None:
+    try:
+        reason = lock_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return reason.strip() or None
+
+
 class WorktreeOps:
     """Worktree read/write operations.
 
@@ -80,28 +88,15 @@ class WorktreeOps:
             except Exception as e:
                 logger.warning("Failed to read HEAD for worktree %r: %s", name, e)
                 wt_branch, wt_sha = None, ""
-            # pygit2 ≥ a future version is expected to expose is_locked.
-            # Today (1.19.2) the attribute is missing, so we fall back to
-            # checking the .git/worktrees/<name>/locked sentinel file.
-            try:
-                is_locked = wt.is_locked
-            except AttributeError:
-                is_locked = (common_dir / "worktrees" / name / "locked").exists()
-            lock_reason = None
-            if is_locked:
-                locked_file = common_dir / "worktrees" / name / "locked"
-                try:
-                    reason = locked_file.read_text(encoding="utf-8", errors="replace")
-                    lock_reason = reason.strip() or None
-                except OSError:
-                    lock_reason = None
+            lock_file = self._lock_file(name)
+            is_locked = lock_file.exists()
             result.append(
                 Worktree(
                     path=str(Path(wt.path).resolve()),
                     branch=wt_branch,
                     head_sha=wt_sha,
-                    is_locked=bool(is_locked),
-                    lock_reason=lock_reason,
+                    is_locked=is_locked,
+                    lock_reason=_read_lock_reason(lock_file) if is_locked else None,
                     is_bare=False,
                     is_main=False,
                 )
@@ -163,35 +158,18 @@ class WorktreeOps:
             self._worktree_cli().remove(path, force=force)
 
     def lock_worktree(self, path: str, *, reason: str | None = None) -> None:
-        target = Path(path).resolve()
-        name = self._worktree_name_for(target)
-        wt = self._repo.lookup_worktree(name)
-        # pygit2 ≥ a future version is expected to expose lock(reason). Today
-        # (1.19.2) it raises AttributeError; we fall back to writing the
-        # `locked` file directly. The reason write below is idempotent in
-        # either case — when the API exists it overwrites with the same
-        # content; otherwise it provides the persistence.
-        locked_file = self._common_dir() / "worktrees" / name / "locked"
+        name = self._worktree_name_for(path)
+        lock_file = self._lock_file(name)
+        lock_file.touch()
+        if reason is None:
+            return
         try:
-            wt.lock(reason or "")
-        except (AttributeError, TypeError):
-            locked_file.touch()
-        if reason is not None:
-            try:
-                locked_file.write_text(reason, encoding="utf-8")
-            except OSError as e:
-                logger.warning("Failed to write lock reason for worktree %r: %s", name, e)
+            lock_file.write_text(reason, encoding="utf-8")
+        except OSError as e:
+            logger.warning("Failed to write lock reason for worktree %r: %s", name, e)
 
     def unlock_worktree(self, path: str) -> None:
-        target = Path(path).resolve()
-        name = self._worktree_name_for(target)
-        wt = self._repo.lookup_worktree(name)
-        try:
-            wt.unlock()
-        except (AttributeError, TypeError):
-            locked = self._common_dir() / "worktrees" / name / "locked"
-            if locked.exists():
-                locked.unlink()
+        self._lock_file(self._worktree_name_for(path)).unlink(missing_ok=True)
 
     # ── Internals ────────────────────────────────────────────────────────
 
@@ -210,7 +188,7 @@ class WorktreeOps:
         `--force` twice skips both checks. git deletes the admin dir even when
         some files would not go, and then there is no lock left to restore.
         """
-        lock_file = self._lock_file(self._worktree_name_for(Path(path).resolve()))
+        lock_file = self._lock_file(self._worktree_name_for(path))
         try:
             reason = lock_file.read_bytes()
         except FileNotFoundError:
@@ -225,6 +203,7 @@ class WorktreeOps:
             raise
 
     def _lock_file(self, name: str) -> Path:
+        """pygit2's Worktree has no lock API, so locks are git's sentinel file."""
         return self._common_dir() / "worktrees" / name / "locked"
 
     def _base_commit(self, base: str) -> pygit2.Commit:
@@ -250,7 +229,8 @@ class WorktreeOps:
         raw = commondir.read_text(encoding="utf-8").strip()
         return Path(os.path.normpath(git_dir / raw)) if raw else git_dir
 
-    def _worktree_name_for(self, target: Path) -> str:
+    def _worktree_name_for(self, path: str) -> str:
+        target = Path(path).resolve()
         for name in self._repo.list_worktrees():
             wt = self._repo.lookup_worktree(name)
             if Path(wt.path).resolve() == target:
