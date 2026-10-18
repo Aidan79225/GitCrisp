@@ -398,6 +398,7 @@ class HunkDiffWidget(QWidget):
         header = hunk.header
 
         checkbox = QCheckBox()
+        checkbox.setAccessibleName(f"Stage hunk {header}")
         checkbox.setChecked(is_staged)
         checkbox.toggled.connect(
             lambda checked, p=path, h=header, u=is_untracked: self._on_hunk_toggled(
