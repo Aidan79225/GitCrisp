@@ -5,10 +5,9 @@ import threading
 from datetime import UTC
 
 from PySide6.QtCore import QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QIcon, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QMenu,
-    QStyleOptionViewItem,
     QTreeView,
     QVBoxLayout,
     QWidget,
@@ -17,6 +16,7 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets.highlighting_tree import HighlightingTreeView
 from git_gui.resources import get_resource_path
 
 logger = logging.getLogger(__name__)
@@ -29,14 +29,6 @@ def _tag_sort_key(name: str) -> tuple[bool, list[int] | str]:
         return (False, [int(p) for p in parts])
     except ValueError:
         return (True, name)
-
-
-def _head_bg() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
-
-
-def _hover_bg() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE_VARIANT)
 
 
 _ROW_HEIGHT = 28
@@ -65,59 +57,6 @@ def _get_cloud_icon() -> QIcon:
     p.fillRect(tinted.rect(), color)
     p.end()
     return QIcon(tinted)
-
-
-class _SidebarTree(QTreeView):
-    """QTreeView that paints full-row hover and HEAD highlight."""
-
-    def __init__(self, *a, **kw):
-        super().__init__(*a, **kw)
-        from PySide6.QtCore import QPersistentModelIndex
-
-        self._hover_idx = QPersistentModelIndex()
-
-    def mouseMoveEvent(self, event) -> None:
-        from PySide6.QtCore import QPersistentModelIndex
-
-        idx = self.indexAt(event.position().toPoint())
-        new_idx = QPersistentModelIndex(idx) if idx.isValid() else QPersistentModelIndex()
-        if new_idx != self._hover_idx:
-            self._hover_idx = new_idx
-            self.viewport().update()
-        super().mouseMoveEvent(event)
-
-    def leaveEvent(self, event) -> None:
-        from PySide6.QtCore import QPersistentModelIndex
-
-        if self._hover_idx.isValid():
-            self._hover_idx = QPersistentModelIndex()
-            self.viewport().update()
-        super().leaveEvent(event)
-
-    def drawBranches(self, painter, rect, index) -> None:
-        if index.data(_IS_HEAD_ROLE):
-            painter.fillRect(rect, _head_bg())
-        elif self._hover_idx.isValid() and index == self._hover_idx:
-            painter.fillRect(
-                rect,
-                get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE_CONTAINER_HIGH),
-            )
-        super().drawBranches(painter, rect, index)
-
-    def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        # Full-row HEAD highlight
-        if index.data(_IS_HEAD_ROLE):
-            painter.save()
-            painter.fillRect(option.rect, _head_bg())
-            painter.restore()
-        elif self._hover_idx.isValid() and index == self._hover_idx:
-            painter.save()
-            hover_color = get_theme_manager().current.colors.as_qcolor(
-                ColorRole.SURFACE_CONTAINER_HIGH
-            )
-            painter.fillRect(option.rect, hover_color)
-            painter.restore()
-        super().drawRow(painter, option, index)
 
 
 class _LoadSignals(QObject):
@@ -184,7 +123,7 @@ class SidebarWidget(QWidget):
         # started — a previous repo's, or a superseded F5 — is dropped.
         self._load_generation = 0
 
-        self._tree = _SidebarTree()
+        self._tree = HighlightingTreeView(_IS_HEAD_ROLE)
         self._tree.setAccessibleName("Branches, tags and stashes")
         self._tree.setHeaderHidden(True)
         self._tree.setMouseTracking(True)
