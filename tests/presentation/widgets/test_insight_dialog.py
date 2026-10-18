@@ -230,3 +230,36 @@ def test_the_result_rows_paint(qtbot, window):
     dialog = _loaded_dialog(qtbot, window, _HISTORY)
 
     assert not dialog.grab().isNull()
+
+
+# ── Custom range edges ──────────────────────────────────────────────────────
+def _custom_range(window, start: QDate, end: QDate):
+    dialog = InsightDialog(_no_history(), window)
+    dialog._start_date.setDate(start)
+    dialog._end_date.setDate(end)
+    return dialog._compute_range("Custom")
+
+
+def test_a_custom_start_before_the_epoch_leaves_the_range_open_at_the_start(window):
+    since, _until = _custom_range(window, QDate(1969, 12, 31), QDate(2026, 10, 18))
+
+    assert since is None
+
+
+def test_a_custom_start_at_the_earliest_date_the_picker_offers_is_open(window):
+    since, _until = _custom_range(window, QDate(1752, 9, 14), QDate(2026, 10, 18))
+
+    assert since is None
+
+
+def test_a_custom_end_on_the_last_date_the_picker_offers_leaves_the_range_open(window):
+    _since, until = _custom_range(window, QDate(2026, 10, 18), QDate(9999, 12, 31))
+
+    assert until is None
+
+
+def test_a_custom_range_just_inside_the_convertible_days_keeps_both_bounds(window):
+    since, until = _custom_range(window, QDate(1970, 1, 3), QDate(2999, 12, 30))
+
+    assert _on_the_users_clock(since) == datetime(1970, 1, 3)
+    assert _on_the_users_clock(until) == datetime(2999, 12, 30, 23, 59, 59)
