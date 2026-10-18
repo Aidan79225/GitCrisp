@@ -34,10 +34,10 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         # git refuses to delete a branch that is checked out in a linked
         # worktree. When that's the case, offer to remove the worktree first
         # (instead of surfacing libgit2's opaque "current HEAD of a linked
-        # repository" error).
+        # repository" error). The main worktree can't be removed.
         commands = self._commands
-        wt = self._linked_worktree_for_branch(branch)
-        if wt is not None:
+        wt = self._worktree_for_branch(branch)
+        if wt is not None and not wt.is_main:
             if not self._remove_worktree_for_branch_delete(branch, wt, commands):
                 return
         elif not self._confirm_delete_branch(branch):
@@ -62,20 +62,20 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         )
         return reply == QMessageBox.Yes
 
-    def _linked_worktree_for_branch(self, branch: str):
-        """Return the linked (non-main) worktree that has `branch` checked out,
-        or None. The main worktree is excluded — it can't be removed."""
+    def _worktree_for_branch(self, name: str) -> Worktree | None:
+        """The worktree that has branch `name` checked out, or None — also when
+        the lookup fails, which is logged."""
         if self._queries is None:
             return None
         try:
-            wt = self._queries.find_worktree_for_branch.execute(branch)
-        except Exception:
+            return self._queries.find_worktree_for_branch.execute(name)
+        except Exception as e:
+            logger.warning("Looking up the worktree for %s failed: %s", name, e)
             return None
-        if wt is None or wt.is_main:
-            return None
-        return wt
 
-    def _remove_worktree_for_branch_delete(self, branch: str, wt, commands: CommandBus) -> bool:
+    def _remove_worktree_for_branch_delete(
+        self, branch: str, wt: Worktree, commands: CommandBus
+    ) -> bool:
         """Confirm and remove the worktree holding `branch`. Returns True if it
         was removed (so deletion can proceed), False to abort."""
         op_name = f"Remove worktree {wt.path}"
@@ -249,7 +249,7 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         refuses to move HEAD onto a branch another worktree holds, which
         leaves this worktree's files on one branch and its HEAD on another.
         """
-        wt = self._worktree_holding_elsewhere(branch)
+        wt = None if branch.is_head else self._worktree_for_branch(branch.name)
         if wt is None:
             return False
         self._log_panel.log(
@@ -257,15 +257,6 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         )
         self._switch_repo(wt.path)
         return True
-
-    def _worktree_holding_elsewhere(self, branch: Branch) -> Worktree | None:
-        if branch.is_head or self._queries is None:
-            return None
-        try:
-            return self._queries.find_worktree_for_branch.execute(branch.name)
-        except Exception as e:
-            logger.warning("Looking up the worktree for %s failed: %s", branch.name, e)
-            return None
 
     # ── Double-click to switch branch ───────────────────────────────────
 
