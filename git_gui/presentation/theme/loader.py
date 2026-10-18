@@ -86,9 +86,6 @@ def _build_simple(cls, data: Any, path: str):
     return cls(**data)
 
 
-_TOP_KEYS = {"name", "is_dark", "colors", "typography", "shape", "spacing"}
-
-
 def _read_json(path: Path) -> Any:
     # utf-8-sig also reads the byte-order mark Windows editors prepend.
     try:
@@ -99,20 +96,12 @@ def _read_json(path: Path) -> Any:
 
 def load_theme(path: Path) -> Theme:
     raw = _read_json(path)
-    if not isinstance(raw, dict):
-        raise ThemeValidationError("root: must be an object")
-    given = set(raw.keys())
-    missing = _TOP_KEYS - given
-    extra = given - _TOP_KEYS
-    if missing:
-        raise ThemeValidationError(f"root: missing key(s) {sorted(missing)}")
-    if extra:
-        raise ThemeValidationError(f"root: unknown key(s) {sorted(extra)}")
+    _check_keys(Theme, raw, "root")
     _check_type("name", raw["name"], "str")
     _check_type("is_dark", raw["is_dark"], "bool")
     return Theme(
         name=raw["name"],
-        is_dark=bool(raw["is_dark"]),
+        is_dark=raw["is_dark"],
         colors=_build_colors(raw["colors"]),
         typography=_build_typography(raw["typography"]),
         shape=_build_simple(Shape, raw["shape"], "shape"),
