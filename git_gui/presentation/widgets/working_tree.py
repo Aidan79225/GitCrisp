@@ -38,7 +38,6 @@ from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 logger = logging.getLogger(__name__)
 
 _BADGE_SIZE = 20
-_BADGE_GAP = 6
 # Qt knows nothing about the badge, so the row's text is padded to leave a gap
 # the badge is then painted into, clear of the check indicator.
 _BADGE_TEXT_RESERVATION = "          "
