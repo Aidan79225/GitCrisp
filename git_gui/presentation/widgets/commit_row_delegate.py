@@ -40,8 +40,21 @@ def _muted_color() -> QColor:
 
 CELL_PAD = 4  # horizontal padding inside cell
 AUTHOR_DATE_GAP = 8  # least space between the author and the date
+HEADER_V_PAD = 8  # vertical room around the text of the author line and each badge line
+ROW_BOTTOM_PAD = 8  # slack below the last message line
+FALLBACK_ROW_WIDTH = 400  # width assumed for the info before the view has sized the row
 
 MESSAGE_LINES = 3  # lines every row reserves for the commit subject
+
+
+def _header_height(fm: QFontMetrics) -> int:
+    """Height of the author line, and of each line of badges below it."""
+    return fm.height() + HEADER_V_PAD
+
+
+def _row_height(fm: QFontMetrics, badge_lines: int) -> int:
+    """The author line, the badge lines and the message lines, then the bottom pad."""
+    return _header_height(fm) * (1 + badge_lines) + fm.height() * MESSAGE_LINES + ROW_BOTTOM_PAD
 
 
 def _message_line_spans(painter: QPainter, message: str, width: int) -> list[tuple[int, int]]:
@@ -127,21 +140,16 @@ def _badge_line_count(placed: list[_PlacedBadge]) -> int:
 class CommitRowDelegate(QStyledItemDelegate):
     def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
         fm = option.fontMetrics
-        line_h = fm.height()
-        header_h = line_h + 8
-
         info: CommitInfo | None = index.data(INFO_ROLE)
         if info is None:
-            return QSize(option.rect.width(), header_h * 2 + line_h * MESSAGE_LINES + 8)
+            return QSize(option.rect.width(), _row_height(fm, badge_lines=1))
 
         indent = row_graph_width(index.data(LANE_ROLE))
-        row_w = option.rect.width() if option.rect.width() > 0 else indent + 400
+        row_w = option.rect.width() if option.rect.width() > 0 else indent + FALLBACK_ROW_WIDTH
         cell_w = max(row_w - indent - CELL_PAD * 2, 1)
         first_line_w = cell_w - _hash_width(fm, info.short_oid)
         badge_lines = _badge_line_count(_layout_badges(fm, info.branch_names, first_line_w, cell_w))
-
-        # author row + badge rows + message lines + padding
-        return QSize(option.rect.width(), header_h * (1 + badge_lines) + line_h * MESSAGE_LINES + 8)
+        return QSize(option.rect.width(), _row_height(fm, badge_lines))
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
         info: CommitInfo | None = index.data(INFO_ROLE)
@@ -179,7 +187,7 @@ class CommitRowDelegate(QStyledItemDelegate):
 
         fm = painter.fontMetrics()
         line_h = fm.height()
-        header_h = line_h + 8  # single-line row height (text + padding)
+        header_h = _header_height(fm)
 
         # ── Sub-row 1: author (left) + datetime (right) ──────────────────────
         cell_w = rect.width() - CELL_PAD * 2
