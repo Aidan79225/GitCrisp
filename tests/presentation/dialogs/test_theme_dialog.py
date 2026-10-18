@@ -314,12 +314,12 @@ def test_apply_tells_the_user_when_the_settings_cannot_be_saved(
 
     from git_gui.presentation.theme import settings as s
 
+    get_theme_manager().set_mode("dark")
     not_a_directory = tmp_path / "file"
     not_a_directory.write_text("", encoding="utf-8")
     monkeypatch.setattr(s, "settings_path", lambda: not_a_directory / "settings.json")
     warnings: list[tuple] = []
     monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(args))
-    get_theme_manager().set_mode("dark")
     dlg = ThemeDialog()
     _radios(dlg)["light"].setChecked(True)
 
