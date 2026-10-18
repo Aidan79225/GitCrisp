@@ -34,7 +34,7 @@ class ReloadCoordinatorMixin:
         self._log_panel.log_error(f"{what} — ERROR: {reason}")
 
     def _reload(self) -> None:
-        if getattr(self, "_change_detector", None) is not None:
+        if self._change_detector is not None:
             self._change_detector.notify_self_reload()
         if self._queries is None:
             return
