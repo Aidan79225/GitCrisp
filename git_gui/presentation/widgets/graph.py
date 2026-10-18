@@ -714,7 +714,7 @@ class GraphWidget(QWidget):
                 self._pending_merge_base is None or self._pending_merge_base in loaded_oids
             )
             if target_loaded and base_loaded:
-                self.scroll_to_oid(self._pending_scroll_oid, select=True)
+                self._land_on_pending_target()
                 self._pending_scroll_oid = None
                 self._pending_merge_base = None
             elif self._has_more and self._reload_limit < MAX_RELOAD_LIMIT:
@@ -729,7 +729,7 @@ class GraphWidget(QWidget):
                 # to load it (e.g. an old branch tip pinned via extra_tips);
                 # only give up silently when the target itself is absent.
                 if self._pending_scroll_oid in loaded_oids:
-                    self.scroll_to_oid(self._pending_scroll_oid, select=True)
+                    self._land_on_pending_target()
                 self._pending_scroll_oid = None
                 self._pending_merge_base = None
 
@@ -743,9 +743,8 @@ class GraphWidget(QWidget):
 
         # Restore the user's scroll position. Auto-refreshes (e.g., on focus
         # return) used to silently jump the viewport back to the top because
-        # QTableView resets its scrollbar after a model reset. Only kicks in
-        # when there's no explicit pending scroll target.
-        if not retrying and self._pending_scroll_oid is None:
+        # QTableView resets its scrollbar after a model reset.
+        if not retrying:
             self._restore_scroll_anchor()
 
         # If a search was deferred until all commits were loaded, run it now.
@@ -763,6 +762,15 @@ class GraphWidget(QWidget):
         """
         if generation == self._load_generation:
             self._loading = False
+
+    def _land_on_pending_target(self) -> None:
+        """Scroll to and select the commit a click asked for.
+
+        The click decides where the view goes, so the viewport saved before
+        the reload is dropped: restoring it would scroll the target away.
+        """
+        self.scroll_to_oid(self._pending_scroll_oid, select=True)
+        self._scroll_anchor_oid = None
 
     def _capture_scroll_anchor(self) -> None:
         """Remember the OID of the row at the top of the visible viewport so
@@ -873,6 +881,9 @@ class GraphWidget(QWidget):
 
         self._has_more = len(more) >= PAGE_SIZE
         self._loaded_count += min(len(more), PAGE_SIZE)
+        # A bare reload loads `_reload_limit` commits. Below what is on screen,
+        # it would drop the rows under the user's scroll position and selection.
+        self._reload_limit = max(self._reload_limit, self._loaded_count)
 
         refs: dict[str, list[str]] = {}
         for b in branches:
