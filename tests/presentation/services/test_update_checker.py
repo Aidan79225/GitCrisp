@@ -89,3 +89,9 @@ def test_update_checker_stays_silent(qtbot, current_version, fetch_result):
         with qtbot.waitSignal(checker._result_ready, timeout=2000):
             checker.check()
     assert received == []
+
+
+@pytest.fixture
+def _no_update_check():
+    """Overrides the suite-wide stub: these tests run the real ``check``, and
+    each one stubs the fetch it would make."""
