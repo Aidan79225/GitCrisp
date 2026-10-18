@@ -171,3 +171,36 @@ def test_a_drag_from_blank_space_does_not_carry_the_last_clicked_repo(qtbot, mon
     _press_and_drag(w, blank, -(QApplication.startDragDistance() + 40))
 
     assert dragged == []
+
+
+# ── Dropping on a section header ────────────────────────────────────────────
+def _header_index(w: RepoListWidget, title: str):
+    model = w._model
+    return next(model.index(r, 0) for r in range(model.rowCount()) if model.item(r).text() == title)
+
+
+def _reorders_after_dropping(w: RepoListWidget, index, path: str) -> list[tuple[str, int]]:
+    from PySide6.QtCore import QMimeData
+    from PySide6.QtGui import QDropEvent
+
+    mime = QMimeData()
+    mime.setText(path)
+    pos = QPointF(w._tree.visualRect(index).center())
+    reordered: list[tuple[str, int]] = []
+    w._tree.repo_reorder_requested.connect(lambda p, row: reordered.append((p, row)))
+    w._tree.dropEvent(QDropEvent(pos, Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier))
+    return reordered
+
+
+def test_dropping_a_repo_on_the_open_header_moves_it_to_the_top(qtbot):
+    w = _shown_list(qtbot, _FakeStore(open_=_OPEN, recent=["C:/b/old"], active="C:/a/one"))
+
+    assert _reorders_after_dropping(w, _header_index(w, "OPEN"), "C:/a/three") == [
+        ("C:/a/three", 0)
+    ]
+
+
+def test_dropping_a_repo_on_the_recent_header_leaves_the_order_alone(qtbot):
+    w = _shown_list(qtbot, _FakeStore(open_=_OPEN, recent=["C:/b/old"], active="C:/a/one"))
+
+    assert _reorders_after_dropping(w, _header_index(w, "RECENT"), "C:/a/three") == []

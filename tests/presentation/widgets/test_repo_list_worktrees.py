@@ -5,7 +5,12 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 
 from git_gui.domain.entities import Worktree
-from git_gui.presentation.widgets.repo_list import _IS_ACTIVE_ROLE, RepoListWidget
+from git_gui.presentation.widgets.repo_list import (
+    _IS_ACTIVE_ROLE,
+    _KIND_ROLE,
+    RepoListWidget,
+    _RowKind,
+)
 
 
 class _FakeStore:
@@ -90,7 +95,7 @@ def test_active_repo_worktrees_render_as_children(qtbot):
     open_header = None
     for row in range(model.rowCount()):
         item = model.item(row)
-        if item.data(Qt.UserRole + 1) == "header" and item.text() == "OPEN":
+        if item.data(_KIND_ROLE) is _RowKind.OPEN_HEADER:
             open_header = item
             break
     assert open_header is not None
@@ -98,7 +103,7 @@ def test_active_repo_worktrees_render_as_children(qtbot):
     assert repo_item.rowCount() == 1
     wt_child = repo_item.child(0)
     assert wt_child.data(Qt.UserRole) == "/tmp/myrepo-feat"
-    assert wt_child.data(Qt.UserRole + 1) == "worktree"
+    assert wt_child.data(_KIND_ROLE) is _RowKind.WORKTREE
 
 
 def test_inactive_repos_do_not_show_worktree_children(qtbot):
@@ -111,7 +116,7 @@ def test_inactive_repos_do_not_show_worktree_children(qtbot):
     open_header = next(
         model.item(r)
         for r in range(model.rowCount())
-        if model.item(r).data(Qt.UserRole + 1) == "header" and model.item(r).text() == "OPEN"
+        if model.item(r).data(_KIND_ROLE) is _RowKind.OPEN_HEADER
     )
     other_item = open_header.child(1)
     assert other_item.rowCount() == 0
@@ -153,7 +158,7 @@ def _main_wt(path, branch="master"):
 def _open_header(model):
     for row in range(model.rowCount()):
         item = model.item(row)
-        if item.data(Qt.UserRole + 1) == "header" and item.text() == "OPEN":
+        if item.data(_KIND_ROLE) is _RowKind.OPEN_HEADER:
             return item
     return None
 
