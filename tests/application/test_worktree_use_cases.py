@@ -47,8 +47,8 @@ class _FakeWriter:
             is_main=False,
         )
 
-    def remove_worktree(self, path, *, force):
-        self.remove_calls.append((path, force))
+    def remove_worktree(self, path, *, force, override_lock=False):
+        self.remove_calls.append((path, force, override_lock))
 
     def lock_worktree(self, path, *, reason=None):
         self.lock_calls.append((path, reason))
@@ -82,7 +82,7 @@ def test_remove_worktree_delegates():
     writer = _FakeWriter()
     c = RemoveWorktree(writer)  # type: ignore[arg-type]
     c.execute("/tmp/x", force=True)
-    assert writer.remove_calls == [("/tmp/x", True)]
+    assert writer.remove_calls == [("/tmp/x", True, False)]
 
 
 def test_lock_worktree_delegates():
@@ -97,3 +97,9 @@ def test_unlock_worktree_delegates():
     c = UnlockWorktree(writer)  # type: ignore[arg-type]
     c.execute("/tmp/x")
     assert writer.unlock_calls == ["/tmp/x"]
+
+
+def test_remove_worktree_passes_the_lock_override_on():
+    writer = _FakeWriter()
+    RemoveWorktree(writer).execute("/tmp/x", force=False, override_lock=True)  # type: ignore[arg-type]
+    assert writer.remove_calls == [("/tmp/x", False, True)]
