@@ -174,13 +174,14 @@ class GraphModel(QAbstractTableModel):
         remote_branches: frozenset[str] = frozenset(),
     ) -> None:
         super().__init__(parent)
-        self._commits = commits
-        self._refs = refs
-        self._head_branch = head_branch
-        self._remote_branches = remote_branches
-        self._first_parent = first_parent
-        self._show_graph = show_graph
-        self._lane_data: list[LaneData] = _compute_lanes(commits, first_parent)
+        self.reload(
+            commits,
+            refs,
+            head_branch,
+            first_parent=first_parent,
+            show_graph=show_graph,
+            remote_branches=remote_branches,
+        )
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self._commits)
@@ -241,7 +242,7 @@ class GraphModel(QAbstractTableModel):
         self._remote_branches = remote_branches
         self._first_parent = first_parent
         self._show_graph = show_graph
-        self._lane_data = _compute_lanes(commits, first_parent)
+        self._lane_data: list[LaneData] = _compute_lanes(commits, first_parent)
         self.endResetModel()
 
     def append(self, commits: list[Commit], refs: dict[str, list[str]]) -> None:
