@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pygit2
 from PySide6.QtCore import QPersistentModelIndex, QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QFont, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStyledItemDelegate,
     QStyleOptionViewItem,
-    QTreeView,
     QVBoxLayout,
     QWidget,
 )
@@ -24,10 +23,7 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import Worktree
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
-
-
-def _active_bg() -> QColor:
-    return get_theme_manager().current.colors.as_qcolor(ColorRole.PRIMARY)
+from git_gui.presentation.widgets.highlighting_tree import HighlightingTreeView
 
 
 def _display_path(path: str) -> str:
@@ -50,8 +46,8 @@ _IS_ACTIVE_ROLE = Qt.UserRole + 2
 _ROW_HEIGHT = 28
 
 
-class _RepoTree(QTreeView):
-    """QTreeView that paints full-row hover and active repo highlight.
+class _RepoTree(HighlightingTreeView):
+    """The repo tree, highlighting the active repo row.
 
     Implements manual drag-and-drop reordering for OPEN section items.
     The view detects the drag gesture itself: Qt's own detection only starts
@@ -62,9 +58,8 @@ class _RepoTree(QTreeView):
 
     repo_reorder_requested = Signal(str, int)  # (path, target_row)
 
-    def __init__(self, *a, **kw):
-        super().__init__(*a, **kw)
-        self._hover_idx = QPersistentModelIndex()
+    def __init__(self, parent=None) -> None:
+        super().__init__(_IS_ACTIVE_ROLE, parent)
         self._drop_indicator_y: int | None = None  # y position in viewport
         self._drag_origin: QPoint | None = None
         self._drag_row = QPersistentModelIndex()
@@ -167,50 +162,12 @@ class _RepoTree(QTreeView):
             painter.end()
 
     def mouseMoveEvent(self, event) -> None:
-        from PySide6.QtCore import QPersistentModelIndex
-
-        idx = self.indexAt(event.position().toPoint())
-        new_idx = QPersistentModelIndex(idx) if idx.isValid() else QPersistentModelIndex()
-        if new_idx != self._hover_idx:
-            self._hover_idx = new_idx
-            self.viewport().update()
-        if self._is_drag_gesture(event):
-            self._drag_origin = None
-            self.startDrag(Qt.MoveAction)
+        if not self._is_drag_gesture(event):
+            super().mouseMoveEvent(event)
             return
-        super().mouseMoveEvent(event)
-
-    def leaveEvent(self, event) -> None:
-        from PySide6.QtCore import QPersistentModelIndex
-
-        if self._hover_idx.isValid():
-            self._hover_idx = QPersistentModelIndex()
-            self.viewport().update()
-        super().leaveEvent(event)
-
-    def drawBranches(self, painter, rect, index) -> None:
-        if index.data(_IS_ACTIVE_ROLE):
-            painter.fillRect(rect, _active_bg())
-        elif self._hover_idx.isValid() and index == self._hover_idx:
-            painter.fillRect(
-                rect,
-                get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE_CONTAINER_HIGH),
-            )
-        super().drawBranches(painter, rect, index)
-
-    def drawRow(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        if index.data(_IS_ACTIVE_ROLE):
-            painter.save()
-            painter.fillRect(option.rect, _active_bg())
-            painter.restore()
-        elif self._hover_idx.isValid() and index == self._hover_idx:
-            painter.save()
-            painter.fillRect(
-                option.rect,
-                get_theme_manager().current.colors.as_qcolor(ColorRole.SURFACE_CONTAINER_HIGH),
-            )
-            painter.restore()
-        super().drawRow(painter, option, index)
+        self._track_hover(event.position().toPoint())
+        self._drag_origin = None
+        self.startDrag(Qt.MoveAction)
 
 
 _REPO_ROW_HEIGHT = 40
