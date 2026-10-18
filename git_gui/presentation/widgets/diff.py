@@ -30,6 +30,7 @@ from git_gui.presentation.widgets.diff_block import (
     make_overflow_notice,
     make_skeleton_container,
     make_syntax_formats,
+    use_code_font,
 )
 from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
 from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
@@ -67,9 +68,7 @@ class _CommitMessageView(QPlainTextEdit):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.document().setDocumentMargin(_MESSAGE_MARGIN)
-        font = self.font()
-        font.setFamily("Courier New")
-        self.setFont(font)
+        use_code_font(self)
 
     def show_message(self, text: str) -> None:
         self.setPlainText(text)

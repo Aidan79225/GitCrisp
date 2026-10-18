@@ -110,6 +110,10 @@ HEADER_ROW_VPAD = 3  # top/bottom padding inside the header row
 
 _LONG_LINE_LIMIT = 2000
 
+# The first of these the platform has (Windows, then macOS), else whatever it
+# calls monospace.
+CODE_FONT_FAMILIES = ("Consolas", "Courier New", "Menlo", "Monaco", "monospace")
+
 
 # Diff format dataclass
 
@@ -281,6 +285,17 @@ def make_syntax_formats() -> SyntaxFormats:
     )
 
 
+def use_code_font(widget: QWidget) -> None:
+    """Draw *widget*'s text in the code font the diff editors use.
+
+    Only the families are set, so the theme manager keeps them across a theme
+    change and the size still follows the theme's typography scale.
+    """
+    font = widget.font()
+    font.setFamilies(list(CODE_FONT_FAMILIES))
+    widget.setFont(font)
+
+
 def make_diff_editor() -> QPlainTextEdit:
     """Return a configured read-only no-wrap monospace QPlainTextEdit for diff display."""
     editor = QPlainTextEdit()
@@ -290,9 +305,8 @@ def make_diff_editor() -> QPlainTextEdit:
     editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     # Only the family is fixed here, so the size still follows the theme's
     # typography scale.
-    editor.setStyleSheet(
-        "QPlainTextEdit { font-family: 'Consolas', 'Courier New', 'Menlo', 'Monaco', monospace; }"
-    )
+    families = ", ".join(f"'{family}'" for family in CODE_FONT_FAMILIES)
+    editor.setStyleSheet(f"QPlainTextEdit {{ font-family: {families}; }}")
     return editor
 
 
