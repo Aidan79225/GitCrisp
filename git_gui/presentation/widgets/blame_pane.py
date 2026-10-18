@@ -33,7 +33,7 @@ from git_gui.presentation.widgets.eliding_label import ElidingLabel
 from git_gui.presentation.widgets.syntax_highlighter import SyntaxToken, tokenize
 
 SHA_CHARS = 8
-AUTHOR_CHARS = 14  # author names are truncated to keep the gutter a fixed width
+AUTHOR_CHARS = 14  # longer author names are cut, which bounds how wide the gutter can grow
 STRIPE_W = 5  # commit colour bar down the left of the gutter
 GUTTER_PAD = 8
 COL_GAP = 10
