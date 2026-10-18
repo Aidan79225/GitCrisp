@@ -9,8 +9,8 @@ import time
 
 import pytest
 
+from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.infrastructure.pygit2 import Pygit2Repository
-from git_gui.infrastructure.pygit2.remote_ops import RemoteOperationCancelled
 
 
 def test_cancel_when_idle_is_noop(repo_impl):
