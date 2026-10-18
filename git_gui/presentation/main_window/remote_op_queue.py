@@ -31,11 +31,12 @@ class _PushTarget(NamedTuple):
 
 
 class RemoteOpQueueMixin:
-    """Remote-operation serializer and queue.
+    """The remote-op slot: one push, pull or fetch at a time.
 
-    Provides `_run_remote_op` — a single-flight serializer that runs a
-    callable on a background thread and marshals completion back to the
-    main thread via Qt signals. Also hosts the push/pull/fetch slots.
+    `_run_remote_op` runs a callable on a background thread and marshals
+    completion back to the main thread via Qt signals. A request made while
+    another op holds the slot is reported as skipped and dropped, not queued.
+    Also hosts the push, pull and fetch handlers.
 
     Mixin — not instantiable on its own. Relies on composite-provided
     attributes set up by MainWindow's __init__.
