@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
-from git_gui.infrastructure.git_process import run_git
+from git_gui.infrastructure.git_process import git_run_dir, pinned_git_env, run_git
 
 
 class CommitOpsCommandError(Exception):
@@ -25,9 +24,10 @@ class CommitOpsCli:
     """
 
     def __init__(
-        self, repo_workdir: str, git_executable: str = "git", *, git_dir: str | None = None
+        self, repo_workdir: str | None, git_executable: str = "git", *, git_dir: str | None = None
     ) -> None:
-        self._cwd = repo_workdir
+        self._cwd = git_run_dir(repo_workdir, git_dir)
+        self._work_tree = repo_workdir
         self._git = git_executable
         self._git_dir = git_dir
 
@@ -81,10 +81,7 @@ class CommitOpsCli:
         raise RuntimeError(stderr)
 
     def _env(self, overrides: dict[str, str] | None) -> dict[str, str]:
-        env = os.environ.copy()
-        if self._git_dir is not None:
-            env["GIT_DIR"] = self._git_dir
-            env["GIT_WORK_TREE"] = self._cwd
+        env = pinned_git_env(self._git_dir, self._work_tree)
         env.update(overrides or {})
         return env
 
