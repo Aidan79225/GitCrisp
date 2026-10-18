@@ -20,6 +20,8 @@ from git_gui.domain.entities import Commit
 _ACTIONS = ["pick", "squash", "fixup", "drop"]
 _ACTION_COLUMN, _OID_COLUMN, _MESSAGE_COLUMN = range(3)
 _HEADERS = ["Action", "OID", "Message"]
+_ACTION_COLUMN_WIDTH = 100
+_OID_COLUMN_WIDTH = 80
 
 # Read-only, and never a drop target, so a drop always lands between rows.
 _CELL_FLAGS = Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsDragEnabled
@@ -82,53 +84,50 @@ class InteractiveRebaseDialog(QDialog):
         self.setMinimumWidth(600)
         self.setMinimumHeight(400)
 
-        layout = QVBoxLayout(self)
-
-        # Table
-        self._table = _RowMoveTable(len(commits), len(_HEADERS))
-        self._table.setHorizontalHeaderLabels(_HEADERS)
-        self._table.horizontalHeader().setSectionResizeMode(_ACTION_COLUMN, QHeaderView.Fixed)
-        self._table.horizontalHeader().setSectionResizeMode(_OID_COLUMN, QHeaderView.Fixed)
-        self._table.horizontalHeader().setSectionResizeMode(_MESSAGE_COLUMN, QHeaderView.Stretch)
-        self._table.setColumnWidth(_ACTION_COLUMN, 100)
-        self._table.setColumnWidth(_OID_COLUMN, 80)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SingleSelection)
-
-        # Enable row drag-and-drop reorder
-        self._table.setDragDropMode(QAbstractItemView.InternalMove)
-        self._table.setDragDropOverwriteMode(False)
-        self._table.row_dropped.connect(self.move_row)
-
+        self._table = self._build_table(len(commits))
         for row, commit in enumerate(commits):
-            # Action combo
-            combo = QComboBox()
-            combo.addItems(_ACTIONS)
-            combo.setCurrentText("pick")
-            combo.currentTextChanged.connect(self._validate)
-            self._table.setCellWidget(row, _ACTION_COLUMN, combo)
-            self._table.setItem(row, _ACTION_COLUMN, _cell(""))
-
-            # OID
-            oid_cell = _cell(commit.oid[:7])
-            oid_cell.setData(Qt.UserRole, commit.oid)
-            self._table.setItem(row, _OID_COLUMN, oid_cell)
-
-            # Message (first line)
-            msg_line = commit.message.split("\n", 1)[0]
-            self._table.setItem(row, _MESSAGE_COLUMN, _cell(msg_line))
-
+            self._add_commit_row(row, commit)
+        self._buttons = self._build_buttons()
+        layout = QVBoxLayout(self)
         layout.addWidget(self._table)
-
-        # Buttons
-        self._buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self._buttons.button(QDialogButtonBox.Ok).setText("Execute")
-        self._buttons.accepted.connect(self.accept)
-        self._buttons.rejected.connect(self.reject)
         layout.addWidget(self._buttons)
-
         self._validate()
+
+    def _build_table(self, row_count: int) -> _RowMoveTable:
+        table = _RowMoveTable(row_count, len(_HEADERS))
+        table.setHorizontalHeaderLabels(_HEADERS)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(_ACTION_COLUMN, QHeaderView.Fixed)
+        header.setSectionResizeMode(_OID_COLUMN, QHeaderView.Fixed)
+        header.setSectionResizeMode(_MESSAGE_COLUMN, QHeaderView.Stretch)
+        table.setColumnWidth(_ACTION_COLUMN, _ACTION_COLUMN_WIDTH)
+        table.setColumnWidth(_OID_COLUMN, _OID_COLUMN_WIDTH)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SingleSelection)
+        table.setDragDropMode(QAbstractItemView.InternalMove)
+        table.setDragDropOverwriteMode(False)
+        table.row_dropped.connect(self.move_row)
+        return table
+
+    def _add_commit_row(self, row: int, commit: Commit) -> None:
+        combo = QComboBox()
+        combo.addItems(_ACTIONS)
+        combo.setCurrentText("pick")
+        combo.currentTextChanged.connect(self._validate)
+        self._table.setCellWidget(row, _ACTION_COLUMN, combo)
+        self._table.setItem(row, _ACTION_COLUMN, _cell(""))
+        oid_cell = _cell(commit.oid[:7])
+        oid_cell.setData(Qt.UserRole, commit.oid)
+        self._table.setItem(row, _OID_COLUMN, oid_cell)
+        self._table.setItem(row, _MESSAGE_COLUMN, _cell(commit.message.split("\n", 1)[0]))
+
+    def _build_buttons(self) -> QDialogButtonBox:
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Execute")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        return buttons
 
     def move_row(self, source: int, destination: int) -> None:
         """Move the commit at ``source`` to ``destination``, its action with it."""
