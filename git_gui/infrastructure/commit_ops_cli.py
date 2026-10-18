@@ -19,11 +19,18 @@ class CommitOpsCli:
     reverting a merge commit, so we shell out to the `git` CLI. Conflict exits
     are swallowed: the repo is left in CHERRY_PICK_HEAD / REVERT_HEAD state
     and the caller surfaces the banner on the next reload.
+
+    Pass `git_dir` to pin git to that repository. Without it git discovers
+    the repository from `repo_workdir`, which for a submodule whose `.git`
+    link is missing walks up to the parent and runs against the wrong repo.
     """
 
-    def __init__(self, repo_workdir: str, git_executable: str = "git") -> None:
+    def __init__(
+        self, repo_workdir: str, git_executable: str = "git", *, git_dir: str | None = None
+    ) -> None:
         self._cwd = repo_workdir
         self._git = git_executable
+        self._git_dir = git_dir
 
     def cherry_pick(self, oid: str, is_merge: bool) -> None:
         argv = ["cherry-pick"]
@@ -59,26 +66,20 @@ class CommitOpsCli:
     ) -> None:
         if shutil.which(self._git) is None:
             raise CommitOpsCommandError(f"`{self._git}` executable not found on PATH")
-        env = os.environ.copy()
-        if env_overrides:
-            env.update(env_overrides)
         try:
             result = subprocess.run(
                 [self._git, *argv],
                 cwd=self._cwd,
                 capture_output=True,
                 text=True,
-                env=env,
+                env=self._env(env_overrides),
                 **subprocess_kwargs(),
             )
         except FileNotFoundError as e:
             raise CommitOpsCommandError(f"`{self._git}` executable not found on PATH") from e
         if result.returncode == 0:
             return
-        if (
-            conflict_state_file is not None
-            and (Path(self._cwd) / ".git" / conflict_state_file).exists()
-        ):
+        if conflict_state_file is not None and (self._state_dir() / conflict_state_file).exists():
             return
         stderr = (
             (result.stderr or "").strip()
@@ -86,3 +87,18 @@ class CommitOpsCli:
             or f"exit code {result.returncode}"
         )
         raise RuntimeError(stderr)
+
+    def _env(self, overrides: dict[str, str] | None) -> dict[str, str]:
+        env = os.environ.copy()
+        if self._git_dir is not None:
+            env["GIT_DIR"] = self._git_dir
+            env["GIT_WORK_TREE"] = self._cwd
+        env.update(overrides or {})
+        return env
+
+    def _state_dir(self) -> Path:
+        # In a linked worktree or a submodule `<workdir>/.git` is a file, and
+        # git writes CHERRY_PICK_HEAD / REVERT_HEAD into the gitdir it names.
+        if self._git_dir is not None:
+            return Path(self._git_dir)
+        return Path(self._cwd) / ".git"

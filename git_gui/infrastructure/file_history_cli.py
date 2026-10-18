@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 
@@ -18,11 +19,18 @@ class FileHistoryCli:
     parent — linear in history length and blind to renames. The git CLI does
     both natively, so we shell out for the OID list and let the caller hydrate
     each one through the normal `get_commit` path.
+
+    Pass `git_dir` to pin git to that repository. Without it git discovers
+    the repository from `repo_workdir`, which for a submodule whose `.git`
+    link is missing walks up to the parent and reads the wrong history.
     """
 
-    def __init__(self, repo_workdir: str, git_executable: str = "git") -> None:
+    def __init__(
+        self, repo_workdir: str, git_executable: str = "git", *, git_dir: str | None = None
+    ) -> None:
         self._cwd = repo_workdir
         self._git = git_executable
+        self._git_dir = git_dir
 
     def commit_oids(
         self, path: str, limit: int, skip: int = 0, *, follow: bool = True
@@ -54,6 +62,7 @@ class FileHistoryCli:
                 cwd=self._cwd,
                 capture_output=True,
                 text=True,
+                env=self._env(),
                 **subprocess_kwargs(),
             )
         except OSError as e:
@@ -64,3 +73,10 @@ class FileHistoryCli:
 
         oids = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         return oids[skip:]
+
+    def _env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        if self._git_dir is not None:
+            env["GIT_DIR"] = self._git_dir
+            env["GIT_WORK_TREE"] = self._cwd
+        return env
