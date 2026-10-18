@@ -108,3 +108,17 @@ def test_set_url_edits_the_section_of_a_submodule_named_unlike_its_path(parent_a
     assert "third_party/gtest" not in _git_output(
         parent, "config", "-f", ".gitmodules", "--name-only", "--list"
     )
+
+
+def test_remove_leaves_files_that_only_match_the_path_as_a_glob(parent_and_child):
+    parent, child = parent_and_child
+    cli = SubmoduleCli(str(parent))
+    cli.add(path="lib[1]", url=str(child))
+    (parent / "lib1").write_text("committed")
+    _run(str(parent), "add", "lib1")
+    _run(str(parent), "commit", "-q", "-m", "add lib1 and lib[1]")
+    (parent / "lib1").write_text("uncommitted work")
+
+    cli.remove("lib[1]")
+
+    assert (parent / "lib1").read_text() == "uncommitted work"
