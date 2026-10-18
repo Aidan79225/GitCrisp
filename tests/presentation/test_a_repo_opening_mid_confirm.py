@@ -14,10 +14,18 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
 from git_gui.domain.entities import Branch, ResetMode, Worktree
 from git_gui.presentation.main_window import MainWindow
+
+
+def _session(_path: str = "/repo") -> tuple[MagicMock, MagicMock]:
+    """A clean repo whose branches no other worktree holds."""
+    queries = MagicMock()
+    queries.find_worktree_for_branch.execute.return_value = None
+    queries.get_working_tree.execute.return_value = []
+    return queries, MagicMock()
 
 
 @pytest.fixture
@@ -26,17 +34,9 @@ def win(qtbot) -> MainWindow:
     repo_store.get_open_repos.return_value = []
     repo_store.get_recent_repos.return_value = []
     repo_store.get_active.return_value = None
-    w = MainWindow(
-        queries=None,
-        commands=None,
-        repo_store=repo_store,
-        session_factory=lambda _p: (MagicMock(), MagicMock()),
-    )
+    w = MainWindow(queries=None, commands=None, repo_store=repo_store, session_factory=_session)
     qtbot.addWidget(w)
-    w._queries = MagicMock()
-    w._commands = MagicMock()
-    w._queries.find_worktree_for_branch.execute.return_value = None
-    w._queries.get_working_tree.execute.return_value = []
+    w._queries, w._commands = _session()
     return w
 
 
@@ -239,3 +239,23 @@ def test_a_stash_confirmed_as_another_repo_opens_stashes_nothing(qtbot, win):
         win._on_stash_requested()
     asked_in.stash.execute.assert_not_called()
     win._commands.stash.execute.assert_not_called()
+
+
+def test_a_branch_created_as_another_repo_opens_is_not_created(qtbot, win):
+    asked_in = win._commands
+    with patch.object(QInputDialog, "getText", side_effect=_answering(qtbot, win, ("topic", True))):
+        win._on_create_branch("c" * 40)
+    for bus in (asked_in, win._commands):
+        bus.create_branch.execute.assert_not_called()
+        bus.checkout.execute.assert_not_called()
+
+
+def test_a_branch_picked_as_another_repo_opens_is_not_checked_out(qtbot, win):
+    win._queries.get_branches.execute.return_value = [_branch("feature"), _branch("topic")]
+    asked_in = win._commands
+    with patch("git_gui.presentation.main_window.branch_flows.BranchSelectDialog") as dialog_cls:
+        _accepted_as_another_repo_opens(qtbot, win, dialog_cls)
+        dialog_cls.return_value.selected.return_value = "topic"
+        win._on_commit_double_clicked("a" * 40)
+    asked_in.checkout.execute.assert_not_called()
+    win._commands.checkout.execute.assert_not_called()
