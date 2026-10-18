@@ -644,23 +644,47 @@ class GraphWidget(QWidget):
         instead of ending at a tip with nothing above it.
         """
         tips = [oid, *(t for t in extra_tips or [] if t != oid)]
+        if self._path_filter is not None:
+            self._select_in_file_history(oid, tips)
+            return
 
         # Nothing to fetch when every tip is already drawn — just scroll and select.
         loaded = {
             self._model.data(self._model.index(row, 0), OID_ROLE)
             for row in range(self._model.rowCount())
         }
-        if self._path_filter is not None:
-            if oid in loaded:
-                self.scroll_to_oid(oid, select=True)
-                return
-            # File history lists only HEAD's commits that touched the file,
-            # so the tip may never be among them. The full graph can load it.
-            self._leave_path_filter()
-        elif loaded.issuperset(tips):
+        if loaded.issuperset(tips):
             self.scroll_to_oid(oid, select=True)
             return
+        self._load_tips_and_land(oid, tips)
 
+    def _select_in_file_history(self, oid: str, tips: list[str]) -> None:
+        """Select `oid` in the file history, paging further in to find it.
+
+        File history lists only HEAD's commits that touched the file, so a
+        branch tip may never be among them. Only once the history has run out
+        without it does the click go to the full graph, which can load it:
+        leaving earlier threw away the file view for a commit on a later page.
+        """
+        loaded = {
+            self._model.data(self._model.index(row, 0), OID_ROLE)
+            for row in range(self._model.rowCount())
+        }
+        if oid in loaded:
+            self.scroll_to_oid(oid, select=True)
+        elif self._has_more:
+            self._pending_scroll_oid = oid
+            self._pending_merge_base = None
+            self.reload(extra_tips=tips)
+        else:
+            self._show_in_full_graph(oid, tips)
+
+    def _show_in_full_graph(self, oid: str, tips: list[str]) -> None:
+        self._leave_path_filter()
+        self._load_tips_and_land(oid, tips)
+
+    def _load_tips_and_land(self, oid: str, tips: list[str]) -> None:
+        """Load the full graph with `tips` pushed, then scroll to and select `oid`."""
         # Compute merge base with HEAD so the doubling retry knows when to stop.
         merge_base: str | None = None
         if self._queries is not None:
@@ -773,6 +797,11 @@ class GraphWidget(QWidget):
                 new_limit = min(self._reload_limit * 2, MAX_RELOAD_LIMIT)
                 self._loading = False
                 self.reload(extra_tips=tips, limit=new_limit)
+                retrying = True
+            elif self._path_filter is not None and not target_loaded:
+                self._show_in_full_graph(
+                    self._pending_scroll_oid, self._extra_tips or [self._pending_scroll_oid]
+                )
                 retrying = True
             else:
                 # No more commits OR cap reached — the converging lane couldn't

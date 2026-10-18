@@ -434,3 +434,50 @@ def test_a_failed_load_is_announced_with_its_reason(graph, qtbot, inline_workers
         graph.set_buses(_unloadable_repo(), MagicMock())
 
     assert failed.args == ["cannot be peeled into a commit"]
+
+
+# ── Clicking a commit further down a file's history ──────────────────────────
+
+
+def _paged_file_history(graph: GraphWidget, n: int) -> None:
+    history = _chain(n)
+    graph._queries.get_file_history.execute.side_effect = lambda path, limit, skip=0, **_: history[
+        skip : skip + limit
+    ]
+
+
+def test_a_commit_further_down_the_file_history_is_selected_there(graph, inline_workers):
+    """A blame line last changed by an old commit: it is in the file's
+    history, only not on the first page. Leaving the file history for it
+    threw away the view the user had asked for."""
+    _paged_file_history(graph, 120)
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("c80")
+
+    assert graph._path_filter == "README.md"
+    assert _current_oid(graph) == "c80"
+
+
+def test_a_commit_clicked_before_the_file_history_loads_is_selected_there(graph, held_workers):
+    _paged_file_history(graph, 120)
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("c80")
+    _finish_all(held_workers)
+
+    assert graph._path_filter == "README.md"
+    assert _current_oid(graph) == "c80"
+
+
+def test_a_branch_past_the_whole_paged_file_history_is_shown_in_the_full_graph(
+    graph, inline_workers
+):
+    _with_side_branch(graph)
+    _paged_file_history(graph, 120)
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("side")
+
+    assert graph._path_filter is None
+    assert _current_oid(graph) == "side"
