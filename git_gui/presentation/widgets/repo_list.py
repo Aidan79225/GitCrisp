@@ -266,6 +266,7 @@ class RepoListWidget(QWidget):
     repo_close_requested = Signal(str)
     repo_remove_recent_requested = Signal(str)
     clone_requested = Signal()
+    save_failed = Signal(str)  # why a drag-reordered list could not be saved
     worktree_action_requested = Signal(
         str, str
     )  # (action, path) — action ∈ {"add", "manage", "open", "lock", "unlock", "remove"}
@@ -466,8 +467,17 @@ class RepoListWidget(QWidget):
         target_row = min(target_row, len(current))
         current.insert(target_row, path)
         self._store.set_open_order(current)
-        self._store.save()
+        self._save_order()
         self.reload()
+
+    def _save_order(self) -> None:
+        # The store already holds the new order. An OSError escaping the drop
+        # (a read-only or locked repos.json) would skip the reload, leaving the
+        # list on screen in the old order with nothing said.
+        try:
+            self._store.save()
+        except OSError as e:
+            self.save_failed.emit(str(e))
 
     def _on_item_clicked(self, index) -> None:
         kind = index.data(_KIND_ROLE)
