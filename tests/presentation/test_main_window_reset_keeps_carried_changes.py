@@ -18,7 +18,7 @@ from git_gui.domain.entities import (
     LocalBranchInfo,
     StagingState,
 )
-from git_gui.presentation.main_window import MainWindow
+from tests.presentation.window_helpers import wired_window
 
 _DLG = "git_gui.presentation.main_window.branch_flows.BranchSelectDialog"
 _EDIT = FileStatus("a.txt", StagingState.UNSTAGED, FileDelta.MODIFIED)
@@ -26,19 +26,7 @@ _UNTRACKED = FileStatus("scratch.txt", StagingState.UNTRACKED, FileDelta.ADDED)
 
 
 def _make_window(qtbot, *, feature_is_head: bool, working_tree: list[FileStatus]):
-    repo_store = MagicMock()
-    repo_store.get_open_repos.return_value = []
-    repo_store.get_recent_repos.return_value = []
-    repo_store.get_active.return_value = None
-    win = MainWindow(
-        queries=None,
-        commands=None,
-        repo_store=repo_store,
-        session_factory=lambda _p: (MagicMock(), MagicMock()),
-    )
-    qtbot.addWidget(win)
-    win._queries = MagicMock()
-    win._commands = MagicMock()
+    win = wired_window(qtbot)
     win._graph = MagicMock()
     win._log_panel = MagicMock()
     win._queries.get_branches.execute.return_value = [

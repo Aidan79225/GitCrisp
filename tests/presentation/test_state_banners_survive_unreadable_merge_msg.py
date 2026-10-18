@@ -12,20 +12,11 @@ from unittest.mock import MagicMock
 
 from git_gui.domain.entities import RepoState, RepoStateInfo
 from git_gui.presentation.main_window import MainWindow
+from tests.presentation.window_helpers import blank_window
 
 
 def _make_window(qtbot) -> MainWindow:
-    repo_store = MagicMock()
-    repo_store.get_open_repos.return_value = []
-    repo_store.get_recent_repos.return_value = []
-    repo_store.get_active.return_value = None
-    win = MainWindow(
-        queries=None,
-        commands=None,
-        repo_store=repo_store,
-        session_factory=lambda _p: (MagicMock(), MagicMock()),
-    )
-    qtbot.addWidget(win)
+    win = blank_window(qtbot)
     win._queries = MagicMock()
     win._working_tree = MagicMock()
     win._diff = MagicMock()
