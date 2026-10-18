@@ -68,6 +68,16 @@ class ColorRole(StrEnum):
     DIFF_REMOVED_WORD_OVERLAY = "diff_removed_word_overlay"
 
 
+_STATUS_ROLES: dict[FileDelta | StagingState, ColorRole] = {
+    FileDelta.ADDED: ColorRole.STATUS_ADDED,
+    FileDelta.MODIFIED: ColorRole.STATUS_MODIFIED,
+    FileDelta.DELETED: ColorRole.STATUS_DELETED,
+    FileDelta.RENAMED: ColorRole.STATUS_RENAMED,
+    FileDelta.UNKNOWN: ColorRole.STATUS_UNKNOWN,
+    StagingState.CONFLICTED: ColorRole.STATUS_CONFLICTED,
+}
+
+
 @dataclass(frozen=True)
 class Colors:
     primary: str
@@ -134,11 +144,7 @@ class Colors:
 
     def status_color(self, kind: FileDelta | StagingState) -> QColor:
         """The badge colour for a delta — or for a conflict, which outranks it."""
-        try:
-            role = ColorRole(f"status_{kind}")
-        except ValueError:
-            role = ColorRole.STATUS_UNKNOWN
-        return self.as_qcolor(role)
+        return self.as_qcolor(_STATUS_ROLES.get(kind, ColorRole.STATUS_UNKNOWN))
 
 
 @dataclass(frozen=True)
