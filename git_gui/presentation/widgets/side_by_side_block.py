@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtGui import QTextBlockFormat
+from PySide6.QtGui import QTextBlockFormat, QTextCharFormat
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from git_gui.domain.entities import Hunk
@@ -39,7 +39,8 @@ from git_gui.presentation.widgets.diff_block import (
     make_syntax_formats,
     render_in_chunks,
 )
-from git_gui.presentation.widgets.side_by_side import Row, align_hunk
+from git_gui.presentation.widgets.side_by_side import Cell, Row, align_hunk
+from git_gui.presentation.widgets.word_diff import WordSpan
 
 LEFT = 0
 RIGHT = 1
@@ -75,48 +76,70 @@ def _render_row(
 ) -> None:
     cell = row[side]
     if cell is None:
-        cursor.setBlockFormat(filler)
-        cursor.setCharFormat(formats.fmt_default)
-        cursor.insertText("\n")
+        _render_filler(cursor, formats, filler)
         return
-
-    if not cell.changed:
-        block_format, char_format = formats.blk_default, formats.fmt_default
-    elif side == LEFT:
-        block_format, char_format = formats.blk_removed, formats.fmt_removed
-    else:
-        block_format, char_format = formats.blk_added, formats.fmt_added
+    block_format, char_format = _cell_formats(cell, side, formats)
     cursor.setBlockFormat(block_format)
     cursor.setCharFormat(char_format)
-
     if cell.number is None:  # git's no-newline note: not code, so nothing to colour
         cursor.insertText(_UNNUMBERED_GUTTER + cell.text + "\n")
         return
     prefix = f"{cell.number:>4}  "
     content_start = cursor.position() + len(prefix)
     cursor.insertText(prefix + cell.text + "\n")
+    if syntax_formats is not None and filename is not None:
+        _highlight_cell(
+            cursor.document(), content_start, row, side, cell.text, syntax_formats, filename
+        )
 
-    if syntax_formats is None or filename is None:
-        return
-    apply_syntax_tokens(cursor.document(), content_start, cell.text, filename, syntax_formats)
 
-    # A row changed on both sides is one line rewritten, and only there does
-    # asking which words moved mean anything.
-    other = row[RIGHT if side == LEFT else LEFT]
-    if not cell.changed or other is None or not other.changed:
+def _render_filler(cursor, formats: DiffFormats, filler: QTextBlockFormat) -> None:
+    cursor.setBlockFormat(filler)
+    cursor.setCharFormat(formats.fmt_default)
+    cursor.insertText("\n")
+
+
+def _cell_formats(
+    cell: Cell, side: int, formats: DiffFormats
+) -> tuple[QTextBlockFormat, QTextCharFormat]:
+    if not cell.changed:
+        return formats.blk_default, formats.fmt_default
+    if side == LEFT:
+        return formats.blk_removed, formats.fmt_removed
+    return formats.blk_added, formats.fmt_added
+
+
+def _highlight_cell(
+    document,
+    content_start: int,
+    row: Row,
+    side: int,
+    text: str,
+    syntax_formats: SyntaxFormats,
+    filename: str,
+) -> None:
+    """Colour the code of one cell, and the words a rewrite changed in it."""
+    apply_syntax_tokens(document, content_start, text, filename, syntax_formats)
+    spans = _rewritten_word_spans(row, side)
+    if spans is None:
         return
-    left_cell, right_cell = row
-    assert left_cell is not None and right_cell is not None  # both changed
-    word_spans = changed_word_spans(left_cell.text, right_cell.text)
-    if word_spans is None:
-        return
-    left_spans, right_spans = word_spans
-    spans, overlay = (
-        (left_spans, syntax_formats.removed_word_overlay)
-        if side == LEFT
-        else (right_spans, syntax_formats.added_word_overlay)
+    overlay = (
+        syntax_formats.removed_word_overlay if side == LEFT else syntax_formats.added_word_overlay
     )
-    apply_word_overlay(cursor.document(), content_start, cell.text, spans, overlay)
+    apply_word_overlay(document, content_start, text, spans, overlay)
+
+
+def _rewritten_word_spans(row: Row, side: int) -> list[WordSpan] | None:
+    """The word spans of *side*, when *row* is one line rewritten.
+
+    A row changed on both sides is one line rewritten, and only there does
+    asking which words moved mean anything.
+    """
+    left, right = row
+    if left is None or right is None or not (left.changed and right.changed):
+        return None
+    spans = changed_word_spans(left.text, right.text)
+    return None if spans is None else spans[side]
 
 
 def render_side(
