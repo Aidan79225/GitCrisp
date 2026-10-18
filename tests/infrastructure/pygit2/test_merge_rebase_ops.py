@@ -8,7 +8,7 @@ import tempfile
 
 import pytest
 
-from git_gui.domain.entities import MergeStrategy
+from git_gui.domain.entities import MergeStrategy, RepoState
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
@@ -137,3 +137,19 @@ def test_interactive_rebase_onto_a_branch_that_moved_on_lands_on_its_tip(repo):
     Pygit2Repository(str(repo)).interactive_rebase(master_tip, [("pick", f1), ("pick", f2)])
 
     assert _subjects(repo) == ["F2", "F1", "M2", "base"]
+
+
+def test_interactive_rebase_drops_a_pick_the_target_already_has(repo):
+    _git(repo, "checkout", "-q", "-b", "feature")
+    f1 = _commit_file(repo, "f1.txt", "f1\n", "F1")
+    f2 = _commit_file(repo, "f2.txt", "f2\n", "F2")
+    _git(repo, "checkout", "-q", "master")
+    _git(repo, "cherry-pick", "-x", f1)
+    master_tip = _commit_file(repo, "m.txt", "m\n", "M2")
+    _git(repo, "checkout", "-q", "feature")
+    impl = Pygit2Repository(str(repo))
+
+    impl.interactive_rebase(master_tip, [("pick", f1), ("pick", f2)])
+
+    assert impl.repo_state().state is RepoState.CLEAN
+    assert _subjects(repo) == ["F2", "M2", "F1", "base"]
