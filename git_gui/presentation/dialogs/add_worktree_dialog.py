@@ -57,6 +57,10 @@ def _is_empty_folder(path: Path) -> bool:
     return path.is_dir() and not any(path.iterdir())
 
 
+def _same_location(a: str, b: str) -> bool:
+    return Path(a).resolve() == Path(b).resolve()
+
+
 class AddWorktreeDialog(QDialog):
     add_requested = Signal(dict)  # {branch, create_new, base_ref, location, switch_after}
     switch_to_existing_requested = Signal(str)  # path of the owning worktree
@@ -276,8 +280,13 @@ class AddWorktreeDialog(QDialog):
 
     def _refresh_in_use_notice(self) -> None:
         path = self._in_use_path()
+        in_this_worktree = path is not None and _same_location(path, self._repo_path)
         self._in_use_notice.setVisible(path is not None)
-        self._in_use_label.setText(f"Already checked out at {path}" if path else "")
+        self._switch_btn.setVisible(not in_this_worktree)
+        if in_this_worktree:
+            self._in_use_label.setText("Already checked out in this worktree")
+        else:
+            self._in_use_label.setText(f"Already checked out at {path}" if path else "")
 
     def _refresh_location_error(self) -> None:
         problem = _location_problem(self.location())

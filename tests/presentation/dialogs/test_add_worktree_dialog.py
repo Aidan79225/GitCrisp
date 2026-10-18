@@ -197,3 +197,38 @@ def test_a_location_that_cannot_be_accessed_disables_add_and_says_why(
     assert dlg.add_button_enabled() is False
     assert dlg._location_error.isVisibleTo(dlg)
     assert "cannot be accessed" in dlg._location_error.text()
+
+
+def _open_on_the_branch_of_this_worktree(qtbot, repo, held_at):
+    return _open_dialog(
+        qtbot,
+        repo_path=str(repo),
+        branches=["master", "feat/a"],
+        in_use={"master": held_at},
+        preselect="master",
+    )
+
+
+def test_the_branch_of_the_open_worktree_offers_no_switch(qtbot, tmp_path):
+    dlg = _open_on_the_branch_of_this_worktree(qtbot, tmp_path, str(tmp_path.resolve()))
+    assert dlg._in_use_notice.isVisibleTo(dlg)
+    assert not dlg._switch_btn.isVisibleTo(dlg)
+    assert "this worktree" in dlg._in_use_label.text()
+
+
+def test_the_open_worktree_is_recognised_however_its_path_is_spelt(qtbot, tmp_path):
+    dlg = _open_on_the_branch_of_this_worktree(qtbot, tmp_path, tmp_path.as_posix() + "/")
+    assert not dlg._switch_btn.isVisibleTo(dlg)
+
+
+def test_switch_reappears_for_a_branch_held_by_another_worktree(qtbot, tmp_path):
+    dlg = _open_dialog(
+        qtbot,
+        repo_path=str(tmp_path),
+        branches=["master", "feat/a"],
+        in_use={"master": str(tmp_path), "feat/a": "/tmp/wt-feat-a"},
+        preselect="master",
+    )
+    dlg.select_branch("feat/a")
+    assert dlg._switch_btn.isVisibleTo(dlg)
+    assert "/tmp/wt-feat-a" in dlg._in_use_label.text()
