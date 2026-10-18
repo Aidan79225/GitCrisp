@@ -225,3 +225,29 @@ def test_pull_still_runs_when_the_repos_remotes_cannot_be_listed(qtbot):
         _wait_until_idle(qtbot, win)
 
     win._commands.pull.execute.assert_called_once_with("origin", "main")
+
+
+@pytest.mark.parametrize(
+    ("start", "command", "args", "remote"),
+    [
+        (lambda win: win._on_fetch_all_prune(), "fetch_all_prune", (), "origin"),
+        (lambda win: win._on_fetch_single("upstream"), "fetch", ("upstream",), "upstream"),
+        (lambda win: win._on_push_tag("v1"), "push_tag", ("origin", "v1"), "origin"),
+    ],
+    ids=["fetch-all", "fetch-one", "push-tag"],
+)
+def test_an_op_that_changes_remote_tags_refreshes_that_remotes_cached_tags(
+    qtbot, start, command, args, remote
+):
+    win = _make_window(qtbot)
+    win._remote_tag_cache = MagicMock()
+    win._remote_tag_cache.load.return_value = {}
+    win._repo_path = "/repo/a"
+    win._queries.get_remote_tags.execute.return_value = ["v1"]
+    with patch.object(win, "_reload"):
+        start(win)
+        _wait_until_idle(qtbot, win)
+
+    getattr(win._commands, command).execute.assert_called_once_with(*args)
+    win._queries.get_remote_tags.execute.assert_called_once_with(remote)
+    win._remote_tag_cache.save.assert_called_once_with("/repo/a", {remote: ["v1"]})

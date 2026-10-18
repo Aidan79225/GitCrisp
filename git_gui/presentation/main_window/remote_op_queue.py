@@ -250,31 +250,32 @@ class RemoteOpQueueMixin:
         return branch
 
     def _on_fetch_all_prune(self) -> None:
-        commands, queries, repo_path = self._commands, self._queries, self._repo_path
-
-        def _fn():
-            commands.fetch_all_prune.execute()
-            self._update_remote_tag_cache(queries, repo_path, "origin")
-
-        self._run_remote_op("Fetch --all --prune", _fn, commands=commands)
+        self._run_then_refresh_tags(
+            "Fetch --all --prune", lambda commands: commands.fetch_all_prune.execute(), "origin"
+        )
 
     def _on_fetch_single(self, remote: str) -> None:
-        commands, queries, repo_path = self._commands, self._queries, self._repo_path
-
-        def _fn():
-            commands.fetch.execute(remote)
-            self._update_remote_tag_cache(queries, repo_path, remote)
-
-        self._run_remote_op(f"Fetch {remote}", _fn, commands=commands)
+        self._run_then_refresh_tags(
+            f"Fetch {remote}", lambda commands: commands.fetch.execute(remote), remote
+        )
 
     def _on_push_tag(self, name: str) -> None:
+        self._run_then_refresh_tags(
+            f"Push tag {name}", lambda commands: commands.push_tag.execute("origin", name), "origin"
+        )
+
+    def _run_then_refresh_tags(
+        self, name: str, run: Callable[[CommandBus], object], remote: str
+    ) -> None:
+        """Run an op that changes *remote*'s tags, then re-read them into the
+        tag cache, both in the repo the op was started in."""
         commands, queries, repo_path = self._commands, self._queries, self._repo_path
 
-        def _fn():
-            commands.push_tag.execute("origin", name)
-            self._update_remote_tag_cache(queries, repo_path, "origin")
+        def _fn() -> None:
+            run(commands)
+            self._update_remote_tag_cache(queries, repo_path, remote)
 
-        self._run_remote_op(f"Push tag {name}", _fn, commands=commands)
+        self._run_remote_op(name, _fn, commands=commands)
 
     def _get_current_branch(self) -> str | None:
         if self._queries is None:
