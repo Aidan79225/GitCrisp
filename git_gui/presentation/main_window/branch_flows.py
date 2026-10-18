@@ -171,28 +171,45 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         try:
             all_branches = self._queries.get_branches.execute()
             local_branches = {b.name: b for b in all_branches if not b.is_remote}
-
             if name in local_branches:
-                if self._switch_to_worktree_holding(local_branches[name]):
-                    return
-                self._commands.checkout.execute(name)
-                self._log_panel.log(f"Checkout branch: {name}")
+                checked_out = self._checkout_local(local_branches[name])
             else:
-                local_name = name.split("/", 1)[1] if "/" in name else name
-                if local_name in local_branches:
-                    if not self._reset_local_to_remote(local_branches[local_name], name):
-                        return
-                else:
-                    self._commands.checkout_remote_branch.execute(name)
-                    self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
+                checked_out = self._checkout_remote(name, local_branches)
+            if not checked_out:
+                return
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Checkout {name} — ERROR: {e}")
         self._reload()
-        if self._queries is not None:
-            head_oid = self._queries.get_head_oid.execute()
-            if head_oid:
-                self._graph.scroll_to_oid(head_oid, select=True)
+        self._scroll_to_head()
+
+    def _checkout_local(self, branch: Branch) -> bool:
+        """Check out local `branch` here. Returns False when another worktree
+        holds it and that worktree was opened instead."""
+        if self._switch_to_worktree_holding(branch):
+            return False
+        self._commands.checkout.execute(branch.name)
+        self._log_panel.log(f"Checkout branch: {branch.name}")
+        return True
+
+    def _checkout_remote(self, name: str, local_branches: dict[str, Branch]) -> bool:
+        """Check out remote branch `name` as a local branch: a new one, or the
+        existing namesake reset to it once the user agrees. Returns False when
+        nothing was changed."""
+        local_name = name.split("/", 1)[1] if "/" in name else name
+        if local_name in local_branches:
+            return self._reset_local_to_remote(local_branches[local_name], name)
+        self._commands.checkout_remote_branch.execute(name)
+        self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
+        return True
+
+    def _scroll_to_head(self) -> None:
+        """Show and select the commit HEAD is on now, after a checkout."""
+        if self._queries is None:
+            return
+        head_oid = self._queries.get_head_oid.execute()
+        if head_oid:
+            self._graph.scroll_to_oid(head_oid, select=True)
 
     def _reset_local_to_remote(self, local: Branch, remote: str) -> bool:
         """Check out `local` and hard-reset it to `remote`, once the user
@@ -310,20 +327,15 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
             # which creates/updates the tracking local branch as needed.
             self._on_checkout_branch(branch.name)
             return
-        if self._switch_to_worktree_holding(branch):
-            return
         try:
-            self._commands.checkout.execute(branch.name)
-            self._log_panel.log(f"Checkout branch: {branch.name}")
+            if not self._checkout_local(branch):
+                return
             self._offer_reset_to_remote_if_diverged(branch, all_branches)
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Checkout {branch.name} — ERROR: {e}")
         self._reload()
-        if self._queries is not None:
-            head_oid = self._queries.get_head_oid.execute()
-            if head_oid:
-                self._graph.scroll_to_oid(head_oid, select=True)
+        self._scroll_to_head()
 
     def _offer_reset_to_remote_if_diverged(
         self, branch: Branch, all_branches: list[Branch]
