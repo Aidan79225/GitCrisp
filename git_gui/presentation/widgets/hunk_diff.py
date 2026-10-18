@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 
@@ -31,6 +32,8 @@ from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 from git_gui.resources import get_resource_path
+
+logger = logging.getLogger(__name__)
 
 # Resolved once, against the project root or the PyInstaller bundle rather than
 # the working directory: a packaged GitCrisp starts wherever the user launched
@@ -186,6 +189,7 @@ class HunkDiffWidget(QWidget):
                 # hang, even off the UI thread.
                 result = queries.get_working_tree_diff_map.execute(shown)
             except Exception:
+                logger.warning("Failed to load the working tree's diffs", exc_info=True)
                 result = {}
             signals.done.emit(result, generation)
 
@@ -252,10 +256,12 @@ class HunkDiffWidget(QWidget):
             try:
                 staged_hunks = queries.get_staged_diff.execute(path)
             except Exception:
+                logger.warning("Failed to load the staged diff of %r", path, exc_info=True)
                 staged_hunks = []
             try:
                 unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
             except Exception:
+                logger.warning("Failed to load the unstaged diff of %r", path, exc_info=True)
                 unstaged_hunks = []
             is_untracked = (
                 not staged_hunks
@@ -273,6 +279,7 @@ class HunkDiffWidget(QWidget):
         try:
             self._submodule_paths = {s.path for s in self._queries.list_submodules.execute()}
         except Exception:
+            logger.warning("Failed to list the submodules", exc_info=True)
             self._submodule_paths = set()
 
     def _make_file_block(self, path: str):
