@@ -30,9 +30,24 @@ from git_gui.domain.entities import Hunk, LineKind
 class Cell:
     """One line as it appears on one side of the view."""
 
-    number: int  # the line number that side shows for it
+    # The line number that side shows for it. None for git's "\ No newline at
+    # end of file" note, which is about the line above and is not a line itself.
+    number: int | None
     text: str  # without the trailing newline
     changed: bool  # part of a change, rather than context shared by both sides
+
+
+# libgit2's "\ No newline at end of file" markers. Each follows the line it is
+# about, and none is a line of either file: counting one as context numbered
+# every later line one too high and split the change it sat in.
+NO_NEWLINE_MARKERS = frozenset(
+    {LineKind.ADDED_EOFNL, LineKind.REMOVED_EOFNL, LineKind.CONTEXT_EOFNL}
+)
+
+
+def no_newline_note(content: str) -> str:
+    """The marker's text on one line; libgit2 wraps it in newlines."""
+    return content.strip("\n")
 
 
 # The left and right of one row. A side is None where that side has nothing:
@@ -51,13 +66,16 @@ def parse_hunk_header(header: str) -> tuple[int, int]:
     return 1, 1
 
 
+def _note_cell(content: str) -> Cell:
+    return Cell(number=None, text=no_newline_note(content), changed=False)
+
+
 def align_hunk(hunk: Hunk) -> list[Row]:
     """Lay *hunk* out as left/right rows, padding the shorter side of a change.
 
-    Origins other than "-" and "+" count as context, which is how the unified
-    renderer already treats them: git marks "no newline at end of file" and the
-    end-of-file variants with their own characters, and those lines are still
-    part of both sides.
+    git's "no newline at end of file" note gets an unnumbered row on the side
+    whose line it is about, and does not break the change it sits in. Any
+    other origin counts as context.
     """
     old_number, new_number = parse_hunk_header(hunk.header)
     rows: list[Row] = []
@@ -83,6 +101,13 @@ def align_hunk(hunk: Hunk) -> list[Row]:
         elif origin == LineKind.ADDED:
             added.append(Cell(number=new_number, text=text, changed=True))
             new_number += 1
+        elif origin == LineKind.ADDED_EOFNL:  # libgit2 puts it after a removed line
+            removed.append(_note_cell(content))
+        elif origin == LineKind.REMOVED_EOFNL:  # and this one after an added line
+            added.append(_note_cell(content))
+        elif origin == LineKind.CONTEXT_EOFNL:
+            close_run()
+            rows.append((_note_cell(content), _note_cell(content)))
         else:
             close_run()
             rows.append(

@@ -39,7 +39,11 @@ from git_gui.domain.entities import Hunk, LineKind
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets import word_diff
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
-from git_gui.presentation.widgets.side_by_side import parse_hunk_header
+from git_gui.presentation.widgets.side_by_side import (
+    NO_NEWLINE_MARKERS,
+    no_newline_note,
+    parse_hunk_header,
+)
 
 # Style constants
 
@@ -268,6 +272,9 @@ def render_hunk_header_line(cursor, hunk: Hunk, formats: DiffFormats) -> None:
 
 _CHUNK_SIZE = 100
 
+# As wide as a numbered line's "1234 1234  ", so a note lines up with the code.
+_UNNUMBERED_GUTTER = " " * 11
+
 
 def _too_long_to_highlight(text: str) -> bool:
     """Whether colouring *text* would cost more than the colour is worth.
@@ -310,21 +317,22 @@ class _Rewrite:
 def _build_pair_index(lines: list[tuple[str, str]]) -> dict[int, _Rewrite]:
     """Map the indices of paired -/+ lines to the rewrite they belong to.
 
-    A pair is formed only when a '-' line is immediately followed by a '+' line.
-    Both indices map to the same rewrite so the renderer can look up either
-    side.
+    A pair is formed only when a '-' line is immediately followed by a '+' line;
+    a no-newline note between them is not a line and does not count. Both
+    indices map to the same rewrite so the renderer can look up either side.
     """
     pairs: dict[int, _Rewrite] = {}
-    i = 0
-    n = len(lines)
-    while i < n - 1:
-        if lines[i][0] == LineKind.REMOVED and lines[i + 1][0] == LineKind.ADDED:
-            rewrite = _Rewrite(lines[i][1].rstrip("\n"), lines[i + 1][1].rstrip("\n"))
+    numbered = [(i, line) for i, line in enumerate(lines) if line[0] not in NO_NEWLINE_MARKERS]
+    k = 0
+    while k < len(numbered) - 1:
+        (i, (origin, old)), (j, (next_origin, new)) = numbered[k], numbered[k + 1]
+        if origin == LineKind.REMOVED and next_origin == LineKind.ADDED:
+            rewrite = _Rewrite(old.rstrip("\n"), new.rstrip("\n"))
             pairs[i] = rewrite
-            pairs[i + 1] = rewrite
-            i += 2
+            pairs[j] = rewrite
+            k += 2
         else:
-            i += 1
+            k += 1
     return pairs
 
 
@@ -384,6 +392,13 @@ def _apply_rewrite_overlay(
         apply_word_overlay(document, content_start, new_spans, syntax_formats.added_word_overlay)
 
 
+def _render_no_newline_note(cursor, content: str, formats: DiffFormats) -> None:
+    """git's note that the line above ends without a newline: unnumbered, not code."""
+    cursor.setBlockFormat(formats.blk_default)
+    cursor.setCharFormat(formats.fmt_default)
+    cursor.insertText(_UNNUMBERED_GUTTER + no_newline_note(content) + "\n")
+
+
 def _render_lines_range(
     cursor,
     hunk,
@@ -407,7 +422,7 @@ def _render_lines_range(
             new_line += 1
         elif origin == LineKind.REMOVED:
             old_line += 1
-        else:
+        elif origin not in NO_NEWLINE_MARKERS:
             old_line += 1
             new_line += 1
 
@@ -426,6 +441,9 @@ def _render_lines_range(
             cursor.setCharFormat(formats.fmt_removed)
             prefix = f"{old_line:>4}       "
             old_line += 1
+        elif origin in NO_NEWLINE_MARKERS:
+            _render_no_newline_note(cursor, content, formats)
+            continue
         else:
             cursor.setBlockFormat(formats.blk_default)
             cursor.setCharFormat(formats.fmt_default)
@@ -587,6 +605,19 @@ def make_hunk_header_row(
     return header_row, restyle
 
 
+def laid_out_text_height(editor: QPlainTextEdit) -> float:
+    """The height the document's blocks take once laid out, in pixels."""
+    document = editor.document()
+    layout = document.documentLayout()
+    height = 0.0
+    block = document.begin()
+    while block.isValid():
+        layout.ensureBlockLayout(block)
+        height += layout.blockBoundingRect(block).height()
+        block = block.next()
+    return height
+
+
 def add_hunk_widget(
     parent_layout: QVBoxLayout,
     hunk: Hunk,
@@ -636,9 +667,13 @@ def add_hunk_widget(
     line_count = _render(formats)
 
     line_height = editor.fontMetrics().lineSpacing()
+    # The layout's own block heights, with lines times lineSpacing as a floor:
+    # on Linux the layout gives a block a pixel or two more than the metric
+    # says, and over a long hunk that pushed the last line under the edge.
+    text_height = max(laid_out_text_height(editor), line_count * line_height)
     margins = editor.contentsMargins()
     doc_margin = editor.document().documentMargin() * 2
-    total_height = int(line_count * line_height + doc_margin + margins.top() + margins.bottom() + 4)
+    total_height = int(text_height + doc_margin + margins.top() + margins.bottom() + 4)
     editor.setFixedHeight(max(total_height, 4))
     editor.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 

@@ -51,6 +51,9 @@ _CHUNK_SIZE = 100
 # read as part of the code, and the changed backgrounds already divide them.
 PANE_GAP = 8
 
+# As wide as a numbered row's "1234  ", so a note lines up with the code.
+_UNNUMBERED_GUTTER = " " * 6
+
 
 def make_filler_format() -> QTextBlockFormat:
     """The background of a row that exists only to keep the sides level.
@@ -89,6 +92,9 @@ def _render_row(
     cursor.setBlockFormat(block_format)
     cursor.setCharFormat(char_format)
 
+    if cell.number is None:  # git's no-newline note: not code, so nothing to colour
+        cursor.insertText(_UNNUMBERED_GUTTER + cell.text + "\n")
+        return
     prefix = f"{cell.number:>4}  "
     content_start = cursor.position() + len(prefix)
     cursor.insertText(prefix + cell.text + "\n")
