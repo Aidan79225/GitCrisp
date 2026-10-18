@@ -275,9 +275,14 @@ class BranchesDialog(QDialog):
         self._refresh()
 
     def _on_checkout_in_new_worktree(self) -> None:
+        """Close, then hand the branch to Add Worktree, for the reason
+        `_on_checkout` gives: that dialog can switch the window to another
+        worktree."""
         name = self._selected_name()
-        if name:
-            self.checkout_in_new_worktree_requested.emit(name)
+        if not name:
+            return
+        self.accept()
+        self.checkout_in_new_worktree_requested.emit(name)
 
     def click_checkout_in_new_worktree(self) -> None:
         # Test seam.
