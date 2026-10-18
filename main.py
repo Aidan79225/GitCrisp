@@ -138,18 +138,17 @@ def main() -> None:
 
     repo_store = JsonRepoStore()
     repo_store.load()
-    remote_tag_cache = JsonRemoteTagCache()
+    window = _open_window(repo_store, JsonRemoteTagCache())
+    window.show()
+    sys.exit(app.exec())
 
+
+def _open_window(repo_store: JsonRepoStore, remote_tag_cache: JsonRemoteTagCache) -> MainWindow:
+    """The main window, on the repo the last session left active if it still opens."""
     repo_path = _find_valid_repo(repo_store)
-
-    if repo_path and repo_path not in repo_store.get_open_repos():
-        repo_store.add_open(repo_path)
-        repo_store.save()
-
     session = _open_startup_session(repo_path) if repo_path else None
     queries, commands = session or (None, None)
-
-    window = MainWindow(
+    return MainWindow(
         queries,
         commands,
         repo_store,
@@ -157,8 +156,6 @@ def main() -> None:
         repo_path if session else None,
         session_factory=_open_session,
     )
-    window.show()
-    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
