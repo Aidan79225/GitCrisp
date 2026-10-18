@@ -183,6 +183,24 @@ class Remote:
     push_url: str
 
 
+def split_remote_branch(name: str, remotes: Iterable[str]) -> tuple[str, str] | None:
+    """The remote and the branch on it that a name like 'origin/feature/x' means.
+
+    A remote's name may itself contain '/', so the longest of `remotes` that
+    prefixes `name` wins; a name under none of them splits at its first slash.
+    None when either part would be empty.
+    """
+    remote = max(
+        (r for r in remotes if name.startswith(f"{r}/")),
+        key=len,
+        default=name.split("/", 1)[0],
+    )
+    branch = name[len(remote) + 1 :]
+    if not remote or not branch:
+        return None
+    return remote, branch
+
+
 @dataclass
 class Submodule:
     path: str

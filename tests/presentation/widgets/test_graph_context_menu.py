@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from unittest.mock import MagicMock
 
 from PySide6.QtWidgets import QMenu
 
-from git_gui.domain.entities import RepoState, RepoStateInfo
+from git_gui.domain.entities import Remote, RepoState, RepoStateInfo
 from git_gui.presentation.widgets.graph import GraphWidget
 
 
@@ -341,9 +342,15 @@ def test_entries_not_shown_when_target_is_head(qtbot):
 # ── Remote branch delete from context menu ─────────────────────────────
 
 
+def _bus_with_remotes(*names: str) -> MagicMock:
+    queries = MagicMock()
+    queries.list_remotes.execute.return_value = [Remote(n, "u", "u") for n in names]
+    return queries
+
+
 def test_emit_remote_delete_splits_remote_and_branch(qtbot):
-    """`_emit_remote_delete` should split the qualified name on the first
-    slash and emit (remote, branch)."""
+    """`_emit_remote_delete` should split the qualified name into the
+    remote and the branch on it, and emit (remote, branch)."""
     from git_gui.presentation.widgets.graph import GraphWidget
 
     w = GraphWidget.__new__(GraphWidget)
@@ -352,6 +359,7 @@ def test_emit_remote_delete_splits_remote_and_branch(qtbot):
     QWidget.__init__(w)
     qtbot.addWidget(w)
 
+    w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
     w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
 
@@ -362,7 +370,7 @@ def test_emit_remote_delete_splits_remote_and_branch(qtbot):
 
 def test_emit_remote_delete_handles_slash_in_branch_name(qtbot):
     """Branch names can contain slashes (e.g. 'feature/foo'). The split
-    must take the first slash only."""
+    must keep them in the branch."""
     from git_gui.presentation.widgets.graph import GraphWidget
 
     w = GraphWidget.__new__(GraphWidget)
@@ -371,6 +379,7 @@ def test_emit_remote_delete_handles_slash_in_branch_name(qtbot):
     QWidget.__init__(w)
     qtbot.addWidget(w)
 
+    w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
     w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
 
@@ -389,6 +398,7 @@ def test_emit_remote_delete_bails_on_malformed_name(qtbot):
     QWidget.__init__(w)
     qtbot.addWidget(w)
 
+    w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
     w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
 
@@ -407,6 +417,7 @@ def test_emit_remote_delete_bails_on_empty_remote(qtbot):
     QWidget.__init__(w)
     qtbot.addWidget(w)
 
+    w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
     w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
 
@@ -443,3 +454,26 @@ def test_local_delete_emits_local_name_when_remote_also_present(qtbot):
 
     assert received_local == ["main"]
     assert received_remote == []
+
+
+def test_deleting_a_remote_branch_resolves_a_remote_whose_name_has_a_slash(qtbot):
+    """With remotes 'team' and 'team/upstream', splitting at the first slash
+    pushed the delete to 'team', deleting its branch 'upstream/feature'."""
+    from git_gui.domain.entities import Branch, Remote
+    from tests.presentation.widgets.graph_menu_helpers import (
+        ROW_OID,
+        find_action,
+        open_context_menu,
+    )
+
+    w, menu = open_context_menu(qtbot, [Branch("team/upstream/feature", True, False, ROW_OID)])
+    w._queries.list_remotes.execute.return_value = [
+        Remote("team", "u", "u"),
+        Remote("team/upstream", "u", "u"),
+    ]
+    received: list[tuple[str, str]] = []
+    w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
+
+    find_action(menu, "Delete remote branch: team/upstream/feature").trigger()
+
+    assert received == [("team/upstream", "feature")]
