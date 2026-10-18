@@ -242,11 +242,12 @@ class RepoLifecycleMixin:
         self._request_repo(_RepoRequest(path, _SwitchReason.OPEN, after=after))
 
     def _on_repo_close(self, path: str) -> None:
+        on_screen = self._closing_takes_what_is_on_screen(path)
         successor = self._repo_after_closing(path)
         self._repo_store.close_repo(path)
         self._save_repo_store()
         self._drop_pending_request_for(path)
-        if path != self._repo_path:
+        if not on_screen:
             self._repo_list.reload()  # some other row: stay where you are
         elif self._pending_request() is not None:
             self._clear_window()  # the repo already on its way takes over
@@ -254,6 +255,14 @@ class RepoLifecycleMixin:
             self._enter_empty_state()
         else:
             self._request_repo(_RepoRequest(successor, _SwitchReason.REPLACE))
+
+    def _closing_takes_what_is_on_screen(self, path: str) -> bool:
+        """Whether *path* is the repo on screen, or the open repo whose linked
+        worktree is on screen — that worktree's only row hangs under it."""
+        if path == self._repo_path:
+            return True
+        in_owned_worktree = self._repo_path not in self._repo_store.get_open_repos()
+        return in_owned_worktree and path == self._repo_list.worktree_owner()
 
     def _pending_request(self) -> _RepoRequest | None:
         """The request still opening, or None once the latest one has landed."""

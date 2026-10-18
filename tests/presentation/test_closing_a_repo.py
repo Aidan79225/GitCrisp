@@ -168,3 +168,25 @@ def test_closing_the_last_repo_while_another_opens_lands_on_that_one(qtbot, tmp_
 
     assert win._repo_path == c
     assert win._repo_store.get_open_repos() == [c]
+
+
+# ── Closing the repo that owns the worktree you are in ───────────────────────
+
+
+def _linked_worktree(owner: str, tmp_path: Path) -> str:
+    worktree = tmp_path / "feature-wt"
+    _git(Path(owner), "worktree", "add", "-q", "-b", "feature", str(worktree))
+    return str(worktree.resolve())
+
+
+def test_closing_the_owner_of_the_worktree_you_are_in_moves_you_on(qtbot, tmp_path, repos):
+    a, b, _ = repos
+    worktree = _linked_worktree(a, tmp_path)
+    win = _window_on(qtbot, tmp_path, [a, b], active=a)
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        win._switch_repo(worktree)
+
+    _close_and_wait(qtbot, win, a)
+
+    assert win._repo_path == b
+    assert win._repo_store.get_active() == b
