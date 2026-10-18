@@ -23,6 +23,9 @@ class ReloadCoordinatorMixin:
         self._sidebar.load_failed.connect(
             lambda reason: self._report_load_failure("List branches and tags", reason)
         )
+        self._working_tree.load_failed.connect(
+            lambda reason: self._report_load_failure("List changed files", reason)
+        )
 
     def _report_load_failure(self, what: str, reason: str) -> None:
         # The pane that failed has been cleared, so this line is the only sign
