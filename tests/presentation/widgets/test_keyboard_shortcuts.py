@@ -123,8 +123,7 @@ class TestGraphSearch:
         ]
         w = self._make_widget(qtbot, commits)
         w._search_bar.input_widget.setText("login")
-        assert len(w._search_matches) == 1
-        assert w._search_matches[0] == 0
+        assert w._search_matches == ["a1"]
 
     def test_search_by_author(self, qtbot):
         commits = [
@@ -133,7 +132,7 @@ class TestGraphSearch:
         ]
         w = self._make_widget(qtbot, commits)
         w._search_bar.input_widget.setText("bob")
-        assert w._search_matches == [1]
+        assert w._search_matches == ["a2"]
 
     def test_search_by_oid(self, qtbot):
         commits = [
@@ -142,7 +141,7 @@ class TestGraphSearch:
         ]
         w = self._make_widget(qtbot, commits)
         w._search_bar.input_widget.setText("cafebabe")
-        assert w._search_matches == [1]
+        assert w._search_matches == ["cafebabe87654321"]
 
     def test_search_by_date(self, qtbot):
         commits = [
@@ -151,7 +150,7 @@ class TestGraphSearch:
         ]
         w = self._make_widget(qtbot, commits)
         w._search_bar.input_widget.setText("2026-03")
-        assert w._search_matches == [1]
+        assert w._search_matches == ["a2"]
 
     def test_search_multiple_matches(self, qtbot):
         commits = [
@@ -161,7 +160,7 @@ class TestGraphSearch:
         ]
         w = self._make_widget(qtbot, commits)
         w._search_bar.input_widget.setText("feat")
-        assert w._search_matches == [0, 2]
+        assert w._search_matches == ["a1", "a3"]
 
     def test_search_navigate_next_wraps(self, qtbot):
         commits = [
@@ -192,7 +191,7 @@ class TestGraphSearch:
         commits = [_commit("a1", msg="FIX: Big Bug")]
         w = self._make_widget(qtbot, commits)
         w._search_bar.input_widget.setText("big bug")
-        assert w._search_matches == [0]
+        assert w._search_matches == ["a1"]
 
     def test_search_empty_text_clears(self, qtbot):
         commits = [_commit("a1", msg="feat")]

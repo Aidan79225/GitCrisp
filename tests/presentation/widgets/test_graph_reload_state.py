@@ -14,8 +14,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from git_gui.domain.entities import Commit
-from git_gui.presentation.models.graph_model import OID_ROLE
+from git_gui.domain.entities import (
+    WORKING_TREE_OID,
+    Commit,
+    RepoState,
+    RepoStateInfo,
+    Tag,
+)
+from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, OID_ROLE
 from git_gui.presentation.widgets.graph import PAGE_SIZE, GraphWidget
 
 
@@ -209,3 +215,304 @@ def test_typing_on_while_a_search_loads_the_history_does_not_restart_the_load(gr
 
     assert graph._queries.get_commit_graph.execute.call_count == 1
     assert _current_oid(graph) == "c12"
+
+
+# ── Search ───────────────────────────────────────────────────────────────────
+
+
+def test_closing_the_search_before_its_history_loads_cancels_the_jump(graph, qtbot, held_workers):
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    graph._close_search()
+    with qtbot.assertNotEmitted(graph.commit_selected):
+        _finish_all(held_workers)
+
+    assert _current_oid(graph) is None
+
+
+def test_clearing_the_search_text_before_its_history_loads_cancels_the_jump(
+    graph, qtbot, held_workers
+):
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    graph._search_bar.input_widget.clear()
+    with qtbot.assertNotEmitted(graph.commit_selected):
+        _finish_all(held_workers)
+
+    assert _current_oid(graph) is None
+
+
+def _last_graph_limit(graph: GraphWidget) -> int:
+    return graph._queries.get_commit_graph.execute.call_args.kwargs["limit"]
+
+
+def test_auto_reloads_after_a_search_closes_go_back_to_a_page(graph, inline_workers):
+    """A search loads the whole history to look through it. Kept afterwards,
+    that size made every alt-tab walk and lay out the entire history."""
+    graph.reload()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+    graph._close_search()
+
+    graph.reload()
+
+    assert _last_graph_limit(graph) == PAGE_SIZE
+
+
+def test_auto_reloads_after_a_search_closes_keep_the_pages_scrolled_before_it(
+    graph, inline_workers
+):
+    graph.reload()
+    graph._load_more()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+    graph._close_search()
+
+    graph.reload()
+
+    assert _last_graph_limit(graph) == 2 * PAGE_SIZE
+
+
+def test_closing_the_search_while_its_history_loads_loads_a_page_instead(graph, held_workers):
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    graph._close_search()
+    _finish_all(held_workers)
+
+    assert _last_graph_limit(graph) == PAGE_SIZE
+    assert graph._model.rowCount() == PAGE_SIZE
+
+
+def test_the_next_match_is_still_a_match_after_a_reload_shifts_the_rows(graph, inline_workers):
+    """Editing a file adds the 'Uncommitted Changes' row on top, moving every
+    commit down one row. Matches kept as rows then pointed at their neighbours."""
+    graph.reload()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")  # c12, then c120…c129
+    assert _current_oid(graph) == "c12"
+
+    graph._queries.is_dirty.execute.return_value = True
+    graph.reload()
+    graph._on_search_navigate(1)
+
+    assert _current_oid(graph) == "c120"
+
+
+# ── The selected row and the diff pane ───────────────────────────────────────
+
+
+def _select_row(graph: GraphWidget, row: int) -> None:
+    graph._view.setCurrentIndex(graph._model.index(row, 0))
+
+
+def test_a_commit_clicked_again_after_the_selection_was_cleared_is_shown_again(
+    graph, qtbot, inline_workers
+):
+    """Clicking a stash clears the graph's selection and shows the stash in
+    the diff pane; clicking the commit again has to bring it back."""
+    graph.reload()
+    _select_row(graph, 2)
+
+    graph.clear_selection()
+    with qtbot.waitSignal(graph.commit_selected, timeout=1000) as shown:
+        _select_row(graph, 2)
+
+    assert shown.args == ["c2"]
+
+
+def test_the_working_tree_row_is_announced_when_it_comes_back(graph, qtbot, inline_workers):
+    """Committing removes the row and the right pane moves to HEAD; when a
+    file is edited again the row returns, and clicking it must show it."""
+    graph._queries.is_dirty.execute.return_value = True
+    graph.reload()
+    _select_row(graph, 0)
+    graph._queries.is_dirty.execute.return_value = False
+    graph.reload()  # committed: the row is gone
+    graph._queries.is_dirty.execute.return_value = True
+    graph.reload()  # edited again: the row is back
+
+    with qtbot.waitSignal(graph.commit_selected, timeout=1000) as shown:
+        _select_row(graph, 0)
+
+    assert shown.args == [WORKING_TREE_OID]
+
+
+# ── Ref badges ───────────────────────────────────────────────────────────────
+
+
+def _badges(graph: GraphWidget, row: int) -> list[str]:
+    return graph._model.data(graph._model.index(row, 0), INFO_ROLE).branch_names
+
+
+def test_scrolling_to_the_next_page_keeps_the_detached_head_badge(graph, inline_workers):
+    """`git checkout v1.0`: the commit shows HEAD and the tag. Loading the
+    next page used to relabel it with the tag alone."""
+    tag = Tag(
+        name="v1.0", target_oid="c0", is_annotated=False, message=None, tagger=None, timestamp=None
+    )
+    graph._queries.get_tags.execute.return_value = [tag]
+    graph.reload()
+    assert _badges(graph, 0) == ["HEAD", "tag:v1.0"]
+
+    graph._load_more()
+
+    assert _badges(graph, 0) == ["HEAD", "tag:v1.0"]
+
+
+# ── The working-tree row ─────────────────────────────────────────────────────
+
+
+def test_a_merge_with_conflicts_draws_no_lane_to_a_merge_head_not_loaded(graph, inline_workers):
+    """The walk does not push MERGE_HEAD, so its commit is usually not among
+    the rows. A parent that never arrives held its lane open past every
+    commit, down to the bottom of history."""
+    graph._queries.is_dirty.execute.return_value = True
+    graph._queries.get_repo_state.execute.return_value = RepoStateInfo(
+        state=RepoState.MERGING, head_branch="main"
+    )
+    graph._queries.get_merge_head.execute.return_value = "feature-tip"
+
+    graph.reload()
+
+    lanes = [graph._model.data(graph._model.index(row, 0), LANE_ROLE) for row in range(1, 10)]
+    assert all(lane.lines == [] for lane in lanes)
+
+
+# ── Clicking a branch while showing a file's history ─────────────────────────
+
+
+def test_a_branch_outside_the_file_history_is_shown_in_the_full_graph(graph, inline_workers):
+    """File history walks HEAD for commits touching the file, so a branch tip
+    that did not touch it can never appear there: the click looked dead."""
+    _with_side_branch(graph)
+    graph._queries.get_file_history.execute.return_value = _chain(10)[3:5]
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("side")
+
+    assert graph._path_filter is None
+    assert _current_oid(graph) == "side"
+
+
+def test_a_branch_whose_tip_is_in_the_file_history_is_selected_there(graph, inline_workers):
+    graph._queries.get_file_history.execute.return_value = _chain(10)[3:5]
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("c3", ["origin-c3-ahead"])
+
+    assert graph._path_filter == "README.md"
+    assert _current_oid(graph) == "c3"
+
+
+# ── A repo whose history cannot be loaded ────────────────────────────────────
+
+
+def _unloadable_repo() -> MagicMock:
+    """Opens fine, then fails to list its tags: an annotated tag on a tree or
+    a blob, as git.git and linux both have, cannot be peeled to a commit."""
+    queries = _queries(_chain(3, prefix="b"))
+    queries.get_tags.execute.side_effect = RuntimeError("cannot be peeled into a commit")
+    return queries
+
+
+def test_switching_to_a_repo_that_fails_to_load_clears_the_previous_repos_commits(
+    graph, inline_workers
+):
+    graph.reload()
+    assert graph._model.rowCount() > 0
+
+    graph.set_buses(_unloadable_repo(), MagicMock())
+
+    assert graph._model.rowCount() == 0
+
+
+def test_a_failed_load_is_announced_with_its_reason(graph, qtbot, inline_workers):
+    with qtbot.waitSignal(graph.load_failed, timeout=1000) as failed:
+        graph.set_buses(_unloadable_repo(), MagicMock())
+
+    assert failed.args == ["cannot be peeled into a commit"]
+
+
+# ── Clicking a commit further down a file's history ──────────────────────────
+
+
+def _paged_file_history(graph: GraphWidget, n: int) -> None:
+    history = _chain(n)
+    graph._queries.get_file_history.execute.side_effect = lambda path, limit, skip=0, **_: history[
+        skip : skip + limit
+    ]
+
+
+def test_a_commit_further_down_the_file_history_is_selected_there(graph, inline_workers):
+    """A blame line last changed by an old commit: it is in the file's
+    history, only not on the first page. Leaving the file history for it
+    threw away the view the user had asked for."""
+    _paged_file_history(graph, 120)
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("c80")
+
+    assert graph._path_filter == "README.md"
+    assert _current_oid(graph) == "c80"
+
+
+def test_a_commit_clicked_before_the_file_history_loads_is_selected_there(graph, held_workers):
+    _paged_file_history(graph, 120)
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("c80")
+    _finish_all(held_workers)
+
+    assert graph._path_filter == "README.md"
+    assert _current_oid(graph) == "c80"
+
+
+def test_a_branch_past_the_whole_paged_file_history_is_shown_in_the_full_graph(
+    graph, inline_workers
+):
+    _with_side_branch(graph)
+    _paged_file_history(graph, 120)
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("side")
+
+    assert graph._path_filter is None
+    assert _current_oid(graph) == "side"
+
+
+# ── Closing a search over the whole history ──────────────────────────────────
+
+
+def test_a_match_selected_far_down_stays_selected_after_the_search_closes(graph, inline_workers):
+    graph.reload()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+    graph._on_search_navigate(1)  # c12, then c120
+    graph._close_search()
+
+    graph.reload()  # the focus-return auto-reload
+
+    assert _current_oid(graph) == "c120"
+
+
+def _top_oid(graph: GraphWidget) -> str | None:
+    return graph._model.data(graph._view.indexAt(graph._view.viewport().rect().topLeft()), OID_ROLE)
+
+
+def test_rows_scrolled_to_after_the_search_closes_survive_a_reload(graph, inline_workers):
+    graph.resize(400, 300)
+    graph.show()
+    graph.reload()
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+    graph._close_search()
+    scrollbar = graph._view.verticalScrollBar()
+    scrollbar.setValue(scrollbar.maximum())
+    top = _top_oid(graph)
+
+    graph.reload()
+
+    assert _top_oid(graph) == top

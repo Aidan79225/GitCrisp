@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -76,10 +77,10 @@ class _LoadSignals(QObject):
     # commits, branches, tags, is_dirty, head_oid, repo_state, merge_head,
     # first_parent, path_filter, generation
     reload_done = Signal(list, list, list, bool, str, object, object, bool, object, int)
-    # more, branches, tags, first_parent, path_filter, generation
-    append_done = Signal(list, list, list, bool, object, int)
-    # generation — the worker raised instead of producing a result
-    load_failed = Signal(int)
+    # more, first_parent, path_filter, generation
+    append_done = Signal(list, bool, object, int)
+    # generation, error message — the worker raised instead of producing a result
+    load_failed = Signal(int, str)
 
 
 _ARTS = get_resource_path("arts")
@@ -199,6 +200,32 @@ class _SearchBar(QWidget):
         return self._input
 
 
+class _ElidedLabel(QLabel):
+    """A one-line label that shortens its text to the width it is given.
+
+    A plain QLabel's minimum width is its whole text, so a long file path
+    became the commit list's minimum width and squeezed the diff pane.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._full_text = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def set_full_text(self, text: str) -> None:
+        self._full_text = text
+        self.setAccessibleName(text)
+        self._elide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        width = self.contentsRect().width()
+        self.setText(self.fontMetrics().elidedText(self._full_text, Qt.ElideMiddle, width))
+
+
 class _PathFilterBar(QWidget):
     """Chip showing the path the commit list is currently filtered to."""
 
@@ -213,7 +240,7 @@ class _PathFilterBar(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        self._label = QLabel()
+        self._label = _ElidedLabel()
         self._label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self._label, 1)
 
@@ -236,7 +263,7 @@ class _PathFilterBar(QWidget):
 
     def open(self, path: str) -> None:
         self._path = path
-        self._label.setText(f"History of  {path}")
+        self._label.set_full_text(f"History of  {path}")
         self._label.setToolTip(path)
         self.setVisible(True)
 
@@ -275,6 +302,7 @@ class GraphWidget(QWidget):
     stash_requested = Signal()
     insight_requested = Signal()
     reflog_requested = Signal()
+    load_failed = Signal(str)  # why the commits could not be loaded
 
     def __init__(
         self, queries: QueryBus, commands: CommandBus, repo_store: IRepoStore, parent=None
@@ -402,9 +430,14 @@ class GraphWidget(QWidget):
 
         # Search bar (hidden by default, toggled by Ctrl+F)
         self._search_bar = _SearchBar()
-        self._search_matches: list[int] = []  # row indices of matching commits
+        # Oids of the matching commits, not rows: a reload shifts the rows
+        # (the working-tree row comes and goes, a fetch adds commits).
+        self._search_matches: list[str] = []
         self._search_idx = -1  # current position in _search_matches
         self._pending_search: str | None = None  # search to re-run after full reload
+        # The reload limit a search's full-history load replaced, put back
+        # when the search closes; None while no search has widened it.
+        self._limit_before_search: int | None = None
         self._search_bar.input_widget.textChanged.connect(self._on_search_text_changed)
         self._search_bar.navigate_requested.connect(self._on_search_navigate)
         self._search_bar.closed.connect(self._close_search)
@@ -447,14 +480,16 @@ class GraphWidget(QWidget):
         self._selected_oid = None
         self._scroll_anchor_oid = None
         self._reload_limit = PAGE_SIZE
+        self._limit_before_search = None
         # A file history from the previous repo means nothing in the new one.
         if self._path_filter is not None:
             self._path_filter = None
             self._path_filter_bar.close_bar()
             self.path_filter_changed.emit(None)
-        if queries is None:
-            self._model.reload([], {})
-        else:
+        # The previous repo's commits mean nothing here, and would stay on
+        # screen under this repo's name if its first load failed.
+        self._model.reload([], {})
+        if queries is not None:
             self.reload()
 
     def set_repo_path(self, path: str | None) -> None:
@@ -497,16 +532,20 @@ class GraphWidget(QWidget):
     def clear_path_filter(self) -> None:
         if self._path_filter is None:
             return
+        self._leave_path_filter()
+        if self._queries is not None:
+            self.reload()
+
+    def _leave_path_filter(self) -> None:
         self._path_filter = None
         self._path_filter_bar.close_bar()
         self._reset_paging()
         self.path_filter_changed.emit(None)
-        if self._queries is not None:
-            self.reload()
 
     def _reset_paging(self) -> None:
         """Drop paging and scroll state that belongs to the previous listing."""
         self._reload_limit = PAGE_SIZE
+        self._limit_before_search = None
         self._extra_tips = None
         self._pending_scroll_oid = None
         self._pending_merge_base = None
@@ -575,7 +614,7 @@ class GraphWidget(QWidget):
                 merge_head = queries.get_merge_head.execute()
             except Exception as e:
                 logger.warning("Graph reload failed: %s", e)
-                signals.load_failed.emit(generation)
+                signals.load_failed.emit(generation, str(e))
                 return
             signals.reload_done.emit(
                 commits,
@@ -605,6 +644,9 @@ class GraphWidget(QWidget):
         instead of ending at a tip with nothing above it.
         """
         tips = [oid, *(t for t in extra_tips or [] if t != oid)]
+        if self._path_filter is not None:
+            self._select_in_file_history(oid, tips)
+            return
 
         # Nothing to fetch when every tip is already drawn — just scroll and select.
         loaded = {
@@ -614,7 +656,35 @@ class GraphWidget(QWidget):
         if loaded.issuperset(tips):
             self.scroll_to_oid(oid, select=True)
             return
+        self._load_tips_and_land(oid, tips)
 
+    def _select_in_file_history(self, oid: str, tips: list[str]) -> None:
+        """Select `oid` in the file history, paging further in to find it.
+
+        File history lists only HEAD's commits that touched the file, so a
+        branch tip may never be among them. Only once the history has run out
+        without it does the click go to the full graph, which can load it:
+        leaving earlier threw away the file view for a commit on a later page.
+        """
+        loaded = {
+            self._model.data(self._model.index(row, 0), OID_ROLE)
+            for row in range(self._model.rowCount())
+        }
+        if oid in loaded:
+            self.scroll_to_oid(oid, select=True)
+        elif self._has_more:
+            self._pending_scroll_oid = oid
+            self._pending_merge_base = None
+            self.reload(extra_tips=tips)
+        else:
+            self._show_in_full_graph(oid, tips)
+
+    def _show_in_full_graph(self, oid: str, tips: list[str]) -> None:
+        self._leave_path_filter()
+        self._load_tips_and_land(oid, tips)
+
+    def _load_tips_and_land(self, oid: str, tips: list[str]) -> None:
+        """Load the full graph with `tips` pushed, then scroll to and select `oid`."""
         # Compute merge base with HEAD so the doubling retry knows when to stop.
         merge_base: str | None = None
         if self._queries is not None:
@@ -680,7 +750,10 @@ class GraphWidget(QWidget):
             state_name = repo_state_info.state.name if repo_state_info else "CLEAN"
             if state_name == "MERGING":
                 message = "Merge in progress (conflicts)"
-                parents = [head_oid, merge_head] if merge_head else [head_oid]
+                # The walk does not push MERGE_HEAD. A parent that never
+                # arrives as a row would hold its lane open to the bottom.
+                merge_head_loaded = any(c.oid == merge_head for c in commits)
+                parents = [head_oid, merge_head] if merge_head_loaded else [head_oid]
             elif state_name == "REBASING":
                 message = "Rebase in progress"
                 parents = [head_oid] if head_oid else []
@@ -725,6 +798,11 @@ class GraphWidget(QWidget):
                 self._loading = False
                 self.reload(extra_tips=tips, limit=new_limit)
                 retrying = True
+            elif self._path_filter is not None and not target_loaded:
+                self._show_in_full_graph(
+                    self._pending_scroll_oid, self._extra_tips or [self._pending_scroll_oid]
+                )
+                retrying = True
             else:
                 # No more commits OR cap reached — the converging lane couldn't
                 # be fully loaded. Still scroll+select the target if we managed
@@ -739,9 +817,12 @@ class GraphWidget(QWidget):
         # with the diff pane. The model reset above wiped the view's current
         # row; without this restore the user sees a diff pane with content but
         # no corresponding highlight in the graph. Skipped during retry — the
-        # next reload will run this branch.
+        # next reload will run this branch. A selection whose row is gone is
+        # forgotten, or a click on that commit when it returns would not
+        # reach the diff pane.
         if not retrying and self._selected_oid is not None:
-            self._restore_selection_no_scroll(self._selected_oid)
+            if not self._restore_selection_no_scroll(self._selected_oid):
+                self._selected_oid = None
 
         # Restore the user's scroll position. Auto-refreshes (e.g., on focus
         # return) used to silently jump the viewport back to the top because
@@ -773,7 +854,7 @@ class GraphWidget(QWidget):
             self.reload()
         return stale
 
-    def _on_load_failed(self, generation: int) -> None:
+    def _on_load_failed(self, generation: int, message: str) -> None:
         """A load raised instead of producing a result.
 
         The guard needs clearing. Left set, it turns away every reload
@@ -784,6 +865,7 @@ class GraphWidget(QWidget):
         if generation != self._load_generation:
             return
         self._loading = False
+        self.load_failed.emit(message)
         if self._reload_queued:
             self._reload_queued = False
             self.reload()
@@ -826,11 +908,12 @@ class GraphWidget(QWidget):
         # trying.
         self._scroll_anchor_oid = None
 
-    def _restore_selection_no_scroll(self, oid: str) -> None:
+    def _restore_selection_no_scroll(self, oid: str) -> bool:
         """Re-apply the highlighted row to the row matching `oid` after a
         model reset, without scrolling. Used in _on_reload_done so the
         graph's highlight survives auto-reloads (RepoChangeDetector,
-        post-operation flows) without losing the user's selection."""
+        post-operation flows) without losing the user's selection.
+        Returns whether `oid` still has a row."""
         for row in range(self._model.rowCount()):
             if self._model.data(self._model.index(row, 0), OID_ROLE) == oid:
                 index = self._model.index(row, 0)
@@ -838,7 +921,8 @@ class GraphWidget(QWidget):
                     index,
                     QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows,
                 )
-                return
+                return True
+        return False
 
     def _on_scroll(self, value: int) -> None:
         scrollbar = self._view.verticalScrollBar()
@@ -869,21 +953,17 @@ class GraphWidget(QWidget):
                     more = queries.get_file_history.execute(
                         path, limit=PAGE_SIZE, skip=skip, follow=follow
                     )
-                branches = queries.get_branches.execute()
-                tags = queries.get_tags.execute()
             except Exception as e:
                 logger.warning("Graph page load failed: %s", e)
-                signals.load_failed.emit(generation)
+                signals.load_failed.emit(generation, str(e))
                 return
-            signals.append_done.emit(more, branches, tags, fp, path, generation)
+            signals.append_done.emit(more, fp, path, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_append_done(
         self,
         more: list[Commit],
-        branches: list[Branch],
-        tags: list[Tag],
         first_parent: bool,
         path_filter: str | None = None,
         generation: int | None = None,
@@ -907,13 +987,9 @@ class GraphWidget(QWidget):
         # it would drop the rows under the user's scroll position and selection.
         self._reload_limit = max(self._reload_limit, self._loaded_count)
 
-        refs: dict[str, list[str]] = {}
-        for b in branches:
-            refs.setdefault(b.target_oid, []).append(b.name)
-        for t in tags:
-            refs.setdefault(t.target_oid, []).append(f"tag:{t.name}")
-
-        self._model.append(more, refs)
+        # No refs: the reload labelled every branch and tag tip, loaded or
+        # not, along with the detached-HEAD badge that relabelling would drop.
+        self._model.append(more, {})
 
     def _show_context_menu(self, pos) -> None:
         index = self._view.indexAt(pos)
@@ -1246,6 +1322,8 @@ class GraphWidget(QWidget):
     def clear_selection(self) -> None:
         self._view.clearSelection()
         self._view.setCurrentIndex(self._model.index(-1, 0))
+        # Left set, it would swallow the next click on the same commit.
+        self._selected_oid = None
 
     def set_stash_visible(self, visible: bool) -> None:
         self._stash_btn.setVisible(visible)
@@ -1256,41 +1334,84 @@ class GraphWidget(QWidget):
 
     def _close_search(self) -> None:
         self._search_bar.close_bar()
+        self._pending_search = None
         self._search_matches.clear()
         self._search_idx = -1
+        self._restore_limit_before_search()
         self._view.setFocus()
+
+    def _restore_limit_before_search(self) -> None:
+        """Put back the reload limit the search's full-history load replaced.
+
+        Kept, it made every later auto-reload walk and lay out the whole
+        history. It never drops below the rows on screen or the selected one,
+        and the list is reloaded to that size at once: left holding the whole
+        history over a smaller limit, the next auto-reload cut away whatever
+        the user had scrolled to or selected. A full load still in flight is
+        no longer wanted, so it is replaced the same way.
+        """
+        if self._limit_before_search is None:
+            return
+        self._reload_limit = max(self._limit_before_search, self._commits_in_view())
+        self._limit_before_search = None
+        if self._queries is not None:
+            self.reload()
+
+    def _commits_in_view(self) -> int:
+        """How many commits a reload needs to keep every row on screen and the selected one."""
+        rows = self._model.rowCount()
+        if rows == 0:
+            return 0
+        bottom = self._view.indexAt(self._view.viewport().rect().bottomLeft())
+        last_row = bottom.row() if bottom.isValid() else rows - 1
+        last_row = max(last_row, self._view.currentIndex().row())
+        first_oid = self._model.data(self._model.index(0, 0), OID_ROLE)
+        working_tree_rows = 1 if first_oid == WORKING_TREE_OID else 0
+        return last_row + 1 - working_tree_rows
 
     def _on_search_text_changed(self, text: str) -> None:
         needle = text.strip().lower()
         self._search_matches.clear()
         self._search_idx = -1
         if not needle:
+            self._pending_search = None
             self._search_bar.set_match_label(0, 0)
             return
 
         # If not all commits are loaded yet, reload with a large limit so the
         # search covers the full history. The reload callback will re-trigger
-        # the search via _run_search_after_load. Later keystrokes only swap
-        # the needle: asking again would discard the load already running.
+        # the search via _run_search_after_load.
         if self._has_more:
-            full_load_running = self._pending_search is not None
-            self._pending_search = needle
-            if not full_load_running:
-                self.reload(limit=999_999)
+            self._search_after_full_load(needle)
             return
 
         self._run_search(needle)
+
+    def _search_after_full_load(self, needle: str) -> None:
+        """Load the whole history, then search it for `needle`.
+
+        Later keystrokes only swap the needle: asking again would discard the
+        load already running.
+        """
+        full_load_running = self._pending_search is not None
+        self._pending_search = needle
+        if full_load_running:
+            return
+        if self._limit_before_search is None:
+            self._limit_before_search = self._reload_limit
+        self.reload(limit=999_999)
 
     def _run_search(self, needle: str) -> None:
         self._search_matches.clear()
         self._search_idx = -1
         for row in range(self._model.rowCount()):
-            info = self._model.data(self._model.index(row, 0), INFO_ROLE)
+            index = self._model.index(row, 0)
+            info = self._model.data(index, INFO_ROLE)
             if info is None:
                 continue
             haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
             if needle in haystack:
-                self._search_matches.append(row)
+                self._search_matches.append(self._model.data(index, OID_ROLE))
         if self._search_matches:
             self._search_idx = 0
             self._jump_to_match()
@@ -1310,10 +1431,18 @@ class GraphWidget(QWidget):
         )
 
     def _jump_to_match(self) -> None:
-        row = self._search_matches[self._search_idx]
+        row = self._row_of(self._search_matches[self._search_idx])
+        if row is None:
+            return  # a reload since the search dropped this commit
         index = self._model.index(row, 0)
         self._view.scrollTo(index, QTableView.PositionAtCenter)
         self._view.setCurrentIndex(index)
+
+    def _row_of(self, oid: str) -> int | None:
+        for row in range(self._model.rowCount()):
+            if self._model.data(self._model.index(row, 0), OID_ROLE) == oid:
+                return row
+        return None
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), OID_ROLE)
