@@ -233,3 +233,30 @@ def test_a_local_branch_with_a_slash_is_not_painted_as_a_remote(qtbot):
         colors.as_qcolor(ColorRole.REF_BADGE_BRANCH_BG),
         colors.as_qcolor(ColorRole.REF_BADGE_REMOTE_BG),
     ]
+
+
+# ── Row height ───────────────────────────────────────────────────────────────
+
+
+def _row_height(info: CommitInfo, width: int) -> int:
+    """The height the delegate asks the view to give this row."""
+    model = QStandardItemModel(1, 1)
+    item = QStandardItem()
+    item.setData(info, INFO_ROLE)
+    model.setItem(0, 0, item)
+    option = QStyleOptionViewItem()
+    option.rect = QRect(0, 0, width, 0)
+    option.fontMetrics = QFontMetrics(QFont(), QImage(1, 1, QImage.Format_ARGB32))
+    return CommitRowDelegate().sizeHint(option, model.index(0, 0)).height()
+
+
+def test_a_row_whose_badges_wrap_still_has_room_for_its_last_message_line(qtbot):
+    """sizeHint and paint each work out the layout; they must agree on its height."""
+    info = _info(branch_names=[LONG_BRANCH, LONG_REMOTE], short_oid=SHA, message=CJK_SUBJECT)
+    width = _text_width(LONG_REMOTE) + _text_width(SHA)
+
+    painted = _paint(info, width)
+
+    assert len({rect.top() for rect, _ in painted.badges}) == 2
+    last_line = _message_lines(painted, CJK_SUBJECT)[-1]
+    assert last_line.rect.bottom() < _row_height(info, width)
