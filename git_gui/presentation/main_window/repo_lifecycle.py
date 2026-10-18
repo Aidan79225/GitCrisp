@@ -212,6 +212,10 @@ class RepoLifecycleMixin:
 
     def _enter_empty_state(self) -> None:
         self._repo_request = None
+        self._clear_window()
+
+    def _clear_window(self) -> None:
+        """Show no repo, leaving any requested one free to land when it opens."""
         self._stop_change_detector()
         self._close_blame_pane()
         self._close_reflog_pane()
@@ -241,12 +245,26 @@ class RepoLifecycleMixin:
         successor = self._repo_after_closing(path)
         self._repo_store.close_repo(path)
         self._save_repo_store()
+        self._drop_pending_request_for(path)
         if path != self._repo_path:
             self._repo_list.reload()  # some other row: stay where you are
+        elif self._pending_request() is not None:
+            self._clear_window()  # the repo already on its way takes over
         elif successor is None:
             self._enter_empty_state()
         else:
             self._request_repo(_RepoRequest(successor, _SwitchReason.REPLACE))
+
+    def _pending_request(self) -> _RepoRequest | None:
+        """The request still opening, or None once the latest one has landed."""
+        request = self._repo_request
+        return request if request is not None and request.path != self._repo_path else None
+
+    def _drop_pending_request_for(self, path: str) -> None:
+        # Landing later would make a repo the user has just closed active again.
+        pending = self._pending_request()
+        if pending is not None and pending.path == path:
+            self._repo_request = _RepoRequest(self._repo_path) if self._repo_path else None
 
     def _repo_after_closing(self, path: str) -> str | None:
         """The open repo listed just before *path*, or after it when it is first."""
