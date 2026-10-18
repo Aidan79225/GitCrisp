@@ -1,13 +1,13 @@
-import functools
 import logging
 import sys
-from collections.abc import Iterable
+import threading
+from collections.abc import Callable, Iterable, Iterator
 from enum import Enum, auto
 from pathlib import Path
 from typing import NamedTuple
 
 import pygit2
-from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+from PySide6.QtCore import QObject, QtMsgType, Signal, qInstallMessageHandler
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -20,6 +20,7 @@ from git_gui.presentation.app_settings import get_send_crash_reports
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
 from git_gui.presentation.theme import ThemeManager, set_theme_manager
+from git_gui.presentation.widgets.repo_list import RepoListWidget
 from git_gui.resources import get_resource_path
 
 
@@ -59,38 +60,40 @@ class _Startup(NamedTuple):
 
 
 def _open_startup_repo(repo_store: JsonRepoStore) -> _Startup | None:
-    """Open the repo to start in, pruning every stored path that is gone.
+    """Open the repo to start in: the active one if it still opens, otherwise
+    the first open repo that does, which becomes the active one; or None.
 
-    Pruning scans the *entire* open and recent lists — not just up to the first
-    valid entry — so stale paths (e.g. a deleted worktree) never linger across
-    sessions, rendering as repo rows that fail with "Repository not found" when
-    switched to. Starts in the active repo if it still opens, otherwise in the
-    first open repo that does, which becomes the active one; otherwise None.
+    This runs before the window shows, and each probe of a path on an
+    unreachable share waits out a network timeout, so candidates are probed
+    one at a time and only until one opens. The other stored paths are left
+    to _GoneRepoPruner.
 
     A repo that is there but will not open is passed over rather than left
     active: the repo list would draw it as the repo on screen and ignore
     clicks on it, leaving no way to reach it or its error.
     """
-    state = functools.cache(_stored_repo_state)
-
-    for path in list(repo_store.get_open_repos()) + list(repo_store.get_recent_repos()):
-        if state(path) is _StoredRepo.GONE:
-            repo_store.forget(path)
-
-    active = repo_store.get_active()
-    if active is not None and state(active) is _StoredRepo.GONE:
-        repo_store.forget(active)  # clear a dead active not in open/recent
-
-    # Keep a still-valid active repo even if it isn't in the open list (e.g. an
-    # active worktree, recorded via set_active without add_open).
-    candidates = ([active] if active else []) + repo_store.get_open_repos()
-    started = _first_that_opens(p for p in candidates if state(p) is _StoredRepo.PRESENT)
-
+    started = _first_that_opens(_present_repos(repo_store, _startup_candidates(repo_store)))
     if started is not None:
         repo_store.set_active(started.path)
-
     repo_store.save()
     return started
+
+
+def _startup_candidates(repo_store: JsonRepoStore) -> list[str]:
+    # The active repo leads even when it is not an open one: switching to a
+    # linked worktree records it with set_active alone.
+    active = repo_store.get_active()
+    return list(dict.fromkeys(([active] if active else []) + repo_store.get_open_repos()))
+
+
+def _present_repos(repo_store: JsonRepoStore, paths: Iterable[str]) -> Iterator[str]:
+    """Each of *paths* that is a repo, forgetting the ones found gone on the way."""
+    for path in paths:
+        state = _stored_repo_state(path)
+        if state is _StoredRepo.GONE:
+            repo_store.forget(path)
+        elif state is _StoredRepo.PRESENT:
+            yield path
 
 
 def _first_that_opens(paths: Iterable[str]) -> _Startup | None:
@@ -99,6 +102,53 @@ def _first_that_opens(paths: Iterable[str]) -> _Startup | None:
         if session is not None:
             return _Startup(path, *session)
     return None
+
+
+class _GoneRepoPruner(QObject):
+    """Forgets every stored repo that is gone, probing them off the GUI thread.
+
+    All of the open and recent lists are scanned, so stale paths (a deleted
+    worktree, say) never linger across sessions as rows that fail with
+    "Repository not found" when switched to. A path out of reach is kept for
+    when it is back, so it is probed on every launch, and on an unreachable
+    share each probe waits out a network timeout: that is why this runs once
+    the window is up rather than before it.
+    """
+
+    _found_gone = Signal(list)
+
+    def __init__(
+        self,
+        repo_store: JsonRepoStore,
+        on_pruned: Callable[[], None],
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._repo_store = repo_store
+        self._on_pruned = on_pruned
+        self._found_gone.connect(self._forget)
+
+    def start(self) -> None:
+        paths = _stored_paths(self._repo_store)
+        threading.Thread(target=lambda: self._found_gone.emit(_gone(paths)), daemon=True).start()
+
+    def _forget(self, gone: list[str]) -> None:
+        if not gone:
+            return
+        for path in gone:
+            self._repo_store.forget(path)
+        self._repo_store.save()
+        self._on_pruned()
+
+
+def _stored_paths(repo_store: JsonRepoStore) -> list[str]:
+    active = repo_store.get_active()
+    stored = repo_store.get_open_repos() + repo_store.get_recent_repos()
+    return list(dict.fromkeys(stored + ([active] if active else [])))
+
+
+def _gone(paths: Iterable[str]) -> list[str]:
+    return [path for path in paths if _stored_repo_state(path) is _StoredRepo.GONE]
 
 
 def _open_session(path: str) -> tuple[QueryBus, CommandBus]:
@@ -181,7 +231,13 @@ def main() -> None:
     repo_store.load()
     window = _open_window(repo_store, JsonRemoteTagCache())
     window.show()
+    _GoneRepoPruner(repo_store, on_pruned=lambda: _reload_repo_list(window), parent=window).start()
     sys.exit(app.exec())
+
+
+def _reload_repo_list(window: MainWindow) -> None:
+    # The list on screen was drawn from the store before the pruning finished.
+    window.findChild(RepoListWidget).reload()
 
 
 def _open_window(repo_store: JsonRepoStore, remote_tag_cache: JsonRemoteTagCache) -> MainWindow:
