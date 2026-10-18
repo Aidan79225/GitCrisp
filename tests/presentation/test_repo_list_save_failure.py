@@ -85,3 +85,11 @@ def test_a_close_still_moves_on_when_the_repo_list_cannot_be_saved(qtbot, window
         window._close_current_repo()
 
     assert window._repo_path == b
+
+
+def test_a_reorder_that_cannot_be_saved_is_reported_in_the_log(window, repos):
+    _a, b = repos
+
+    window._repo_list._tree.repo_reorder_requested.emit(b, 0)
+
+    assert "Could not save the repo list" in _log_text(window)
