@@ -13,7 +13,12 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget
 
 from git_gui.domain.entities import CommitStat, FileStat
-from git_gui.presentation.widgets.insight_dialog import InsightDialog, _AuthorRow, _FileRow
+from git_gui.presentation.widgets.insight_dialog import (
+    InsightDialog,
+    InsightRange,
+    _AuthorRow,
+    _FileRow,
+)
 
 
 class _EndlessHistory:
@@ -92,9 +97,9 @@ def _no_history() -> MagicMock:
     return queries
 
 
-def _range(window, label: str, today: date = _WEDNESDAY):
+def _range(window, chosen: InsightRange, today: date = _WEDNESDAY):
     dialog = InsightDialog(_no_history(), window, today=lambda: today)
-    return dialog._compute_range(label)
+    return dialog._compute_range(chosen)
 
 
 def _on_the_users_clock(moment: datetime) -> datetime:
@@ -102,7 +107,7 @@ def _on_the_users_clock(moment: datetime) -> datetime:
 
 
 def test_this_week_starts_at_local_midnight_on_monday(window):
-    since, until = _range(window, "This Week")
+    since, until = _range(window, InsightRange.THIS_WEEK)
 
     assert _on_the_users_clock(since) == datetime(2026, 10, 19)
     assert until is None
@@ -110,19 +115,19 @@ def test_this_week_starts_at_local_midnight_on_monday(window):
 
 def test_on_monday_this_week_starts_that_morning(window):
     """Early on Monday local time it is still Sunday in UTC; the week is the new one."""
-    since, _until = _range(window, "This Week", today=date(2026, 10, 19))
+    since, _until = _range(window, InsightRange.THIS_WEEK, today=date(2026, 10, 19))
 
     assert _on_the_users_clock(since) == datetime(2026, 10, 19)
 
 
 def test_this_month_starts_at_local_midnight_on_the_first(window):
-    since, _until = _range(window, "This Month")
+    since, _until = _range(window, InsightRange.THIS_MONTH)
 
     assert _on_the_users_clock(since) == datetime(2026, 10, 1)
 
 
 def test_this_year_starts_at_local_midnight_on_new_years_day(window):
-    since, _until = _range(window, "This Year")
+    since, _until = _range(window, InsightRange.THIS_YEAR)
 
     assert _on_the_users_clock(since) == datetime(2026, 1, 1)
 
@@ -132,7 +137,7 @@ def test_a_custom_range_covers_whole_local_days(window):
     dialog._start_date.setDate(QDate(2026, 10, 18))
     dialog._end_date.setDate(QDate(2026, 10, 18))
 
-    since, until = dialog._compute_range("Custom")
+    since, until = dialog._compute_range(InsightRange.CUSTOM)
 
     assert _on_the_users_clock(since) == datetime(2026, 10, 18)
     assert _on_the_users_clock(until) == datetime(2026, 10, 18, 23, 59, 59)
@@ -237,7 +242,7 @@ def _custom_range(window, start: QDate, end: QDate):
     dialog = InsightDialog(_no_history(), window)
     dialog._start_date.setDate(start)
     dialog._end_date.setDate(end)
-    return dialog._compute_range("Custom")
+    return dialog._compute_range(InsightRange.CUSTOM)
 
 
 def test_a_custom_start_before_the_epoch_leaves_the_range_open_at_the_start(window):
@@ -263,3 +268,18 @@ def test_a_custom_range_just_inside_the_convertible_days_keeps_both_bounds(windo
 
     assert _on_the_users_clock(since) == datetime(1970, 1, 3)
     assert _on_the_users_clock(until) == datetime(2999, 12, 30, 23, 59, 59)
+
+
+# ── Range buttons ───────────────────────────────────────────────────────────
+def test_the_dialog_opens_on_this_month(window):
+    dialog = InsightDialog(_no_history(), window)
+
+    assert dialog._range_group.checkedButton().text() == InsightRange.THIS_MONTH.label
+
+
+def test_choosing_custom_shows_the_date_pickers(qtbot, window):
+    dialog = _shown_dialog(qtbot, window, _no_history())
+
+    QTest.mouseClick(dialog._range_buttons[InsightRange.CUSTOM], Qt.LeftButton)
+
+    assert dialog._custom_widget.isVisible()

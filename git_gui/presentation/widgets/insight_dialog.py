@@ -4,6 +4,7 @@ import logging
 import threading
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
+from enum import Enum
 
 from PySide6.QtCore import QDate, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
@@ -291,6 +292,20 @@ def _day_of(picked: QDate) -> date:
     return date(picked.year(), picked.month(), picked.day())
 
 
+class InsightRange(Enum):
+    """The stretch of history Insight counts; each value is its button caption."""
+
+    THIS_WEEK = "This Week"
+    THIS_MONTH = "This Month"
+    THIS_YEAR = "This Year"
+    ALL = "All"
+    CUSTOM = "Custom"
+
+    @property
+    def label(self) -> str:
+        return self.value
+
+
 class InsightDialog(QDialog):
     def __init__(
         self,
@@ -320,10 +335,12 @@ class InsightDialog(QDialog):
         self._range_bar = QHBoxLayout()
         self._range_group = QButtonGroup(self)
         self._range_group.setExclusive(True)
-        for label in ("This Week", "This Month", "This Year", "All", "Custom"):
-            btn = QPushButton(label)
+        self._range_buttons: dict[InsightRange, QPushButton] = {}
+        for chosen in InsightRange:
+            btn = QPushButton(chosen.label)
             btn.setCheckable(True)
-            btn.clicked.connect(lambda _checked=False, lbl=label: self._on_range_changed(lbl))
+            btn.clicked.connect(lambda _checked=False, r=chosen: self._on_range_changed(r))
+            self._range_buttons[chosen] = btn
             self._range_group.addButton(btn)
             self._range_bar.addWidget(btn)
         self._range_bar.addStretch()
@@ -367,12 +384,8 @@ class InsightDialog(QDialog):
         self._scroll.setVisible(False)
         layout.addWidget(self._scroll, 1)
 
-        # Default selection: This Month
-        for btn in self._range_group.buttons():
-            if btn.text() == "This Month":
-                btn.setChecked(True)
-                break
-        self._on_range_changed("This Month")
+        self._range_buttons[InsightRange.THIS_MONTH].setChecked(True)
+        self._on_range_changed(InsightRange.THIS_MONTH)
 
         self._rebuild_styles()
         connect_widget(self, rebuild=self._rebuild_styles)
@@ -391,34 +404,30 @@ class InsightDialog(QDialog):
             self._cancel.set()
         super().done(result)
 
-    def _on_range_changed(self, label: str) -> None:
-        self._custom_widget.setVisible(label == "Custom")
-        since, until = self._compute_range(label)
+    def _on_range_changed(self, chosen: InsightRange) -> None:
+        self._custom_widget.setVisible(chosen is InsightRange.CUSTOM)
+        since, until = self._compute_range(chosen)
         self._reload(since, until)
 
     def _reload_if_custom(self) -> None:
-        # Only re-query if Custom is currently selected
-        for btn in self._range_group.buttons():
-            if btn.isChecked() and btn.text() == "Custom":
-                since, until = self._compute_range("Custom")
-                self._reload(since, until)
-                return
+        if self._range_buttons[InsightRange.CUSTOM].isChecked():
+            self._on_range_changed(InsightRange.CUSTOM)
 
-    def _compute_range(self, label: str) -> tuple[datetime | None, datetime | None]:
+    def _compute_range(self, chosen: InsightRange) -> tuple[datetime | None, datetime | None]:
         today = self._today()
-        if label == "This Week":
-            return (_local_midnight(today - timedelta(days=today.weekday())), None)
-        if label == "This Month":
-            return (_local_midnight(today.replace(day=1)), None)
-        if label == "This Year":
-            return (_local_midnight(today.replace(month=1, day=1)), None)
-        if label == "All":
-            return (None, None)
-        if label == "Custom":
-            since = _start_of(_day_of(self._start_date.date()))
-            until = _end_of(_day_of(self._end_date.date()))
-            return (since, until)
-        return (None, None)
+        match chosen:
+            case InsightRange.THIS_WEEK:
+                return (_local_midnight(today - timedelta(days=today.weekday())), None)
+            case InsightRange.THIS_MONTH:
+                return (_local_midnight(today.replace(day=1)), None)
+            case InsightRange.THIS_YEAR:
+                return (_local_midnight(today.replace(month=1, day=1)), None)
+            case InsightRange.ALL:
+                return (None, None)
+            case InsightRange.CUSTOM:
+                since = _start_of(_day_of(self._start_date.date()))
+                until = _end_of(_day_of(self._end_date.date()))
+                return (since, until)
 
     def _reload(self, since: datetime | None, until: datetime | None) -> None:
         # Cancel any in-flight worker — we're superseding it.
