@@ -169,7 +169,10 @@ class MergeRebaseOps:
         Actions: "pick", "squash", "fixup", "drop".
 
         The todo file replaces the list git computes, so git replays exactly
-        *entries* onto *target_oid*, whatever range it would have picked.
+        *entries* onto *target_oid*, whatever range it would have picked. That
+        includes a commit whose patch the target already has, which git would
+        have left out; ``--empty=drop`` drops it when it comes out empty
+        instead of stopping as if on a conflict.
         """
         import tempfile
 
@@ -192,7 +195,11 @@ class MergeRebaseOps:
         env["GIT_EDITOR"] = "true"
 
         try:
-            result = run_git(["git", "rebase", "-i", target_oid], cwd=self._repo.workdir, env=env)
+            result = run_git(
+                ["git", "rebase", "-i", "--empty=drop", target_oid],
+                cwd=self._repo.workdir,
+                env=env,
+            )
             if result.returncode != 0:
                 # A stopped rebase is a conflict, not a failure — leave the repo
                 # as it is and let the conflict banner drive it from here.
