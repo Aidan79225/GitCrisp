@@ -5,7 +5,14 @@ import subprocess
 
 import pygit2
 
+from git_gui.domain.entities import LineKind
 from git_gui.resources import subprocess_kwargs
+
+# Their content is already the whole "\ No newline at end of file" line, and a
+# patch writes that line with no origin character in front.
+_NO_NEWLINE_MARKERS = frozenset(
+    {LineKind.ADDED_EOFNL, LineKind.REMOVED_EOFNL, LineKind.CONTEXT_EOFNL}
+)
 
 
 class StageOps:
@@ -50,7 +57,7 @@ class StageOps:
         if patch:
             subprocess.run(
                 ["git", "apply", "--cached"],
-                input=patch.encode("utf-8"),
+                input=patch,
                 cwd=self._repo.workdir,
                 env=self._git_env,
                 check=True,
@@ -64,7 +71,7 @@ class StageOps:
         if patch:
             subprocess.run(
                 ["git", "apply", "--cached", "--reverse"],
-                input=patch.encode("utf-8"),
+                input=patch,
                 cwd=self._repo.workdir,
                 env=self._git_env,
                 check=True,
@@ -109,7 +116,7 @@ class StageOps:
         if patch:
             subprocess.run(
                 ["git", "apply", "--reverse"],
-                input=patch.encode("utf-8"),
+                input=patch,
                 cwd=self._repo.workdir,
                 env=self._git_env,
                 check=True,
@@ -118,7 +125,7 @@ class StageOps:
             )
             self._repo.index.read()
 
-    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> str | None:
+    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> bytes | None:
         if staged:
             if self._repo.head_is_unborn:
                 empty_tree_oid = self._repo.TreeBuilder().write()
@@ -135,13 +142,30 @@ class StageOps:
                 continue
             for hunk in patch.hunks:
                 if hunk.header == hunk_header:
-                    # Build minimal patch: diff header + single hunk
-                    lines = [f"--- a/{path}\n", f"+++ b/{path}\n"]
-                    lines.append(hunk.header)
-                    for line in hunk.lines:
-                        lines.append(f"{line.origin}{line.content}")
-                    # Ensure last line ends with newline
-                    if lines and not lines[-1].endswith("\n"):
-                        lines[-1] += "\n"
-                    return "".join(lines)
+                    return _single_hunk_patch(path, patch.delta, hunk)
         return None
+
+
+def _single_hunk_patch(path: str, delta: pygit2.DiffDelta, hunk: pygit2.DiffHunk) -> bytes:
+    # Built from raw_content: `content` is a lossy UTF-8 decode, so a Latin-1
+    # or Big5 line rebuilt from it no longer matches the file.
+    lines = [*_file_header(os.fsencode(path), delta), hunk.header.encode()]
+    for line in hunk.lines:
+        origin = b"" if line.origin in _NO_NEWLINE_MARKERS else line.origin.encode()
+        lines.append(origin + line.raw_content)
+    if not lines[-1].endswith(b"\n"):
+        lines[-1] += b"\n"
+    return b"".join(lines)
+
+
+def _file_header(name: bytes, delta: pygit2.DiffDelta) -> list[bytes]:
+    if delta.status != pygit2.GIT_DELTA_DELETED:
+        return [b"--- a/" + name + b"\n", b"+++ b/" + name + b"\n"]
+    # Without /dev/null git apply stages an empty file rather than the
+    # deletion, and the mode line lets a reversed apply restore the file mode.
+    return [
+        b"diff --git a/" + name + b" b/" + name + b"\n",
+        b"deleted file mode %o\n" % delta.old_file.mode,
+        b"--- a/" + name + b"\n",
+        b"+++ /dev/null\n",
+    ]

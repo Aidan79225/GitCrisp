@@ -226,10 +226,11 @@ class DiffOps:
         # a self-perpetuating refresh loop that makes the commit-detail pane
         # jump every few seconds.
         env = {**self._git_env, "GIT_OPTIONAL_LOCKS": "0"}
+        # Bytes, not text: only emptiness matters, and decoding raw UTF-8
+        # paths (core.quotepath=false) in a non-UTF-8 locale loses stdout.
         result = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True,
-            text=True,
             cwd=self._repo.workdir,
             env=env,
             **subprocess_kwargs(),
