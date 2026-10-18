@@ -6,11 +6,13 @@ import os
 import subprocess
 import sys
 import threading
+import time
+from pathlib import Path
 
 import pytest
 
 from git_gui.infrastructure import git_clone
-from git_gui.infrastructure.git_clone import clone_repo
+from git_gui.infrastructure.git_clone import CloneCancelled, clone_repo
 
 # A recursive clone prints one "Submodule path ...: checked out ..." line per
 # submodule to stdout; this is far more than any OS pipe buffer holds.
@@ -98,3 +100,80 @@ def test_a_failed_clone_leaves_no_folder_behind(tmp_path):
     with pytest.raises(RuntimeError):
         clone_repo(str(tmp_path / "no-such-repo"), str(dest))
     assert not dest.exists()
+
+
+# The hook stands in for a remote that stops sending mid-clone. It runs a few
+# processes below git (upload-pack, pack-objects, sh), as a real clone runs
+# ssh or git-remote-https, and those keep git's stderr open while they live.
+_SLOW_PACK_OBJECTS_HOOK = '#!/bin/sh\n: > "{started}"\nsleep 60\nexec "$@"\n'
+# Without keepalives upload-pack stays silent, as a dropped connection does,
+# instead of finding out from a failed write that git is gone.
+_STALLED_REMOTE_CONFIG = "[uploadpack]\n\tpackObjectsHook = {hook}\n\tkeepAlive = 0\n"
+
+
+class _BackgroundClone:
+    def __init__(self, url: str, dest: Path) -> None:
+        self.cancel = threading.Event()
+        self.error: BaseException | None = None
+        self._thread = threading.Thread(target=self._run, args=(url, str(dest)), daemon=True)
+        self._thread.start()
+
+    def _run(self, url: str, dest: str) -> None:
+        try:
+            clone_repo(url, dest, cancelled=self.cancel)
+        except BaseException as error:
+            self.error = error
+
+    def finished_within(self, seconds: float) -> bool:
+        self._thread.join(seconds)
+        return not self._thread.is_alive()
+
+
+@pytest.fixture
+def stalled_clone(repo_path, tmp_path_factory, monkeypatch):
+    """Start a clone of repo_path into a destination; it stalls until cancelled."""
+    work = tmp_path_factory.mktemp("stalled-clone")
+    started = work / "hook-started"
+    hook = work / "slow-pack-objects"
+    hook.write_text(_SLOW_PACK_OBJECTS_HOOK.format(started=started.as_posix()), newline="\n")
+    hook.chmod(0o755)
+    config = work / "gitconfig"
+    config.write_text(_STALLED_REMOTE_CONFIG.format(hook=hook.as_posix()))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+
+    def start(dest: Path) -> _BackgroundClone:
+        clone = _BackgroundClone(repo_path.as_uri(), dest)
+        deadline = time.monotonic() + 30
+        while not started.exists():
+            assert time.monotonic() < deadline, f"the clone never reached the remote: {clone.error}"
+            time.sleep(0.05)
+        return clone
+
+    return start, work
+
+
+def _cancel(clone: _BackgroundClone) -> None:
+    clone.cancel.set()
+    assert clone.finished_within(20), "git kept running after the clone was cancelled"
+
+
+def test_cancelling_a_stalled_clone_stops_git(stalled_clone):
+    start, work = stalled_clone
+    clone = start(work / "repo")
+    _cancel(clone)
+    assert isinstance(clone.error, CloneCancelled)
+
+
+def test_a_cancelled_clone_removes_the_folder_it_created(stalled_clone):
+    start, work = stalled_clone
+    dest = work / "repo"
+    _cancel(start(dest))
+    assert not dest.exists()
+
+
+def test_a_cancelled_clone_keeps_the_empty_folder_it_was_given(stalled_clone):
+    start, work = stalled_clone
+    dest = work / "repo"
+    dest.mkdir()
+    _cancel(start(dest))
+    assert dest.is_dir() and list(dest.iterdir()) == []
