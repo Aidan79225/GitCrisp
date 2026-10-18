@@ -1384,9 +1384,6 @@ class GraphWidget(QWidget):
             self._search_bar.set_match_label(0, 0)
             return
 
-        # If not all commits are loaded yet, reload with a large limit so the
-        # search covers the full history. The reload callback will re-trigger
-        # the search via _run_search_after_load.
         if self._has_more:
             self._search_after_full_load(needle)
             return
