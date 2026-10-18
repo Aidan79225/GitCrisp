@@ -9,6 +9,7 @@ list rather than on the previous repo the README promises.
 from __future__ import annotations
 
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -115,3 +116,55 @@ def test_closing_the_only_repo_from_uncommitted_changes_shows_the_commit_pane(
     win._close_current_repo()
 
     assert win._right_stack.currentWidget() is win._diff
+
+
+# ── Closing while another repo is still opening ──────────────────────────────
+
+
+class _HeldSession:
+    """A session factory that holds one repo's session until released."""
+
+    def __init__(self, held: str) -> None:
+        self.held = held
+        self.release = threading.Event()
+
+    def __call__(self, path: str):
+        from main import _open_session
+
+        if path == self.held:
+            self.release.wait(5)
+        return _open_session(path)
+
+
+def _hold_session(win: MainWindow, path: str) -> _HeldSession:
+    held = _HeldSession(path)
+    win._session_factory = held
+    return held
+
+
+def test_closing_a_repo_that_is_still_opening_does_not_switch_to_it(qtbot, tmp_path, repos):
+    a, b, _ = repos
+    win = _window_on(qtbot, tmp_path, [a, b], active=a)
+    held = _hold_session(win, b)
+    win._switch_repo(b)
+
+    win._on_repo_close(b)
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        held.release.set()
+
+    assert win._repo_path == a
+    assert win._repo_store.get_active() == a
+
+
+def test_closing_the_last_repo_while_another_opens_lands_on_that_one(qtbot, tmp_path, repos):
+    a, _, c = repos
+    win = _window_on(qtbot, tmp_path, [a], active=a)
+    held = _hold_session(win, c)
+    win._on_repo_open(c)
+
+    win._close_current_repo()
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        held.release.set()
+
+    assert win._repo_path == c
+    assert win._repo_store.get_open_repos() == [c]
