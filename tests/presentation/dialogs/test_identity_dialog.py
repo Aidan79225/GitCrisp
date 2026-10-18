@@ -146,3 +146,26 @@ def test_ensure_identity_tells_the_user_why_saving_failed(qtbot):
         ensure_identity(parent, queries, commands)
     warn.assert_called_once()
     assert "could not lock config file" in warn.call_args[0][2]
+
+
+def test_a_caller_can_report_a_failed_save_its_own_way(qtbot):
+    _app()
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    queries, commands = _make_buses((None, None))
+    commands.set_identity.execute.side_effect = RuntimeError("could not lock config file")
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = QDialog.Accepted
+    mock_dlg.values.return_value = ("Bob", "bob@example.com", False)
+    reported: list[str] = []
+    with (
+        patch(
+            "git_gui.presentation.dialogs.identity_dialog.IdentityDialog",
+            return_value=mock_dlg,
+        ),
+        patch.object(QMessageBox, "warning") as warn,
+    ):
+        saved = ensure_identity(parent, queries, commands, report_failure=reported.append)
+    assert saved is False
+    assert reported == ["could not lock config file"]
+    warn.assert_not_called()
