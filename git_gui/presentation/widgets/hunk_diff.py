@@ -50,6 +50,9 @@ _CLOSE_ICON_PATH = str(get_resource_path("arts") / "ic_close.svg")
 # construction stays imperceptible.
 MAX_AGGREGATE_FILE_BLOCKS = 200
 
+# Names each hunk's discard button, so a stage or discard can find them all.
+_DISCARD_BUTTON_NAME = "discard_hunk"
+
 
 class _LoadSignals(QObject):
     done = Signal(str, list, list, bool)  # path, staged_hunks, unstaged_hunks, is_untracked
@@ -367,9 +370,25 @@ class HunkDiffWidget(QWidget):
         with the new list of changed files, a list only the owner knows: a
         discard can take a file out of it. Reloading here as well rebuilt
         every block and queried every diff twice per click.
+
+        Until that reload rebuilds them, the all-files view's stage and
+        discard controls are disabled: the command may have moved the line
+        numbers of the hunks below it, so their headers no longer name a hunk
+        the index has.
         """
         if self._all_paths is None:
             self._render_sync()
+        else:
+            self._disable_hunk_controls()
+
+    def _disable_hunk_controls(self) -> None:
+        # Only the controls: disabling the container would grey every diff
+        # line on screen until the reload lands, a flash on each click.
+        controls = self._container.findChildren(QCheckBox) + self._container.findChildren(
+            QToolButton, _DISCARD_BUTTON_NAME
+        )
+        for control in controls:
+            control.setEnabled(False)
 
     def _add_hunk_block(
         self,
@@ -403,6 +422,7 @@ class HunkDiffWidget(QWidget):
             # in a confusing state.
             is_whole_file = header.startswith("@@ -0,0") or "+0,0 @@" in header
             x_btn = QToolButton()
+            x_btn.setObjectName(_DISCARD_BUTTON_NAME)
             x_btn.setIcon(QIcon(_CLOSE_ICON_PATH))
             x_btn.setIconSize(QSize(16, 16))
             x_btn.setFixedSize(22, 22)
