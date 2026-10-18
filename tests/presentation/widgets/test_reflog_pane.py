@@ -17,8 +17,6 @@ from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.reflog_pane import (
     _OPERATION_ROLES,
-    ORPHAN_STRIPE_W,
-    ROW_PAD,
     SHA_CHARS,
     ReflogModel,
     ReflogPane,
@@ -347,21 +345,18 @@ def test_content_starts_at_the_same_x_marked_or_not(qtbot):
     """The orphan stripe's width is reserved on every row.
 
     Adding it only to the marked rows shifted their text right, undoing the
-    column alignment the chip column exists to provide. This is a geometry
-    fact, so it is checked as one — comparing rendered pixels ends up
-    measuring the tint's effect on antialiasing instead.
+    column alignment the chip column exists to provide.
     """
-    from git_gui.presentation.widgets.reflog_pane import ReflogDelegate
+    entries = [_entry(0, "commit", "lost", orphaned=True), _entry(1, "commit", "kept")]
+    pane, _ = _pane(qtbot, entries)
+    delegate = pane._view.itemDelegate()
 
-    rect = QRect(0, 0, 600, 30)
-    assert ReflogDelegate.content_left(rect) == rect.left() + ROW_PAD + ORPHAN_STRIPE_W
+    def summary_and_position_x(row: int) -> tuple[int, int]:
+        painted = _painted_row(delegate, _option_for(pane, 50), pane._model.index(row, 0))
+        x_of = {text: x for x, _y, _w, text in painted}
+        return x_of[entries[row].summary], x_of[f"@{{{entries[row].index}}}"]
 
-
-def test_the_stripe_never_overlaps_the_content(qtbot):
-    from git_gui.presentation.widgets.reflog_pane import ReflogDelegate
-
-    rect = QRect(0, 0, 600, 30)
-    assert ReflogDelegate.content_left(rect) >= rect.left() + ORPHAN_STRIPE_W
+    assert summary_and_position_x(0) == summary_and_position_x(1)
 
 
 # ── Folding the entries that changed nothing ─────────────────────────────────
