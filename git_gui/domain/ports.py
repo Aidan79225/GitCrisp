@@ -27,6 +27,10 @@ from git_gui.domain.entities import (
 )
 
 
+class RemoteOperationCancelled(RuntimeError):
+    """A push, pull or fetch stopped by `IRepositoryWriter.cancel_remote_op`."""
+
+
 @runtime_checkable
 class IRepositoryReader(Protocol):
     def get_commits(
