@@ -113,7 +113,7 @@ class TagOps:
         self._repo.references.delete(f"refs/tags/{name}")
 
     def push_tag(self, remote: str, name: str) -> None:
-        self._run_git("push", remote, f"refs/tags/{name}")
+        self._run_cancellable_remote_git("push", remote, f"refs/tags/{name}")
 
     def delete_remote_tag(self, remote: str, name: str) -> None:
-        self._run_git("push", remote, f":refs/tags/{name}")
+        self._run_cancellable_remote_git("push", remote, f":refs/tags/{name}")
