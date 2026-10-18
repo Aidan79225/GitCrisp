@@ -429,12 +429,20 @@ class ReflogPane(QWidget):
         reload. Its commit is still the one in the diff pane, so finding it
         again emits nothing; a pick that is gone is forgotten, so picking
         that commit again hands it over.
+
+        Finding it again must not scroll to it either: the app reloads every
+        time it becomes active, and the user may be reading rows far from the
+        one they picked.
         """
         row = self._model.row_of(picked) if picked is not None else None
         if row is None:
             self._last_emitted = None
             return
-        self.select_row(row)
+        self._view.setAutoScroll(False)
+        try:
+            self.select_row(row)
+        finally:
+            self._view.setAutoScroll(True)
 
     def _on_show_all_toggled(self, checked: bool) -> None:
         self._model.set_show_all(checked)
