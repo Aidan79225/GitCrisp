@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 from collections import deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import IO
 
-import pygit2
-
-from git_gui.infrastructure.git_process import git_popen_kwargs
+from git_gui.infrastructure.git_process import git_popen_kwargs, run_git
 from git_gui.resources import git_ssh_env
 
 
@@ -25,27 +25,49 @@ _PROGRESS_RE = re.compile(r"(.+?):\s+(\d+)%")
 # per submodule before that, so only the tail is kept for the error message.
 _KEPT_MESSAGE_LINES = 20
 
-# A new clone has no config of its own yet; it runs with these levels only.
-_USER_CONFIG_LEVELS = (
-    pygit2.Config.get_system_config,
-    pygit2.Config.get_xdg_config,
-    pygit2.Config.get_global_config,
-)
 
+class _CloneConfig:
+    """The git config the repository cloned from ``url`` into ``dest`` will read.
 
-class _UserConfig:
-    """The git config the user set outside any repository, the one a clone uses."""
+    git evaluates conditional includes (``includeIf "gitdir:..."``,
+    ``"hasconfig:remote.*.url:..."``) against the repository it runs in, so the
+    user's config files read on their own miss what such a section sets for
+    this clone. Only git, asked from a repository at ``dest`` with that remote,
+    answers as the clone will; that probe repository is removed again so the
+    clone finds the destination as the user left it.
+    """
 
-    def __init__(self) -> None:
-        self._files: list[pygit2.Config] = []
-        for open_level in _USER_CONFIG_LEVELS:
-            try:
-                self._files.append(open_level())
-            except OSError:
-                pass  # The user has no file at that level.
+    def __init__(self, url: str, dest: str) -> None:
+        self._url = url
+        self._dest = Path(dest)
 
     def __contains__(self, key: str) -> bool:
-        return any(key in config for config in self._files)
+        if not _is_free_for_a_clone(self._dest):
+            return False  # git clone refuses this destination before it connects.
+        created = not self._dest.exists()
+        try:
+            return _probe_has_config(self._dest, self._url, key)
+        finally:
+            _remove_probe(self._dest, created)
+
+
+def _is_free_for_a_clone(dest: Path) -> bool:
+    return not dest.exists() or (dest.is_dir() and not any(dest.iterdir()))
+
+
+def _probe_has_config(dest: Path, url: str, key: str) -> bool:
+    if run_git(["git", "init", "--quiet", str(dest)], cwd=".").returncode != 0:
+        return False
+    run_git(["git", "-C", str(dest), "config", "remote.origin.url", url], cwd=".")
+    return run_git(["git", "-C", str(dest), "config", "--get", key], cwd=".").returncode == 0
+
+
+def _remove_probe(dest: Path, created: bool) -> None:
+    probe_git_dir = dest / ".git"
+    if probe_git_dir.exists():
+        shutil.rmtree(probe_git_dir)
+    if created and dest.exists():
+        dest.rmdir()
 
 
 def clone_repo(
@@ -64,7 +86,7 @@ def clone_repo(
         # pipe would fill up and block git while we wait for stderr to close.
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
-        env=git_ssh_env(config=_UserConfig()),
+        env=git_ssh_env(config=_CloneConfig(url, dest)),
         **git_popen_kwargs(),
     )
 
