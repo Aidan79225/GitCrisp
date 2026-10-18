@@ -36,7 +36,7 @@ def _badge_color(
     Remote-tracking branches are the ones in `remote_branches`: a local branch
     can hold a slash (``feature/login``) just as ``origin/main`` does.
     """
-    if name == "HEAD" or name.startswith("HEAD ->"):
+    if name == "HEAD":
         return _color_head()
     if head_branch and name == head_branch:
         return _color_head()
@@ -57,10 +57,7 @@ def _badge_display_name(name: str) -> str:
 def _badge_copy_text(name: str) -> str:
     """The ref name to place on the clipboard when a badge is clicked.
 
-    Strips the 'tag:' marker and the 'HEAD -> ' decoration so the user
-    gets the bare branch/tag name, not the internal badge label.
+    That is the bare branch or tag name the badge shows, without the
+    internal 'tag:' marker.
     """
-    name = _badge_display_name(name)
-    if name.startswith("HEAD -> "):
-        return name[len("HEAD -> ") :]
-    return name
+    return _badge_display_name(name)
