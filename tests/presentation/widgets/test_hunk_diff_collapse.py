@@ -72,18 +72,37 @@ def test_collapsing_a_block_realises_the_blocks_it_reveals(qtbot, make_widget):
     """Collapsing a tall first file shrinks the content without moving the
     scroll bar, so nothing but the collapse itself can tell the loader that
     the next files are now on screen."""
-    paths = [f"f{i}.txt" for i in range(5)]
+    paths = [f"f{i}.txt" for i in range(8)]
     diff_map = {p: {StagingState.UNSTAGED: [_hunk(60 if p == "f0.txt" else 3)]} for p in paths}
     widget, queries = make_widget(diff_map)
     queries.released.set()
     widget.load_all_files(paths)
     qtbot.waitUntil(lambda: bool(_editors(_frame_of(widget, "f0.txt"))), timeout=2000)
-    qtbot.wait(200)
-    assert not _editors(_frame_of(widget, "f2.txt")), "f2 starts below the fold"
+    built_before = _wait_until_the_loader_is_idle(qtbot, widget)
+    assert built_before < len(paths), "the tall first file pushes some block below the fold"
 
     _frame_of(widget, "f0.txt").findChild(_CollapseToggle).click()
 
-    qtbot.waitUntil(lambda: bool(_editors(_frame_of(widget, "f2.txt"))), timeout=2000)
+    # Which block the collapse uncovers depends on the machine's font and
+    # layout; that it uncovers one does not.
+    qtbot.waitUntil(lambda: len(widget._loader._realized) > built_before, timeout=2000)
+
+
+def _wait_until_the_loader_is_idle(qtbot, widget: HunkDiffWidget) -> int:
+    """Return how many blocks are built once no more have been for a while.
+
+    The loader builds one block per event-loop turn while the first block is
+    still growing, so a fixed wait can end in the middle of that; the fold is
+    only meaningful once it has stopped.
+    """
+    built = -1
+    for _ in range(30):
+        qtbot.wait(100)
+        now = len(widget._loader._realized)
+        if now == built:
+            return now
+        built = now
+    raise AssertionError("the loader never settled")
 
 
 def test_a_block_collapsed_before_its_diff_arrives_stays_collapsed(qtbot, make_widget):

@@ -23,6 +23,7 @@ from git_gui.presentation.theme import connect_widget, get_theme_manager
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.diff_block import (
+    laid_out_text_height,
     make_diff_formats,
     make_file_block,
     make_overflow_notice,
@@ -78,20 +79,16 @@ class _CommitMessageView(QPlainTextEdit):
         if event.type() == QEvent.FontChange:
             self._fit_height()
 
-    def _wrapped_line_count(self) -> int:
-        layout = self.document().documentLayout()
-        count = 0
-        block = self.document().begin()
-        while block.isValid():
-            layout.ensureBlockLayout(block)
-            count += block.layout().lineCount()
-            block = block.next()
-        return count
-
     def _fit_height(self) -> None:
-        lines = self._wrapped_line_count() if self._expanded else 1
-        line_height = self.fontMetrics().lineSpacing()
-        self.setFixedHeight(int(lines * line_height + self.document().documentMargin() * 2))
+        # The layout's own block heights, not lines times lineSpacing: on Linux the
+        # two differ by a pixel or two per line, enough to hide the last line
+        # of a long message.
+        margin = self.document().documentMargin() * 2
+        if self._expanded:
+            text_height = laid_out_text_height(self)
+        else:
+            text_height = self.fontMetrics().lineSpacing()
+        self.setFixedHeight(int(text_height + margin))
 
 
 class DiffWidget(QWidget):
