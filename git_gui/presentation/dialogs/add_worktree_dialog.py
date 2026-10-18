@@ -78,7 +78,7 @@ class AddWorktreeDialog(QDialog):
         self.setWindowTitle("Add Worktree")
         self._repo_path = repo_path
         self._branches_in_use = dict(branches_in_use or {})
-        self._location_dirty = False  # True once user manually edits the path
+        self._location_chosen_by_user = False
 
         # Branch combo (existing-branch mode).
         self._branch_combo = QComboBox()
@@ -140,6 +140,7 @@ class AddWorktreeDialog(QDialog):
         self._location_error.setStyleSheet(f"color: {get_theme_manager().current.colors.error};")
         self._location_error.setVisible(False)
         self._location_edit.textChanged.connect(self._refresh_location_error)
+        self._location_edit.textChanged.connect(self._refresh_add_button)
 
         # Switch-after checkbox.
         self._switch_after_cb = QCheckBox("Switch to new worktree after creating")
@@ -166,7 +167,7 @@ class AddWorktreeDialog(QDialog):
 
         # Live-update the location template.
         self._branch_combo.currentTextChanged.connect(self._on_branch_changed)
-        self._new_name.textChanged.connect(self._on_new_name_changed)
+        self._new_name.textChanged.connect(self._on_branch_changed)
 
         # Initial preselect + state.
         self._create_new_cb.setChecked(default_create_new)
@@ -174,9 +175,7 @@ class AddWorktreeDialog(QDialog):
             idx = self._branch_combo.findText(preselect_branch)
             if idx >= 0:
                 self._branch_combo.setCurrentIndex(idx)
-        self._refresh_in_use_notice()
-        self._refresh_default_location()
-        self._refresh_add_button()
+        self._sync_to_branch()
 
     # ── Public state accessors ──────────────────────────────────────────
 
@@ -209,11 +208,9 @@ class AddWorktreeDialog(QDialog):
         return self._location_edit.text().strip()
 
     def set_location(self, value: str) -> None:
-        # Programmatic set marks the dirty bit when value is non-empty
-        # so the template doesn't overwrite it.
         self._location_edit.setText(value)
-        self._location_dirty = True if value else self._location_dirty
-        self._refresh_add_button()
+        if value:
+            self._location_chosen_by_user = True
 
     def add_button_enabled(self) -> bool:
         return self._buttons.button(QDialogButtonBox.Ok).isEnabled()
@@ -234,11 +231,12 @@ class AddWorktreeDialog(QDialog):
 
     def _on_create_new_toggled(self, on: bool) -> None:
         self._mode_stack.setCurrentIndex(1 if on else 0)
-        self._refresh_in_use_notice()
-        self._refresh_default_location()
-        self._refresh_add_button()
+        self._sync_to_branch()
 
     def _on_branch_changed(self, _text: str) -> None:
+        self._sync_to_branch()
+
+    def _sync_to_branch(self) -> None:
         self._refresh_in_use_notice()
         self._refresh_default_location()
         self._refresh_add_button()
@@ -248,13 +246,8 @@ class AddWorktreeDialog(QDialog):
         self.accept()
         self.switch_to_existing_requested.emit(path)
 
-    def _on_new_name_changed(self, _text: str) -> None:
-        self._refresh_default_location()
-        self._refresh_add_button()
-
-    def _on_location_edited(self, text: str) -> None:
-        self._location_dirty = True
-        self._refresh_add_button()
+    def _on_location_edited(self, _text: str) -> None:
+        self._location_chosen_by_user = True
 
     def _on_browse(self) -> None:
         d = QFileDialog(self, "Choose worktree location")
@@ -263,9 +256,7 @@ class AddWorktreeDialog(QDialog):
         if d.exec() == QFileDialog.Accepted:
             files = d.selectedFiles()
             if files:
-                self._location_edit.setText(files[0])
-                self._location_dirty = True
-                self._refresh_add_button()
+                self.set_location(files[0])
 
     def _current_branch(self) -> str:
         if self.is_create_new():
@@ -294,7 +285,7 @@ class AddWorktreeDialog(QDialog):
         self._location_error.setVisible(problem is not None)
 
     def _refresh_default_location(self) -> None:
-        if self._location_dirty:
+        if self._location_chosen_by_user:
             return
         branch = self._current_branch()
         self._location_edit.setText(_default_location(self._repo_path, branch))
