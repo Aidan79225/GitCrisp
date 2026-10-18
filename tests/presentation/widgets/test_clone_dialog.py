@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import threading
 from unittest.mock import patch
 
@@ -89,10 +88,9 @@ def test_cancel_works_again_after_a_failed_clone(qtbot):
 
 
 def test_a_failed_clone_shows_gits_reason(qtbot):
-    stderr = b"fatal: destination path 'repo' already exists and is not an empty directory.\n"
-    error = subprocess.CalledProcessError(128, ["git", "clone"], output=b"", stderr=stderr)
-    dialog = _fail_clone(qtbot, error)
-    assert dialog._error_label.text() == stderr.decode().strip()
+    reason = "fatal: destination path 'repo' already exists and is not an empty directory."
+    dialog = _fail_clone(qtbot, RuntimeError(reason))
+    assert dialog._error_label.text() == reason
 
 
 def test_a_failure_without_gits_output_shows_the_error_itself(qtbot):
