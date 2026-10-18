@@ -122,3 +122,39 @@ def test_toggle_with_no_repo_path_does_not_persist(qtbot):
 
     repo_store.set_repo_setting.assert_not_called()
     repo_store.save.assert_not_called()
+
+
+def _graph_whose_save_fails(qtbot) -> tuple[GraphWidget, MagicMock]:
+    """A graph on /repo/a whose repo list cannot be written (a locked file, a full disk)."""
+    _app()
+    repo_store = MagicMock()
+    repo_store.get_repo_setting.return_value = False
+    repo_store.save.side_effect = OSError("disk full")
+    queries = _make_queries()
+    w = GraphWidget(queries, MagicMock(), repo_store=repo_store)
+    qtbot.addWidget(w)
+    w.set_repo_path("/repo/a")
+    return w, queries
+
+
+def test_a_first_parent_choice_that_cannot_be_saved_is_reported(qtbot):
+    w, _queries = _graph_whose_save_fails(qtbot)
+
+    with qtbot.waitSignal(w.setting_save_failed, timeout=1000) as blocker:
+        w._first_parent_btn.setChecked(True)
+
+    assert "disk full" in blocker.args[0]
+
+
+def test_a_first_parent_choice_that_cannot_be_saved_still_redraws_the_graph(qtbot):
+    w, queries = _graph_whose_save_fails(qtbot)
+
+    w._first_parent_btn.setChecked(True)
+
+    qtbot.waitUntil(
+        lambda: any(
+            call.kwargs.get("first_parent") is True
+            for call in queries.get_commit_graph.execute.call_args_list
+        ),
+        timeout=1000,
+    )

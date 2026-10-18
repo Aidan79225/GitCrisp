@@ -303,6 +303,7 @@ class GraphWidget(QWidget):
     insight_requested = Signal()
     reflog_requested = Signal()
     load_failed = Signal(str)  # why the commits could not be loaded
+    setting_save_failed = Signal(str)  # why the first-parent choice could not be saved
 
     def __init__(
         self, queries: QueryBus, commands: CommandBus, repo_store: IRepoStore, parent=None
@@ -512,11 +513,24 @@ class GraphWidget(QWidget):
     def _on_first_parent_toggled(self, checked: bool) -> None:
         self._first_parent = checked
         if self._repo_path is not None:
-            self._repo_store.set_repo_setting(self._repo_path, "first_parent", checked)
-            self._repo_store.save()
+            self._remember_first_parent(self._repo_path, checked)
         # No-op if queries aren't wired up yet (empty state).
         if self._queries is not None:
             self.reload()
+
+    def _remember_first_parent(self, path: str, checked: bool) -> None:
+        """Persist the choice, reporting a failed write rather than raising.
+
+        The in-memory store already holds it. An OSError escaping the slot (a
+        file locked by antivirus, a full disk) would skip the reload, leaving
+        the button pressed over a graph drawn in the other mode.
+        """
+        self._repo_store.set_repo_setting(path, "first_parent", checked)
+        try:
+            self._repo_store.save()
+        except OSError as e:
+            logger.warning("Could not save the first-parent setting: %s", e)
+            self.setting_save_failed.emit(str(e))
 
     def set_path_filter(self, path: str) -> None:
         """Show only the commits that touched `path` (file history)."""
