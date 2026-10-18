@@ -10,13 +10,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QTextLayout, QTextOption
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QTextLayout, QTextOption
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, CommitInfo
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.graph_lane_painter import paint_lanes, row_graph_width
-from git_gui.presentation.widgets.ref_badge_delegate import _badge_color, _badge_display_name
+from git_gui.presentation.widgets.ref_badge_delegate import (
+    BADGE_GAP,
+    BADGE_H_PAD,
+    BADGE_V_PAD,
+    _badge_color,
+    _badge_display_name,
+    paint_badge,
+)
 
 
 def _selection_color() -> QColor:
@@ -30,11 +37,6 @@ def _divider_color() -> QColor:
 def _muted_color() -> QColor:
     return get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE_VARIANT)
 
-
-BADGE_RADIUS = 4
-BADGE_H_PAD = 4
-BADGE_V_PAD = 2
-BADGE_GAP = 4
 
 CELL_PAD = 4  # horizontal padding inside cell
 AUTHOR_DATE_GAP = 8  # least space between the author and the date
@@ -120,14 +122,6 @@ def _layout_badges(
 
 def _badge_line_count(placed: list[_PlacedBadge]) -> int:
     return placed[-1].line + 1 if placed else 1
-
-
-def _paint_badge(painter: QPainter, rect: QRect, color: QColor, label: str) -> None:
-    painter.setBrush(QBrush(color))
-    painter.setPen(Qt.NoPen)
-    painter.drawRoundedRect(rect, BADGE_RADIUS, BADGE_RADIUS)
-    painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE))
-    painter.drawText(rect, Qt.AlignCenter, label)
 
 
 class CommitRowDelegate(QStyledItemDelegate):
@@ -229,7 +223,7 @@ class CommitRowDelegate(QStyledItemDelegate):
             cy = first_line.top() + badge.line * first_line.height() + first_line.height() // 2
             rect = QRect(first_line.left() + badge.x, cy - badge_h // 2, badge.width, badge_h)
             color = _badge_color(badge.name, info.head_branch, info.remote_branches)
-            _paint_badge(painter, rect, color, badge.label)
+            paint_badge(painter, rect, color, badge.label)
 
         painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_SURFACE))
         painter.drawText(first_line, Qt.AlignVCenter | Qt.AlignRight, info.short_oid)
