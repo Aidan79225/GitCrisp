@@ -12,7 +12,16 @@ from git_gui.application.queries import (
     GetStashes,
     GetWorkingTree,
 )
-from git_gui.domain.entities import Branch, Commit, FileStatus, Hunk, Stash
+from git_gui.domain.entities import (
+    Branch,
+    Commit,
+    FileDelta,
+    FileStatus,
+    Hunk,
+    LineKind,
+    StagingState,
+    Stash,
+)
 from git_gui.domain.ports import IRepositoryReader
 
 
@@ -81,7 +90,9 @@ def test_get_blame_passes_the_revision_through():
 
 def test_get_commit_files_delegates_to_reader():
     reader = _reader()
-    reader.get_commit_files.return_value = [FileStatus("a.py", "staged", "modified")]
+    reader.get_commit_files.return_value = [
+        FileStatus("a.py", StagingState.STAGED, FileDelta.MODIFIED)
+    ]
     result = GetCommitFiles(reader).execute("abc")
     reader.get_commit_files.assert_called_once_with("abc")
     assert result[0].path == "a.py"
@@ -89,7 +100,7 @@ def test_get_commit_files_delegates_to_reader():
 
 def test_get_file_diff_delegates_to_reader():
     reader = _reader()
-    reader.get_file_diff.return_value = [Hunk("@@ -1,1 +1,2 @@", [("+", "line\n")])]
+    reader.get_file_diff.return_value = [Hunk("@@ -1,1 +1,2 @@", [(LineKind.ADDED, "line\n")])]
     result = GetFileDiff(reader).execute("abc", "a.py")
     reader.get_file_diff.assert_called_once_with("abc", "a.py")
     assert len(result) == 1
@@ -97,7 +108,9 @@ def test_get_file_diff_delegates_to_reader():
 
 def test_get_working_tree_delegates_to_reader():
     reader = _reader()
-    reader.get_working_tree.return_value = [FileStatus("b.py", "unstaged", "modified")]
+    reader.get_working_tree.return_value = [
+        FileStatus("b.py", StagingState.UNSTAGED, FileDelta.MODIFIED)
+    ]
     result = GetWorkingTree(reader).execute()
     reader.get_working_tree.assert_called_once()
     assert result[0].path == "b.py"
@@ -113,7 +126,7 @@ def test_get_stashes_delegates_to_reader():
 
 def test_get_staged_diff_delegates_to_reader():
     reader = _reader()
-    reader.get_staged_diff.return_value = [Hunk("@@ -1,1 +1,2 @@", [("+", "line\n")])]
+    reader.get_staged_diff.return_value = [Hunk("@@ -1,1 +1,2 @@", [(LineKind.ADDED, "line\n")])]
     from git_gui.application.queries import GetStagedDiff
 
     result = GetStagedDiff(reader).execute("a.py")
