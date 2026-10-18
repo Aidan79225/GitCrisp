@@ -23,3 +23,8 @@ def test_a_shorter_remote_keeps_the_branches_the_longer_one_does_not_own():
 
 def test_a_name_no_known_remote_owns_splits_at_the_first_slash():
     assert split_remote_branch("gone/feature/x", ["origin"]) == ("gone", "feature/x")
+
+
+def test_a_name_missing_its_remote_or_branch_leaves_that_part_empty():
+    assert split_remote_branch("/main", []) == ("", "main")
+    assert split_remote_branch("origin/", ["origin"]) == ("origin", "")

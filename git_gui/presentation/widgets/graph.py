@@ -1111,9 +1111,9 @@ class GraphWidget(QWidget):
 
     def _emit_remote_delete(self, name: str) -> None:
         remotes = (r.name for r in self._queries.list_remotes.execute())
-        split = split_remote_branch(name, remotes)
-        if split is not None:
-            self.remote_branch_delete_requested.emit(*split)
+        remote, branch = split_remote_branch(name, remotes)
+        if remote and branch:
+            self.remote_branch_delete_requested.emit(remote, branch)
 
     def _add_merge_rebase_section(
         self, menu: QMenu, oid: str, branches_on_commit: list[str]
