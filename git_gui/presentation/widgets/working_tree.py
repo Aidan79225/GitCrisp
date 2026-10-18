@@ -314,8 +314,10 @@ class WorkingTreeWidget(QWidget):
             index = self._file_model.index(row)
             fs = self._file_model.data(index, Qt.UserRole)
             if fs and fs.path == path:
+                # The refill reset the model, which cleared the current index,
+                # so this always emits currentChanged: _on_file_selected loads
+                # the diff, and a load here as well would build it twice.
                 self._file_view.setCurrentIndex(index)
-                self._hunk_diff.load_file(path)
                 return True
         return False
 
