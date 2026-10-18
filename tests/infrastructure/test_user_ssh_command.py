@@ -59,3 +59,45 @@ def test_adding_a_submodule_uses_the_ssh_command_the_user_configures(global_ssh_
 def test_a_clone_uses_the_ssh_command_the_user_configures(global_ssh_command, tmp_path):
     with pytest.raises(RuntimeError, match=_MARKER):
         clone_repo(_UNREACHABLE, str(tmp_path / "dest"))
+
+
+@pytest.fixture
+def ssh_command_for_the_remote(tmp_path, monkeypatch, no_ssh_in_env):
+    """core.sshCommand included only for repos with an example.invalid remote,
+    the usual setup for a second account: git honours it, libgit2 does not."""
+    home = tmp_path / "home"
+    home.mkdir()
+    work_config = home / ".gitconfig-work"
+    work_config.write_text(f'[core]\n\tsshCommand = "{_SSH_COMMAND}"\n', encoding="utf-8")
+    gitconfig = home / ".gitconfig"
+    gitconfig.write_text(
+        '[includeIf "hasconfig:remote.*.url:ssh://example.invalid/**"]\n'
+        f"\tpath = {work_config.as_posix()}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
+    level = pygit2.enums.ConfigLevel.GLOBAL
+    saved = pygit2.settings.search_path[level]
+    pygit2.settings.search_path[level] = str(home)
+    yield
+    pygit2.settings.search_path[level] = saved
+
+
+def test_a_fetch_uses_the_ssh_command_a_remote_url_include_configures(
+    ssh_command_for_the_remote, repo_path
+):
+    pygit2.Repository(str(repo_path)).remotes.create("origin", _UNREACHABLE)
+
+    with pytest.raises(RuntimeError, match=_MARKER):
+        Pygit2Repository(str(repo_path)).fetch("origin")
+
+
+def test_a_remote_added_later_brings_in_the_ssh_command_its_url_includes(
+    ssh_command_for_the_remote, repo_path
+):
+    repo = Pygit2Repository(str(repo_path))
+    repo.is_dirty()
+    pygit2.Repository(str(repo_path)).remotes.create("origin", _UNREACHABLE)
+
+    with pytest.raises(RuntimeError, match=_MARKER):
+        repo.fetch("origin")
