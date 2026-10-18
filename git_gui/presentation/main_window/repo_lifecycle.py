@@ -368,19 +368,14 @@ class RepoLifecycleMixin:
             return
         from git_gui.presentation.dialogs.add_worktree_dialog import AddWorktreeDialog
 
+        # Opening on a list that could not be read would offer a branch that is
+        # already checked out as free, or offer nothing at all.
         try:
             branches = [b.name for b in self._queries.get_branches.execute() if not b.is_remote]
-        except Exception:
-            branches = []
-        # The main worktree counts too: git refuses a branch checked out in
-        # any worktree, not only in a linked one.
-        in_use: dict[str, str] = {}
-        try:
-            for wt in self._queries.list_worktrees.execute():
-                if wt.branch:
-                    in_use[wt.branch] = str(wt.path)
-        except Exception:
-            pass
+            in_use = self._branches_in_use()
+        except Exception as e:
+            self._report_worktree_error(f"Cannot add a worktree: {e}")
+            return
         dlg = AddWorktreeDialog(
             repo_path=self._repo_path,
             branches=branches,
@@ -392,6 +387,15 @@ class RepoLifecycleMixin:
         dlg.add_requested.connect(self._on_add_worktree_requested)
         dlg.switch_to_existing_requested.connect(self._switch_repo)
         dlg.exec()
+
+    def _branches_in_use(self) -> dict[str, str]:
+        """Branch -> the worktree it is checked out in.
+
+        The main worktree counts too: git refuses a branch checked out in any
+        worktree, not only in a linked one.
+        """
+        worktrees = self._queries.list_worktrees.execute()
+        return {wt.branch: str(wt.path) for wt in worktrees if wt.branch}
 
     def _open_worktrees_dialog(self) -> None:
         if self._queries is None or self._commands is None:

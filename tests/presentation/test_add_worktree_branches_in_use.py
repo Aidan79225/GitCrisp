@@ -8,6 +8,8 @@ current branch preselected it with Add enabled, for git to fail with
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
@@ -52,3 +54,22 @@ def test_the_main_worktrees_branch_cannot_be_picked(window, shown, repo_path):
     assert dialog.branch_disabled("master")
     assert not dialog.add_button_enabled()
     assert dialog.branch_tooltip("master") == f"Already checked out at {repo_path}"
+
+
+def _fail(*_args, **_kwargs):
+    raise OSError("index locked")
+
+
+@pytest.mark.parametrize("query", ["list_worktrees", "get_branches"])
+def test_a_branch_list_that_cannot_be_read_is_reported_not_offered(
+    window, shown, monkeypatch, query
+):
+    """Opening anyway would offer the checked-out branch as free, or no branch."""
+    monkeypatch.setattr(getattr(window._queries, query), "execute", _fail)
+    window._log_panel = MagicMock()
+
+    window._open_add_worktree_dialog(preselect_branch=None, default_create=False)
+
+    assert shown == []
+    window._log_panel.expand.assert_called_once_with()
+    assert "index locked" in window._log_panel.log_error.call_args.args[0]
