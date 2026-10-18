@@ -9,26 +9,28 @@ from pygments.lexers import TextLexer, get_lexer_for_filename
 from pygments.token import Token as PygmentsToken
 from pygments.util import ClassNotFound
 
+from git_gui.presentation.theme import ColorRole
+
 
 @dataclass(frozen=True)
 class SyntaxToken:
-    """A syntax-highlighted span: char offsets into the input text + a role name."""
+    """A syntax-highlighted span: char offsets into the input text + its colour role."""
 
     start: int
     end: int
-    kind: str  # one of the MD3 syntax_* role names
+    kind: ColorRole  # one of the SYNTAX_* roles
 
 
 _ROLE_MAP = {
-    PygmentsToken.Keyword: "syntax_keyword",
-    PygmentsToken.Name.Builtin: "syntax_keyword",
-    PygmentsToken.Name.Function: "syntax_function",
-    PygmentsToken.Name.Class: "syntax_class",
-    PygmentsToken.String: "syntax_string",
-    PygmentsToken.Number: "syntax_number",
-    PygmentsToken.Comment: "syntax_comment",
-    PygmentsToken.Operator: "syntax_operator",
-    PygmentsToken.Name.Decorator: "syntax_decorator",
+    PygmentsToken.Keyword: ColorRole.SYNTAX_KEYWORD,
+    PygmentsToken.Name.Builtin: ColorRole.SYNTAX_KEYWORD,
+    PygmentsToken.Name.Function: ColorRole.SYNTAX_FUNCTION,
+    PygmentsToken.Name.Class: ColorRole.SYNTAX_CLASS,
+    PygmentsToken.String: ColorRole.SYNTAX_STRING,
+    PygmentsToken.Number: ColorRole.SYNTAX_NUMBER,
+    PygmentsToken.Comment: ColorRole.SYNTAX_COMMENT,
+    PygmentsToken.Operator: ColorRole.SYNTAX_OPERATOR,
+    PygmentsToken.Name.Decorator: ColorRole.SYNTAX_DECORATOR,
 }
 
 
@@ -46,7 +48,7 @@ def _lexer_for(filename: str) -> Lexer:
 def tokenize(text: str, filename: str) -> list[SyntaxToken]:
     """Tokenize *text* using the Pygments lexer inferred from *filename*.
 
-    Returns spans that map to one of the syntax_* theme roles. Plain-text
+    Returns spans that map to one of the SYNTAX_* theme roles. Plain-text
     regions are omitted (the renderer applies the line's default format).
     """
     if not text:
@@ -69,7 +71,7 @@ def tokenize(text: str, filename: str) -> list[SyntaxToken]:
     return tokens
 
 
-def _resolve_role(tok_type) -> str | None:
+def _resolve_role(tok_type) -> ColorRole | None:
     for key, role in _ROLE_MAP.items():
         if tok_type in key:
             return role
