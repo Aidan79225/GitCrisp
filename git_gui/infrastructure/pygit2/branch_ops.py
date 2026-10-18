@@ -148,8 +148,9 @@ class BranchOps:
         pygit2's ``checkout`` rewrites the index and files first and only then
         moves HEAD, which libgit2 refuses for a branch another worktree holds,
         so without this the failed checkout leaves that branch's tree staged
-        on the current one. The wording matches git's own refusal, which is
-        what ``SmartCheckout`` recognises to offer the owning worktree instead.
+        on the current one. The wording matches git's own refusal. The window's
+        checkout flow looks the branch's worktree up before calling this and
+        offers to switch to it, so this error only reaches a caller that did not.
         """
         if not ref.is_checked_out() or ref.is_head():
             return
