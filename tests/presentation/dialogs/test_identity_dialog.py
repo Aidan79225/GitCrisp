@@ -4,17 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QMessageBox, QWidget
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QMessageBox, QWidget
 
 from git_gui.presentation.dialogs.identity_dialog import IdentityDialog, ensure_identity
 
 
-def _app():
-    return QApplication.instance() or QApplication([])
-
-
 def test_initial_empty_disables_ok(qtbot):
-    _app()
     dlg = IdentityDialog(None, None)
     qtbot.addWidget(dlg)
     ok_btn = dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.Ok)
@@ -22,7 +17,6 @@ def test_initial_empty_disables_ok(qtbot):
 
 
 def test_filling_both_fields_enables_ok(qtbot):
-    _app()
     dlg = IdentityDialog(None, None)
     qtbot.addWidget(dlg)
     ok_btn = dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.Ok)
@@ -32,7 +26,6 @@ def test_filling_both_fields_enables_ok(qtbot):
 
 
 def test_partial_initial_prefills_existing_field(qtbot):
-    _app()
     dlg = IdentityDialog("Alice", None)
     qtbot.addWidget(dlg)
     assert dlg._name_edit.text() == "Alice"
@@ -40,7 +33,6 @@ def test_partial_initial_prefills_existing_field(qtbot):
 
 
 def test_values_returns_trimmed_text_and_global_flag(qtbot):
-    _app()
     dlg = IdentityDialog(None, None)
     qtbot.addWidget(dlg)
     dlg._name_edit.setText("  Alice  ")
@@ -53,7 +45,6 @@ def test_values_returns_trimmed_text_and_global_flag(qtbot):
 
 
 def test_global_checkbox_defaults_off(qtbot):
-    _app()
     dlg = IdentityDialog(None, None)
     qtbot.addWidget(dlg)
     assert dlg._global_check.isChecked() is False
@@ -67,7 +58,6 @@ def _make_buses(identity: tuple[str | None, str | None]):
 
 
 def test_ensure_identity_returns_true_when_already_set(qtbot):
-    _app()
     parent = QWidget()
     qtbot.addWidget(parent)
     queries, commands = _make_buses(("Alice", "alice@example.com"))
@@ -78,7 +68,6 @@ def test_ensure_identity_returns_true_when_already_set(qtbot):
 
 
 def test_ensure_identity_saves_when_user_confirms(qtbot):
-    _app()
     parent = QWidget()
     qtbot.addWidget(parent)
     queries, commands = _make_buses((None, None))
@@ -94,7 +83,6 @@ def test_ensure_identity_saves_when_user_confirms(qtbot):
 
 
 def test_ensure_identity_returns_false_when_user_cancels(qtbot):
-    _app()
     parent = QWidget()
     qtbot.addWidget(parent)
     queries, commands = _make_buses((None, None))
@@ -109,7 +97,6 @@ def test_ensure_identity_returns_false_when_user_cancels(qtbot):
 
 
 def test_ensure_identity_returns_false_when_save_fails(qtbot):
-    _app()
     parent = QWidget()
     qtbot.addWidget(parent)
     queries, commands = _make_buses((None, None))
@@ -128,7 +115,6 @@ def test_ensure_identity_returns_false_when_save_fails(qtbot):
 
 
 def test_ensure_identity_tells_the_user_why_saving_failed(qtbot):
-    _app()
     parent = QWidget()
     qtbot.addWidget(parent)
     queries, commands = _make_buses((None, None))
