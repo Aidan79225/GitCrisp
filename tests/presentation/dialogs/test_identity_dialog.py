@@ -135,7 +135,6 @@ def test_ensure_identity_tells_the_user_why_saving_failed(qtbot):
 
 
 def test_a_caller_can_report_a_failed_save_its_own_way(qtbot):
-    _app()
     parent = QWidget()
     qtbot.addWidget(parent)
     queries, commands = _make_buses((None, None))
