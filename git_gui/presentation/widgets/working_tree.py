@@ -445,24 +445,26 @@ class WorkingTreeWidget(QWidget):
         # Every path below creates a commit, so identity is required.
         if not self._ensure_identity():
             return
+        if state in _OPERATIONS_IN_PROGRESS:
+            self._continue_operation(state, msg)
+        elif self._create_or_amend(msg):
+            self._reset_after_commit(msg)
 
-        if state == "MERGING":
+    def _continue_operation(self, state: str, msg: str) -> None:
+        if state == RepoState.MERGING:
             self.merge_continue_requested.emit(msg)
-            return
-        if state == "REBASING":
+        elif state == RepoState.REBASING:
             self.rebase_continue_requested.emit(msg)
-            return
-        if state == "CHERRY_PICKING":
+        elif state == RepoState.CHERRY_PICKING:
             self.cherry_pick_continue_requested.emit()
-            return
-        if state == "REVERTING":
+        elif state == RepoState.REVERTING:
             self.revert_continue_requested.emit()
-            return
 
+    def _create_or_amend(self, msg: str) -> bool:
+        """Commit *msg*, amending HEAD when Amend is ticked; False if nothing was committed."""
         amending = self._chk_amend.isChecked()
         if amending and not self._confirm_amend_published():
-            return
-
+            return False
         try:
             if amending:
                 self._commands.amend_commit.execute(msg)
@@ -471,13 +473,15 @@ class WorkingTreeWidget(QWidget):
         except Exception as e:
             verb = "Amend" if amending else "Commit"
             self.commit_failed.emit(f"{verb} failed: {e}")
-            return
+            return False
+        return True
 
-        first_line = msg.split("\n")[0]
+    def _reset_after_commit(self, msg: str) -> None:
+        """Clear the editor for the next commit, and announce this one."""
         self._draft_msg = ""
         self._msg_edit.clear()
         self._untick_amend()
-        self.commit_completed.emit(first_line)
+        self.commit_completed.emit(msg.split("\n")[0])
         self.reload_requested.emit()
         self.reload()
 
