@@ -60,15 +60,12 @@ class ThemeManager(QObject):
         data.update(other_settings, theme_mode=mode)
         save_settings(data)
         self._mode = mode
-        self._refresh(force=True)
+        self._refresh()
 
-    def _refresh(self, force: bool = False) -> None:
-        new_theme = self._resolve_theme()
-        if new_theme is self._current and not force:
-            return
-        self._current = new_theme
+    def _refresh(self) -> None:
+        self._current = self._resolve_theme()
         self._apply()
-        self.theme_changed.emit(new_theme)
+        self.theme_changed.emit(self._current)
 
     def _apply(self) -> None:
         self._app.setStyleSheet(render(self._current))
