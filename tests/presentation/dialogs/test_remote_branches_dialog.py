@@ -1,6 +1,7 @@
 import threading
 from unittest.mock import MagicMock, patch
 
+import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 
@@ -257,3 +258,30 @@ def test_the_result_box_details_keep_every_failure_in_full(qtbot):
     details = box.detailedText()
     assert all(f"origin/feature-{i:02}" in details for i in range(30))
     assert "and the repository exists." in details
+
+
+def _make_with_failing_query(qtbot, query: str):
+    """Open the dialog with *query* raising, and return it with the warnings it showed."""
+    queries = MagicMock()
+    queries.get_branches.execute.return_value = [Branch("origin/main", True, False, "a")]
+    queries.remote_default_branches.execute.return_value = {}
+    queries.list_remotes.execute.return_value = [Remote("origin", "../up", "../up")]
+    getattr(queries, query).execute.side_effect = RuntimeError("config is unreadable")
+    with patch.object(QMessageBox, "warning") as warning:
+        dlg = RemoteBranchesDialog(queries, MagicMock())
+    qtbot.addWidget(dlg)
+    return dlg, warning
+
+
+@pytest.mark.parametrize("query", ["remote_default_branches", "list_remotes"])
+def test_a_remote_query_that_fails_is_reported(qtbot, query):
+    _, warning = _make_with_failing_query(qtbot, query)
+    warning.assert_called_once()
+    assert "config is unreadable" in warning.call_args.args[2]
+
+
+@pytest.mark.parametrize("query", ["remote_default_branches", "list_remotes"])
+def test_delete_stays_off_while_the_remotes_are_unknown(qtbot, query):
+    dlg, _ = _make_with_failing_query(qtbot, query)
+    dlg._select_all_visible()
+    assert dlg._delete_btn.isEnabled() is False
