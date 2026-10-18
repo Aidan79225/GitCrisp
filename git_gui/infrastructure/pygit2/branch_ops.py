@@ -56,6 +56,10 @@ class BranchOps:
             except Exception as e:
                 logger.warning("Skipping unresolvable remote branch %r: %s", name, e)
                 continue
+            # `origin/HEAD` names the remote's default branch rather than being
+            # one; remote_default_branches() reports it.
+            if ref.type == pygit2.enums.ReferenceType.SYMBOLIC:
+                continue
             branches.append(
                 Branch(
                     name=name,
@@ -133,7 +137,23 @@ class BranchOps:
     def checkout(self, branch: str) -> None:
         self._refresh_index()
         ref = self._repo.branches.local[branch]
+        self._refuse_branch_held_by_another_worktree(ref)
         self._repo.checkout(ref)
+
+    def _refuse_branch_held_by_another_worktree(self, ref: pygit2.Branch) -> None:
+        """Raise before touching the tree if another worktree has *ref* checked out.
+
+        pygit2's ``checkout`` rewrites the index and files first and only then
+        moves HEAD, which libgit2 refuses for a branch another worktree holds,
+        so without this the failed checkout leaves that branch's tree staged
+        on the current one. The wording matches git's own refusal, which is
+        what ``SmartCheckout`` recognises to offer the owning worktree instead.
+        """
+        if not ref.is_checked_out() or ref.is_head():
+            return
+        owner = self.find_worktree_for_branch(ref.branch_name)
+        location = f"worktree at '{owner.path}'" if owner else "another worktree"
+        raise RuntimeError(f"'{ref.branch_name}' is already used by {location}")
 
     def checkout_commit(self, oid: str) -> None:
         self._refresh_index()
@@ -148,8 +168,15 @@ class BranchOps:
         local_name = parts[1] if len(parts) > 1 else remote_branch
         remote_ref = self._repo.branches.remote[remote_branch]
         local_ref = self._repo.branches.local.create(local_name, self._repo.get(remote_ref.target))
-        local_ref.upstream = remote_ref
-        self._repo.checkout(local_ref)
+        try:
+            local_ref.upstream = remote_ref
+            self._repo.checkout(local_ref)
+        except Exception:
+            # A checkout refused over uncommitted changes must not leave behind
+            # a branch the user never got onto: retrying would then find it and
+            # offer to reset "their" branch.
+            local_ref.delete()
+            raise
 
     def delete_branch(self, name: str) -> None:
         self._repo.branches.local[name].delete()

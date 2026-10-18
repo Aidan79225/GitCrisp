@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pygit2
@@ -50,3 +51,105 @@ def test_get_branches_skips_unresolvable_remote_refs(repo_with_dangling_remote_r
     # The resolvable local branch is still returned — the bad remote refs are
     # skipped rather than aborting the whole enumeration.
     assert "master" in names
+
+
+# ── checkout of a branch held by another worktree ───────────────────────────
+
+
+def _git(cwd, *args) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout
+
+
+@pytest.fixture
+def repo_with_feat_in_a_linked_worktree(tmp_path):
+    """Main worktree on a clean ``master``; ``feat`` is checked out in a
+    linked worktree and differs from master in a.txt and only_feat.txt."""
+    main = tmp_path / "main"
+    main.mkdir()
+    _git(main, "init", "-q", "-b", "master")
+    _git(main, "config", "user.email", "t@t")
+    _git(main, "config", "user.name", "t")
+    (main / "a.txt").write_text("master\n")
+    _git(main, "add", ".")
+    _git(main, "commit", "-q", "-m", "init")
+    wt = tmp_path / "wt"
+    _git(main, "worktree", "add", "-q", "-b", "feat", str(wt))
+    (wt / "a.txt").write_text("feat\n")
+    (wt / "only_feat.txt").write_text("feat\n")
+    _git(wt, "add", ".")
+    _git(wt, "commit", "-q", "-m", "feat work")
+    return main
+
+
+def test_checkout_of_a_branch_held_by_another_worktree_leaves_the_tree_alone(
+    repo_with_feat_in_a_linked_worktree,
+):
+    main = repo_with_feat_in_a_linked_worktree
+    impl = Pygit2Repository(str(main))
+
+    with pytest.raises(RuntimeError, match="already used by worktree at"):
+        impl.checkout("feat")
+
+    assert _git(main, "status", "--porcelain") == ""
+    assert (main / "a.txt").read_text() == "master\n"
+    assert _git(main, "symbolic-ref", "HEAD").strip() == "refs/heads/master"
+
+
+def test_checkout_of_the_current_branch_still_succeeds(repo_with_feat_in_a_linked_worktree):
+    impl = Pygit2Repository(str(repo_with_feat_in_a_linked_worktree))
+
+    impl.checkout("master")
+
+    assert impl.repo_state().head_branch == "master"
+
+
+# ── remote branches of a clone ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def clone_with_a_feature_branch(tmp_path):
+    """A clone, so it has the ``origin/HEAD`` symref, of a repo whose
+    ``feature`` branch changes f.txt."""
+    src = tmp_path / "src"
+    src.mkdir()
+    _git(src, "init", "-q", "-b", "master")
+    _git(src, "config", "user.email", "t@t")
+    _git(src, "config", "user.name", "t")
+    (src / "f.txt").write_text("master\n")
+    _git(src, "add", ".")
+    _git(src, "commit", "-q", "-m", "init")
+    _git(src, "checkout", "-q", "-b", "feature")
+    (src / "f.txt").write_text("feature\n")
+    _git(src, "commit", "-q", "-am", "feature work")
+    _git(src, "checkout", "-q", "master")
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", str(src), str(clone))
+    return clone
+
+
+def test_get_branches_leaves_out_the_remote_head_symref(clone_with_a_feature_branch):
+    branches = Pygit2Repository(str(clone_with_a_feature_branch)).get_branches()
+
+    assert sorted(b.name for b in branches if b.is_remote) == ["origin/feature", "origin/master"]
+
+
+def test_a_refused_remote_checkout_leaves_no_local_branch_behind(clone_with_a_feature_branch):
+    clone = clone_with_a_feature_branch
+    (clone / "f.txt").write_text("uncommitted edit\n")
+    impl = Pygit2Repository(str(clone))
+
+    with pytest.raises(pygit2.GitError):
+        impl.checkout_remote_branch("origin/feature")
+
+    assert _git(clone, "branch", "--list", "feature") == ""
+
+
+def test_remote_checkout_switches_to_a_local_branch_tracking_it(clone_with_a_feature_branch):
+    clone = clone_with_a_feature_branch
+
+    Pygit2Repository(str(clone)).checkout_remote_branch("origin/feature")
+
+    assert _git(clone, "rev-parse", "--abbrev-ref", "HEAD@{upstream}").strip() == "origin/feature"
+    assert _git(clone, "symbolic-ref", "--short", "HEAD").strip() == "feature"
