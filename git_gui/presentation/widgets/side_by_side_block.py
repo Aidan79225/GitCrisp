@@ -37,16 +37,12 @@ from git_gui.presentation.widgets.diff_block import (
     make_diff_formats,
     make_hunk_header_row,
     make_syntax_formats,
+    render_in_chunks,
 )
 from git_gui.presentation.widgets.side_by_side import Row, align_hunk
 
 LEFT = 0
 RIGHT = 1
-
-# Rows per slice of a long hunk. The unified renderer uses the same figure:
-# enough that ordinary hunks land in one pass, small enough that a generated
-# file does not freeze the window while it renders.
-_CHUNK_SIZE = 100
 
 # The two panes are separated by a gap rather than a line: a border here would
 # read as part of the code, and the changed backgrounds already divide them.
@@ -143,37 +139,13 @@ def render_side(
         return 0
 
     filler = make_filler_format()
-    total = len(rows)
 
     def render_range(start: int, end: int) -> None:
         for index in range(start, end):
             _render_row(cursor, rows[index], side, formats, filler, syntax_formats, filename)
 
-    render_range(0, min(_CHUNK_SIZE, total))
-    if total <= _CHUNK_SIZE:
-        return total
-
-    from PySide6.QtCore import QTimer
-
-    # Tied to the document, as the unified renderer is: when the block is torn
-    # down mid-render the document goes with it and Qt drops the pending call,
-    # rather than the callback reaching a dangling pointer.
-    document = cursor.document()
-    state = {"start": _CHUNK_SIZE}
-
-    def next_chunk() -> None:
-        try:
-            start = state["start"]
-            end = min(start + _CHUNK_SIZE, total)
-            render_range(start, end)
-            state["start"] = end
-            if end < total:
-                QTimer.singleShot(0, document, next_chunk)
-        except RuntimeError:
-            pass
-
-    QTimer.singleShot(0, document, next_chunk)
-    return total
+    render_in_chunks(cursor.document(), len(rows), render_range)
+    return len(rows)
 
 
 def add_side_by_side_hunk_widget(
