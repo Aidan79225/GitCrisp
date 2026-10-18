@@ -171,3 +171,18 @@ def _no_sentry_dsn(monkeypatch):
     baked_config = obs._get_baked_config
     monkeypatch.setattr(obs, "_get_baked_config", lambda: (None, baked_config()[1]))
     monkeypatch.delenv("GITCRISP_SENTRY_DSN", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_update_check(monkeypatch):
+    """Keep every window from asking GitHub for the latest release.
+
+    With the release tag baked in, ``MainWindow.__init__`` starts the update
+    check, so each window a test built sent an unauthenticated request to the
+    releases API from every release runner. Only the request is cut: the
+    preference and the version stay real for the tests that read them. The
+    checker's own tests override this fixture.
+    """
+    from git_gui.presentation.services.update_checker import UpdateChecker
+
+    monkeypatch.setattr(UpdateChecker, "check", lambda self: None)
