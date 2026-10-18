@@ -111,6 +111,12 @@ class MainWindow(
         self._working_tree.commit_failed.connect(
             lambda reason: (self._log_panel.expand(), self._log_panel.log_error(reason))
         )
+        self._graph.setting_save_failed.connect(
+            lambda reason: (
+                self._log_panel.expand(),
+                self._log_panel.log_error(f"Could not save the first-parent setting: {reason}"),
+            )
+        )
         self._sidebar.branch_clicked.connect(self._graph.reload_with_extra_tip)
 
         # Sidebar tag signals
