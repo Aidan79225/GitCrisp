@@ -24,6 +24,7 @@ from git_gui.domain.entities import (
     WORKING_TREE_OID,
     Branch,
     Commit,
+    RepoState,
     ResetMode,
     Tag,
     split_remote_branch,
@@ -764,14 +765,14 @@ class GraphWidget(QWidget):
         # The synthetic "Uncommitted Changes" row is anchored to HEAD's parents,
         # which say nothing about a path-filtered listing — skip it there.
         if is_dirty and path_filter is None:
-            state_name = repo_state_info.state.name if repo_state_info else "CLEAN"
-            if state_name == "MERGING":
+            state = repo_state_info.state if repo_state_info else RepoState.CLEAN
+            if state is RepoState.MERGING:
                 message = "Merge in progress (conflicts)"
                 # The walk does not push MERGE_HEAD. A parent that never
                 # arrives as a row would hold its lane open to the bottom.
                 merge_head_loaded = any(c.oid == merge_head for c in commits)
                 parents = [head_oid, merge_head] if merge_head_loaded else [head_oid]
-            elif state_name == "REBASING":
+            elif state is RepoState.REBASING:
                 message = "Rebase in progress"
                 parents = [head_oid] if head_oid else []
             else:
@@ -1121,14 +1122,14 @@ class GraphWidget(QWidget):
             return
 
         head_branch = state_info.head_branch
-        state_name = state_info.state.name
+        state = state_info.state
 
         # Determine global disable reason (applies to every action)
         global_disable_reason: str | None = None
-        if state_name == "DETACHED_HEAD":
+        if state is RepoState.DETACHED_HEAD:
             global_disable_reason = "HEAD is detached — checkout a branch first"
-        elif state_name != "CLEAN":
-            global_disable_reason = f"Repository is in {state_name} — resolve or abort first"
+        elif state is not RepoState.CLEAN:
+            global_disable_reason = f"Repository is in {state.name} — resolve or abort first"
 
         branch_targets = [b for b in branches_on_commit if b != head_branch]
 
