@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pygit2
 
-from git_gui.domain.entities import MergeAnalysisResult, MergeStrategy
+from git_gui.domain.entities import MergeAnalysisResult, MergeStrategy, RebaseTodoEntry
 from git_gui.infrastructure.git_process import run_git
 from git_gui.infrastructure.pygit2.repo_state_ops import REBASE_STATES
 
@@ -167,11 +167,8 @@ class MergeRebaseOps:
         if result.returncode != 0:
             raise RuntimeError(_failure_message(result))
 
-    def interactive_rebase(self, target_oid: str, entries: list[tuple[str, str]]) -> None:
-        """Run git rebase -i with a pre-built todo file.
-
-        *entries* is a list of (action, oid) tuples in replay order.
-        Actions: "pick", "squash", "fixup", "drop".
+    def interactive_rebase(self, target_oid: str, entries: list[RebaseTodoEntry]) -> None:
+        """Run git rebase -i with *entries*, in replay order, as its todo list.
 
         The todo file replaces the list git computes, so git replays exactly
         *entries* onto *target_oid*, whatever range it would have picked. That

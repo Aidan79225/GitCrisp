@@ -8,7 +8,7 @@ import tempfile
 
 import pytest
 
-from git_gui.domain.entities import MergeStrategy, RepoState
+from git_gui.domain.entities import MergeStrategy, RebaseAction, RebaseTodoEntry, RepoState
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
@@ -171,3 +171,22 @@ def test_rebase_editor_files_are_removed_afterwards(conflicting_branches, tmp_pa
     impl.rebase_continue("resolved it")
 
     assert list(temp.iterdir()) == []
+
+
+def test_interactive_rebase_replays_todo_entries_built_from_rebase_actions(repo):
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    first = _commit_file(repo, "b.txt", "b\n", "first")
+    folded = _commit_file(repo, "c.txt", "c\n", "fold me in")
+    dropped = _commit_file(repo, "d.txt", "d\n", "drop me")
+
+    Pygit2Repository(str(repo)).interactive_rebase(
+        base,
+        [
+            RebaseTodoEntry(RebaseAction.PICK, first),
+            RebaseTodoEntry(RebaseAction.FIXUP, folded),
+            RebaseTodoEntry(RebaseAction.DROP, dropped),
+        ],
+    )
+
+    assert _subjects(repo) == ["first", "base"]
+    assert _git(repo, "ls-files").split() == ["a.txt", "b.txt", "c.txt"]
