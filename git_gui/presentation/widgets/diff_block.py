@@ -139,16 +139,16 @@ class SyntaxFormats:
     removed_word_overlay: QTextCharFormat
 
 
-# Maps the syntax_highlighter SyntaxToken.kind string → a SyntaxFormats attribute name.
+# Maps a SyntaxToken.kind role to the SyntaxFormats attribute that draws it.
 _KIND_TO_ATTR = {
-    "syntax_keyword": "keyword",
-    "syntax_function": "function",
-    "syntax_class": "class_",
-    "syntax_string": "string",
-    "syntax_number": "number",
-    "syntax_comment": "comment",
-    "syntax_operator": "operator",
-    "syntax_decorator": "decorator",
+    ColorRole.SYNTAX_KEYWORD: "keyword",
+    ColorRole.SYNTAX_FUNCTION: "function",
+    ColorRole.SYNTAX_CLASS: "class_",
+    ColorRole.SYNTAX_STRING: "string",
+    ColorRole.SYNTAX_NUMBER: "number",
+    ColorRole.SYNTAX_COMMENT: "comment",
+    ColorRole.SYNTAX_OPERATOR: "operator",
+    ColorRole.SYNTAX_DECORATOR: "decorator",
 }
 
 
@@ -257,27 +257,27 @@ def make_syntax_formats() -> SyntaxFormats:
     """Build a SyntaxFormats dataclass from the active theme's palette."""
     c = get_theme_manager().current.colors
 
-    def _fg(role: str) -> QTextCharFormat:
+    def _fg(role: ColorRole) -> QTextCharFormat:
         f = QTextCharFormat()
         f.setForeground(c.as_qcolor(role))
         return f
 
-    def _bg(role: str) -> QTextCharFormat:
+    def _bg(role: ColorRole) -> QTextCharFormat:
         f = QTextCharFormat()
         f.setBackground(c.as_qcolor(role))
         return f
 
     return SyntaxFormats(
-        keyword=_fg("syntax_keyword"),
-        function=_fg("syntax_function"),
-        class_=_fg("syntax_class"),
-        string=_fg("syntax_string"),
-        number=_fg("syntax_number"),
-        comment=_fg("syntax_comment"),
-        operator=_fg("syntax_operator"),
-        decorator=_fg("syntax_decorator"),
-        added_word_overlay=_bg("diff_added_word_overlay"),
-        removed_word_overlay=_bg("diff_removed_word_overlay"),
+        keyword=_fg(ColorRole.SYNTAX_KEYWORD),
+        function=_fg(ColorRole.SYNTAX_FUNCTION),
+        class_=_fg(ColorRole.SYNTAX_CLASS),
+        string=_fg(ColorRole.SYNTAX_STRING),
+        number=_fg(ColorRole.SYNTAX_NUMBER),
+        comment=_fg(ColorRole.SYNTAX_COMMENT),
+        operator=_fg(ColorRole.SYNTAX_OPERATOR),
+        decorator=_fg(ColorRole.SYNTAX_DECORATOR),
+        added_word_overlay=_bg(ColorRole.DIFF_ADDED_WORD_OVERLAY),
+        removed_word_overlay=_bg(ColorRole.DIFF_REMOVED_WORD_OVERLAY),
     )
 
 
