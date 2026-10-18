@@ -190,3 +190,19 @@ def test_closing_the_owner_of_the_worktree_you_are_in_moves_you_on(qtbot, tmp_pa
 
     assert win._repo_path == b
     assert win._repo_store.get_active() == b
+
+
+def test_closing_the_repo_on_its_way_to_replace_a_closed_one_moves_on(qtbot, tmp_path, repos):
+    """The repo on screen is already closed, so it is no place to stay."""
+    a, b, c = repos
+    win = _window_on(qtbot, tmp_path, repos, active=a)
+    held = _hold_session(win, b)
+    win._on_repo_close(a)  # b is on its way to replace it
+
+    win._on_repo_close(b)
+    qtbot.waitUntil(lambda: win._repo_path == c, timeout=5000)
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        held.release.set()
+
+    assert win._repo_path == c
+    assert win._repo_store.get_active() == c
