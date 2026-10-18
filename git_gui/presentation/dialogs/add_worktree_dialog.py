@@ -43,9 +43,13 @@ def _location_problem(location: str) -> str | None:
     if not path.is_absolute():
         # git would resolve it against the app's working directory.
         return "Location must be an absolute path."
-    if path.exists() and not _is_empty_folder(path):
-        # git worktree add accepts an empty folder, the only kind Browse… returns.
-        return "This location already exists and is not an empty folder."
+    try:
+        if path.exists() and not _is_empty_folder(path):
+            # git worktree add accepts an empty folder, the only kind Browse… returns.
+            return "This location already exists and is not an empty folder."
+    except OSError:
+        # exists() re-raises EACCES, e.g. under a folder the user cannot search.
+        return "This location cannot be accessed."
     return None
 
 
