@@ -18,19 +18,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import ThemeMode, get_theme_manager
 from git_gui.presentation.theme import settings as _settings
 from git_gui.presentation.theme.loader import load_builtin
 from git_gui.presentation.theme.tokens import Theme
 from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
-
-_MODES: list[tuple[str, str]] = [
-    ("system", "System"),
-    ("dark", "Dark"),
-    ("light", "Light"),
-    ("custom", "Custom"),
-]
-
 
 _GROUPS: list[tuple[str, list[str]]] = [
     (
@@ -162,10 +154,10 @@ class ThemeDialog(QDialog):
         mode_layout = QHBoxLayout(mode_group)
         self._mode_buttons = QButtonGroup(self)
         self._mode_buttons.setExclusive(True)
-        for mode, label in _MODES:
-            radio = QRadioButton(label)
+        for mode in ThemeMode:
+            radio = QRadioButton(mode.value.title())
             radio.setProperty("mode", mode)
-            radio.setChecked(self._mgr.mode == mode)
+            radio.setChecked(self._mgr.mode is mode)
             self._mode_buttons.addButton(radio)
             mode_layout.addWidget(radio)
             radio.toggled.connect(self._on_mode_radio_toggled)
@@ -199,15 +191,15 @@ class ThemeDialog(QDialog):
 
         self._maybe_load_existing_custom_theme()
 
-    def _selected_mode(self) -> str:
+    def _selected_mode(self) -> ThemeMode:
         for radio in self._mode_buttons.buttons():
             if radio.isChecked():
-                return radio.property("mode")
+                return ThemeMode(radio.property("mode"))
         return self._mgr.mode
 
     def _on_mode_radio_toggled(self, _checked: bool) -> None:
         mode = self._selected_mode()
-        if mode == self._base_theme_mode or mode == "custom":
+        if mode is self._base_theme_mode or mode is ThemeMode.CUSTOM:
             return
         self._base_theme_mode = mode
         self._base_theme = self._mgr.theme_for_mode(mode)
@@ -334,7 +326,7 @@ class ThemeDialog(QDialog):
         )
 
     def _open_picker(self, token: str) -> None:
-        if self._selected_mode() != "custom":
+        if self._selected_mode() is not ThemeMode.CUSTOM:
             return
         from PySide6.QtWidgets import QColorDialog
 
@@ -353,7 +345,7 @@ class ThemeDialog(QDialog):
             self._apply_swatch_color(token, new_hex)
 
     def _open_lane_picker(self, idx: int) -> None:
-        if self._selected_mode() != "custom":
+        if self._selected_mode() is not ThemeMode.CUSTOM:
             return
         from PySide6.QtWidgets import QColorDialog
 
@@ -377,7 +369,7 @@ class ThemeDialog(QDialog):
         mode = self._selected_mode()
         # The custom file goes first, so a failure there leaves the saved
         # scale and mode as they were, matching what is still on screen.
-        if mode == "custom":
+        if mode is ThemeMode.CUSTOM:
             self._write_custom_theme()
         self._mgr.set_appearance(mode, self._typo_slider.value() / 100.0)
         self._save_avatar_setting()
@@ -395,7 +387,7 @@ class ThemeDialog(QDialog):
         self.reject()
 
     def _on_reset(self) -> None:
-        if self._selected_mode() != "custom":
+        if self._selected_mode() is not ThemeMode.CUSTOM:
             return
         self._reset_to_base_state()
         self._show_working_colors()
