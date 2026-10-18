@@ -57,3 +57,18 @@ def test_theme_settings_land_in_the_fake_home(_isolated_gitcrisp_home):
 
     assert _isolated_gitcrisp_home in settings_path().parents
     assert _isolated_gitcrisp_home in custom_theme_path().parents
+
+
+def test_the_checkbox_tick_lands_in_the_fake_home(_isolated_gitcrisp_home):
+    """Qt resolves CacheLocation by itself, and every ThemeManager writes the
+    tinted tick there at startup, so each run left icons in the real cache."""
+    import re
+
+    from git_gui.presentation.theme.loader import load_builtin
+    from git_gui.presentation.theme.qss_template import render
+
+    qss = render(load_builtin("light"))
+    match = re.search(r"QCheckBox::indicator:checked \{[^}]*image: url\(([^)]+)\)", qss)
+
+    assert match
+    assert _isolated_gitcrisp_home in Path(match.group(1)).parents
