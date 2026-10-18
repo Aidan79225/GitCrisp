@@ -7,36 +7,26 @@ than a race.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtCore import Qt
 
 from git_gui.domain.entities import Branch
-from git_gui.presentation.widgets import sidebar as sidebar_module
 from git_gui.presentation.widgets.sidebar import SidebarWidget
 
 
 @pytest.fixture
-def held_workers(monkeypatch) -> list:
+def held_workers() -> list:
     """Worker targets the sidebar started, in start order, not yet run."""
-    held: list = []
-
-    class _HeldThread:
-        def __init__(self, target, daemon=False) -> None:
-            self._target = target
-
-        def start(self) -> None:
-            held.append(self._target)
-
-    monkeypatch.setattr(sidebar_module, "threading", SimpleNamespace(Thread=_HeldThread))
-    return held
+    return []
 
 
 @pytest.fixture
-def sidebar(qtbot):
-    sb = SidebarWidget(queries=MagicMock(), commands=MagicMock())
+def sidebar(qtbot, held_workers):
+    sb = SidebarWidget(
+        queries=MagicMock(), commands=MagicMock(), run_in_background=held_workers.append
+    )
     qtbot.addWidget(sb)
     return sb
 
