@@ -11,22 +11,6 @@ alone.
 from __future__ import annotations
 
 import pygit2
-import pytest
-from pygit2.enums import ConfigLevel
-
-
-@pytest.fixture
-def global_default_branch_main(tmp_path_factory):
-    """A global git config naming ``main`` as the default branch."""
-    config_dir = tmp_path_factory.mktemp("global-git-config")
-    (config_dir / ".gitconfig").write_text("[init]\n\tdefaultBranch = main\n", encoding="utf-8")
-    search_path = pygit2.settings.search_path
-    original = search_path[ConfigLevel.GLOBAL]
-    search_path[ConfigLevel.GLOBAL] = str(config_dir)
-    try:
-        yield
-    finally:
-        search_path[ConfigLevel.GLOBAL] = original
 
 
 def test_repo_path_commit_is_on_head_whatever_the_default_branch(
