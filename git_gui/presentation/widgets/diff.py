@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal, SignalInstance
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.domain.entities import Branch, Commit
+from git_gui.domain.entities import Branch, Commit, RepoState
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.theme import connect_widget, get_theme_manager
@@ -39,6 +40,14 @@ from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoad
 logger = logging.getLogger(__name__)
 
 _MESSAGE_MARGIN = 12
+
+
+class _OperationBanner(NamedTuple):
+    """What the state banner says and does while an operation is in progress."""
+
+    label: str
+    abort: SignalInstance
+    resume: SignalInstance | None  # None: the operation cannot be continued from here
 
 
 class _CommitMessageView(QPlainTextEdit):
@@ -113,6 +122,8 @@ class DiffWidget(QWidget):
         # Path the panel is narrowed to while the graph shows a file history.
         self._path_filter: str | None = None
         self._submodule_paths: set[str] = set()
+        self._current_state = RepoState.CLEAN
+        self._banners = self._operation_banners()
 
         # ── State banner (merge/rebase in progress) ─────────────────────────
         self._state_banner = QWidget()
@@ -221,47 +232,43 @@ class DiffWidget(QWidget):
         self._diff_container.setVisible(not empty)
         self._scroll_area.setVisible(not empty)
 
-    def update_state_banner(self, state_name: str) -> None:
-        """Show or hide the merge/rebase state banner."""
-        self._current_state = state_name
-        if state_name == "MERGING":
-            self._banner_label.setText("\u26a0 Merge in progress")
-            self._btn_continue.setVisible(False)
-            self._state_banner.setVisible(True)
-        elif state_name == "REBASING":
-            self._banner_label.setText("\u26a0 Rebase in progress")
-            self._btn_continue.setVisible(True)
-            self._state_banner.setVisible(True)
-        elif state_name == "CHERRY_PICKING":
-            self._banner_label.setText("\u26a0 Cherry-pick in progress")
-            self._btn_continue.setVisible(True)
-            self._state_banner.setVisible(True)
-        elif state_name == "REVERTING":
-            self._banner_label.setText("\u26a0 Revert in progress")
-            self._btn_continue.setVisible(True)
-            self._state_banner.setVisible(True)
-        else:
-            self._state_banner.setVisible(False)
+    def _operation_banners(self) -> dict[RepoState, _OperationBanner]:
+        return {
+            RepoState.MERGING: _OperationBanner(
+                "Merge in progress", self.merge_abort_requested, None
+            ),
+            RepoState.REBASING: _OperationBanner(
+                "Rebase in progress", self.rebase_abort_requested, self.rebase_continue_requested
+            ),
+            RepoState.CHERRY_PICKING: _OperationBanner(
+                "Cherry-pick in progress",
+                self.cherry_pick_abort_requested,
+                self.cherry_pick_continue_requested,
+            ),
+            RepoState.REVERTING: _OperationBanner(
+                "Revert in progress", self.revert_abort_requested, self.revert_continue_requested
+            ),
+        }
+
+    def update_state_banner(self, state: RepoState) -> None:
+        """Show the banner for a merge, rebase, cherry-pick or revert in progress."""
+        self._current_state = state
+        banner = self._banners.get(state)
+        self._state_banner.setVisible(banner is not None)
+        if banner is None:
+            return
+        self._banner_label.setText(f"⚠ {banner.label}")
+        self._btn_continue.setVisible(banner.resume is not None)
 
     def _on_banner_abort(self) -> None:
-        state = getattr(self, "_current_state", "CLEAN")
-        if state == "MERGING":
-            self.merge_abort_requested.emit()
-        elif state == "REBASING":
-            self.rebase_abort_requested.emit()
-        elif state == "CHERRY_PICKING":
-            self.cherry_pick_abort_requested.emit()
-        elif state == "REVERTING":
-            self.revert_abort_requested.emit()
+        banner = self._banners.get(self._current_state)
+        if banner is not None:
+            banner.abort.emit()
 
     def _on_banner_continue(self) -> None:
-        state = getattr(self, "_current_state", "CLEAN")
-        if state == "REBASING":
-            self.rebase_continue_requested.emit()
-        elif state == "CHERRY_PICKING":
-            self.cherry_pick_continue_requested.emit()
-        elif state == "REVERTING":
-            self.revert_continue_requested.emit()
+        banner = self._banners.get(self._current_state)
+        if banner is not None and banner.resume is not None:
+            banner.resume.emit()
 
     def _on_theme_changed(self) -> None:
         self._formats = make_diff_formats()
@@ -287,7 +294,7 @@ class DiffWidget(QWidget):
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
         self._clear_commit()
-        self.update_state_banner("CLEAN")
+        self.update_state_banner(RepoState.CLEAN)
 
     def _clear_commit(self) -> None:
         self._current_oid = None
