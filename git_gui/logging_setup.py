@@ -21,6 +21,7 @@ from __future__ import annotations
 import faulthandler
 import logging
 import logging.handlers
+import os
 import sys
 import threading
 from pathlib import Path
@@ -43,14 +44,43 @@ class _SharedRotatingFileHandler(logging.handlers.RotatingFileHandler):
     rename a file another process has open. The stock handler then drops the
     record, and every record after it, for as long as the other one runs; a
     log that outgrows its limit loses less than one that goes silent.
+
+    The log is moved aside before the backups are touched. The stock handler
+    shifts and deletes them first and fails only at the last rename, so every
+    record past the limit would push the logs of earlier sessions out.
     """
 
     def doRollover(self) -> None:
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        aside = f"{self.baseFilename}.rolling"
+        if self._moved(self.baseFilename, aside):
+            self._shift_backups()
+            self.rotate(aside, self._backup_name(1))
+        if not self.delay:
+            self.stream = self._open()
+
+    def _moved(self, source: str, dest: str) -> bool:
+        """Move *source* to *dest*, or say it is held open and cannot move."""
         try:
-            super().doRollover()
+            if os.path.exists(dest):
+                os.remove(dest)  # left by a rollover that a crash cut short
+            self.rotate(source, dest)
         except OSError:
-            if self.stream is None:
-                self.stream = self._open()
+            return False
+        return True
+
+    def _shift_backups(self) -> None:
+        """Move each backup one place down, dropping the oldest."""
+        for n in range(self.backupCount - 1, 0, -1):
+            if os.path.exists(self._backup_name(n)):
+                os.replace(self._backup_name(n), self._backup_name(n + 1))
+        if os.path.exists(self._backup_name(1)):
+            os.remove(self._backup_name(1))
+
+    def _backup_name(self, n: int) -> str:
+        return self.rotation_filename(f"{self.baseFilename}.{n}")
 
 
 def _log_uncaught(exc_type, exc_value, exc_traceback) -> None:
