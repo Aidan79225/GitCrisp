@@ -153,3 +153,21 @@ def test_interactive_rebase_drops_a_pick_the_target_already_has(repo):
 
     assert impl.repo_state().state is RepoState.CLEAN
     assert _subjects(repo) == ["F2", "M2", "F1", "base"]
+
+
+def test_rebase_editor_files_are_removed_afterwards(conflicting_branches, tmp_path, monkeypatch):
+    repo = conflicting_branches
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    base = _git(repo, "rev-parse", "HEAD~1").strip()
+    master_change = _git(repo, "rev-parse", "HEAD").strip()
+    feature_change = _git(repo, "rev-parse", "feature").strip()
+    impl = Pygit2Repository(str(repo))
+    impl.interactive_rebase(base, [("pick", feature_change), ("pick", master_change)])
+    (repo / "a.txt").write_text("resolved\n")
+    _git(repo, "add", "a.txt")
+
+    impl.rebase_continue("resolved it")
+
+    assert list(temp.iterdir()) == []
