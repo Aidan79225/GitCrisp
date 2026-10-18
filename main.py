@@ -65,6 +65,22 @@ def _open_session(path: str) -> tuple[QueryBus, CommandBus]:
     return QueryBus.from_reader(repo), CommandBus.from_writer(repo)
 
 
+def _open_startup_session(path: str) -> tuple[QueryBus, CommandBus] | None:
+    """The session to start in, or None when *path* will not open.
+
+    discover_repository, which validated the path, accepts repositories that
+    pygit2 then refuses to open — a reftable or sha256 repo, a config that does
+    not parse. The path stays stored and active, so an error escaping here
+    would stop every launch. It is kept rather than forgotten: a broken config
+    is fixable, and switching to it from the repo list shows the error.
+    """
+    try:
+        return _open_session(path)
+    except pygit2.GitError as e:
+        logging.warning("Cannot open %s at startup: %s", path, e)
+        return None
+
+
 _SUPPRESSED_FRAGMENTS = (
     "Unable to open monitor interface",
     "cached device pixel ratio value was stale",
@@ -130,17 +146,15 @@ def main() -> None:
         repo_store.add_open(repo_path)
         repo_store.save()
 
-    if repo_path:
-        queries, commands = _open_session(repo_path)
-    else:
-        queries, commands = None, None
+    session = _open_startup_session(repo_path) if repo_path else None
+    queries, commands = session or (None, None)
 
     window = MainWindow(
         queries,
         commands,
         repo_store,
         remote_tag_cache,
-        repo_path,
+        repo_path if session else None,
         session_factory=_open_session,
     )
     window.show()
