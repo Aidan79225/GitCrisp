@@ -50,9 +50,18 @@ class FileHistoryCli:
         if shutil.which(self._git) is None:
             raise FileHistoryError(f"`{self._git}` executable not found on PATH")
 
-        args = [self._git, "log", "--format=%H", f"--max-count={skip + limit}"]
-        if follow:
-            args.append("--follow")
+        # `--literal-pathspecs` keeps `[`, `*` and `?` in a file name from
+        # globbing other files into its history.
+        args = [
+            self._git,
+            "--literal-pathspecs",
+            "log",
+            "--format=%H",
+            f"--max-count={skip + limit}",
+            # Explicit either way: a user's `log.follow=true` would otherwise
+            # follow renames even when the caller asked not to.
+            "--follow" if follow else "--no-follow",
+        ]
         # `--` stops git treating a path that looks like a ref as one.
         args += ["--", path]
 
