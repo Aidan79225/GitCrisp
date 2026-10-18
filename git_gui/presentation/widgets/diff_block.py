@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cached_property
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QTextBlockFormat, QTextCharFormat
@@ -36,6 +37,7 @@ class _ClickableLabel(QLabel):
 
 from git_gui.domain.entities import Hunk, LineKind
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets import word_diff
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
 from git_gui.presentation.widgets.side_by_side import parse_hunk_header
 
@@ -267,22 +269,59 @@ def render_hunk_header_line(cursor, hunk: Hunk, formats: DiffFormats) -> None:
 _CHUNK_SIZE = 100
 
 
-def _build_pair_index(lines: list[tuple[str, str]]) -> dict[int, tuple[str, str]]:
-    """Map paired -/+ line indices to (old_content, new_content).
+def _too_long_to_highlight(text: str) -> bool:
+    """Whether colouring *text* would cost more than the colour is worth.
+
+    Both the syntax and the word pass grow with the length of the line, and a
+    minified file is mostly one line tens of thousands of characters long.
+    """
+    return len(text) + 1 > _LONG_LINE_LIMIT
+
+
+def changed_word_spans(
+    old: str, new: str
+) -> tuple[list[word_diff.WordSpan], list[word_diff.WordSpan]] | None:
+    """Word-diff one rewritten line, or None when either side is too long to try.
+
+    The word diff is roughly quadratic in tokens, so a rebuilt minified bundle
+    held the window for seconds while its block rendered.
+    """
+    if _too_long_to_highlight(old) or _too_long_to_highlight(new):
+        return None
+    return word_diff.pair_diff(old, new)
+
+
+@dataclass(frozen=True)
+class _Rewrite:
+    """A removed line and the added line that replaced it.
+
+    Both lines of the pair look it up, so the word diff is worked out for the
+    first and kept for the second.
+    """
+
+    old: str
+    new: str
+
+    @cached_property
+    def spans(self) -> tuple[list[word_diff.WordSpan], list[word_diff.WordSpan]] | None:
+        return changed_word_spans(self.old, self.new)
+
+
+def _build_pair_index(lines: list[tuple[str, str]]) -> dict[int, _Rewrite]:
+    """Map the indices of paired -/+ lines to the rewrite they belong to.
 
     A pair is formed only when a '-' line is immediately followed by a '+' line.
-    Both indices map to the same (old, new) tuple so the renderer can look up
-    either side.
+    Both indices map to the same rewrite so the renderer can look up either
+    side.
     """
-    pairs: dict[int, tuple[str, str]] = {}
+    pairs: dict[int, _Rewrite] = {}
     i = 0
     n = len(lines)
     while i < n - 1:
         if lines[i][0] == LineKind.REMOVED and lines[i + 1][0] == LineKind.ADDED:
-            old = lines[i][1].rstrip("\n")
-            new = lines[i + 1][1].rstrip("\n")
-            pairs[i] = (old, new)
-            pairs[i + 1] = (old, new)
+            rewrite = _Rewrite(lines[i][1].rstrip("\n"), lines[i + 1][1].rstrip("\n"))
+            pairs[i] = rewrite
+            pairs[i + 1] = rewrite
             i += 2
         else:
             i += 1
@@ -306,7 +345,7 @@ def apply_syntax_tokens(
 
     from git_gui.presentation.widgets.syntax_highlighter import tokenize
 
-    if not text or len(text) + 1 > _LONG_LINE_LIMIT:
+    if not text or _too_long_to_highlight(text):
         return
     for tok in tokenize(text, filename):
         attr = _KIND_TO_ATTR.get(tok.kind)
@@ -331,6 +370,20 @@ def apply_word_overlay(document, content_start: int, spans, overlay) -> None:
         ws_cursor.mergeCharFormat(overlay)
 
 
+def _apply_rewrite_overlay(
+    document, content_start: int, origin: str, rewrite: _Rewrite, syntax_formats: SyntaxFormats
+) -> None:
+    """Tint the words of one side of a rewritten line that the other side lacks."""
+    spans = rewrite.spans
+    if spans is None:
+        return
+    old_spans, new_spans = spans
+    if origin == LineKind.REMOVED:
+        apply_word_overlay(document, content_start, old_spans, syntax_formats.removed_word_overlay)
+    else:
+        apply_word_overlay(document, content_start, new_spans, syntax_formats.added_word_overlay)
+
+
 def _render_lines_range(
     cursor,
     hunk,
@@ -348,8 +401,6 @@ def _render_lines_range(
     When *pair_index* is given, also apply a word-level overlay to changed
     spans of paired -/+ lines.
     """
-    from git_gui.presentation.widgets.word_diff import pair_diff
-
     old_line, new_line = parse_hunk_header(hunk.header)
     for origin, _ in hunk.lines[:start]:
         if origin == LineKind.ADDED:
@@ -400,16 +451,10 @@ def _render_lines_range(
         )
 
         # Pass 3 — word-level overlay (only for paired -/+)
-        if idx not in pair_index or origin == LineKind.CONTEXT:
-            continue
-        old_text, new_text = pair_index[idx]
-        old_spans, new_spans = pair_diff(old_text, new_text)
-        spans, overlay = (
-            (old_spans, syntax_formats.removed_word_overlay)
-            if origin == LineKind.REMOVED
-            else (new_spans, syntax_formats.added_word_overlay)
-        )
-        apply_word_overlay(cursor.document(), content_doc_start, spans, overlay)
+        if idx in pair_index:
+            _apply_rewrite_overlay(
+                cursor.document(), content_doc_start, origin, pair_index[idx], syntax_formats
+            )
 
 
 def render_hunk_content_lines(
