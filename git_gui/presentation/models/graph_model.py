@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 
-from git_gui.domain.entities import Commit
+from git_gui.domain.entities import WORKING_TREE_OID, Commit
 
 # One column per commit: the lane graph and the commit info share a cell so the
 # info can be indented per row rather than by the widest row in the history.
@@ -45,10 +45,15 @@ class LaneData:
 class CommitInfo:
     author: str
     timestamp: str  # pre-formatted "YYYY-MM-DD HH:MM"
-    short_oid: str  # commit.oid[:8]
+    short_oid: str  # commit.oid[:8], or "" for the working-tree row
     branch_names: list[str]
     head_branch: str | None  # name of the HEAD branch (green badge), None if detached
     message: str  # first line of commit message only
+
+
+def _short_oid(oid: str) -> str:
+    """The hash shown on a row; the working-tree row is not a commit and has none."""
+    return "" if oid == WORKING_TREE_OID else oid[:8]
 
 
 def _compute_lanes(commits: list[Commit], first_parent: bool = False) -> list[LaneData]:
@@ -214,7 +219,7 @@ class GraphModel(QAbstractTableModel):
             return CommitInfo(
                 author=commit.author,
                 timestamp=commit.timestamp.strftime("%Y-%m-%d"),
-                short_oid=commit.oid[:8],
+                short_oid=_short_oid(commit.oid),
                 branch_names=self._refs.get(commit.oid, []),
                 head_branch=self._head_branch,
                 message=commit.message.split("\n")[0],
