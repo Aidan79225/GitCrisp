@@ -1,3 +1,4 @@
+import contextlib
 import subprocess
 from pathlib import Path
 
@@ -122,3 +123,58 @@ def test_remove_leaves_files_that_only_match_the_path_as_a_glob(parent_and_child
     cli.remove("lib[1]")
 
     assert (parent / "lib1").read_text() == "uncommitted work"
+
+
+def test_a_removed_submodule_can_be_added_again_at_the_same_path(parent_and_child):
+    parent, child = parent_and_child
+    cli = SubmoduleCli(str(parent))
+    cli.add(path="libs/foo", url=str(child))
+    cli.remove("libs/foo")
+
+    cli.add(path="libs/foo", url=str(child))
+
+    assert (parent / "libs" / "foo" / "f.txt").exists()
+
+
+def test_remove_deletes_the_git_dir_of_a_submodule_named_unlike_its_path(parent_and_child):
+    parent, child = parent_and_child
+    _run(str(parent), "submodule", "add", "--name", "gtest", "--", str(child), "third_party/gtest")
+    assert (parent / ".git" / "modules" / "gtest").is_dir()
+
+    SubmoduleCli(str(parent)).remove("third_party/gtest")
+
+    assert not (parent / ".git" / "modules" / "gtest").exists()
+
+
+def test_a_submodule_removed_in_a_linked_worktree_can_be_added_again(parent_and_child, tmp_path):
+    parent, child = parent_and_child
+    worktree = tmp_path / "wt"
+    _run(str(parent), "worktree", "add", "-q", str(worktree))
+    cli = SubmoduleCli(str(worktree))
+    cli.add(path="libs/foo", url=str(child))
+    cli.remove("libs/foo")
+
+    cli.add(path="libs/foo", url=str(child))
+
+    assert (worktree / "libs" / "foo" / "f.txt").exists()
+
+
+def test_remove_never_deletes_outside_the_modules_dir(parent_and_child):
+    parent, child = parent_and_child
+    cli = SubmoduleCli(str(parent))
+    cli.add(path="libs/foo", url=str(child))
+    _run(
+        str(parent),
+        "config",
+        "-f",
+        ".gitmodules",
+        "--rename-section",
+        "submodule.libs/foo",
+        "submodule.../..",
+    )
+    _run(str(parent), "add", ".gitmodules")
+
+    with contextlib.suppress(SubmoduleCommandError):
+        cli.remove("libs/foo")
+
+    assert (parent / "r.txt").exists()
