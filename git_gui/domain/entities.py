@@ -51,6 +51,11 @@ class LineKind(StrEnum):
         return cls.CONTEXT
 
 
+NO_NEWLINE_MARKERS = frozenset(
+    {LineKind.ADDED_EOFNL, LineKind.REMOVED_EOFNL, LineKind.CONTEXT_EOFNL}
+)
+
+
 @dataclass
 class Commit:
     oid: str

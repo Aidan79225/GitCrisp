@@ -37,14 +37,6 @@ class Cell:
     changed: bool  # part of a change, rather than context shared by both sides
 
 
-# libgit2's "\ No newline at end of file" markers. Each follows the line it is
-# about, and none is a line of either file: counting one as context numbered
-# every later line one too high and split the change it sat in.
-NO_NEWLINE_MARKERS = frozenset(
-    {LineKind.ADDED_EOFNL, LineKind.REMOVED_EOFNL, LineKind.CONTEXT_EOFNL}
-)
-
-
 def no_newline_note(content: str) -> str:
     """The marker's text on one line; libgit2 wraps it in newlines."""
     return content.strip("\n")
