@@ -790,6 +790,7 @@ class GraphWidget(QWidget):
             head_branch,
             first_parent=first_parent,
             show_graph=path_filter is None,
+            remote_branches=frozenset(b.name for b in branches if b.is_remote),
         )
 
         retrying = False

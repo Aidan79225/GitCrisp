@@ -49,6 +49,7 @@ class CommitInfo:
     branch_names: list[str]
     head_branch: str | None  # name of the HEAD branch (green badge), None if detached
     message: str  # first line of commit message only
+    remote_branches: frozenset[str] | None = None  # remote-tracking branch names; None = unknown
 
 
 def _short_oid(oid: str) -> str:
@@ -181,11 +182,13 @@ class GraphModel(QAbstractTableModel):
         *,
         first_parent: bool = False,
         show_graph: bool = True,
+        remote_branches: frozenset[str] | None = None,
     ) -> None:
         super().__init__(parent)
         self._commits = commits
         self._refs = refs
         self._head_branch = head_branch
+        self._remote_branches = remote_branches
         self._first_parent = first_parent
         self._show_graph = show_graph
         self._lane_data: list[LaneData] = _compute_lanes(commits, first_parent)
@@ -223,6 +226,7 @@ class GraphModel(QAbstractTableModel):
                 branch_names=self._refs.get(commit.oid, []),
                 head_branch=self._head_branch,
                 message=commit.message.split("\n")[0],
+                remote_branches=self._remote_branches,
             )
         return None
 
@@ -239,11 +243,13 @@ class GraphModel(QAbstractTableModel):
         *,
         first_parent: bool = False,
         show_graph: bool = True,
+        remote_branches: frozenset[str] | None = None,
     ) -> None:
         self.beginResetModel()
         self._commits = commits
         self._refs = refs
         self._head_branch = head_branch
+        self._remote_branches = remote_branches
         self._first_parent = first_parent
         self._show_graph = show_graph
         self._lane_data = _compute_lanes(commits, first_parent)
