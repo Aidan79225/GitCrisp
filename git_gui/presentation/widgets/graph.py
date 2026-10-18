@@ -474,23 +474,12 @@ class GraphWidget(QWidget):
         self._load_generation += 1
         self._loading = False
         self._reload_queued = False
-        # Reset per-click state — the previous repo's selection is meaningless
-        # in the new repo. Reset _reload_limit too so the new repo starts at
-        # PAGE_SIZE; otherwise a previously-doubled limit (e.g. 2000 for a
-        # deep divergence) carries into the new repo and over-loads on first
-        # render.
-        self._extra_tips = None
-        self._pending_scroll_oid = None
-        self._pending_merge_base = None
+        # The previous repo's selection and file history mean nothing here.
         self._selected_oid = None
-        self._scroll_anchor_oid = None
-        self._reload_limit = PAGE_SIZE
-        self._limit_before_search = None
-        # A file history from the previous repo means nothing in the new one.
         if self._path_filter is not None:
-            self._path_filter = None
-            self._path_filter_bar.close_bar()
-            self.path_filter_changed.emit(None)
+            self._leave_path_filter()
+        else:
+            self._reset_paging()
         # The previous repo's commits mean nothing here, and would stay on
         # screen under this repo's name if its first load failed.
         self._model.reload([], {})
@@ -561,7 +550,11 @@ class GraphWidget(QWidget):
         self.path_filter_changed.emit(None)
 
     def _reset_paging(self) -> None:
-        """Drop paging and scroll state that belongs to the previous listing."""
+        """Drop paging and scroll state that belongs to the previous listing.
+
+        A limit doubled for the previous one (up to 2000 for a deep
+        divergence) would otherwise over-load the next one's first render.
+        """
         self._reload_limit = PAGE_SIZE
         self._limit_before_search = None
         self._extra_tips = None
