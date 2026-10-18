@@ -4,6 +4,7 @@ import logging
 
 from PySide6.QtWidgets import QDialog, QMessageBox
 
+from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 _PUSH_FROM_SIDEBAR_LATER = "Push it from the sidebar's tag menu once it finishes."
 
 
-class TagFlowsMixin:
+class TagFlowsMixin(AskedRepoGuardMixin):
     """Tag operations — create and delete (local and/or remote).
 
     Mixin — not instantiable on its own. Relies on composite-provided
@@ -53,47 +54,52 @@ class TagFlowsMixin:
             return False
 
     def _on_delete_tag(self, name: str) -> None:
-        # Look up which remotes have this tag (cache only — fast, no network).
-        remotes_with_tag: list[str] = []
-        if self._remote_tag_cache and self._repo_path:
-            try:
-                cache_data = self._remote_tag_cache.load(self._repo_path)
-                for remote, names in cache_data.items():
-                    if name in names:
-                        remotes_with_tag.append(remote)
-            except Exception as e:
-                logger.warning(
-                    "Remote tag cache load failed for %s: %s",
-                    self._repo_path,
-                    e,
-                )
-
-        if remotes_with_tag:
-            remote_list = ", ".join(remotes_with_tag)
-            box = QMessageBox(self)
-            box.setWindowTitle("Delete Tag")
-            box.setText(
-                f"Tag '{name}' exists on {remote_list}.\n\nDelete locally and from {remote_list}?"
-            )
-            both_btn = box.addButton("Local + remote", QMessageBox.AcceptRole)
-            local_btn = box.addButton("Local only", QMessageBox.DestructiveRole)
-            box.addButton(QMessageBox.Cancel)
-            # The global QSS sets `QDialog QPushButton { min-width: 72px; }`
-            # which clips longer labels. Override at the dialog level with the
-            # same selector specificity.
-            box.setStyleSheet("QDialog QPushButton { min-width: 160px; padding: 6px 20px; }")
-            box.exec()
-            clicked = box.clickedButton()
-            if clicked is both_btn:
-                self._delete_tag_local_and_remote(name, remotes_with_tag)
-            elif clicked is local_btn:
-                self._delete_tag_local_only(name)
+        commands = self._commands
+        remotes = self._ask_delete_tag(name, self._remotes_with_tag(name))
+        if remotes is None or self._repo_switched_while_asking(commands, f"Delete tag {name}"):
             return
+        if remotes:
+            self._delete_tag_local_and_remote(name, remotes)
+        else:
+            self._delete_tag_local_only(name)
 
-        # No remote has it — original simple flow.
-        if QMessageBox.question(self, "Delete Tag", f"Delete tag '{name}'?") != QMessageBox.Yes:
-            return
-        self._delete_tag_local_only(name)
+    def _remotes_with_tag(self, name: str) -> list[str]:
+        """The remotes the tag cache lists `name` on — no network."""
+        if not (self._remote_tag_cache and self._repo_path):
+            return []
+        try:
+            cache_data = self._remote_tag_cache.load(self._repo_path)
+        except Exception as e:
+            logger.warning("Remote tag cache load failed for %s: %s", self._repo_path, e)
+            return []
+        return [remote for remote, names in cache_data.items() if name in names]
+
+    def _ask_delete_tag(self, name: str, remotes_with_tag: list[str]) -> list[str] | None:
+        """Ask how far to delete `name`: the remotes to delete it from as well
+        (empty for local only), or None when the user cancels."""
+        if not remotes_with_tag:
+            reply = QMessageBox.question(self, "Delete Tag", f"Delete tag '{name}'?")
+            return [] if reply == QMessageBox.Yes else None
+        remote_list = ", ".join(remotes_with_tag)
+        box = QMessageBox(self)
+        box.setWindowTitle("Delete Tag")
+        box.setText(
+            f"Tag '{name}' exists on {remote_list}.\n\nDelete locally and from {remote_list}?"
+        )
+        both_btn = box.addButton("Local + remote", QMessageBox.AcceptRole)
+        local_btn = box.addButton("Local only", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        # The global QSS sets `QDialog QPushButton { min-width: 72px; }`
+        # which clips longer labels. Override at the dialog level with the
+        # same selector specificity.
+        box.setStyleSheet("QDialog QPushButton { min-width: 160px; padding: 6px 20px; }")
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is both_btn:
+            return remotes_with_tag
+        if clicked is local_btn:
+            return []
+        return None
 
     def _delete_tag_local_only(self, name: str) -> None:
         try:
