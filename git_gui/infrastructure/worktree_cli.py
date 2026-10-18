@@ -63,15 +63,12 @@ class WorktreeCli:
         self._run(["worktree", "add", "--", worktree_path, branch])
 
     def remove(self, worktree_path: str, *, force: bool) -> None:
-        """Remove a worktree. Raises `WorktreeDirtyError` /
-        `WorktreeHasSubmodulesError` / `WorktreeLockedError` /
-        `WorktreeCommandError`."""
-        args = ["worktree", "remove"]
-        if force:
-            # Once overrides uncommitted changes; a lock needs it a second time.
-            args += ["--force", "--force"]
+        """Remove a worktree; `force` discards its changes but leaves a lock in
+        force. Raises `WorktreeDirtyError` / `WorktreeHasSubmodulesError` /
+        `WorktreeLockedError` / `WorktreeCommandError`."""
+        force_args = ["--force"] if force else []
         try:
-            self._run([*args, worktree_path])
+            self._run(["worktree", "remove", *force_args, worktree_path])
         except WorktreeCommandError as e:
             message = str(e)
             if _DIRTY_RE.search(message):

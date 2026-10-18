@@ -491,8 +491,8 @@ class RemoveWorktree:
     def __init__(self, writer: IRepositoryWriter) -> None:
         self._writer = writer
 
-    def execute(self, path: str, *, force: bool) -> None:
-        self._writer.remove_worktree(path, force=force)
+    def execute(self, path: str, *, force: bool, override_lock: bool = False) -> None:
+        self._writer.remove_worktree(path, force=force, override_lock=override_lock)
 
 
 class LockWorktree:

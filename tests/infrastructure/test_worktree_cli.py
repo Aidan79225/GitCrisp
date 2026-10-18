@@ -91,18 +91,23 @@ def test_remove_unknown_path_raises_generic(repo_with_worktree, tmp_path):
         cli.remove(str(bogus), force=False)
 
 
-def test_force_remove_overrides_a_lock(repo_with_worktree):
-    """git needs --force twice to remove a locked worktree; a single one fails
-    with the same "locked" error, so the UI's force prompt came back forever."""
+def test_force_remove_leaves_a_lock_in_force(repo_with_worktree):
+    """git's second --force overrides the lock but also skips the changes
+    check, so passing it for every force deleted a locked worktree's changes
+    with no uncommitted-changes prompt."""
     main, wt = repo_with_worktree
     subprocess.run(
         ["git", "-C", str(main), "worktree", "lock", "--reason", "busy", str(wt)],
         check=True,
         capture_output=True,
     )
+    (wt / "a.txt").write_text("changed\n")
     cli = WorktreeCli(str(main))
-    cli.remove(str(wt), force=True)
-    assert not wt.exists()
+
+    with pytest.raises(WorktreeLockedError):
+        cli.remove(str(wt), force=True)
+
+    assert (wt / "a.txt").read_text() == "changed\n"
 
 
 def test_a_dirty_worktree_under_a_non_ascii_folder_is_reported_dirty(repo_with_worktree, tmp_path):

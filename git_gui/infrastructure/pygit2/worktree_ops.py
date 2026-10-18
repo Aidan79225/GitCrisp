@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext, suppress
 from pathlib import Path
 
 import pygit2
@@ -155,8 +157,10 @@ class WorktreeOps:
             is_main=False,
         )
 
-    def remove_worktree(self, path: str, *, force: bool) -> None:
-        self._worktree_cli().remove(path, force=force)
+    def remove_worktree(self, path: str, *, force: bool, override_lock: bool = False) -> None:
+        lock = self._lock_lifted(path) if override_lock else nullcontext()
+        with lock:
+            self._worktree_cli().remove(path, force=force)
 
     def lock_worktree(self, path: str, *, reason: str | None = None) -> None:
         target = Path(path).resolve()
@@ -197,6 +201,31 @@ class WorktreeOps:
         # Not the session's workdir: that may be the worktree being removed,
         # and Windows will not delete a process's current directory.
         return WorktreeCli(str(self._common_dir()), env=self._git_env)
+
+    @contextmanager
+    def _lock_lifted(self, path: str) -> Iterator[None]:
+        """Take the lock off for the block and put it back if the block fails.
+
+        git has no way to override a lock and still refuse uncommitted changes:
+        `--force` twice skips both checks. git deletes the admin dir even when
+        some files would not go, and then there is no lock left to restore.
+        """
+        lock_file = self._lock_file(self._worktree_name_for(Path(path).resolve()))
+        try:
+            reason = lock_file.read_bytes()
+        except FileNotFoundError:
+            yield
+            return
+        lock_file.unlink()
+        try:
+            yield
+        except Exception:
+            with suppress(FileNotFoundError):
+                lock_file.write_bytes(reason)
+            raise
+
+    def _lock_file(self, name: str) -> Path:
+        return self._common_dir() / "worktrees" / name / "locked"
 
     def _base_commit(self, base: str) -> pygit2.Commit:
         # The dialog offers local branch names, and revparse's DWIM order

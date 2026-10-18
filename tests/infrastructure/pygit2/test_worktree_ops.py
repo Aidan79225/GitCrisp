@@ -332,3 +332,63 @@ def test_a_worktree_is_added_to_the_open_repo_whatever_git_dir_the_app_inherited
     )
 
     assert wt.branch == "inherited"
+
+
+@pytest.fixture
+def locked_dirty_worktree(fresh_repo, linked_worktree):
+    """linked_worktree locked "on usb", with a modified and an untracked file."""
+    subprocess.run(
+        ["git", "worktree", "lock", "--reason", "on usb", str(linked_worktree)],
+        cwd=fresh_repo,
+        check=True,
+        capture_output=True,
+    )
+    (linked_worktree / "a.txt").write_text("changed\n")
+    (linked_worktree / "new.txt").write_text("untracked\n")
+    return linked_worktree
+
+
+def _lock_reason(repo_path, worktree):
+    wt = next(w for w in Pygit2Repository(str(repo_path)).list_worktrees() if not w.is_main)
+    assert Path(wt.path) == worktree.resolve()
+    return wt.lock_reason if wt.is_locked else None
+
+
+def test_force_alone_does_not_remove_a_locked_worktree(fresh_repo, locked_dirty_worktree):
+    """force answers the uncommitted-changes prompt only; it passed git's
+    lock override too, so the lock prompt's Force remove deleted the changes."""
+    from git_gui.infrastructure.worktree_cli import WorktreeLockedError
+
+    with pytest.raises(WorktreeLockedError):
+        Pygit2Repository(str(fresh_repo)).remove_worktree(str(locked_dirty_worktree), force=True)
+
+    assert (locked_dirty_worktree / "new.txt").exists()
+
+
+def test_overriding_a_lock_still_refuses_uncommitted_changes(fresh_repo, locked_dirty_worktree):
+    """git cannot skip its lock check without skipping its changes check, so
+    the override lifts the lock for a plain remove and puts it back after."""
+    impl = Pygit2Repository(str(fresh_repo))
+
+    with pytest.raises(WorktreeDirtyError):
+        impl.remove_worktree(str(locked_dirty_worktree), force=False, override_lock=True)
+
+    assert (locked_dirty_worktree / "new.txt").exists()
+    assert _lock_reason(fresh_repo, locked_dirty_worktree) == "on usb"
+
+
+def test_overriding_a_lock_and_forcing_removes_a_dirty_worktree(fresh_repo, locked_dirty_worktree):
+    Pygit2Repository(str(fresh_repo)).remove_worktree(
+        str(locked_dirty_worktree), force=True, override_lock=True
+    )
+
+    assert not locked_dirty_worktree.exists()
+
+
+def test_overriding_a_lock_removes_a_clean_worktree(fresh_repo, linked_worktree):
+    impl = Pygit2Repository(str(fresh_repo))
+    impl.lock_worktree(str(linked_worktree))
+
+    impl.remove_worktree(str(linked_worktree), force=False, override_lock=True)
+
+    assert not linked_worktree.exists()
