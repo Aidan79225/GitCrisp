@@ -126,6 +126,10 @@ class DiffWidget(QWidget):
         self._submodule_paths: set[str] = set()
         self._current_state = RepoState.CLEAN
         self._banners = self._operation_banners()
+        # Bumped whenever the blocks are rebuilt. A diff map fetched for an
+        # earlier set of blocks arrives with its generation and is dropped:
+        # applied to the new blocks it marked them loaded with no hunks.
+        self._blocks_generation = 0
 
         # ── State banner (merge/rebase in progress) ─────────────────────────
         self._state_banner = QWidget()
@@ -564,15 +568,17 @@ class DiffWidget(QWidget):
         self._diff_layout.addStretch()
 
         self._loader.set_blocks(block_refs)
+        self._blocks_generation += 1
+        generation = self._blocks_generation
 
         # Dispatch background fetch
         queries = self._queries
 
         class _MapSignals(QObject):
-            done = Signal(object)  # dict
+            done = Signal(object, int)  # dict, blocks generation
 
         signals = _MapSignals()
-        signals.done.connect(lambda diff_map: self._loader.set_diff_map(diff_map))
+        signals.done.connect(self._on_diff_map_loaded)
         self._diff_map_signals = signals  # prevent GC
 
         def _worker():
@@ -581,6 +587,10 @@ class DiffWidget(QWidget):
             except Exception:
                 logger.warning("Failed to load the diffs of commit %r", oid, exc_info=True)
                 result = {}
-            signals.done.emit(result)
+            signals.done.emit(result, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_diff_map_loaded(self, diff_map: dict, generation: int) -> None:
+        if generation == self._blocks_generation:
+            self._loader.set_diff_map(diff_map)
