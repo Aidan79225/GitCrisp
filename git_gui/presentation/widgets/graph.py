@@ -72,9 +72,8 @@ class _GraphTableView(QTableView):
             row_rect.setLeft(0)
             row_rect.setRight(self.viewport().width())
             row_rect.setHeight(self.rowHeight(self._hover_row))
-            hover_color = self.palette().highlight().color()
-            hover_color.setAlpha(30)
-            painter.fillRect(row_rect, hover_color)
+            colors = get_theme_manager().current.colors
+            painter.fillRect(row_rect, colors.as_qcolor(ColorRole.HOVER_OVERLAY))
             painter.end()
         super().paintEvent(event)
 
