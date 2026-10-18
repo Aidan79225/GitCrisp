@@ -319,3 +319,10 @@ def test_the_repository_leaves_a_linked_worktree_s_cherry_pick_conflict_in_progr
     repo.cherry_pick(oids["from_a"])  # Conflict; must not raise.
 
     assert repo.repo_state().state is RepoState.CHERRY_PICKING
+
+
+def test_a_cherry_pick_git_refuses_raises_the_command_error(linear_repo):
+    repo_path, _base, _tip = linear_repo
+
+    with pytest.raises(CommitOpsCommandError):
+        CommitOpsCli(str(repo_path)).cherry_pick("0" * 40, is_merge=False)

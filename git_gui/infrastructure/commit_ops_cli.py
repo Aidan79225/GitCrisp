@@ -6,8 +6,8 @@ from pathlib import Path
 from git_gui.infrastructure.git_process import git_run_dir, pinned_git_env, run_git
 
 
-class CommitOpsCommandError(Exception):
-    """Raised when a git cherry-pick / revert CLI call fails unexpectedly."""
+class CommitOpsCommandError(RuntimeError):
+    """A cherry-pick or revert call that failed, other than by stopping on a conflict."""
 
 
 class CommitOpsCli:
@@ -78,7 +78,7 @@ class CommitOpsCli:
             or (result.stdout or "").strip()
             or f"exit code {result.returncode}"
         )
-        raise RuntimeError(stderr)
+        raise CommitOpsCommandError(stderr)
 
     def _env(self, overrides: dict[str, str] | None) -> dict[str, str]:
         env = pinned_git_env(self._git_dir, self._work_tree)
