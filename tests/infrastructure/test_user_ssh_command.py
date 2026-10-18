@@ -101,3 +101,30 @@ def test_a_remote_added_later_brings_in_the_ssh_command_its_url_includes(
 
     with pytest.raises(RuntimeError, match=_MARKER):
         repo.fetch("origin")
+
+
+def _global_config_including(tmp_path, monkeypatch, condition: str) -> None:
+    """A global config that sets core.sshCommand only where ``condition`` holds."""
+    included = tmp_path / "conditional.gitconfig"
+    included.touch()
+    pygit2.Config(str(included))["core.sshCommand"] = _SSH_COMMAND
+    gitconfig = tmp_path / ".gitconfig"
+    gitconfig.write_text(f'[includeIf "{condition}"]\n\tpath = {included.as_posix()}\n')
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
+
+
+def test_a_clone_uses_the_ssh_command_included_for_its_folder(tmp_path, monkeypatch, no_ssh_in_env):
+    work = tmp_path / "work"
+    _global_config_including(tmp_path, monkeypatch, f"gitdir:{work.as_posix()}/")
+
+    with pytest.raises(RuntimeError, match=_MARKER):
+        clone_repo(_UNREACHABLE, str(work / "dest"))
+
+
+def test_a_clone_uses_the_ssh_command_included_for_its_remote(tmp_path, monkeypatch, no_ssh_in_env):
+    _global_config_including(
+        tmp_path, monkeypatch, "hasconfig:remote.*.url:ssh://example.invalid/**"
+    )
+
+    with pytest.raises(RuntimeError, match=_MARKER):
+        clone_repo(_UNREACHABLE, str(tmp_path / "dest"))
