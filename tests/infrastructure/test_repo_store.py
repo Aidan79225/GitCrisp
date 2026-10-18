@@ -272,17 +272,33 @@ def test_a_save_that_fails_partway_keeps_the_previous_file(store, store_path, mo
 
     monkeypatch.setattr(os, "fsync", disk_full)
     store.add_open("/repo/b")
-    store.save()
+    with pytest.raises(OSError):
+        store.save()
 
     assert store_path.read_text(encoding="utf-8") == before
     assert list(store_path.parent.iterdir()) == [store_path]
 
 
-def test_a_save_that_cannot_write_the_file_keeps_the_store_usable(store, store_path):
-    store_path.mkdir(parents=True)
-    store.load()
-    store.add_open("/repo/a")
+@pytest.fixture
+def unwritable_store(tmp_path) -> JsonRepoStore:
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("", encoding="utf-8")
+    return JsonRepoStore(blocker / "repos.json")
 
-    store.save()
 
-    assert store.get_open_repos() == ["/repo/a"]
+def test_a_save_that_cannot_write_the_file_tells_the_caller(unwritable_store):
+    unwritable_store.load()
+    unwritable_store.add_open("/repo/a")
+
+    with pytest.raises(OSError):
+        unwritable_store.save()
+
+
+def test_a_failed_save_keeps_the_store_usable(unwritable_store):
+    unwritable_store.load()
+    unwritable_store.add_open("/repo/a")
+
+    with pytest.raises(OSError):
+        unwritable_store.save()
+
+    assert unwritable_store.get_open_repos() == ["/repo/a"]

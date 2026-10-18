@@ -71,20 +71,19 @@ class JsonRepoStore:
         return data
 
     def save(self) -> None:
+        """Write the store to disk, raising OSError when the write fails.
+
+        The caller is the one that can tell the user; the in-memory state stays
+        current either way, so the next save tries again.
+        """
         data = {
             "open": self._open,
             "recent": self._recent,
             "active": self._active,
             "settings": self._settings,
         }
-        # Callers save part-way through UI slots (repo switch, toggles); a
-        # read-only or locked file must not abort them. The in-memory state
-        # stays current and the next save tries again.
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            _replace_file(self._path, json.dumps(data, indent=2))
-        except OSError as e:
-            logger.warning("Could not save %s: %s", self._path, e)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        _replace_file(self._path, json.dumps(data, indent=2))
 
     def get_open_repos(self) -> list[str]:
         return list(self._open)
