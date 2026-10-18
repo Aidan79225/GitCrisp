@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -293,9 +294,12 @@ def test_back_does_nothing_with_an_empty_history(qtbot):
     assert w._oid is None
 
 
-def test_author_column_is_capped(qtbot):
-    """The gutter is a fixed width, so a long name must not push the columns apart."""
-    assert len(_elide("An Extremely Long Contributor Name", AUTHOR_CHARS)) == AUTHOR_CHARS
+def test_a_long_author_widens_the_gutter_no_further_than_the_cap(qtbot):
+    """The gutter grows with the widest author shown, up to AUTHOR_CHARS of them."""
+    at_cap, _ = _window(qtbot, lines=[replace(LINES[0], author="W" * AUTHOR_CHARS)])
+    past_cap, _ = _window(qtbot, lines=[replace(LINES[0], author="W" * (AUTHOR_CHARS * 3))])
+
+    assert past_cap._editor.gutter_width() <= at_cap._editor.gutter_width()
 
 
 # ── Picking a line of the first run ──────────────────────────────────────────
