@@ -100,7 +100,9 @@ class RepoStateOps:
         merge_msg_path = os.path.join(self._repo.path, "MERGE_MSG")
         if not os.path.exists(merge_msg_path):
             return None
-        with open(merge_msg_path) as f:
+        # git writes it as UTF-8; without an explicit encoding Windows decodes
+        # with the ANSI code page and a non-ASCII conflicted path raises.
+        with open(merge_msg_path, encoding="utf-8", errors="replace") as f:
             return f.read()
 
     def has_unresolved_conflicts(self) -> bool:

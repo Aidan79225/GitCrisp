@@ -78,39 +78,40 @@ class MergeRebaseOps:
             else:
                 raise RuntimeError("Cannot fast-forward this merge")
         elif strategy == MergeStrategy.NO_FF:
-            self._repo.merge(target_oid)
-            if not self._repo.index.conflicts:
-                self._repo.index.write()
-                tree = self._repo.index.write_tree()
-                sig = self._get_signature()
-                self._repo.create_commit(
-                    "HEAD",
-                    sig,
-                    sig,
-                    commit_message,
-                    tree,
-                    [self._repo.head.target, target_oid],
-                )
-                self._repo.state_cleanup()
+            self._merge_into_head(target_oid, commit_message)
         else:  # ALLOW_FF
             if can_ff:
                 self._repo.checkout_tree(self._repo.get(target_oid))
                 self._repo.head.set_target(target_oid)
             elif merge_result & pygit2.GIT_MERGE_ANALYSIS_NORMAL:
-                self._repo.merge(target_oid)
-                if not self._repo.index.conflicts:
-                    self._repo.index.write()
-                    tree = self._repo.index.write_tree()
-                    sig = self._get_signature()
-                    self._repo.create_commit(
-                        "HEAD",
-                        sig,
-                        sig,
-                        commit_message,
-                        tree,
-                        [self._repo.head.target, target_oid],
-                    )
-                    self._repo.state_cleanup()
+                self._merge_into_head(target_oid, commit_message)
+
+    def _merge_into_head(self, target_oid, commit_message: str) -> None:
+        """Create the merge commit, or on conflict leave the merge in progress
+        with *commit_message* waiting in MERGE_MSG for the conflict banner."""
+        self._repo.merge(target_oid)
+        if self._repo.index.conflicts:
+            self._write_merge_msg(commit_message)
+            return
+        self._repo.index.write()
+        tree = self._repo.index.write_tree()
+        sig = self._get_signature()
+        self._repo.create_commit(
+            "HEAD",
+            sig,
+            sig,
+            commit_message,
+            tree,
+            [self._repo.head.target, target_oid],
+        )
+        self._repo.state_cleanup()
+
+    def _write_merge_msg(self, commit_message: str) -> None:
+        # libgit2 leaves "Merge commit '<sha>'" plus "#Conflicts:" lines here,
+        # and the app commits MERGE_MSG verbatim: unlike git's editor, nothing
+        # strips comment lines afterwards.
+        merge_msg = Path(self._repo.path, "MERGE_MSG")
+        merge_msg.write_text(commit_message + "\n", encoding="utf-8", newline="")
 
     def rebase(self, branch: str) -> None:
         if branch in self._repo.branches.local:
