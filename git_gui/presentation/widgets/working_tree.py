@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.domain.entities import FileStatus, StagingState
+from git_gui.domain.entities import FileStatus, RepoState, StagingState
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
@@ -38,6 +38,12 @@ _BADGE_GAP = 6
 # the badge is then painted into, clear of the check indicator.
 _BADGE_TEXT_RESERVATION = "          "
 _BADGE_LEFT_INSET = 30
+
+# While one of these runs, Commit continues it rather than creating a commit.
+# A detached HEAD is not among them: committing there is an ordinary commit.
+_OPERATIONS_IN_PROGRESS = frozenset(
+    {RepoState.MERGING, RepoState.REBASING, RepoState.CHERRY_PICKING, RepoState.REVERTING}
+)
 
 
 class _FileDelegate(CheckIndicatorDelegate):
@@ -202,9 +208,12 @@ class WorkingTreeWidget(QWidget):
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
         self._commands = commands
-        # Amend targets the old repo's HEAD; switching repos must not carry it over.
-        self._set_amend_checked(False)
+        # Amend, the message and any merge or rebase in progress all belong to
+        # the repo being left; carried over, Commit would act on them here.
+        self._untick_amend()
         self._draft_msg = ""
+        self._msg_edit.clear()
+        self.update_conflict_banner(RepoState.CLEAN)
         self._file_model.set_commands(commands)
         self._hunk_diff.set_buses(queries, commands)
         if queries is None:
@@ -346,7 +355,7 @@ class WorkingTreeWidget(QWidget):
     def _on_commit(self) -> None:
         state = getattr(self, "_current_state", "CLEAN")
         msg = self._msg_edit.toPlainText().strip()
-        if state == "CLEAN" and not msg:
+        if state not in _OPERATIONS_IN_PROGRESS and not msg:
             self.commit_failed.emit("Commit message is empty")
             return
 
@@ -384,7 +393,7 @@ class WorkingTreeWidget(QWidget):
         first_line = msg.split("\n")[0]
         self._draft_msg = ""
         self._msg_edit.clear()
-        self._set_amend_checked(False)
+        self._untick_amend()
         self.commit_completed.emit(first_line)
         self.reload_requested.emit()
         self.reload()
@@ -520,6 +529,12 @@ class WorkingTreeWidget(QWidget):
 
     def update_conflict_banner(self, state_name: str, merge_msg: str | None = None) -> None:
         self._current_state = state_name
+        # An in-progress merge/rebase/cherry-pick/revert has its own commit path.
+        # Untick before labelling: unticking resets the label to "Commit".
+        amend_allowed = state_name not in _OPERATIONS_IN_PROGRESS
+        if not amend_allowed:
+            self._untick_amend()
+        self._chk_amend.setEnabled(amend_allowed)
         if state_name == "MERGING":
             self._banner_label.setText("\u26a0 Merge in progress")
             self._conflict_banner.setVisible(True)
@@ -541,19 +556,11 @@ class WorkingTreeWidget(QWidget):
         else:
             self._conflict_banner.setVisible(False)
             self._btn_commit.setText("Amend Commit" if self._chk_amend.isChecked() else "Commit")
-        # An in-progress merge/rebase/cherry-pick/revert has its own commit path.
-        self._chk_amend.setEnabled(state_name == "CLEAN")
-        if state_name != "CLEAN":
-            self._set_amend_checked(False)
 
-    def _set_amend_checked(self, checked: bool) -> None:
-        """Set the Amend checkbox without running the message-swap handler."""
-        if self._chk_amend.isChecked() == checked:
-            return
-        self._chk_amend.blockSignals(True)
-        self._chk_amend.setChecked(checked)
-        self._chk_amend.blockSignals(False)
-        self._btn_commit.setText("Amend Commit" if checked else "Commit")
+    def _untick_amend(self) -> None:
+        """Untick Amend through its handler, so the editor gets the draft back
+        instead of keeping HEAD's message."""
+        self._chk_amend.setChecked(False)
 
     def _on_abort_clicked(self) -> None:
         state = getattr(self, "_current_state", "CLEAN")
