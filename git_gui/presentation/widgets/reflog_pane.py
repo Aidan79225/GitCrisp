@@ -32,7 +32,6 @@ from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_mana
 from git_gui.presentation.widgets.eliding_label import ElidingLabel
 
 ENTRY_ROLE = Qt.UserRole + 1  # ReflogEntry for the row
-OID_ROLE = Qt.UserRole  # the commit the ref moved to
 
 SHA_CHARS = 8
 ROW_PAD = 6
@@ -93,12 +92,10 @@ def _movement(entry: ReflogEntry) -> tuple:
 class ReflogModel(QAbstractTableModel):
     """One column per row; the whole row is painted by ReflogDelegate."""
 
-    def __init__(
-        self, entries: list[ReflogEntry] | None = None, parent=None, *, show_all: bool = False
-    ) -> None:
+    def __init__(self, entries: list[ReflogEntry] | None = None, parent=None) -> None:
         super().__init__(parent)
         self._all: list[ReflogEntry] = entries or []
-        self._show_all = show_all
+        self._show_all = False
         self._entries: list[ReflogEntry] = self._visible()
 
     def _visible(self) -> list[ReflogEntry]:
@@ -131,8 +128,6 @@ class ReflogModel(QAbstractTableModel):
         entry = self._entries[index.row()]
         if role == Qt.DisplayRole:
             return ""  # the row is fully painted by the delegate
-        if role == OID_ROLE:
-            return entry.oid_new
         if role == ENTRY_ROLE:
             return entry
         if role == Qt.ToolTipRole:
@@ -191,6 +186,10 @@ class ReflogDelegate(QStyledItemDelegate):
     hands the width back, and it puts the summary next to the operation chip
     that qualifies it, which is the pairing a scan actually reads.
     """
+
+    def __init__(self, model: ReflogModel, parent=None) -> None:
+        super().__init__(parent)
+        self._model = model
 
     @staticmethod
     def content_left(rect) -> int:
@@ -276,8 +275,7 @@ class ReflogDelegate(QStyledItemDelegate):
         painter.setPen(colors.as_qcolor(ColorRole.ON_BADGE))
         painter.drawText(x, chip_y, chip_w, chip_h, Qt.AlignCenter, label)
 
-        model = index.model()
-        widest = model.widest_operation(fm) if hasattr(model, "widest_operation") else 0
+        widest = self._model.widest_operation(fm)
         x += max(chip_w, widest + CHIP_H_PAD * 2) + COL_GAP
 
         right = rect.right() - ROW_PAD
@@ -359,7 +357,7 @@ class ReflogPane(QWidget):
         self._model = ReflogModel()
         self._view = QTableView()
         self._view.setModel(self._model)
-        self._view.setItemDelegate(ReflogDelegate(self._view))
+        self._view.setItemDelegate(ReflogDelegate(self._model, self._view))
         self._view.setSelectionBehavior(QTableView.SelectRows)
         self._view.setSelectionMode(QTableView.SingleSelection)
         self._view.setShowGrid(False)
