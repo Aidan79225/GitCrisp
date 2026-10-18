@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from datetime import datetime
 
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -117,6 +118,29 @@ def _btn_style() -> str:
         f"QPushButton:checked {{ background-color: {c.primary}; }}"
         f"QPushButton:checked:hover {{ background-color: {c.primary}; }}"
     )
+
+
+def _add_one_or_submenu(
+    menu: QMenu, title: str, labels: list[str], single_label: Callable[[str], str]
+) -> list[QAction]:
+    """Add an action per label: a lone one to `menu` itself, labelled
+    `single_label(label)`; several to a `title` submenu. Returns them in order."""
+    if not labels:
+        return []
+    if len(labels) == 1:
+        return [menu.addAction(single_label(labels[0]))]
+    sub = menu.addMenu(title)
+    sub.setToolTipsVisible(True)
+    return [sub.addAction(label) for label in labels]
+
+
+def _add_branch_actions(
+    menu: QMenu, title: str, names: list[str], emit: Callable[[str], None]
+) -> None:
+    """Add a '<title>: <name>' action, or a `title` submenu of names, each emitting its name."""
+    actions = _add_one_or_submenu(menu, title, names, lambda name: f"{title}: {name}")
+    for action, name in zip(actions, names, strict=True):
+        action.triggered.connect(lambda _checked=False, n=name: emit(n))
 
 
 class _SearchBar(QWidget):
@@ -1023,62 +1047,23 @@ class GraphWidget(QWidget):
         except Exception:
             local_set = set()
         local_branches = [n for n in real_branches if n in local_set]
+        remote_branches = [n for n in real_branches if n not in local_set]
 
         if real_branches:
             menu.addSeparator()
-            if len(real_branches) == 1:
-                name = real_branches[0]
-                menu.addAction(f"Checkout branch: {name}").triggered.connect(
-                    lambda _checked=False, n=name: self.checkout_branch_requested.emit(n)
-                )
-            else:
-                sub = menu.addMenu("Checkout branch")
-                for name in real_branches:
-                    sub.addAction(name).triggered.connect(
-                        lambda _checked=False, n=name: self.checkout_branch_requested.emit(n)
-                    )
-
-        if real_branches:
-            if len(real_branches) == 1:
-                name = real_branches[0]
-                menu.addAction(f"Checkout in New Worktree: {name}").triggered.connect(
-                    lambda: self.checkout_in_new_worktree_requested.emit(name)
-                )
-            else:
-                sub = menu.addMenu("Checkout in New Worktree")
-                for name in real_branches:
-                    sub.addAction(name).triggered.connect(
-                        lambda _checked=False, n=name: self.checkout_in_new_worktree_requested.emit(
-                            n
-                        )
-                    )
-
-        if local_branches:
-            if len(local_branches) == 1:
-                name = local_branches[0]
-                menu.addAction(f"Delete branch: {name}").triggered.connect(
-                    lambda _checked=False, n=name: self.delete_branch_requested.emit(n)
-                )
-            else:
-                sub = menu.addMenu("Delete branch")
-                for name in local_branches:
-                    sub.addAction(name).triggered.connect(
-                        lambda _checked=False, n=name: self.delete_branch_requested.emit(n)
-                    )
-
-        remote_branches = [n for n in real_branches if n not in local_set]
-        if remote_branches:
-            if len(remote_branches) == 1:
-                name = remote_branches[0]
-                menu.addAction(f"Delete remote branch: {name}").triggered.connect(
-                    lambda _checked=False, n=name: self._emit_remote_delete(n)
-                )
-            else:
-                sub = menu.addMenu("Delete remote branch")
-                for name in remote_branches:
-                    sub.addAction(name).triggered.connect(
-                        lambda _checked=False, n=name: self._emit_remote_delete(n)
-                    )
+        _add_branch_actions(
+            menu, "Checkout branch", real_branches, self.checkout_branch_requested.emit
+        )
+        _add_branch_actions(
+            menu,
+            "Checkout in New Worktree",
+            real_branches,
+            self.checkout_in_new_worktree_requested.emit,
+        )
+        _add_branch_actions(
+            menu, "Delete branch", local_branches, self.delete_branch_requested.emit
+        )
+        _add_branch_actions(menu, "Delete remote branch", remote_branches, self._emit_remote_delete)
 
         self._add_merge_rebase_section(menu, oid, real_branches)
 
@@ -1138,8 +1123,7 @@ class GraphWidget(QWidget):
         short_oid = oid[:7]
         head_label = head_branch or "HEAD"
 
-        def _add(target_menu: QMenu, label: str, tooltip: str | None, signal_emit) -> None:
-            action = target_menu.addAction(label)
+        def _configure(action: QAction, tooltip: str | None, signal_emit) -> None:
             if global_disable_reason:
                 action.setEnabled(False)
                 action.setToolTip(global_disable_reason)
@@ -1212,35 +1196,15 @@ class GraphWidget(QWidget):
                 )
             )
 
-        # Add merge actions: submenu if ≥2, top-level if 1
-        if len(merge_actions) == 1:
-            label, tooltip, emit = merge_actions[0]
-            _add(menu, f"Merge {label}", tooltip, emit)
-        elif merge_actions:
-            sub = menu.addMenu("Merge")
-            sub.setToolTipsVisible(True)
-            for label, tooltip, emit in merge_actions:
-                _add(sub, label, tooltip, emit)
-
-        # Add rebase actions: submenu if ≥2, top-level if 1
-        if len(rebase_actions) == 1:
-            label, tooltip, emit = rebase_actions[0]
-            _add(menu, f"Rebase {label}", tooltip, emit)
-        elif rebase_actions:
-            sub = menu.addMenu("Rebase")
-            sub.setToolTipsVisible(True)
-            for label, tooltip, emit in rebase_actions:
-                _add(sub, label, tooltip, emit)
-
-        # Add interactive rebase actions: submenu if ≥2, top-level if 1
-        if len(irebase_actions) == 1:
-            label, tooltip, emit = irebase_actions[0]
-            _add(menu, label, tooltip, emit)
-        elif irebase_actions:
-            sub = menu.addMenu("Interactive Rebase")
-            sub.setToolTipsVisible(True)
-            for label, tooltip, emit in irebase_actions:
-                _add(sub, label, tooltip, emit)
+        for title, single_label, entries in (
+            ("Merge", lambda label: f"Merge {label}", merge_actions),
+            ("Rebase", lambda label: f"Rebase {label}", rebase_actions),
+            ("Interactive Rebase", lambda label: label, irebase_actions),
+        ):
+            labels = [label for label, _tooltip, _emit in entries]
+            actions = _add_one_or_submenu(menu, title, labels, single_label)
+            for action, (_label, tooltip, emit) in zip(actions, entries, strict=True):
+                _configure(action, tooltip, emit)
 
         # ── Cherry-pick / Revert / Reset section ───────────────────────
         # Only show when we have a HEAD and target != HEAD.
