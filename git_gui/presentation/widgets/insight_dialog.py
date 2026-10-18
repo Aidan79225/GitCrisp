@@ -85,7 +85,6 @@ class _LoadSignals(QObject):
     done = Signal(int, dict, dict, dict, dict, set, int)
     # generation, author_commits, author_added, author_deleted,
     # file_counts, files_changed, total_commits
-    cancelled = Signal(int)  # generation
     failed = Signal(int, str)  # generation, message
 
 
@@ -407,7 +406,6 @@ class InsightDialog(QDialog):
         signals = _LoadSignals()
         signals.progress.connect(self._on_progress)
         signals.done.connect(self._on_loaded)
-        signals.cancelled.connect(self._on_cancelled)
         signals.failed.connect(self._on_failed)
         self._load_signals = signals  # prevent GC
 
@@ -451,8 +449,7 @@ class InsightDialog(QDialog):
                     return
 
             if cancel_event.is_set():
-                signals.cancelled.emit(generation)
-                return
+                return  # superseded or closed: nobody is waiting for this result
 
             signals.done.emit(
                 generation,
@@ -488,15 +485,6 @@ class InsightDialog(QDialog):
             files_changed,
             total_commits,
         )
-
-    def _on_cancelled(self, generation: int) -> None:
-        # Worker was cancelled (dialog closed, or supersession). Nothing to render.
-        if generation != self._load_generation:
-            return
-        # Keep the loading label visible briefly so a fast cancel still
-        # shows that we acknowledged it; a closed dialog is going away
-        # anyway.
-        self._loading_label.setText("Cancelled.")
 
     def _on_failed(self, generation: int, message: str) -> None:
         if generation != self._load_generation:
