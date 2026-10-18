@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +43,10 @@ class JsonRepoStore:
         self._recent: list[str] = []
         self._active: str | None = None
         self._settings: dict[str, dict[str, Any]] = {}
+        self._unread_cause: OSError | None = None
 
     def load(self) -> None:
+        self._unread_cause = None
         data = self._read_file()
         self._open = _str_list(data.get("open"))
         self._recent = _str_list(data.get("recent"))
@@ -62,20 +65,50 @@ class JsonRepoStore:
         try:
             # utf-8-sig: editors such as Notepad may add a BOM on save.
             data = json.loads(self._path.read_text(encoding="utf-8-sig"))
-        except (OSError, ValueError) as e:
-            logger.warning("Could not read %s: %s; starting with no repos", self._path, e)
+        except OSError as e:
+            self._leave_unread(e)
+            return {}
+        except ValueError as e:
+            self._set_aside(str(e))
             return {}
         if not isinstance(data, dict):
-            logger.warning("Ignoring %s: its root is not an object", self._path)
+            self._set_aside("its root is not an object")
             return {}
         return data
 
-    def save(self) -> None:
-        """Write the store to disk, raising OSError when the write fails.
+    def _set_aside(self, reason: str) -> None:
+        # Starting empty means the first save replaces the file, so move it out
+        # of the way first: a hand edit gone wrong is then a repair, not a loss.
+        aside = self._path.with_name(f"{self._path.name}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
+        try:
+            self._path.rename(aside)
+        except OSError as e:
+            self._leave_unread(e)
+            return
+        logger.warning(
+            "Could not parse %s (%s); moved it to %s and started with no repos",
+            self._path,
+            reason,
+            aside.name,
+        )
 
-        The caller is the one that can tell the user; the in-memory state stays
-        current either way, so the next save tries again.
+    def _leave_unread(self, cause: OSError) -> None:
+        logger.warning("Could not load %s: %s; leaving it untouched", self._path, cause)
+        self._unread_cause = cause
+
+    def save(self) -> None:
+        """Write the store to disk, or raise OSError and leave the file as it was.
+
+        The caller is the one that can tell the user. The in-memory state stays
+        current, so the next save after a failed write tries again. A file that
+        load() could not read is never written: this session never saw what it
+        holds, and writing would erase it.
         """
+        if self._unread_cause is not None:
+            raise OSError(
+                f"{self._path} could not be loaded at startup ({self._unread_cause}), "
+                "so it is left untouched until GitCrisp restarts"
+            ) from self._unread_cause
         data = {
             "open": self._open,
             "recent": self._recent,
