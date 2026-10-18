@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from typing import NamedTuple
@@ -8,6 +9,8 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
 from git_gui.presentation.bus import CommandBus, QueryBus
+
+logger = logging.getLogger(__name__)
 
 _RETRY_WHEN_FREE = "Try again once it finishes."
 
@@ -214,11 +217,19 @@ class RemoteOpQueueMixin:
         upstream = self._upstream_for(branch)
         if upstream:
             # Longest first, because a remote's name may itself contain a slash.
-            remotes = self._queries.list_remotes.execute()
-            for remote in sorted((r.name for r in remotes), key=len, reverse=True):
+            for remote in sorted(self._remote_names(), key=len, reverse=True):
                 if upstream.startswith(f"{remote}/"):
                     return remote, upstream[len(remote) + 1 :]
         return "origin", branch
+
+    def _remote_names(self) -> list[str]:
+        """The repo's remotes, or none when they cannot be listed: a single
+        remote with an invalid name in .git/config fails the whole listing."""
+        try:
+            return [r.name for r in self._queries.list_remotes.execute()]
+        except Exception as e:
+            logger.warning("Listing remotes failed for %s: %s", self._repo_path, e)
+            return []
 
     def _branch_to_sync(self, op: str) -> str | None:
         """The checked-out branch, or None after logging that HEAD is on none.
