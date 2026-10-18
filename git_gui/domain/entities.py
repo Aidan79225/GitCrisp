@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -69,6 +70,21 @@ class Branch:
     is_remote: bool
     is_head: bool
     target_oid: str
+
+
+def split_remote_branch(name: str, remotes: Iterable[str] = ()) -> tuple[str, str]:
+    """Split a remote-tracking name such as "origin/feature/x" into (remote, branch).
+
+    Remote names may contain '/', so the longest known remote wins. A name no
+    known remote owns splits at its first '/', since a branch name may hold
+    more; one with no '/' has no remote: ``("", name)``. The branch part is
+    also the name a local branch checked out from it gets.
+    """
+    owner = max((r for r in remotes if name.startswith(f"{r}/")), key=len, default=None)
+    if owner is not None:
+        return owner, name[len(owner) + 1 :]
+    remote, slash, branch = name.partition("/")
+    return (remote, branch) if slash else ("", name)
 
 
 @dataclass
@@ -228,15 +244,3 @@ class Worktree:
     lock_reason: str | None  # None when not locked or no reason given
     is_bare: bool
     is_main: bool  # True for the primary worktree
-
-
-def split_remote_branch(shorthand: str) -> tuple[str, str]:
-    """Split a remote-tracking branch's shorthand into (remote, branch).
-
-    ``"origin/feature/x"`` is branch ``"feature/x"`` on remote ``"origin"``:
-    the remote ends at the first slash, since a branch name may hold more.
-    The branch part is also the name a local branch checked out from it gets.
-    A name with no slash has no remote: ``("", shorthand)``.
-    """
-    remote, slash, branch = shorthand.partition("/")
-    return (remote, branch) if slash else ("", shorthand)

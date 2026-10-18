@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from git_gui.domain.entities import RemoteBranchDeleteResult
+from git_gui.domain.entities import RemoteBranchDeleteResult, split_remote_branch
 from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
 
 _MAX_LISTED_IN_CONFIRM = 15
@@ -161,14 +161,9 @@ class RemoteBranchesDialog(QDialog):
     @staticmethod
     def _grouped_by_remote(names: list[str], remotes: list[str]) -> dict[str, list[str]]:
         grouped: dict[str, list[str]] = {}
-        for full in names:
-            # Remote names may contain '/', so the longest known remote prefix wins.
-            remote = max(
-                (r for r in remotes if full.startswith(f"{r}/")),
-                key=len,
-                default=full.split("/", 1)[0],
-            )
-            grouped.setdefault(remote, []).append(full[len(remote) + 1 :])
+        for name in names:
+            remote, branch = split_remote_branch(name, remotes)
+            grouped.setdefault(remote, []).append(branch)
         return grouped
 
     def _perform_deletions(self, grouped: dict[str, list[str]]) -> list[RemoteBranchDeleteResult]:
