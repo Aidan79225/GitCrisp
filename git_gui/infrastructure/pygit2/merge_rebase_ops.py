@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import os
 import shlex
+import subprocess
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 import pygit2
@@ -20,6 +24,28 @@ def _editor_copying(source_path: str) -> str:
     ``sys.executable`` is GitCrisp itself.
     """
     return "cp " + shlex.quote(Path(source_path).as_posix())
+
+
+@contextmanager
+def _file_holding(text: str) -> Iterator[str]:
+    """Yield the path of a temp file holding *text*; the file is removed on exit.
+
+    It is closed before the path is yielded: on Windows the editor command
+    could not read a file this process still holds open.
+    """
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".txt", delete=False, encoding="utf-8"
+    ) as handle:
+        handle.write(text)
+    try:
+        yield handle.name
+    finally:
+        with suppress(OSError):
+            os.unlink(handle.name)
+
+
+def _failure_message(result: subprocess.CompletedProcess[str]) -> str:
+    return result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
 
 
 class MergeRebaseOps:
@@ -129,38 +155,17 @@ class MergeRebaseOps:
         self._run_git("rebase", "--abort")
 
     def rebase_continue(self, message: str = "") -> None:
-        import tempfile
+        if not message:
+            self._continue_rebase(editor="true")
+            return
+        with _file_holding(message) as message_path:
+            self._continue_rebase(editor=_editor_copying(message_path))
 
-        env = self._git_env
-        if message:
-            # Write the message to a temp file, then set GIT_EDITOR to a
-            # command that copies it over the file git passes to the editor.
-            msg_file = tempfile.NamedTemporaryFile(
-                mode="w",
-                suffix=".txt",
-                delete=False,
-                encoding="utf-8",
-            )
-            msg_file.write(message)
-            msg_file.close()
-            env["GIT_EDITOR"] = _editor_copying(msg_file.name)
-        else:
-            env["GIT_EDITOR"] = "true"
-        try:
-            result = run_git(["git", "rebase", "--continue"], cwd=self._repo.workdir, env=env)
-            if result.returncode != 0:
-                msg = (
-                    result.stderr.strip()
-                    or result.stdout.strip()
-                    or f"exit code {result.returncode}"
-                )
-                raise RuntimeError(msg)
-        finally:
-            if message:
-                try:
-                    os.unlink(msg_file.name)
-                except OSError:
-                    pass
+    def _continue_rebase(self, editor: str) -> None:
+        env = {**self._git_env, "GIT_EDITOR": editor}
+        result = run_git(["git", "rebase", "--continue"], cwd=self._repo.workdir, env=env)
+        if result.returncode != 0:
+            raise RuntimeError(_failure_message(result))
 
     def interactive_rebase(self, target_oid: str, entries: list[tuple[str, str]]) -> None:
         """Run git rebase -i with a pre-built todo file.
@@ -174,48 +179,24 @@ class MergeRebaseOps:
         have left out; ``--empty=drop`` drops it when it comes out empty
         instead of stopping as if on a conflict.
         """
-        import tempfile
-
-        todo_lines = [f"{action} {oid}" for action, oid in entries]
-        todo_content = "\n".join(todo_lines) + "\n"
-
-        # Write to a temp file
-        todo_file = tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".txt",
-            delete=False,
-            encoding="utf-8",
-        )
-        todo_file.write(todo_content)
-        todo_file.close()
-
-        env = self._git_env
-        env["GIT_SEQUENCE_EDITOR"] = _editor_copying(todo_file.name)
-        # Prevent interactive editor from opening for squash/fixup messages
-        env["GIT_EDITOR"] = "true"
-
-        try:
+        todo = "\n".join(f"{action} {oid}" for action, oid in entries) + "\n"
+        with _file_holding(todo) as todo_path:
+            env = {
+                **self._git_env,
+                "GIT_SEQUENCE_EDITOR": _editor_copying(todo_path),
+                # Takes the message git proposes for a squash; there is no
+                # editor a GUI user could answer.
+                "GIT_EDITOR": "true",
+            }
             result = run_git(
                 ["git", "rebase", "-i", "--empty=drop", target_oid],
                 cwd=self._repo.workdir,
                 env=env,
             )
-            if result.returncode != 0:
-                # A stopped rebase is a conflict, not a failure — leave the repo
-                # as it is and let the conflict banner drive it from here.
-                if self._repo.state() in REBASE_STATES:
-                    return
-                msg = (
-                    result.stderr.strip()
-                    or result.stdout.strip()
-                    or f"exit code {result.returncode}"
-                )
-                raise RuntimeError(msg)
-        finally:
-            try:
-                os.unlink(todo_file.name)
-            except OSError:
-                pass
+        # A stopped rebase is a conflict, not a failure — leave the repo as it
+        # is and let the conflict banner drive it from here.
+        if result.returncode != 0 and self._repo.state() not in REBASE_STATES:
+            raise RuntimeError(_failure_message(result))
 
     def _rebase_onto(self, target_oid) -> None:
         target_hex = str(target_oid)
