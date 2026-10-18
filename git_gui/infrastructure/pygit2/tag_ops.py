@@ -29,6 +29,34 @@ def _tag_names(ls_remote_output: str) -> list[str]:
     return tags
 
 
+def _annotated_tag(name: str, ref: pygit2.Reference, tag_obj: pygit2.Tag) -> Tag | None:
+    peeled = ref.peel()
+    if not isinstance(peeled, pygit2.Commit):
+        # Some repos tag a tree or a blob (git.git, linux), which no commit row can show.
+        logger.debug("Skipping tag %r of a %s", name, peeled.type_str)
+        return None
+    tagger = tag_obj.tagger
+    return Tag(
+        name=name,
+        target_oid=str(peeled.id),
+        is_annotated=True,
+        message=tag_obj.message.strip() if tag_obj.message else None,
+        tagger=f"{tagger.name} <{tagger.email}>" if tagger else None,
+        timestamp=datetime.fromtimestamp(tagger.time, tz=UTC).astimezone() if tagger else None,
+    )
+
+
+def _lightweight_tag(name: str, ref: pygit2.Reference) -> Tag:
+    return Tag(
+        name=name,
+        target_oid=str(ref.target),
+        is_annotated=False,
+        message=None,
+        tagger=None,
+        timestamp=None,
+    )
+
+
 class TagOps:
     """Tag read and write operations for the pygit2 adapter.
 
@@ -47,43 +75,11 @@ class TagOps:
             name = ref_name[len("refs/tags/") :]
             target = self._repo.get(ref.target)
             if isinstance(target, pygit2.Tag):
-                # Annotated tag — peel to get the commit OID. Some repos tag a
-                # tree or a blob (git.git, linux), which no commit row can show.
-                peeled = ref.peel()
-                if not isinstance(peeled, pygit2.Commit):
-                    logger.debug("Skipping tag %r of a %s", name, peeled.type_str)
-                    continue
-                commit_oid = str(peeled.id)
-                ts = (
-                    datetime.fromtimestamp(target.tagger.time, tz=UTC).astimezone()
-                    if target.tagger
-                    else None
-                )
-                tagger_str = (
-                    f"{target.tagger.name} <{target.tagger.email}>" if target.tagger else None
-                )
-                tags.append(
-                    Tag(
-                        name=name,
-                        target_oid=commit_oid,
-                        is_annotated=True,
-                        message=target.message.strip() if target.message else None,
-                        tagger=tagger_str,
-                        timestamp=ts,
-                    )
-                )
+                tag = _annotated_tag(name, ref, target)
             else:
-                # Lightweight tag — target is a commit directly
-                tags.append(
-                    Tag(
-                        name=name,
-                        target_oid=str(ref.target),
-                        is_annotated=False,
-                        message=None,
-                        tagger=None,
-                        timestamp=None,
-                    )
-                )
+                tag = _lightweight_tag(name, ref)
+            if tag is not None:
+                tags.append(tag)
         return tags
 
     def get_remote_tags(self, remote: str) -> list[str]:
