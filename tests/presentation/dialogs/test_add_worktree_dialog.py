@@ -232,3 +232,11 @@ def test_switch_reappears_for_a_branch_held_by_another_worktree(qtbot, tmp_path)
     dlg.select_branch("feat/a")
     assert dlg._switch_btn.isVisibleTo(dlg)
     assert "/tmp/wt-feat-a" in dlg._in_use_label.text()
+
+
+def test_any_write_to_the_location_field_refreshes_add(qtbot, tmp_path):
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg._location_edit.setText("wt")
+    assert dlg.add_button_enabled() is False
+    dlg._location_edit.setText(str(tmp_path / "wt"))
+    assert dlg.add_button_enabled() is True
