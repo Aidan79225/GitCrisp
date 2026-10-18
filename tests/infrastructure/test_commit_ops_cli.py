@@ -291,3 +291,18 @@ def test_revert_conflict_in_a_linked_worktree_does_not_raise(linked_worktree):
     cli.revert_commit(oids["update"], is_merge=False)  # Conflict; must not raise.
 
     assert (git_dir / "REVERT_HEAD").exists()
+
+
+def test_a_failure_naming_a_non_ascii_file_keeps_git_s_message(tmp_path: Path):
+    """git writes UTF-8 whatever the locale; decoding it as cp950 lost the whole message."""
+    _run(str(tmp_path), "init", "-q", "-b", "master")
+    _run(str(tmp_path), "config", "user.email", "t@t")
+    _run(str(tmp_path), "config", "user.name", "t")
+    _commit(tmp_path, "f.txt", "base\n", "init")
+    _run(str(tmp_path), "checkout", "-q", "-b", "a")
+    adds_file = _commit(tmp_path, "中文.txt", "tracked\n", "新增中文檔案")
+    _run(str(tmp_path), "checkout", "-q", "master")
+    (tmp_path / "中文.txt").write_text("untracked\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="中文"):
+        CommitOpsCli(str(tmp_path)).cherry_pick(adds_file, is_merge=False)

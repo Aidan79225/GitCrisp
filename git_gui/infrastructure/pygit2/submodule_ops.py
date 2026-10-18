@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 
 import pygit2
 
 from git_gui.domain.entities import Submodule
+from git_gui.infrastructure.git_process import run_git
 from git_gui.infrastructure.pygit2._helpers import (
     _parse_gitmodules_paths,
     _read_submodule_head_oid,
 )
-from git_gui.resources import subprocess_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +81,10 @@ class SubmoduleOps:
         # Get head SHAs via git ls-files -s (gitlink entries have mode 160000)
         sha_map: dict[str, str] = {}
         try:
-            ls_result = subprocess.run(
+            ls_result = run_git(
                 ["git", "ls-files", "-s", "--", *sm_paths],
-                capture_output=True,
-                text=True,
                 cwd=self._repo.workdir,
                 env=self._git_env,
-                **subprocess_kwargs(),
             )
             for line in ls_result.stdout.splitlines():
                 # Format: "160000 <sha> <stage>\t<path>"
