@@ -59,3 +59,14 @@ def test_a_failed_changed_files_load_is_reported(qtbot):
     message = win._log_panel.log_error.call_args.args[0]
     assert "changed files" in message
     assert "index file corrupt" in message
+
+
+def test_a_first_parent_choice_that_could_not_be_saved_is_reported(qtbot):
+    win = _make_window(qtbot)
+
+    win._graph.setting_save_failed.emit("Access is denied")
+
+    win._log_panel.expand.assert_called_once_with()
+    message = win._log_panel.log_error.call_args.args[0]
+    assert "first-parent" in message
+    assert "Access is denied" in message
