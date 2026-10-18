@@ -91,12 +91,9 @@ class StageOps:
         else:
             if os.path.lexists(full):
                 os.remove(full)
-            try:
-                self._repo.index.remove(path)
-                self._repo.index.write()
-                self._repo.index.read()
-            except (KeyError, OSError):
-                pass
+            self._stage_deletion(path)
+            self._repo.index.write()
+            self._repo.index.read()
 
     def _restore_from_head(self, path: str, where: str) -> None:
         # git CLI, not a raw blob write: a restore applies eol/autocrlf and
