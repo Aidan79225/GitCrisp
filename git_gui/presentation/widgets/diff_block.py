@@ -83,6 +83,7 @@ from git_gui.presentation.widgets.side_by_side import (
     no_newline_note,
     parse_hunk_header,
 )
+from git_gui.presentation.widgets.syntax_highlighter import tokenize
 
 # Style constants
 
@@ -396,8 +397,6 @@ def apply_syntax_tokens(
     in both. A very long line is left alone: tokenizing it costs more than the
     colour is worth, and minified files are mostly one such line.
     """
-    from git_gui.presentation.widgets.syntax_highlighter import tokenize
-
     if not text or _too_long_to_highlight(text):
         return
     positions = _qt_positions(text)
@@ -747,8 +746,6 @@ def make_skeleton_container() -> QWidget:
 
     Used as a placeholder inside a file block while the real hunks are being loaded.
     """
-    from PySide6.QtWidgets import QFrame, QVBoxLayout
-
     container = QWidget()
     layout = QVBoxLayout(container)
     layout.setContentsMargins(8, 6, 8, 6)
