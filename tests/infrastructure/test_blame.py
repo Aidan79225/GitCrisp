@@ -187,3 +187,40 @@ def test_attribution_matches_git_blame(blame_repo):
     ]
 
     assert ours == theirs
+
+
+# ── Line splitting ───────────────────────────────────────────────────────────
+
+
+def _commit_bytes(repo: pygit2.Repository, path: Path, name: str, content: bytes) -> str:
+    (path / name).write_bytes(content)
+    repo.index.add(name)
+    repo.index.write()
+    sig = pygit2.Signature("Test User", "test@example.com")
+    tree = repo.index.write_tree()
+    return str(repo.create_commit("HEAD", sig, sig, f"write {name}", tree, [repo.head.target]))
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        pytest.param(b"one\n\x0c\ntwo\nthree\n", ["one", "\x0c", "two", "three"], id="form-feed"),
+        pytest.param(b"a\rb\nc\nd\n", ["a\rb", "c", "d"], id="lone-cr"),
+        pytest.param("x y\nz\n".encode(), ["x y", "z"], id="line-separator"),
+    ],
+)
+def test_lines_break_only_where_git_breaks_them(repo_path, content, expected):
+    """git counts lines by "\\n" alone; a line holding \\f, \\r or U+2028 is still one line."""
+    _commit_bytes(pygit2.Repository(str(repo_path)), repo_path, "f.c", content)
+
+    lines = Pygit2Repository(str(repo_path)).get_blame("f.c")
+
+    assert [line.text for line in lines] == expected
+
+
+def test_crlf_line_endings_are_not_part_of_the_text(repo_path):
+    _commit_bytes(pygit2.Repository(str(repo_path)), repo_path, "f.txt", b"one\r\ntwo\r\n")
+
+    lines = Pygit2Repository(str(repo_path)).get_blame("f.txt")
+
+    assert [line.text for line in lines] == ["one", "two"]
