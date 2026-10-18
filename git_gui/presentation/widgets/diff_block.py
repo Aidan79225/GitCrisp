@@ -741,19 +741,29 @@ def make_overflow_notice(hidden: int) -> QLabel:
     return label
 
 
+_SKELETON_BAR_COUNT = 4
+
+
+def _skeleton_style() -> str:
+    bar = get_theme_manager().current.colors.outline_variant
+    return f"QFrame#skeletonBar {{ background-color: {bar}; border-radius: 3px; }}"
+
+
 def make_skeleton_container() -> QWidget:
-    """Return a QWidget containing 4 gray placeholder bars that mimic diff rows.
+    """Return a QWidget of placeholder bars that mimic diff rows.
 
     Used as a placeholder inside a file block while the real hunks are being loaded.
     """
     container = QWidget()
+    container.setStyleSheet(_skeleton_style())
     layout = QVBoxLayout(container)
     layout.setContentsMargins(8, 6, 8, 6)
     layout.setSpacing(4)
-    for _ in (90, 60, 75, 50):
+    for _ in range(_SKELETON_BAR_COUNT):
         bar = QFrame()
+        bar.setObjectName("skeletonBar")
         bar.setFixedHeight(10)
         bar.setMinimumWidth(40)
-        bar.setStyleSheet("background-color: rgba(128, 128, 128, 40); border-radius: 3px;")
         layout.addWidget(bar)
+    connect_widget(container, rebuild=lambda: container.setStyleSheet(_skeleton_style()))
     return container
