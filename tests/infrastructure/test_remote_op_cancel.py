@@ -32,7 +32,7 @@ def test_run_git_failure_raises_runtimeerror(repo_impl):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX fake-git shell script")
 def test_cancel_terminates_running_git(repo_path, tmp_path, monkeypatch):
-    """A long-running git process is killed promptly on cancel, and _run_git
+    """A long-running git process is killed promptly on cancel, and the fetch
     surfaces RemoteOperationCancelled rather than hanging on the child's pipes."""
     # Fake `git` that blocks — stands in for a slow fetch/push. The extra `sleep`
     # child mimics git's transport helper, so a plain terminate() of the top
@@ -70,3 +70,12 @@ def test_cancel_terminates_running_git(repo_path, tmp_path, monkeypatch):
     assert not worker.is_alive(), "cancel did not unblock the worker"
     assert isinstance(result.get("exc"), RemoteOperationCancelled)
     assert result["elapsed"] < 10  # well under the fake 30s sleep
+
+
+def test_aborting_a_merge_leaves_the_running_fetch_cancellable(repo_impl):
+    """A local command run while a fetch is in flight must not take its cancel slot."""
+    in_flight_fetch = object()
+    repo_impl._active_remote_proc = in_flight_fetch
+    with pytest.raises(RuntimeError):
+        repo_impl.merge_abort()  # Nothing to abort, but git still runs.
+    assert repo_impl._active_remote_proc is in_flight_fetch
