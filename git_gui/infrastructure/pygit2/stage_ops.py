@@ -6,6 +6,7 @@ import subprocess
 import pygit2
 
 from git_gui.domain.entities import LineKind
+from git_gui.infrastructure.pygit2._helpers import _patches_for_path
 from git_gui.resources import subprocess_kwargs
 
 # Their content is already the whole "\ No newline at end of file" line, and a
@@ -13,6 +14,10 @@ from git_gui.resources import subprocess_kwargs
 _NO_NEWLINE_MARKERS = frozenset(
     {LineKind.ADDED_EOFNL, LineKind.REMOVED_EOFNL, LineKind.CONTEXT_EOFNL}
 )
+
+# Diffed with this, a file <-> symlink change is one TYPECHANGE delta instead
+# of a deletion and an addition of the same path.
+_WITH_TYPE_CHANGES = pygit2.enums.DiffOption.INCLUDE_TYPECHANGE
 
 
 class StageOps:
@@ -63,12 +68,18 @@ class StageOps:
             self._repo.index.write()
 
     def stage_hunk(self, path: str, hunk_header: str) -> None:
-        patch = self._build_hunk_patch(path, hunk_header, staged=False)
-        self._apply_patch(patch, "--cached")
+        diff = self._hunk_diff(staged=False)
+        if _is_type_change(diff, path):
+            self.stage([path])
+        else:
+            self._apply_patch(_hunk_patch(diff, path, hunk_header), "--cached")
 
     def unstage_hunk(self, path: str, hunk_header: str) -> None:
-        patch = self._build_hunk_patch(path, hunk_header, staged=True)
-        self._apply_patch(patch, "--cached", "--reverse")
+        diff = self._hunk_diff(staged=True)
+        if _is_type_change(diff, path):
+            self.unstage([path])
+        else:
+            self._apply_patch(_hunk_patch(diff, path, hunk_header), "--cached", "--reverse")
 
     def discard_file(self, path: str) -> None:
         full = os.path.join(self._repo.workdir, path)
@@ -110,7 +121,7 @@ class StageOps:
         self._repo.index.read()
 
     def discard_hunk(self, path: str, hunk_header: str) -> None:
-        patch = self._build_hunk_patch(path, hunk_header, staged=False)
+        patch = _hunk_patch(self._hunk_diff(staged=False), path, hunk_header)
         self._apply_patch(patch, "--reverse")
 
     def _apply_patch(self, patch: bytes, *options: str) -> None:
@@ -136,26 +147,33 @@ class StageOps:
             reason = result.stderr.decode("utf-8", errors="replace").strip()
             raise RuntimeError(reason or f"git exited with status {result.returncode}")
 
-    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> bytes:
-        if staged:
-            if self._repo.head_is_unborn:
-                empty_tree_oid = self._repo.TreeBuilder().write()
-                empty_tree = self._repo.get(empty_tree_oid)
-                diff = self._repo.index.diff_to_tree(empty_tree)
-            else:
-                head_commit = self._repo.head.peel(pygit2.Commit)
-                diff = self._repo.index.diff_to_tree(head_commit.tree)
+    def _hunk_diff(self, staged: bool) -> pygit2.Diff:
+        if not staged:
+            return self._repo.diff(flags=_WITH_TYPE_CHANGES)
+        if self._repo.head_is_unborn:
+            empty_tree_oid = self._repo.TreeBuilder().write()
+            base = self._repo.get(empty_tree_oid)
         else:
-            diff = self._repo.diff()
+            base = self._repo.head.peel(pygit2.Commit).tree
+        return self._repo.index.diff_to_tree(base, flags=_WITH_TYPE_CHANGES)
 
-        for patch in diff:
-            if patch.delta.new_file.path != path and patch.delta.old_file.path != path:
-                continue
-            for hunk in patch.hunks:
-                if hunk.header == hunk_header:
-                    return _single_hunk_patch(path, patch.delta, hunk)
-        # Returning quietly let the checkbox show a stage that never happened.
-        raise RuntimeError(f"hunk {hunk_header.strip()} not found in {path}")
+
+def _is_type_change(diff: pygit2.Diff, path: str) -> bool:
+    """Either hunk of a type change moves the whole file: git apply cannot
+    express half of one."""
+    return any(
+        delta.status == pygit2.GIT_DELTA_TYPECHANGE and delta.new_file.path == path
+        for delta in diff.deltas
+    )
+
+
+def _hunk_patch(diff: pygit2.Diff, path: str, hunk_header: str) -> bytes:
+    for patch in _patches_for_path(diff, path):
+        for hunk in patch.hunks:
+            if hunk.header == hunk_header:
+                return _single_hunk_patch(path, patch.delta, hunk)
+    # Returning quietly let the checkbox show a stage that never happened.
+    raise RuntimeError(f"hunk {hunk_header.strip()} not found in {path}")
 
 
 def _single_hunk_patch(path: str, delta: pygit2.DiffDelta, hunk: pygit2.DiffHunk) -> bytes:
