@@ -277,9 +277,13 @@ class RepoLifecycleMixin:
             self._request_repo(_RepoRequest(successor, _SwitchReason.REPLACE))
 
     def _closing_takes_what_is_on_screen(self, path: str) -> bool:
-        """Whether *path* is the repo on screen, or the open repo whose linked
-        worktree is on screen — that worktree's only row hangs under it."""
+        """Whether *path* is the repo on screen, the repo on its way to replace
+        it after it was closed, or the open repo whose linked worktree is on
+        screen — that worktree's only row hangs under it."""
         if path == self._repo_path:
+            return True
+        pending = self._pending_request()
+        if pending is not None and pending.path == path and pending.reason is _SwitchReason.REPLACE:
             return True
         in_owned_worktree = self._repo_path not in self._repo_store.get_open_repos()
         return in_owned_worktree and path == self._repo_list.worktree_owner()
