@@ -150,10 +150,20 @@ def test_a_location_with_files_in_it_disables_add_and_says_why(qtbot, tmp_path):
     assert "exists" in dlg._location_error.text()
 
 
-def test_an_existing_empty_folder_disables_add_because_git_will_not_use_it(qtbot, tmp_path):
+def test_an_existing_empty_folder_enables_add_because_browse_can_only_pick_one(qtbot, tmp_path):
     dlg = _open_dialog(qtbot, branches=["master"])
     dlg.set_location(str(tmp_path))
+    assert dlg.add_button_enabled() is True
+    assert not dlg._location_error.isVisibleTo(dlg)
+
+
+def test_an_existing_file_disables_add_and_says_why(qtbot, tmp_path):
+    target = tmp_path / "notes.txt"
+    target.write_text("x")
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location(str(target))
     assert dlg.add_button_enabled() is False
+    assert "exists" in dlg._location_error.text()
 
 
 def test_a_relative_location_disables_add_and_says_why(qtbot):

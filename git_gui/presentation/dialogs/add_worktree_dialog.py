@@ -43,10 +43,14 @@ def _location_problem(location: str) -> str | None:
     if not path.is_absolute():
         # git would resolve it against the app's working directory.
         return "Location must be an absolute path."
-    if path.exists():
-        # libgit2 refuses any existing folder, even an empty one.
-        return "This location already exists; choose a folder that does not exist yet."
+    if path.exists() and not _is_empty_folder(path):
+        # git worktree add accepts an empty folder, the only kind Browse… returns.
+        return "This location already exists and is not an empty folder."
     return None
+
+
+def _is_empty_folder(path: Path) -> bool:
+    return path.is_dir() and not any(path.iterdir())
 
 
 class AddWorktreeDialog(QDialog):
