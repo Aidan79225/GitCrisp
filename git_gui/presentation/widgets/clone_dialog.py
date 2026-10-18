@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import subprocess
 import threading
 from pathlib import Path
 
@@ -28,18 +27,6 @@ def _parse_repo_name(url: str) -> str:
     """Extract repo name from a git URL."""
     m = _REPO_NAME_RE.search(url.strip())
     return m.group(1) if m else ""
-
-
-def _clone_error_text(error: Exception) -> str:
-    """git's own message when the error carries it.
-
-    str() of a CalledProcessError names only the command and exit status,
-    which does not tell the user what to fix.
-    """
-    stderr = error.stderr if isinstance(error, subprocess.CalledProcessError) else None
-    if isinstance(stderr, bytes):
-        stderr = stderr.decode("utf-8", errors="replace")
-    return (stderr or "").strip() or str(error)
 
 
 class _CloneSignals(QObject):
@@ -179,7 +166,7 @@ class CloneDialog(QDialog):
                 clone_repo(url, dest, on_progress=_report)
                 signals.finished.emit(dest)
             except Exception as e:
-                signals.failed.emit(_clone_error_text(e))
+                signals.failed.emit(str(e))
 
         self._proc_thread = threading.Thread(target=_worker, daemon=True)
         self._proc_thread.start()
