@@ -93,18 +93,6 @@ def _window(qtbot, repo_path):
     return window
 
 
-def test_close_event_reaches_main_window(qtbot, repo_path):
-    """Not a formality: a closeEvent on a mixin would never run.
-
-    MainWindow lists QMainWindow first, so Python resolves Qt event handlers
-    to the Qt base before any mixin — a save on the mixin would look correct
-    and quietly do nothing.
-    """
-    from git_gui.presentation.main_window import MainWindow
-
-    assert MainWindow.closeEvent.__qualname__ == "MainWindow.closeEvent"
-
-
 def test_a_drag_while_the_commit_list_is_up_is_the_commit_list_arrangement(qtbot, repo_path):
     w = _window(qtbot, repo_path)
 
@@ -154,6 +142,8 @@ def test_closing_the_reflog_gives_back_the_users_split_not_the_default(qtbot, re
 
 
 def test_the_arrangement_survives_a_relaunch(qtbot, repo_path):
+    """Also guards where the save lives: MainWindow lists QMainWindow first,
+    so a closeEvent on a mixin would look correct and never run."""
     w = _window(qtbot, repo_path)
     w._splitter.setSizes([200, 700, 500])
     w._remember_split()
