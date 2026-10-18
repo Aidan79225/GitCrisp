@@ -42,7 +42,6 @@ class CloneDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Clone Repository")
         self.setMinimumWidth(500)
-        self._proc_thread: threading.Thread | None = None
         self._cloning = False
         self._cancel_requested = threading.Event()
 
@@ -168,8 +167,7 @@ class CloneDialog(QDialog):
             except Exception as e:
                 signals.failed.emit(str(e))
 
-        self._proc_thread = threading.Thread(target=_worker, daemon=True)
-        self._proc_thread.start()
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _on_progress(self, phase: str, percent: int) -> None:
         self._progress_label.setText(f"{phase}: {percent}%")
