@@ -3,22 +3,7 @@ from unittest.mock import MagicMock, patch
 from PySide6.QtWidgets import QMessageBox
 
 from git_gui.domain.entities import Branch
-from git_gui.presentation.main_window import MainWindow
-
-
-def _make_window(qtbot):
-    repo_store = MagicMock()
-    repo_store.get_open_repos.return_value = []
-    repo_store.get_recent_repos.return_value = []
-    repo_store.get_active.return_value = None
-    win = MainWindow(
-        queries=None,
-        commands=None,
-        repo_store=repo_store,
-        session_factory=lambda _p: (MagicMock(), MagicMock()),
-    )
-    qtbot.addWidget(win)
-    return win
+from tests.presentation.window_helpers import blank_window
 
 
 def _wire_buses(win):
@@ -35,7 +20,7 @@ def _wire_buses(win):
 
 
 def test_conflict_yes_resets_local(qtbot):
-    win = _make_window(qtbot)
+    win = blank_window(qtbot)
     queries, commands = _wire_buses(win)
     with (
         patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
@@ -47,7 +32,7 @@ def test_conflict_yes_resets_local(qtbot):
 
 
 def test_conflict_cancel_does_nothing(qtbot):
-    win = _make_window(qtbot)
+    win = blank_window(qtbot)
     queries, commands = _wire_buses(win)
     with (
         patch.object(QMessageBox, "question", return_value=QMessageBox.Cancel),
@@ -60,7 +45,7 @@ def test_conflict_cancel_does_nothing(qtbot):
 
 
 def test_no_conflict_falls_through(qtbot):
-    win = _make_window(qtbot)
+    win = blank_window(qtbot)
     queries, commands = _wire_buses(win)
     queries.get_branches.execute.return_value = [
         Branch("origin/feature", True, False, "abc"),
@@ -71,7 +56,7 @@ def test_no_conflict_falls_through(qtbot):
 
 
 def test_local_branch_with_slash_uses_local_checkout(qtbot):
-    win = _make_window(qtbot)
+    win = blank_window(qtbot)
     queries, commands = _wire_buses(win)
     queries.get_branches.execute.return_value = [
         Branch("feature/android-pr-quality-checks", False, False, "abc"),
@@ -85,7 +70,7 @@ def test_local_branch_with_slash_uses_local_checkout(qtbot):
 
 
 def test_checkout_scrolls_graph_to_head(qtbot):
-    win = _make_window(qtbot)
+    win = blank_window(qtbot)
     queries, commands = _wire_buses(win)
     queries.get_head_oid.execute.return_value = "deadbeef"
     # Replace _graph entirely so the patched _reload doesn't interact with scroll_to_oid.
@@ -98,7 +83,7 @@ def test_checkout_scrolls_graph_to_head(qtbot):
 
 def test_conflict_cancel_does_not_scroll(qtbot):
     """Cancel on the conflict prompt must not trigger scroll-to-HEAD."""
-    win = _make_window(qtbot)
+    win = blank_window(qtbot)
     queries, commands = _wire_buses(win)
     queries.get_head_oid.execute.return_value = "deadbeef"
     win._graph = MagicMock()
@@ -113,7 +98,7 @@ def test_conflict_cancel_does_not_scroll(qtbot):
 def test_undo_after_reset_to_remote_returns_the_branch_to_its_own_tip(qtbot):
     """Run from master, the reset moves feature; its Undo must name feature's
     old tip, not the commit master happened to be on."""
-    win = _make_window(qtbot)
+    win = blank_window(qtbot)
     queries, commands = _wire_buses(win)
     queries.get_branches.execute.return_value = [
         Branch("master", False, True, "m" * 40),

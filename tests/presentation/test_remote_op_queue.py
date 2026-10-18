@@ -10,23 +10,14 @@ from PySide6.QtWidgets import QMessageBox
 
 from git_gui.domain.entities import Branch, LocalBranchInfo, Remote
 from git_gui.presentation.main_window import MainWindow
+from tests.presentation.window_helpers import blank_window
 
 MODULE = "git_gui.presentation.main_window.remote_op_queue"
 REJECTED = "! [rejected] feature -> feature (non-fast-forward)"
 
 
 def _make_window(qtbot) -> MainWindow:
-    repo_store = MagicMock()
-    repo_store.get_open_repos.return_value = []
-    repo_store.get_recent_repos.return_value = []
-    repo_store.get_active.return_value = None
-    win = MainWindow(
-        queries=None,
-        commands=None,
-        repo_store=repo_store,
-        session_factory=lambda _p: (MagicMock(), MagicMock()),
-    )
-    qtbot.addWidget(win)
+    win = blank_window(qtbot)
     win._commands = MagicMock()
     win._queries = _queries_on_branch("main", others=["feature"])
     return win
