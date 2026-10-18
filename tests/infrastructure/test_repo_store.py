@@ -1,4 +1,6 @@
+import errno
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -212,3 +214,155 @@ class TestJsonRepoStoreSettings:
         )
         store.load()
         assert store.get_repo_setting("/repo/a", "first_parent", False) is False
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        '{"open": ["C:/a"',
+        "null",
+        "[]",
+        '{"open": null}',
+        '{"settings": [1]}',
+    ],
+)
+def test_an_unreadable_repos_file_loads_as_an_empty_store(store, store_path, content):
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(content, encoding="utf-8")
+
+    store.load()
+
+    assert store.get_open_repos() == []
+    assert store.get_recent_repos() == []
+    assert store.get_active() is None
+
+
+def test_a_repos_file_saved_with_a_bom_still_loads(store, store_path):
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(json.dumps({"open": ["/repo/a"]}), encoding="utf-8-sig")
+
+    store.load()
+
+    assert store.get_open_repos() == ["/repo/a"]
+
+
+def test_entries_of_the_wrong_type_are_dropped_and_the_rest_kept(store, store_path):
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(
+        json.dumps({"open": ["/repo/a", 7], "recent": "/repo/b", "active": 3}),
+        encoding="utf-8",
+    )
+
+    store.load()
+
+    assert store.get_open_repos() == ["/repo/a"]
+    assert store.get_recent_repos() == []
+    assert store.get_active() is None
+
+
+def test_a_save_that_fails_partway_keeps_the_previous_file(store, store_path, monkeypatch):
+    store.load()
+    store.add_open("/repo/a")
+    store.save()
+    before = store_path.read_text(encoding="utf-8")
+
+    def disk_full(fd: int) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(os, "fsync", disk_full)
+    store.add_open("/repo/b")
+    with pytest.raises(OSError):
+        store.save()
+
+    assert store_path.read_text(encoding="utf-8") == before
+    assert list(store_path.parent.iterdir()) == [store_path]
+
+
+@pytest.fixture
+def unwritable_store(tmp_path) -> JsonRepoStore:
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("", encoding="utf-8")
+    return JsonRepoStore(blocker / "repos.json")
+
+
+def test_a_save_that_cannot_write_the_file_tells_the_caller(unwritable_store):
+    unwritable_store.load()
+    unwritable_store.add_open("/repo/a")
+
+    with pytest.raises(OSError):
+        unwritable_store.save()
+
+
+def test_a_failed_save_keeps_the_store_usable(unwritable_store):
+    unwritable_store.load()
+    unwritable_store.add_open("/repo/a")
+
+    with pytest.raises(OSError):
+        unwritable_store.save()
+
+    assert unwritable_store.get_open_repos() == ["/repo/a"]
+
+
+_HAND_BROKEN = '{"open": ["/repo/a"], "settings": {"/repo/a": {"first_parent": true}},}'
+
+
+def _write_repos_file(store_path: Path, text: str) -> None:
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(text, encoding="utf-8")
+
+
+def _files_holding(folder: Path, text: str) -> list[Path]:
+    return [p for p in folder.iterdir() if p.is_file() and p.read_text(encoding="utf-8") == text]
+
+
+def test_a_repos_file_that_does_not_parse_survives_the_next_save(store, store_path):
+    _write_repos_file(store_path, _HAND_BROKEN)
+
+    store.load()
+    store.save()
+
+    assert _files_holding(store_path.parent, _HAND_BROKEN)
+
+
+def test_saves_carry_on_once_a_broken_repos_file_is_set_aside(store, store_path):
+    _write_repos_file(store_path, _HAND_BROKEN)
+    store.load()
+
+    store.add_open("/repo/b")
+    store.save()
+
+    fresh = JsonRepoStore(store_path)
+    fresh.load()
+    assert fresh.get_open_repos() == ["/repo/b"]
+
+
+def _fail_with_permission_error(*_args, **_kwargs):
+    raise PermissionError(errno.EACCES, "Held open by a backup tool")
+
+
+def test_a_repos_file_that_could_not_be_read_is_not_written_over(store, store_path, monkeypatch):
+    original = json.dumps({"open": ["/repo/a"]})
+    _write_repos_file(store_path, original)
+    monkeypatch.setattr(Path, "read_text", _fail_with_permission_error)
+    store.load()
+    monkeypatch.undo()
+
+    with pytest.raises(OSError):
+        store.save()
+
+    assert store_path.read_text(encoding="utf-8") == original
+
+
+def test_a_broken_repos_file_that_cannot_be_set_aside_is_not_written_over(
+    store, store_path, monkeypatch
+):
+    _write_repos_file(store_path, _HAND_BROKEN)
+    monkeypatch.setattr(Path, "rename", _fail_with_permission_error)
+    store.load()
+    monkeypatch.undo()
+
+    with pytest.raises(OSError):
+        store.save()
+
+    assert store_path.read_text(encoding="utf-8") == _HAND_BROKEN

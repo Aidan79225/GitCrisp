@@ -1,10 +1,37 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 _RECENT_LIMIT = 20
+
+
+def _str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _replace_file(path: Path, text: str) -> None:
+    # Write a sibling file and swap it in, so a crash, power loss or full disk
+    # mid-write leaves the previous file whole rather than truncated.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 class JsonRepoStore:
@@ -16,32 +43,80 @@ class JsonRepoStore:
         self._recent: list[str] = []
         self._active: str | None = None
         self._settings: dict[str, dict[str, Any]] = {}
+        self._unread_cause: OSError | None = None
 
     def load(self) -> None:
-        if self._path.exists():
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-            self._open = list(data.get("open", []))
-            self._recent = list(data.get("recent", []))
-            self._active = data.get("active")
-            raw_settings = data.get("settings", {}) or {}
-            self._settings = {
-                str(k): dict(v) for k, v in raw_settings.items() if isinstance(v, dict)
-            }
-        else:
-            self._open = []
-            self._recent = []
-            self._active = None
-            self._settings = {}
+        self._unread_cause = None
+        data = self._read_file()
+        self._open = _str_list(data.get("open"))
+        self._recent = _str_list(data.get("recent"))
+        active = data.get("active")
+        self._active = active if isinstance(active, str) else None
+        raw_settings = data.get("settings")
+        if not isinstance(raw_settings, dict):
+            raw_settings = {}
+        self._settings = {str(k): dict(v) for k, v in raw_settings.items() if isinstance(v, dict)}
+
+    def _read_file(self) -> dict[str, Any]:
+        # A crash mid-save or a hand edit can leave the file unreadable; the
+        # app must still start, so fall back to an empty store.
+        if not self._path.exists():
+            return {}
+        try:
+            # utf-8-sig: editors such as Notepad may add a BOM on save.
+            data = json.loads(self._path.read_text(encoding="utf-8-sig"))
+        except OSError as e:
+            self._leave_unread(e)
+            return {}
+        except ValueError as e:
+            self._set_aside(str(e))
+            return {}
+        if not isinstance(data, dict):
+            self._set_aside("its root is not an object")
+            return {}
+        return data
+
+    def _set_aside(self, reason: str) -> None:
+        # Starting empty means the first save replaces the file, so move it out
+        # of the way first: a hand edit gone wrong is then a repair, not a loss.
+        aside = self._path.with_name(f"{self._path.name}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
+        try:
+            self._path.rename(aside)
+        except OSError as e:
+            self._leave_unread(e)
+            return
+        logger.warning(
+            "Could not parse %s (%s); moved it to %s and started with no repos",
+            self._path,
+            reason,
+            aside.name,
+        )
+
+    def _leave_unread(self, cause: OSError) -> None:
+        logger.warning("Could not load %s: %s; leaving it untouched", self._path, cause)
+        self._unread_cause = cause
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        """Write the store to disk, or raise OSError and leave the file as it was.
+
+        The caller is the one that can tell the user. The in-memory state stays
+        current, so the next save after a failed write tries again. A file that
+        load() could not read is never written: this session never saw what it
+        holds, and writing would erase it.
+        """
+        if self._unread_cause is not None:
+            raise OSError(
+                f"{self._path} could not be loaded at startup ({self._unread_cause}), "
+                "so it is left untouched until GitCrisp restarts"
+            ) from self._unread_cause
         data = {
             "open": self._open,
             "recent": self._recent,
             "active": self._active,
             "settings": self._settings,
         }
-        self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        _replace_file(self._path, json.dumps(data, indent=2))
 
     def get_open_repos(self) -> list[str]:
         return list(self._open)
