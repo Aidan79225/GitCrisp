@@ -18,6 +18,14 @@ class TestIsGitRepo:
 from git_gui.infrastructure.repo_store import JsonRepoStore
 
 
+def _startup_repo(store: JsonRepoStore) -> str | None:
+    """The path main.py starts the window on."""
+    from main import _open_startup_repo
+
+    started = _open_startup_repo(store)
+    return started.path if started else None
+
+
 class TestFindValidRepoPruning:
     def test_prunes_non_git_directory_from_store(self, tmp_path):
         """A stored path that exists as a dir but is not a git repo gets pruned."""
@@ -30,9 +38,7 @@ class TestFindValidRepoPruning:
         store.add_open(str(plain_dir))
         store.save()
 
-        from main import _find_valid_repo
-
-        result = _find_valid_repo(store)
+        result = _startup_repo(store)
         assert result is None
         assert str(plain_dir) not in store.get_open_repos()
 
@@ -48,9 +54,7 @@ class TestFindValidRepoPruning:
         store.add_open(str(repo_dir))
         store.save()
 
-        from main import _find_valid_repo
-
-        result = _find_valid_repo(store)
+        result = _startup_repo(store)
         assert result == str(repo_dir)
 
     def test_prunes_active_non_git_directory(self, tmp_path):
@@ -64,9 +68,7 @@ class TestFindValidRepoPruning:
         store.add_open(str(plain_dir))  # This also sets active
         store.save()
 
-        from main import _find_valid_repo
-
-        result = _find_valid_repo(store)
+        result = _startup_repo(store)
         assert result is None
         assert store.get_active() is None
 
@@ -92,9 +94,7 @@ class TestFindValidRepoPruning:
         assert store.get_active() == str(valid_repo)
         assert str(dead) in store.get_open_repos()
 
-        from main import _find_valid_repo
-
-        result = _find_valid_repo(store)
+        result = _startup_repo(store)
 
         assert result == str(valid_repo)
         assert str(dead) not in store.get_open_repos()
@@ -118,9 +118,7 @@ class TestFindValidRepoPruning:
         store.save()
         assert str(worktree) not in store.get_open_repos()
 
-        from main import _find_valid_repo
-
-        result = _find_valid_repo(store)
+        result = _startup_repo(store)
 
         assert result == str(worktree)
 
@@ -140,9 +138,7 @@ class TestFindValidRepoPruning:
         store.save()
         assert str(dead) in store.get_recent_repos()
 
-        from main import _find_valid_repo
-
-        _find_valid_repo(store)
+        _startup_repo(store)
 
         assert str(dead) not in store.get_recent_repos()
 
@@ -191,34 +187,28 @@ class TestFindValidRepoKeepsUnreachablePaths:
         return path
 
     def test_an_open_repo_on_a_missing_volume_stays_open(self, tmp_path):
-        from main import _find_valid_repo
-
         valid = self._repo(tmp_path / "valid")
         offline = tmp_path / "unmounted" / "work" / "project"
         store = self._store(tmp_path, open_paths=[valid, offline], active=valid)
 
-        assert _find_valid_repo(store) == str(valid)
+        assert _startup_repo(store) == str(valid)
         assert store.get_open_repos() == [str(valid), str(offline)]
 
     def test_a_recent_repo_on_a_missing_volume_stays_recent(self, tmp_path):
-        from main import _find_valid_repo
-
         valid = self._repo(tmp_path / "valid")
         offline = tmp_path / "unmounted" / "work" / "project"
         store = self._store(tmp_path, open_paths=[valid], recent_paths=[offline])
 
-        _find_valid_repo(store)
+        _startup_repo(store)
 
         assert store.get_recent_repos() == [str(offline)]
 
     def test_an_active_repo_on_a_missing_volume_yields_to_the_next_open_one(self, tmp_path):
-        from main import _find_valid_repo
-
         valid = self._repo(tmp_path / "valid")
         offline = tmp_path / "unmounted" / "work" / "project"
         store = self._store(tmp_path, open_paths=[offline, valid], active=offline)
 
-        assert _find_valid_repo(store) == str(valid)
+        assert _startup_repo(store) == str(valid)
         assert store.get_open_repos() == [str(offline), str(valid)]
 
     def test_each_stored_path_is_probed_once(self, tmp_path, monkeypatch):
@@ -233,6 +223,6 @@ class TestFindValidRepoKeepsUnreachablePaths:
         probe = main._stored_repo_state
         monkeypatch.setattr(main, "_stored_repo_state", lambda p: probed.append(p) or probe(p))
 
-        main._find_valid_repo(store)
+        _startup_repo(store)
 
         assert sorted(probed) == sorted({str(offline), str(valid)})

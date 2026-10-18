@@ -1,8 +1,10 @@
 import functools
 import logging
 import sys
+from collections.abc import Iterable
 from enum import Enum, auto
 from pathlib import Path
+from typing import NamedTuple
 
 import pygit2
 from PySide6.QtCore import QtMsgType, qInstallMessageHandler
@@ -48,14 +50,26 @@ def _stored_repo_state(path: str) -> _StoredRepo:
     return _StoredRepo.GONE
 
 
-def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
-    """Return a valid repo to open, pruning every stored path that is gone.
+class _Startup(NamedTuple):
+    """The repo the window starts on, with its session."""
+
+    path: str
+    queries: QueryBus
+    commands: CommandBus
+
+
+def _open_startup_repo(repo_store: JsonRepoStore) -> _Startup | None:
+    """Open the repo to start in, pruning every stored path that is gone.
 
     Pruning scans the *entire* open and recent lists — not just up to the first
     valid entry — so stale paths (e.g. a deleted worktree) never linger across
     sessions, rendering as repo rows that fail with "Repository not found" when
-    switched to. Returns the active repo if still valid, otherwise the first
-    valid open repo, otherwise None.
+    switched to. Starts in the active repo if it still opens, otherwise in the
+    first open repo that does, which becomes the active one; otherwise None.
+
+    A repo that is there but will not open is passed over rather than left
+    active: the repo list would draw it as the repo on screen and ignore
+    clicks on it, leaving no way to reach it or its error.
     """
     state = functools.cache(_stored_repo_state)
 
@@ -68,16 +82,23 @@ def _find_valid_repo(repo_store: JsonRepoStore) -> str | None:
         repo_store.forget(active)  # clear a dead active not in open/recent
 
     # Keep a still-valid active repo even if it isn't in the open list (e.g. an
-    # active worktree, recorded via set_active without add_open). Otherwise fall
-    # back to the first valid open repo.
+    # active worktree, recorded via set_active without add_open).
     candidates = ([active] if active else []) + repo_store.get_open_repos()
-    selected = next((p for p in candidates if state(p) is _StoredRepo.PRESENT), None)
+    started = _first_that_opens(p for p in candidates if state(p) is _StoredRepo.PRESENT)
 
-    if selected is not None:
-        repo_store.set_active(selected)
+    if started is not None:
+        repo_store.set_active(started.path)
 
     repo_store.save()
-    return selected
+    return started
+
+
+def _first_that_opens(paths: Iterable[str]) -> _Startup | None:
+    for path in paths:
+        session = _open_startup_session(path)
+        if session is not None:
+            return _Startup(path, *session)
+    return None
 
 
 def _open_session(path: str) -> tuple[QueryBus, CommandBus]:
@@ -90,9 +111,9 @@ def _open_startup_session(path: str) -> tuple[QueryBus, CommandBus] | None:
 
     discover_repository, which validated the path, accepts repositories that
     pygit2 then refuses to open — a reftable or sha256 repo, a config that does
-    not parse. The path stays stored and active, so an error escaping here
-    would stop every launch. It is kept rather than forgotten: a broken config
-    is fixable, and switching to it from the repo list shows the error.
+    not parse. The path stays stored, so an error escaping here would stop
+    every launch. It is kept rather than forgotten: a broken config is
+    fixable, and switching to it from the repo list shows the error.
     """
     try:
         return _open_session(path)
@@ -165,15 +186,13 @@ def main() -> None:
 
 def _open_window(repo_store: JsonRepoStore, remote_tag_cache: JsonRemoteTagCache) -> MainWindow:
     """The main window, on the repo the last session left active if it still opens."""
-    repo_path = _find_valid_repo(repo_store)
-    session = _open_startup_session(repo_path) if repo_path else None
-    queries, commands = session or (None, None)
+    repo_path, queries, commands = _open_startup_repo(repo_store) or (None, None, None)
     return MainWindow(
         queries,
         commands,
         repo_store,
         remote_tag_cache,
-        repo_path if session else None,
+        repo_path,
         session_factory=_open_session,
     )
 
