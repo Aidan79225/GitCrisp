@@ -6,6 +6,8 @@ Update checks and crash reporting. Designed to grow — future preferences
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -25,8 +27,14 @@ from git_gui.presentation.app_settings import (
 
 
 class PreferencesDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        apply_crash_reporting: Callable[[bool], None] = set_crash_reporting_enabled,
+    ) -> None:
         super().__init__(parent)
+        self._apply_crash_reporting = apply_crash_reporting
         self.setWindowTitle("Preferences")
         self.setModal(True)
 
@@ -54,5 +62,5 @@ class PreferencesDialog(QDialog):
         set_check_updates(self._check_updates_box.isChecked())
         send = self._crash_reports_box.isChecked()
         set_send_crash_reports(send)
-        set_crash_reporting_enabled(send)
+        self._apply_crash_reporting(send)
         super().accept()

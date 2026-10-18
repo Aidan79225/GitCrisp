@@ -79,13 +79,12 @@ def test_crash_reports_checkbox_reflects_setting(qtbot):
     assert dlg._crash_reports_box.isChecked() is False
 
 
-def test_accept_persists_and_applies_crash_report_choice(qtbot, monkeypatch):
+def test_accept_persists_and_applies_crash_report_choice(qtbot):
     from git_gui.presentation.app_settings import get_send_crash_reports
-    from git_gui.presentation.dialogs import preferences_dialog
+    from git_gui.presentation.dialogs.preferences_dialog import PreferencesDialog
 
     applied: list[bool] = []
-    monkeypatch.setattr(preferences_dialog, "set_crash_reporting_enabled", applied.append)
-    dlg = preferences_dialog.PreferencesDialog()
+    dlg = PreferencesDialog(apply_crash_reporting=applied.append)
     qtbot.addWidget(dlg)
     assert dlg._crash_reports_box.isChecked() is True  # default on
     dlg._crash_reports_box.setChecked(False)
@@ -94,13 +93,12 @@ def test_accept_persists_and_applies_crash_report_choice(qtbot, monkeypatch):
     assert applied == [False]
 
 
-def test_reject_leaves_crash_report_choice_alone(qtbot, monkeypatch):
+def test_reject_leaves_crash_report_choice_alone(qtbot):
     from git_gui.presentation.app_settings import get_send_crash_reports
-    from git_gui.presentation.dialogs import preferences_dialog
+    from git_gui.presentation.dialogs.preferences_dialog import PreferencesDialog
 
     applied: list[bool] = []
-    monkeypatch.setattr(preferences_dialog, "set_crash_reporting_enabled", applied.append)
-    dlg = preferences_dialog.PreferencesDialog()
+    dlg = PreferencesDialog(apply_crash_reporting=applied.append)
     qtbot.addWidget(dlg)
     dlg._crash_reports_box.setChecked(False)
     dlg.reject()
