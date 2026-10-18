@@ -4,6 +4,7 @@ import logging
 import subprocess
 from collections.abc import Callable, Iterator
 from datetime import datetime
+from itertools import islice
 
 import pygit2
 
@@ -28,7 +29,25 @@ _COMMIT_DELTA_MAP = {
     pygit2.GIT_DELTA_RENAMED: FileDelta.RENAMED,
 }
 
+# What pygit2 raises for a ref or object it cannot find or parse.
+_LOOKUP_ERRORS = (KeyError, ValueError, pygit2.GitError)
+
 logger = logging.getLogger(__name__)
+
+
+def _push_tip(walker: pygit2.Walker, tip: str) -> None:
+    try:
+        walker.push(pygit2.Oid(hex=tip))
+    except _LOOKUP_ERRORS:
+        logger.debug("Not walking from tip %s", tip, exc_info=True)
+
+
+def _skip(walker: pygit2.Walker, count: int) -> bool:
+    """Step past `count` commits; False when the walk ends first."""
+    for _ in range(count):
+        if next(walker, None) is None:
+            return False
+    return True
 
 
 class CommitOps:
@@ -66,66 +85,55 @@ class CommitOps:
         """
         if self._repo.head_is_unborn:
             return []
+        tips = extra_tips or []
+        walker = self._walker(tips, first_parent=first_parent)
+        if not _skip(walker, skip):
+            return []
+        page = [_commit_to_entity(c) for c in islice(walker, limit)]
+        if not pin_unreachable:
+            return page
+        return page + self._pinned_tips(tips, loaded={c.oid for c in page})
 
+    def _walker(self, tips: list[str], *, first_parent: bool) -> pygit2.Walker:
         walker = self._repo.walk(
             self._repo.head.target,
             pygit2.GIT_SORT_TOPOLOGICAL | pygit2.GIT_SORT_TIME,
         )
-
-        # Also push upstream remote branch if current branch has one
-        try:
-            head_ref = self._repo.head
-            if not head_ref.name.startswith("refs/heads/"):
-                pass  # detached HEAD — no upstream
-            else:
-                local_name = head_ref.name[len("refs/heads/") :]
-                local_branch = self._repo.branches.local[local_name]
-                if local_branch.upstream:
-                    walker.push(local_branch.upstream.resolve().target)
-        except (KeyError, Exception):
-            pass
-
-        # Push extra tips (e.g. clicked branch)
-        for tip in extra_tips or []:
-            try:
-                walker.push(pygit2.Oid(hex=tip))
-            except (ValueError, Exception):
-                pass
-
+        self._push_upstream(walker)
+        for tip in tips:
+            _push_tip(walker, tip)
         if first_parent:
             walker.simplify_first_parent()
+        return walker
 
-        for _ in range(skip):
-            try:
-                next(walker)
-            except StopIteration:
-                return []
-        result = [_commit_to_entity(c) for c, _ in zip(walker, range(limit), strict=False)]
+    def _push_upstream(self, walker: pygit2.Walker) -> None:
+        head_name = self._repo.head.name
+        if not head_name.startswith("refs/heads/"):
+            return  # A detached HEAD has no upstream.
+        try:
+            upstream = self._repo.branches.local[head_name.removeprefix("refs/heads/")].upstream
+            if upstream:
+                walker.push(upstream.resolve().target)
+        except _LOOKUP_ERRORS:
+            logger.debug("Not walking the upstream of %s", head_name, exc_info=True)
 
-        if not pin_unreachable:
-            return result
-
-        # Last resort — see the docstring. Appended in time-descending order
-        # so the model still renders them oldest-last.
-        loaded = {c.oid for c in result}
-        missing: list[Commit] = []
-        for tip in extra_tips or []:
+    def _pinned_tips(self, tips: list[str], loaded: set[str]) -> list[Commit]:
+        """The `tips` missing from `loaded`, newest first so the model renders them oldest-last."""
+        pinned: dict[str, Commit] = {}
+        for tip in tips:
             if tip in loaded:
                 continue
-            try:
-                obj = self._repo.get(pygit2.Oid(hex=tip))
-            except (ValueError, Exception):
-                continue
-            if obj is None:
-                continue
-            entity = _commit_to_entity(obj)
-            if entity.oid in loaded:
-                continue
-            loaded.add(entity.oid)
-            missing.append(entity)
-        missing.sort(key=lambda c: c.timestamp, reverse=True)
-        result.extend(missing)
-        return result
+            commit = self._tip_commit(tip)
+            if commit is not None and commit.oid not in loaded:
+                pinned.setdefault(commit.oid, commit)
+        return sorted(pinned.values(), key=lambda c: c.timestamp, reverse=True)
+
+    def _tip_commit(self, tip: str) -> Commit | None:
+        try:
+            obj = self._repo.get(pygit2.Oid(hex=tip))
+        except _LOOKUP_ERRORS:
+            return None
+        return None if obj is None else _commit_to_entity(obj)
 
     def get_commit(self, oid: str) -> Commit:
         obj = self._repo.get(oid)
@@ -185,7 +193,7 @@ class CommitOps:
     def merge_base(self, oid_a: str, oid_b: str) -> str | None:
         try:
             result = self._repo.merge_base(pygit2.Oid(hex=oid_a), pygit2.Oid(hex=oid_b))
-        except (KeyError, ValueError, pygit2.GitError):
+        except _LOOKUP_ERRORS:
             return None
         return str(result) if result is not None else None
 
