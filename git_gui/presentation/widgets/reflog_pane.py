@@ -51,24 +51,24 @@ CHIP_RADIUS = 4
 # colour that means "moved the branch" has to mean that in either. status_modified
 # is deliberately not used: it is amber in light and blue in dark, so checkout
 # would have been near-indistinguishable from reset on the light theme.
-_OPERATION_ROLES = {
-    "commit": "status_added",  # green
-    "merge": "status_added",
-    "reset": "status_renamed",  # orange — the ones worth finding in a hurry
-    "rebase": "status_renamed",
-    "checkout": "ref_badge_branch_bg",  # blue
-    "branch": "ref_badge_branch_bg",
-    "pull": "ref_badge_branch_bg",
-    "clone": "ref_badge_branch_bg",
-    "cherry-pick": "ref_badge_tag_bg",  # purple
-    "revert": "ref_badge_tag_bg",
+_OPERATION_ROLES: dict[str, ColorRole] = {
+    "commit": ColorRole.STATUS_ADDED,  # green
+    "merge": ColorRole.STATUS_ADDED,
+    "reset": ColorRole.STATUS_RENAMED,  # orange — the ones worth finding in a hurry
+    "rebase": ColorRole.STATUS_RENAMED,
+    "checkout": ColorRole.REF_BADGE_BRANCH_BG,  # blue
+    "branch": ColorRole.REF_BADGE_BRANCH_BG,
+    "pull": ColorRole.REF_BADGE_BRANCH_BG,
+    "clone": ColorRole.REF_BADGE_BRANCH_BG,
+    "cherry-pick": ColorRole.REF_BADGE_TAG_BG,  # purple
+    "revert": ColorRole.REF_BADGE_TAG_BG,
 }
 
 
 def _operation_color(operation: str) -> QColor:
     colors = get_theme_manager().current.colors
     head = operation.split(" ")[0].split(":")[0].lower()
-    return colors.as_qcolor(_OPERATION_ROLES.get(head, "status_unknown"))
+    return colors.as_qcolor(_OPERATION_ROLES.get(head, ColorRole.STATUS_UNKNOWN))
 
 
 def _went_nowhere(entry: ReflogEntry) -> bool:
