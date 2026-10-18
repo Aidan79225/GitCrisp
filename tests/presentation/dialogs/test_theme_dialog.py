@@ -380,3 +380,12 @@ def test_switching_radios_from_a_custom_theme_with_fewer_lanes_keeps_working(
     _radios(dlg)["dark"].setChecked(True)
 
     assert dlg._working_colors["surface"] == dark.colors.surface
+
+
+def test_swatch_borders_take_the_themes_outline_colour(app, reset_theme):
+    get_theme_manager().set_mode("light")
+    dlg = ThemeDialog()
+
+    outline = get_theme_manager().current.colors.outline
+    assert f"border: 1px solid {outline}" in dlg._swatch_buttons["primary"].styleSheet()
+    assert f"border: 1px solid {outline}" in dlg._lane_buttons[0].styleSheet()
