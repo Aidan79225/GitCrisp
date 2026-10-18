@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Callable
+from collections import deque
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from typing import IO
 
 from git_gui.resources import git_ssh_env, subprocess_kwargs
 
@@ -16,6 +18,10 @@ class CloneProgress:
 
 _PROGRESS_RE = re.compile(r"(.+?):\s+(\d+)%")
 
+# git states why a clone failed at the end; a recursive clone can print a line
+# per submodule before that, so only the tail is kept for the error message.
+_KEPT_MESSAGE_LINES = 20
+
 
 def clone_repo(
     url: str,
@@ -25,43 +31,48 @@ def clone_repo(
     """Clone a git repo with progress reporting.
 
     Runs ``git clone --progress`` and parses stderr for progress updates.
-    Raises ``subprocess.CalledProcessError`` on failure.
+    Raises ``RuntimeError`` carrying git's own explanation on failure.
     """
     proc = subprocess.Popen(
         ["git", "clone", "--progress", "--recurse-submodules", url, dest],
-        stdout=subprocess.PIPE,
+        # Nothing reads stdout, and git writes a line there per submodule: a
+        # pipe would fill up and block git while we wait for stderr to close.
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         env=git_ssh_env(),
         **subprocess_kwargs(),
     )
 
-    # git clone writes progress to stderr
-    buf = b""
-    while True:
-        chunk = proc.stderr.read(1)
-        if not chunk:
-            break
-        if chunk in (b"\r", b"\n"):
-            line = buf.decode("utf-8", errors="replace").strip()
-            buf = b""
-            if line and on_progress:
-                m = _PROGRESS_RE.search(line)
-                if m:
-                    on_progress(
-                        CloneProgress(
-                            phase=m.group(1).strip(),
-                            percent=int(m.group(2)),
-                        )
-                    )
-        else:
-            buf += chunk
+    messages: deque[str] = deque(maxlen=_KEPT_MESSAGE_LINES)
+    for line in filter(None, _stderr_lines(proc.stderr)):
+        progress = _parse_progress(line)
+        if progress is None:
+            messages.append(line)
+        elif on_progress:
+            on_progress(progress)
 
     proc.wait()
     if proc.returncode != 0:
-        stderr_output = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
-        raise subprocess.CalledProcessError(
-            proc.returncode,
-            ["git", "clone", "--recurse-submodules", url, dest],
-            output=b"",
-            stderr=stderr_output.encode(),
-        )
+        raise RuntimeError("\n".join(messages) or f"git clone exited with code {proc.returncode}")
+
+
+def _stderr_lines(stream: IO[bytes]) -> Iterator[str]:
+    """Yield git's stderr line by line as it arrives.
+
+    A carriage return ends a line too: git redraws its progress line in place.
+    """
+    buf = b""
+    while chunk := stream.read(1):
+        if chunk in (b"\r", b"\n"):
+            yield buf.decode("utf-8", errors="replace").strip()
+            buf = b""
+        else:
+            buf += chunk
+    yield buf.decode("utf-8", errors="replace").strip()
+
+
+def _parse_progress(line: str) -> CloneProgress | None:
+    match = _PROGRESS_RE.search(line)
+    if match is None:
+        return None
+    return CloneProgress(phase=match.group(1).strip(), percent=int(match.group(2)))
