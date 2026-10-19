@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QRect, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter
 
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 
@@ -61,3 +62,12 @@ def _badge_copy_text(name: str) -> str:
     internal 'tag:' marker.
     """
     return _badge_display_name(name)
+
+
+def paint_badge(painter: QPainter, rect: QRect, color: QColor, label: str) -> None:
+    """One ref badge: ``label`` centred on a rounded rect filled with ``color``."""
+    painter.setBrush(QBrush(color))
+    painter.setPen(Qt.NoPen)
+    painter.drawRoundedRect(rect, BADGE_RADIUS, BADGE_RADIUS)
+    painter.setPen(get_theme_manager().current.colors.as_qcolor(ColorRole.ON_BADGE))
+    painter.drawText(rect, Qt.AlignCenter, label)
