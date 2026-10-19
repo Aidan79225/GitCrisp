@@ -134,3 +134,17 @@ def test_theme_change_rebuilds_syntax_formats(widget):
     widget._on_theme_changed()
     assert isinstance(widget._syntax_formats, SyntaxFormats)
     assert widget._syntax_formats is not before
+
+
+def test_files_beyond_the_cap_get_the_commit_views_notice(widget):
+    """Both panes cap their blocks; one notice keeps their wording in step."""
+    from PySide6.QtWidgets import QLabel
+
+    from git_gui.presentation.widgets.diff_block import make_overflow_notice
+    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+
+    widget.load_all_files([f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 3)])
+
+    expected = make_overflow_notice(3).text()
+    labels = widget._container.findChildren(QLabel)
+    assert [label.text() for label in labels if label.text() == expected] == [expected]

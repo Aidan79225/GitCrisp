@@ -16,22 +16,79 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from git_gui.domain.entities import Branch, Commit
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.diff_block import (
+    laid_out_text_height,
     make_diff_formats,
     make_file_block,
+    make_overflow_notice,
     make_syntax_formats,
 )
 from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
-from git_gui.presentation.widgets.hunk_view import add_hunk_view
+from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
 logger = logging.getLogger(__name__)
+
+_MESSAGE_MARGIN = 12
+
+
+class _CommitMessageView(QPlainTextEdit):
+    """The read-only commit message: as tall as its wrapped text, or one line.
+
+    It wraps at its own width with its scrollbar off, so its height has to come
+    from the laid-out lines. Counting the message's newlines instead hid every
+    line a long paragraph wrapped onto. The height is measured again whenever
+    the width or the font changes.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._expanded = True
+        self.setReadOnly(True)
+        self.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.document().setDocumentMargin(_MESSAGE_MARGIN)
+        font = self.font()
+        font.setFamily("Courier New")
+        self.setFont(font)
+
+    def show_message(self, text: str) -> None:
+        self.setPlainText(text)
+        self._fit_height()
+
+    def set_expanded(self, expanded: bool) -> None:
+        """Show the whole message, or only its first line."""
+        self._expanded = expanded
+        self._fit_height()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)  # re-wraps the text at the new width first
+        self._fit_height()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:
+            self._fit_height()
+
+    def _fit_height(self) -> None:
+        # The layout's own block heights, not lines times lineSpacing: on Linux the
+        # two differ by a pixel or two per line, enough to hide the last line
+        # of a long message.
+        margin = self.document().documentMargin() * 2
+        if self._expanded:
+            text_height = laid_out_text_height(self)
+        else:
+            text_height = self.fontMetrics().lineSpacing()
+        self.setFixedHeight(int(text_height + margin))
 
 
 class DiffWidget(QWidget):
@@ -82,16 +139,8 @@ class DiffWidget(QWidget):
         self._detail.ref_copy_requested.connect(self.ref_copy_requested.emit)
 
         # ── Row 2: full commit message ──────────────────────────────────────
-        self._msg_view = QPlainTextEdit()
-        self._msg_view.setReadOnly(True)
-        self._msg_view.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        self._msg_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._msg_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._msg_view = _CommitMessageView()
         self._msg_view.viewport().installEventFilter(self)
-        self._msg_view.document().setDocumentMargin(12)
-        font = self._msg_view.font()
-        font.setFamily("Courier New")
-        self._msg_view.setFont(font)
 
         # Wrap the message view in a panel with a slim collapsible header.
         self._msg_panel = QWidget()
@@ -111,10 +160,7 @@ class DiffWidget(QWidget):
         msg_panel_layout.addLayout(msg_header_row)
         msg_panel_layout.addWidget(self._msg_view)
 
-        # Cached heights filled in by load_commit; expanded by default.
-        self._msg_full_h: int = 0
-        self._msg_collapsed_h: int = 0
-        self._msg_toggle.state_changed.connect(self._on_msg_toggle)
+        self._msg_toggle.state_changed.connect(self._msg_view.set_expanded)
 
         # ── Diff container (will live inside the unified scroll area) ────────
         self._diff_container = QWidget()
@@ -177,11 +223,6 @@ class DiffWidget(QWidget):
         self._file_navigator.setVisible(not empty)
         self._diff_container.setVisible(not empty)
         self._scroll_area.setVisible(not empty)
-
-    def _on_msg_toggle(self, expanded: bool) -> None:
-        if self._msg_full_h <= 0 or self._msg_collapsed_h <= 0:
-            return
-        self._msg_view.setFixedHeight(self._msg_full_h if expanded else self._msg_collapsed_h)
 
     def update_state_banner(self, state_name: str) -> None:
         """Show or hide the merge/rebase state banner."""
@@ -248,15 +289,16 @@ class DiffWidget(QWidget):
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
+        self._clear_commit()
+        self.update_state_banner("CLEAN")
+
+    def _clear_commit(self) -> None:
         self._current_oid = None
         self._detail.clear()
         self._msg_view.clear()
-        self._msg_full_h = 0
-        self._msg_collapsed_h = 0
         self._diff_model.reload([])
         self._clear_blocks()
         self._set_empty_state(True)
-        self.update_state_banner("CLEAN")
 
     def eventFilter(self, obj, event):
         # Block mouse selection / drag on the read-only commit message but
@@ -279,26 +321,20 @@ class DiffWidget(QWidget):
     def load_commit(self, oid: str) -> None:
         self._current_oid = oid
 
-        # Fetch commit detail + refs. If the commit no longer exists (e.g. the
-        # graph selection points at a rebased/reset commit), clear the panel
-        # and bail out instead of crashing.
+        # Fetch everything before changing what is on screen. If the commit no
+        # longer exists (the graph selection points at a rebased/reset commit)
+        # or its files cannot be read (a blob-less partial clone), clear the
+        # panel rather than leave this commit's header over the last one's diff.
         try:
             commit = self._queries.get_commit_detail.execute(oid)
+            branches = self._queries.get_branches.execute()
+            files = self._queries.get_commit_files.execute(oid)
         except Exception as e:
             logger.warning("Failed to load commit %r: %s", oid, e)
-            self._current_oid = None
-            self._detail.clear()
-            self._msg_view.clear()
-            self._msg_full_h = 0
-            self._msg_collapsed_h = 0
-            self._diff_model.reload([])
-            self._clear_blocks()
-            self._set_empty_state(True)
+            self._clear_commit()
             return
         self._set_empty_state(False)
-        branches = self._queries.get_branches.execute()
-        refs = [b.name for b in branches if b.target_oid == oid]
-        self._detail.set_commit(commit, refs)
+        self._show_commit_header(oid, commit, branches)
 
         # Full commit message — add trailing newline so last line is always visible
         msg = commit.message
@@ -310,19 +346,26 @@ class DiffWidget(QWidget):
         self._msg_toggle.setChecked(True)
         self._msg_toggle.blockSignals(False)
         self._msg_toggle.setArrowType(Qt.DownArrow)
+        self._msg_view.set_expanded(True)
 
-        self._msg_view.setPlainText(msg)
-        line_count = msg.count("\n") + 1
-        line_h = self._msg_view.fontMetrics().lineSpacing()
-        doc_margin = self._msg_view.document().documentMargin() * 2
-        self._msg_full_h = int(line_count * line_h + doc_margin)
-        self._msg_collapsed_h = int(line_h + doc_margin)
-        self._msg_view.setFixedHeight(self._msg_full_h)
+        self._msg_view.show_message(msg)
 
         # Files — no auto-selection; show all files' hunks as bordered blocks
-        files = self._queries.get_commit_files.execute(oid)
         self._diff_model.reload(self._apply_path_filter(files))
         self._render_all_files(oid)
+
+    def _show_commit_header(self, oid: str, commit: Commit, branches: list[Branch]) -> None:
+        """Show the header with a badge for each branch at `oid`.
+
+        The header is told which branches are remote and which is checked
+        out, because the name cannot say: a local branch can hold a slash too.
+        """
+        self._detail.set_commit(
+            commit,
+            [b.name for b in branches if b.target_oid == oid],
+            head_branch=next((b.name for b in branches if b.is_head and not b.is_remote), None),
+            remote_branches=frozenset(b.name for b in branches if b.is_remote),
+        )
 
     def refresh_view(self) -> None:
         """Redraw the current commit after the unified/side-by-side choice changed.
@@ -463,27 +506,15 @@ class DiffWidget(QWidget):
                 syntax_formats=self._syntax_formats,
                 filename=path,
             )
-
-        # If the user collapsed this file before realize fired, the newly
-        # added hunk widgets default to visible — sync them with the toggle.
-        from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
-
-        frame = inner.parentWidget()  # the QFrame that owns `inner`
-        toggle = frame.findChild(_CollapseToggle) if frame is not None else None
-        if toggle is not None and not toggle.isChecked():
-            for i in range(1, inner.count()):
-                item = inner.itemAt(i)
-                w = item.widget() if item else None
-                if w is not None:
-                    w.setVisible(False)
+        hide_hunks_if_collapsed(inner)
         self._sync_hscroll()
 
     def _on_file_selected(self, index) -> None:
         if self._current_oid is None:
             return
         if not index.isValid():
-            # Selection cleared programmatically — return to all-files view
-            self._render_all_files(self._current_oid)
+            # A cleared selection is followed by `deselected`, which redraws
+            # all files; drawing them here too fetched every diff twice.
             return
         file_status = self._diff_model.data(index, Qt.UserRole)
         if file_status is None:
@@ -518,8 +549,11 @@ class DiffWidget(QWidget):
 
         block_refs = []
 
+        # Each block is a frame subtree registered with the theme manager, and
+        # building one per file held the window for seconds on a commit that
+        # touches thousands. The rest stay reachable through the file list.
         row_count = self._diff_model.rowCount()
-        for row in range(row_count):
+        for row in range(min(row_count, MAX_AGGREGATE_FILE_BLOCKS)):
             index = self._diff_model.index(row)
             file_status = self._diff_model.data(index, Qt.UserRole)
             if file_status is None:
@@ -528,6 +562,8 @@ class DiffWidget(QWidget):
             frame, inner, skeleton = self._build_skeleton_block(path)
             self._diff_layout.addWidget(frame)
             block_refs.append((path, frame, inner, skeleton))
+        if row_count > MAX_AGGREGATE_FILE_BLOCKS:
+            self._diff_layout.addWidget(make_overflow_notice(row_count - MAX_AGGREGATE_FILE_BLOCKS))
 
         self._diff_layout.addStretch()
 
@@ -547,6 +583,7 @@ class DiffWidget(QWidget):
             try:
                 result = queries.get_commit_diff_map.execute(oid)
             except Exception:
+                logger.warning("Failed to load the diffs of commit %r", oid, exc_info=True)
                 result = {}
             signals.done.emit(result)
 

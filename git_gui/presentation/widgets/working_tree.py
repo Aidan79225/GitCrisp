@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
@@ -33,6 +34,8 @@ from git_gui.presentation.widgets.file_list_view import (
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
+
+logger = logging.getLogger(__name__)
 
 _BADGE_SIZE = 20
 _BADGE_GAP = 6
@@ -83,6 +86,7 @@ class _FileDelegate(CheckIndicatorDelegate):
 
 class _LoadSignals(QObject):
     done = Signal(list, set, int)  # files, partial, load generation
+    failed = Signal(str, int)  # error reason, load generation
 
 
 class WorkingTreeWidget(QWidget):
@@ -91,6 +95,7 @@ class WorkingTreeWidget(QWidget):
     # Error reason, for a commit or any other change made from this panel;
     # MainWindow shows it in the operations log.
     commit_failed = Signal(str)
+    load_failed = Signal(str)  # why the changed files could not be listed
     working_tree_empty = Signal()  # emitted when reload finds no changes
     submodule_open_requested = Signal(str)  # forwarded from inner HunkDiffWidget
     file_history_requested = Signal(str)  # repo-relative path
@@ -111,9 +116,9 @@ class WorkingTreeWidget(QWidget):
         self._queries = queries
         self._commands = commands
         self._repo_path = repo_path
-        # Bumped on every repo switch. A load hands its generation back with
-        # its result, so one that finishes after the switch is recognised as
-        # the previous repo's and dropped.
+        # Bumped on every repo switch and every reload. A load hands its
+        # generation back with its result, so one that finishes after the
+        # switch, or after a newer load, is recognised as stale and dropped.
         self._load_generation = 0
 
         # ── Conflict banner (hidden by default) ─────────────────────────
@@ -125,9 +130,7 @@ class WorkingTreeWidget(QWidget):
         self._btn_abort = QPushButton("Abort")
         banner_layout.addWidget(self._banner_label, 1)
         banner_layout.addWidget(self._btn_abort)
-        self._conflict_banner.setStyleSheet(
-            "background-color: #5c2d2d; border: none; padding: 2px;"
-        )
+        self._restyle_banner()
         self._conflict_banner.setVisible(False)
 
         # ── Row 1: commit toolbar ────────────────────────────────────────────
@@ -212,10 +215,19 @@ class WorkingTreeWidget(QWidget):
         self._file_model.operation_failed.connect(self.commit_failed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
         self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
+        self._hunk_diff.operation_failed.connect(self.commit_failed)
         self._hunk_diff.submodule_open_requested.connect(self.submodule_open_requested)
         self._btn_abort.clicked.connect(self._on_abort_clicked)
 
-        connect_widget(self)
+        connect_widget(self, rebuild=self._restyle_banner)
+
+    def _restyle_banner(self) -> None:
+        # No selector: the label and the Abort button take the banner's
+        # colours, rather than a palette that was never chosen to sit on it.
+        c = get_theme_manager().current.colors
+        self._conflict_banner.setStyleSheet(
+            f"background-color: {c.error}; color: {c.on_error}; border: none; padding: 2px;"
+        )
 
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
@@ -250,18 +262,35 @@ class WorkingTreeWidget(QWidget):
         would throw the user back to the all-files view after each one.
         """
         queries = self._queries
+        if queries is None:
+            return
+        self._load_generation += 1
         generation = self._load_generation
 
         signals = _LoadSignals()
         signals.done.connect(self._on_reload_done)
+        signals.failed.connect(self._on_reload_failed)
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            raw_files = queries.get_working_tree.execute()
-            files, partial = _deduplicate(raw_files)
+            try:
+                files, partial = _deduplicate(queries.get_working_tree.execute())
+            except Exception as e:
+                logger.warning("Working tree reload failed: %s", e)
+                signals.failed.emit(str(e), generation)
+                return
             signals.done.emit(files, partial, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_reload_failed(self, message: str, generation: int) -> None:
+        if self._queries is None or generation != self._load_generation:
+            return
+        # Left on screen, the old files stay offered for staging in a repo
+        # that may no longer have them, deleted from a terminal for instance.
+        self._file_model.reload([], set())
+        self._hunk_diff.clear()
+        self.load_failed.emit(message)
 
     def _on_reload_done(self, files: list[FileStatus], partial: set[str], generation: int) -> None:
         if self._queries is None or generation != self._load_generation:

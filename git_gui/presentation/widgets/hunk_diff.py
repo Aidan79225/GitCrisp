@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QSize, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
-    QLabel,
+    QFrame,
     QMessageBox,
     QScrollArea,
     QScrollBar,
@@ -23,9 +24,10 @@ from git_gui.presentation.theme import connect_widget
 from git_gui.presentation.widgets.diff_block import (
     make_diff_formats,
     make_file_block,
+    make_overflow_notice,
     make_syntax_formats,
 )
-from git_gui.presentation.widgets.hunk_view import add_hunk_view
+from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 from git_gui.resources import get_resource_path
@@ -61,6 +63,7 @@ class HunkDiffWidget(QWidget):
     hunk_toggled = Signal()
     discard_hunk_requested = Signal(str, str)  # path, hunk_header
     submodule_open_requested = Signal(str)  # emits the submodule path (relative)
+    operation_failed = Signal(str)  # what failed and why, for the log panel
 
     def __init__(self, queries: QueryBus, commands: CommandBus, parent=None) -> None:
         super().__init__(parent)
@@ -69,6 +72,9 @@ class HunkDiffWidget(QWidget):
         self._current_path: str | None = None
         self._all_paths: list[str] | None = None  # None = single-file or empty mode
         self._submodule_paths: set[str] = set()
+        # The all-files view's blocks by path, so a reload can find the height
+        # each one had before it is rebuilt as a skeleton.
+        self._aggregate_blocks: dict[str, QFrame] = {}
 
         # Lazy loading — initialized after scroll area is created (see below)
         self._loader: ViewportBlockLoader | None = None
@@ -125,6 +131,7 @@ class HunkDiffWidget(QWidget):
         """
         self._current_path = None
         self._all_paths = list(paths)
+        last_heights = self._aggregate_block_heights()
         if not paths:
             self._clear_layout()
             return
@@ -140,6 +147,12 @@ class HunkDiffWidget(QWidget):
         block_refs = []
         for path in shown:
             frame, inner = self._make_file_block(path)
+            # A skeleton is far shorter than the block it stands for. Holding
+            # the block's last height until it is realised keeps the content
+            # above the user's place the same height, so the unchanged scroll
+            # value still shows the same file after a stage or discard.
+            frame.setMinimumHeight(last_heights.get(path, 0))
+            self._aggregate_blocks[path] = frame
             skeleton = make_skeleton_container()
             inner.addWidget(skeleton)
             self._layout.addWidget(frame)
@@ -148,7 +161,7 @@ class HunkDiffWidget(QWidget):
             block_refs.append((path, frame, inner, skeleton))
 
         if hidden > 0:
-            self._layout.addWidget(self._make_overflow_notice(hidden))
+            self._layout.addWidget(make_overflow_notice(hidden))
 
         self._layout.addStretch()
         self._loader.set_blocks(block_refs)
@@ -170,25 +183,28 @@ class HunkDiffWidget(QWidget):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _make_overflow_notice(self, hidden: int) -> QWidget:
-        """A muted one-line notice standing in for files beyond the block cap."""
-        label = QLabel(
-            f"+ {hidden} more changed file{'s' if hidden != 1 else ''} not shown — "
-            "select a file above to view its diff."
-        )
-        label.setWordWrap(True)
-        label.setContentsMargins(8, 8, 8, 8)
-        return label
+    def _aggregate_block_heights(self) -> dict[str, int]:
+        """Each all-files block's height: its content's, or the one it still holds.
+
+        Read from the size hint rather than the geometry, which a block not
+        yet laid out does not have.
+        """
+        return {
+            path: max(frame.sizeHint().height(), frame.minimumHeight())
+            for path, frame in self._aggregate_blocks.items()
+        }
 
     def _sync_hscroll(self) -> None:
         """Re-measure the shared horizontal bar once the layout has settled.
 
         Deferred: an editor added this turn has no width yet, so its scroll
-        range reads as zero until Qt has laid it out.
+        range reads as zero until Qt has laid it out. Bound to this pane's
+        lifetime, so a re-measure still pending when the pane is destroyed is
+        dropped instead of reaching into the destroyed container.
         """
         from PySide6.QtCore import QTimer
 
-        QTimer.singleShot(0, self._hscroll_sync.refresh)
+        QTimer.singleShot(0, self, self._hscroll_sync.refresh)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -253,7 +269,11 @@ class HunkDiffWidget(QWidget):
             if path in self._submodule_paths
             else None
         )
-        return make_file_block(path, on_header_clicked=on_click)
+        return make_file_block(
+            path,
+            on_header_clicked=on_click,
+            on_state_changed=lambda _expanded: self._loader.check_viewport(),
+        )
 
     def _on_load_done(
         self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk], is_untracked: bool
@@ -275,6 +295,7 @@ class HunkDiffWidget(QWidget):
 
         self._layout.addWidget(frame)
         self._layout.addStretch()
+        self._sync_hscroll()
 
     def _realize_block_from_loader(self, path: str, inner, skeleton, entry) -> None:
         """Callback for ViewportBlockLoader — replace skeleton with staged/unstaged hunks."""
@@ -288,6 +309,7 @@ class HunkDiffWidget(QWidget):
         if skeleton is not None:
             inner.removeWidget(skeleton)
             skeleton.deleteLater()
+        inner.parentWidget().setMinimumHeight(0)  # the real content now sets it
         for hunk in staged_hunks:
             self._add_hunk_block(
                 hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
@@ -296,6 +318,7 @@ class HunkDiffWidget(QWidget):
             self._add_hunk_block(
                 hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
             )
+        hide_hunks_if_collapsed(inner)
         self._sync_hscroll()
 
     def _render_sync(self) -> None:
@@ -327,13 +350,17 @@ class HunkDiffWidget(QWidget):
         self._layout.addStretch()
         self._sync_hscroll()
 
-    def _render_all_sync(self) -> None:
-        """Post-action refresh for all-files mode."""
+    def _redraw_after_command(self) -> None:
+        """Redraw from the index after a stage, unstage or discard.
+
+        Only the single-file view redraws itself. The all-files view is left
+        to its owner, which reloads it on hunk_toggled / discard_hunk_requested
+        with the new list of changed files, a list only the owner knows: a
+        discard can take a file out of it. Reloading here as well rebuilt
+        every block and queried every diff twice per click.
+        """
         if self._all_paths is None:
-            return
-        # Reload via the lazy pipeline
-        self.load_all_files(self._all_paths)
-        self._sync_hscroll()
+            self._render_sync()
 
     def _add_hunk_block(
         self,
@@ -399,6 +426,17 @@ class HunkDiffWidget(QWidget):
     def _on_hunk_toggled(
         self, path: str, hunk_header: str, checked: bool, is_untracked: bool = False
     ) -> None:
+        verb = "Stage" if checked else "Unstage"
+        self._run_command(
+            f"{verb} {path}",
+            lambda: self._stage_or_unstage(path, hunk_header, checked, is_untracked),
+        )
+        self._redraw_after_command()
+        self.hunk_toggled.emit()
+
+    def _stage_or_unstage(
+        self, path: str, hunk_header: str, checked: bool, is_untracked: bool
+    ) -> None:
         # Whole-file add (untracked → stage, or staged-add → unstage):
         # the synthesised "@@ -0,0 +1,N @@" hunk can't be processed by
         # `git apply [--cached] [--reverse]`, so route to stage/unstage_files.
@@ -411,11 +449,18 @@ class HunkDiffWidget(QWidget):
             self._commands.stage_hunk.execute(path, hunk_header)
         else:
             self._commands.unstage_hunk.execute(path, hunk_header)
-        if self._all_paths is not None:
-            self._render_all_sync()
-        else:
-            self._render_sync()
-        self.hunk_toggled.emit()
+
+    def _run_command(self, action: str, command: Callable[[], None]) -> None:
+        """Run a staging or discard command, reporting a failure to the user.
+
+        A failure must not escape the Qt slot: it would skip the redraw that
+        puts the checkbox back in step with the index, and reach nothing but
+        the log file, so the user would commit believing the hunk was staged.
+        """
+        try:
+            command()
+        except Exception as e:
+            self.operation_failed.emit(f"{action} failed: {e}")
 
     def _on_discard_file_clicked(self, path: str) -> None:
         reply = QMessageBox.question(
@@ -427,7 +472,7 @@ class HunkDiffWidget(QWidget):
         )
         if reply != QMessageBox.Yes:
             return
-        self._commands.discard_file.execute(path)
+        self._run_command(f"Discard {path}", lambda: self._commands.discard_file.execute(path))
         self.discard_hunk_requested.emit(path, "")
 
     def _on_discard_hunk_clicked(self, path: str, hunk_header: str) -> None:
@@ -440,14 +485,15 @@ class HunkDiffWidget(QWidget):
         )
         if reply != QMessageBox.Yes:
             return
-        self._commands.discard_hunk.execute(path, hunk_header)
-        if self._all_paths is not None:
-            self._render_all_sync()
-        else:
-            self._render_sync()
+        self._run_command(
+            f"Discard hunk in {path}",
+            lambda: self._commands.discard_hunk.execute(path, hunk_header),
+        )
+        self._redraw_after_command()
         self.discard_hunk_requested.emit(path, hunk_header)
 
     def _clear_layout(self) -> None:
+        self._aggregate_blocks = {}
         while self._layout.count():
             item = self._layout.takeAt(0)
             widget = item.widget()

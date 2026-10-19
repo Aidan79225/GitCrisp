@@ -292,8 +292,8 @@ def make_diff_editor() -> QPlainTextEdit:
     editor.setLineWrapMode(QPlainTextEdit.NoWrap)
     editor.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    # Apply monospace font via stylesheet — this survives the theme manager's
-    # global w.setFont() pass that would otherwise override a setFont() call.
+    # Only the family is fixed here, so the size still follows the theme's
+    # typography scale.
     editor.setStyleSheet(
         "QPlainTextEdit { font-family: 'Consolas', 'Courier New', 'Menlo', 'Monaco', monospace; }"
     )
@@ -770,6 +770,17 @@ def add_hunk_widget(
 
     parent_layout.addWidget(header_row)
     parent_layout.addWidget(editor)
+
+
+def make_overflow_notice(hidden: int) -> QLabel:
+    """A muted one-line notice standing in for files beyond the block cap."""
+    label = QLabel(
+        f"+ {hidden} more changed file{'s' if hidden != 1 else ''} not shown — "
+        "select a file above to view its diff."
+    )
+    label.setWordWrap(True)
+    label.setContentsMargins(8, 8, 8, 8)
+    return label
 
 
 def make_skeleton_container() -> QWidget:

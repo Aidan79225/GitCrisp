@@ -247,3 +247,22 @@ def test_continue_states_skip_when_identity_dialog_cancelled(
 
     assert received == []
     w._commands.set_identity.execute.assert_not_called()
+
+
+def test_the_banner_takes_the_light_themes_error_colours(qtbot):
+    """It was hard-coded maroon under the light theme's near-black text, about
+    1.4:1, so the label and its Abort button could not be read; and a theme
+    switch never restyled it."""
+    from git_gui.presentation.theme import get_theme_manager
+
+    w = WorkingTreeWidget(MagicMock(), MagicMock())
+    qtbot.addWidget(w)
+    manager = get_theme_manager()
+    manager.set_mode("light")
+    try:
+        colors = manager.current.colors
+        sheet = w._conflict_banner.styleSheet()
+        assert f"background-color: {colors.error};" in sheet
+        assert f" color: {colors.on_error};" in sheet
+    finally:
+        manager.set_mode("dark")

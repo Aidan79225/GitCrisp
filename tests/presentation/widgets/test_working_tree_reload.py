@@ -156,3 +156,51 @@ def test_a_repo_switch_empties_the_list_until_the_new_repo_loads(qtbot, panel):
     w.set_buses(MagicMock(), MagicMock())
 
     assert _listed(w) == []
+
+
+# ── A status that cannot be read ─────────────────────────────────────────────
+
+
+def test_a_status_that_cannot_be_read_is_reported(qtbot, panel):
+    w, queries = panel
+    queries.get_working_tree.execute.side_effect = OSError("repository not found")
+
+    with qtbot.waitSignal(w.load_failed, timeout=2000) as failure:
+        w.reload()
+
+    assert failure.args == ["repository not found"]
+
+
+def test_a_status_that_cannot_be_read_takes_the_old_files_off_the_list(qtbot, panel):
+    """Left up, they were files of a repo deleted from a terminal, still
+    offered for staging."""
+    w, queries = panel
+    _load(qtbot, w, queries, [_fs("a.txt", StagingState.UNSTAGED)])
+    queries.get_working_tree.execute.side_effect = OSError("repository not found")
+
+    w.reload()
+
+    qtbot.waitUntil(lambda: _listed(w) == [], timeout=2000)
+
+
+def test_a_late_failure_does_not_empty_the_list_a_newer_reload_filled(qtbot, panel):
+    import threading
+
+    w, queries = panel
+    entered, release = threading.Event(), threading.Event()
+
+    def _slow_failure():
+        entered.set()
+        release.wait(timeout=5)
+        raise OSError("index.lock exists")
+
+    queries.get_working_tree.execute.side_effect = _slow_failure
+    w.reload()
+    assert entered.wait(timeout=2)
+    queries.get_working_tree.execute.side_effect = None
+    _load(qtbot, w, queries, [_fs("a.txt", StagingState.UNSTAGED)])
+
+    release.set()
+    qtbot.wait(200)
+
+    assert _listed(w) == [("a.txt", StagingState.UNSTAGED)]

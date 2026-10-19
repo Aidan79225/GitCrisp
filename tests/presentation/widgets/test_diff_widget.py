@@ -278,3 +278,141 @@ def test_the_state_banner_is_readable_in_the_light_theme(diff_widget, qtbot):
             assert _best_text_contrast(part) >= 4.5
     finally:
         manager.set_mode("dark")
+
+
+def _load_message(widget, queries, message: str) -> None:
+    queries.get_commit_detail.execute.return_value = Commit(
+        oid="b" * 40, message=message, author="Alice", timestamp=datetime(2026, 5, 8), parents=[]
+    )
+    queries.get_branches.execute.return_value = []
+    queries.get_commit_files.execute.return_value = []
+    with patch("threading.Thread"):
+        widget.load_commit("b" * 40)
+
+
+def _message_fits(widget) -> bool:
+    # The view keeps one blank line under the text; anything more is hidden.
+    return widget._msg_view.verticalScrollBar().maximum() <= 1
+
+
+LONG_BODY = "Subject\n\n" + "A paragraph that wraps many times in a narrow pane. " * 16
+
+
+def test_a_wrapped_commit_message_shows_every_line(diff_widget, qtbot):
+    """The height counted the message's newlines, but the view wraps at its
+    width with its scrollbar off, so a long paragraph lost every line it
+    wrapped onto, with no way to scroll to them."""
+    widget, queries = diff_widget
+    widget.resize(600, 700)
+
+    _load_message(widget, queries, LONG_BODY)
+
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)
+
+
+def test_a_commit_message_refits_when_the_pane_narrows(diff_widget, qtbot):
+    widget, queries = diff_widget
+    widget.resize(900, 700)
+    _load_message(widget, queries, LONG_BODY)
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)
+
+    widget.resize(400, 700)
+
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)
+
+
+def test_a_commit_message_refits_when_its_font_grows(diff_widget, qtbot):
+    """A typography change sets a larger font on every widget."""
+    widget, queries = diff_widget
+    widget.resize(600, 700)
+    _load_message(widget, queries, "Subject\n\n" + "".join(f"Body {i}.\n" for i in range(8)))
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)
+
+    font = widget._msg_view.font()
+    font.setPointSizeF(font.pointSizeF() * 1.5)
+    widget._msg_view.setFont(font)
+
+    qtbot.wait(50)  # let the resize and relayout land
+    assert _message_fits(widget)
+
+
+def test_a_commit_whose_files_cannot_be_read_does_not_sit_over_the_last_diff(
+    multi_file_diff_widget, qtbot
+):
+    """In a blob-less partial clone the commit loads but its files do not.
+    The header switched to the new commit while the old commit's file list
+    and diff stayed underneath it."""
+    widget, queries = multi_file_diff_widget
+    assert widget._diff_model.rowCount() == 3
+    queries.get_commit_files.execute.side_effect = KeyError("object not found")
+
+    with patch("threading.Thread"):
+        widget.load_commit("def456")
+
+    assert widget._current_oid is None
+    assert widget._diff_model.rowCount() == 0
+    assert widget._loader._block_refs == []
+    assert not widget._detail.isVisible()
+
+
+def test_a_failed_diff_fetch_is_logged(diff_widget, qtbot, caplog):
+    """The diffs load off the UI thread; a failure there left the skeletons
+    on screen with nothing said anywhere."""
+    widget, queries = diff_widget
+    queries.get_commit_diff_map.execute.side_effect = KeyError("object not found")
+
+    with patch("threading.Thread") as thread:
+        widget.load_commit("abc123")
+    worker = thread.call_args.kwargs["target"]
+    with caplog.at_level("WARNING"):
+        worker()
+
+    assert "abc123" in caplog.text
+
+
+def test_deselecting_a_file_redraws_the_commit_once(multi_file_diff_widget, qtbot):
+    """Clearing the selection also clears the current row, and both signals
+    redrew every file block and fetched the commit's diffs again."""
+    from PySide6.QtCore import QItemSelectionModel, Qt
+
+    widget, _ = multi_file_diff_widget
+    view = widget._file_navigator._list_view
+    view.selectionModel().setCurrentIndex(
+        widget._diff_model.index(0), QItemSelectionModel.ClearAndSelect
+    )
+
+    with patch("threading.Thread") as thread:
+        qtbot.keyClick(view, Qt.Key_Escape)
+
+    assert thread.call_count == 1
+
+
+def test_a_huge_commit_builds_blocks_only_up_to_the_cap(diff_widget, qtbot):
+    """Every block is a frame subtree built on the UI thread: an initial
+    import of thousands of files held the window for seconds before a single
+    diff was fetched. The working-tree view already stopped at the cap."""
+    from PySide6.QtWidgets import QLabel
+
+    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+
+    widget, queries = diff_widget
+    paths = [f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 50)]
+    queries.get_commit_files.execute.return_value = [
+        FileStatus(path=p, status="staged", delta="added") for p in paths
+    ]
+
+    with patch("threading.Thread"):
+        widget.load_commit("abc123")
+
+    assert [ref[0] for ref in widget._loader._block_refs] == paths[:MAX_AGGREGATE_FILE_BLOCKS]
+    assert widget._diff_model.rowCount() == len(paths)  # all still listed
+    notices = [
+        label.text()
+        for label in widget._diff_container.findChildren(QLabel)
+        if label.text().startswith("+ 50 more")
+    ]
+    assert len(notices) == 1
