@@ -13,8 +13,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QTimer
-from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QFrame, QScrollArea, QVBoxLayout, QWidget
 
 
 class ViewportBlockLoader(QObject):
@@ -83,6 +83,19 @@ class ViewportBlockLoader(QObject):
 
     # Private
 
+    def _settle_layout(self) -> None:
+        """Run the layout Qt has pending, so block positions are current.
+
+        Building a block grows it, and the next check runs one event-loop turn
+        later, which can be before Qt has laid the grown block out. Measured
+        then, the blocks below still sit where their skeletons were, on screen,
+        and are built although nothing can see them.
+        """
+        QApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+        content = self._scroll_area.widget()
+        if content is not None and content.layout() is not None:
+            content.layout().activate()
+
     def _check_viewport(self) -> None:
         """Realize the first visible unloaded block, then reschedule.
 
@@ -97,6 +110,7 @@ class ViewportBlockLoader(QObject):
             return
         try:
             viewport = self._scroll_area.viewport()
+            self._settle_layout()
             vp_rect = viewport.rect()
             # A pane the window is not showing (a page the stack keeps behind
             # another) is never laid out: every new frame stays at (0, 0),
@@ -119,6 +133,25 @@ class ViewportBlockLoader(QObject):
                 entry = self._diff_map.get(path)
                 if entry is not None:
                     self._realize_fn(path, inner, skeleton, entry)
+                    _show_what_was_added(inner)
                 self._realized.add(index)
                 QTimer.singleShot(0, self._check_viewport)
                 return
+
+
+def _show_what_was_added(inner: QVBoxLayout) -> None:
+    """Show the widgets a block was just given, so they count in its layout now.
+
+    Qt shows a widget added to a visible layout on a later event-loop turn,
+    and until then the layout treats it as empty: a block that just received
+    its hunks is sized as a bare header, and the check that follows reads the
+    blocks below as on screen. Widgets the block hid on purpose stay hidden.
+    """
+    for i in range(inner.count()):
+        widget = inner.itemAt(i).widget()
+        if (
+            widget is not None
+            and widget.isHidden()
+            and not widget.testAttribute(Qt.WA_WState_ExplicitShowHide)
+        ):
+            widget.show()
