@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import threading
 
 from PySide6.QtCore import QObject, QRect, Qt, Signal
@@ -39,6 +41,9 @@ _BADGE_GAP = 6
 _BADGE_TEXT_RESERVATION = "          "
 _BADGE_LEFT_INSET = 30
 
+# Characters a .gitignore line reads as glob syntax or as an escape.
+_GITIGNORE_SPECIALS = re.compile(r"[\\*?\[]")
+
 # While one of these runs, Commit continues it rather than creating a commit.
 # A detached HEAD is not among them: committing there is an ordinary commit.
 _OPERATIONS_IN_PROGRESS = frozenset(
@@ -77,13 +82,15 @@ class _FileDelegate(CheckIndicatorDelegate):
 
 
 class _LoadSignals(QObject):
-    done = Signal(list, set)  # files, partial
+    done = Signal(list, set, int)  # files, partial, load generation
 
 
 class WorkingTreeWidget(QWidget):
     reload_requested = Signal()
     commit_completed = Signal(str)  # emits first line of commit message
-    commit_failed = Signal(str)  # emits error reason
+    # Error reason, for a commit or any other change made from this panel;
+    # MainWindow shows it in the operations log.
+    commit_failed = Signal(str)
     working_tree_empty = Signal()  # emitted when reload finds no changes
     submodule_open_requested = Signal(str)  # forwarded from inner HunkDiffWidget
     file_history_requested = Signal(str)  # repo-relative path
@@ -104,6 +111,10 @@ class WorkingTreeWidget(QWidget):
         self._queries = queries
         self._commands = commands
         self._repo_path = repo_path
+        # Bumped on every repo switch. A load hands its generation back with
+        # its result, so one that finishes after the switch is recognised as
+        # the previous repo's and dropped.
+        self._load_generation = 0
 
         # ── Conflict banner (hidden by default) ─────────────────────────
         self._conflict_banner = QWidget()
@@ -198,6 +209,7 @@ class WorkingTreeWidget(QWidget):
             shortcut.activated.connect(self._on_commit_shortcut)
         self._chk_amend.toggled.connect(self._on_amend_toggled)
         self._file_model.files_changed.connect(self._on_files_changed)
+        self._file_model.operation_failed.connect(self.commit_failed)
         self._hunk_diff.hunk_toggled.connect(self._on_files_changed)
         self._hunk_diff.discard_hunk_requested.connect(lambda *_: self._on_files_changed())
         self._hunk_diff.submodule_open_requested.connect(self.submodule_open_requested)
@@ -216,9 +228,11 @@ class WorkingTreeWidget(QWidget):
         self.update_conflict_banner(RepoState.CLEAN)
         self._file_model.set_commands(commands)
         self._hunk_diff.set_buses(queries, commands)
-        if queries is None:
-            self._file_model.reload([], set())
-            self._hunk_diff.clear()
+        # The old repo's list would stage its paths through the new repo's
+        # commands, so it goes, along with any status still on its way.
+        self._load_generation += 1
+        self._file_model.reload([], set())
+        self._hunk_diff.clear()
 
     def set_repo_path(self, path: str | None) -> None:
         """Update the active repo path used by _ignore_file and any other
@@ -229,7 +243,14 @@ class WorkingTreeWidget(QWidget):
         self._hunk_diff.refresh_view()
 
     def reload(self) -> None:
+        """Re-read the working tree, keeping the selected file selected.
+
+        The change detector calls this after every index write, including a
+        stage made from this panel, so a reload that dropped the selection
+        would throw the user back to the all-files view after each one.
+        """
         queries = self._queries
+        generation = self._load_generation
 
         signals = _LoadSignals()
         signals.done.connect(self._on_reload_done)
@@ -238,23 +259,36 @@ class WorkingTreeWidget(QWidget):
         def _worker():
             raw_files = queries.get_working_tree.execute()
             files, partial = _deduplicate(raw_files)
-            signals.done.emit(files, partial)
+            signals.done.emit(files, partial, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_reload_done(self, files: list[FileStatus], partial: set[str]) -> None:
-        if self._queries is None:
+    def _on_reload_done(self, files: list[FileStatus], partial: set[str], generation: int) -> None:
+        if self._queries is None or generation != self._load_generation:
             return
-        sorted_files = sorted(
-            files, key=lambda f: (0 if f.status == StagingState.CONFLICTED else 1, f.path)
-        )
-        self._file_model.reload(sorted_files, partial)
+        selected_path = self._selected_path()
+        files = _conflicts_first(files)
+        self._file_model.reload(files, partial)
         if not files:
             self._hunk_diff.clear()
             self.working_tree_empty.emit()
-        else:
-            # No selection after reload — show all files' hunks
+        elif not (selected_path and self._reselect(selected_path)):
             self._hunk_diff.load_all_files([f.path for f in files])
+
+    def _selected_path(self) -> str | None:
+        fs = self._file_model.data(self._file_view.currentIndex(), Qt.UserRole)
+        return fs.path if fs else None
+
+    def _reselect(self, path: str) -> bool:
+        """Select *path* again after a refill; False when it is no longer listed."""
+        for row in range(self._file_model.rowCount()):
+            index = self._file_model.index(row)
+            fs = self._file_model.data(index, Qt.UserRole)
+            if fs and fs.path == path:
+                self._file_view.setCurrentIndex(index)
+                self._hunk_diff.load_file(path)
+                return True
+        return False
 
     def _on_file_selected(self, current, previous) -> None:
         if not current.isValid():
@@ -310,42 +344,53 @@ class WorkingTreeWidget(QWidget):
         )
         if reply != QMessageBox.Yes:
             return
-        self._commands.discard_file.execute(path)
+        try:
+            self._commands.discard_file.execute(path)
+        except Exception as e:
+            self.commit_failed.emit(f"Discard failed for {path}: {e}")
+        # Refreshed either way: a discard can fail half-way through.
         self._on_files_changed()
 
     def _ignore_file(self, path: str) -> None:
-        import os
-
         if not self._repo_path:
             return
-        gitignore_path = os.path.join(self._repo_path, ".gitignore")
-        entry = path + "\n"
-        if os.path.exists(gitignore_path):
-            with open(gitignore_path, encoding="utf-8") as f:
-                existing = f.read()
-            if path in existing.splitlines():
-                return
-            if not existing.endswith("\n") and existing:
-                entry = "\n" + entry
-        with open(gitignore_path, "a", encoding="utf-8") as f:
-            f.write(entry)
+        try:
+            _append_to_gitignore(self._repo_path, path)
+        except (OSError, UnicodeError) as e:
+            self.commit_failed.emit(f"Add to .gitignore failed: {e}")
+            return
         self._on_files_changed()
 
     def _on_stage_all(self) -> None:
-        raw_files = self._queries.get_working_tree.execute()
-        files, partial = _deduplicate(raw_files)
-        paths = list({f.path for f in files if f.status != StagingState.STAGED} | partial)
-        if paths:
+        # Closing the last repo can leave this panel on screen with no buses.
+        if self._queries is None:
+            return
+        try:
+            raw_files = self._queries.get_working_tree.execute()
+            files, partial = _deduplicate(raw_files)
+            paths = list({f.path for f in files if f.status != StagingState.STAGED} | partial)
+            if not paths:
+                return
             self._commands.stage_files.execute(paths)
-            self._on_files_changed()
+        except Exception as e:
+            self.commit_failed.emit(f"Stage All failed: {e}")
+            return
+        self._on_files_changed()
 
     def _on_unstage_all(self) -> None:
-        raw_files = self._queries.get_working_tree.execute()
-        files, partial = _deduplicate(raw_files)
-        paths = list({f.path for f in files if f.status == StagingState.STAGED} | partial)
-        if paths:
+        if self._queries is None:
+            return
+        try:
+            raw_files = self._queries.get_working_tree.execute()
+            files, partial = _deduplicate(raw_files)
+            paths = list({f.path for f in files if f.status == StagingState.STAGED} | partial)
+            if not paths:
+                return
             self._commands.unstage_files.execute(paths)
-            self._on_files_changed()
+        except Exception as e:
+            self.commit_failed.emit(f"Unstage All failed: {e}")
+            return
+        self._on_files_changed()
 
     def _on_commit_shortcut(self) -> None:
         # Same guard a click has: a disabled button must not commit by keyboard.
@@ -353,6 +398,8 @@ class WorkingTreeWidget(QWidget):
             self._on_commit()
 
     def _on_commit(self) -> None:
+        if self._queries is None:
+            return
         state = getattr(self, "_current_state", "CLEAN")
         msg = self._msg_edit.toPlainText().strip()
         if state not in _OPERATIONS_IN_PROGRESS and not msg:
@@ -480,52 +527,7 @@ class WorkingTreeWidget(QWidget):
         return True
 
     def _on_files_changed(self) -> None:
-        # Remember selected path before reload clears selection
-        selected_path = None
-        idx = self._file_view.currentIndex()
-        if idx.isValid():
-            fs = self._file_model.data(idx, Qt.UserRole)
-            if fs:
-                selected_path = fs.path
-
-        queries = self._queries
-
-        signals = _LoadSignals()
-        signals.done.connect(
-            lambda files, partial: self._on_files_changed_done(files, partial, selected_path)
-        )
-        self._load_signals = signals  # prevent GC
-
-        def _worker():
-            raw_files = queries.get_working_tree.execute()
-            files, partial = _deduplicate(raw_files)
-            signals.done.emit(files, partial)
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _on_files_changed_done(
-        self, files: list[FileStatus], partial: set[str], selected_path: str | None
-    ) -> None:
-        if self._queries is None:
-            return
-        self._file_model.reload(files, partial)
-
-        if not files:
-            self._hunk_diff.clear()
-            self.working_tree_empty.emit()
-            return
-
-        # Restore selection by path and refresh hunk diff
-        if selected_path:
-            for row in range(self._file_model.rowCount()):
-                fs = self._file_model.data(self._file_model.index(row), Qt.UserRole)
-                if fs and fs.path == selected_path:
-                    self._file_view.setCurrentIndex(self._file_model.index(row))
-                    self._hunk_diff.load_file(selected_path)
-                    return
-
-        # No selection (or selected file disappeared) — show all files' hunks
-        self._hunk_diff.load_all_files([f.path for f in files])
+        self.reload()
 
     def update_conflict_banner(self, state_name: str, merge_msg: str | None = None) -> None:
         self._current_state = state_name
@@ -572,6 +574,45 @@ class WorkingTreeWidget(QWidget):
             self.cherry_pick_abort_requested.emit()
         elif state == "REVERTING":
             self.revert_abort_requested.emit()
+
+
+def _append_to_gitignore(repo_path: str, path: str) -> None:
+    """Add *path* to the repo's top-level .gitignore unless it is already listed."""
+    gitignore_path = os.path.join(repo_path, ".gitignore")
+    pattern = _ignore_pattern(path)
+    entry = pattern + "\n"
+    if os.path.exists(gitignore_path):
+        with open(gitignore_path, encoding="utf-8") as f:
+            existing = f.read()
+        if pattern in existing.splitlines():
+            return
+        if not existing.endswith("\n") and existing:
+            entry = "\n" + entry
+    with open(gitignore_path, "a", encoding="utf-8") as f:
+        f.write(entry)
+
+
+def _ignore_pattern(path: str) -> str:
+    """The .gitignore line that matches the repo-relative *path* and nothing else.
+
+    Written raw, a path is a pattern: a leading '#' or '!' makes a comment or
+    a negation, '[', '*' and '?' are globs, trailing spaces are dropped, and a
+    name with no slash matches at every depth. The leading slash anchors the
+    line to the repo root, which also keeps '#' and '!' off its first column.
+    """
+    escaped = _GITIGNORE_SPECIALS.sub(r"\\\g<0>", path)
+    body = escaped.rstrip(" ")
+    return "/" + body + "\\ " * (len(escaped) - len(body))
+
+
+def _conflicts_first(files: list[FileStatus]) -> list[FileStatus]:
+    """List order: conflicted files on top, then by path.
+
+    Every refill must use it. A list that reorders after a checkbox click
+    moves the row under the pointer, and the next click stages whatever slid
+    there, which for a conflicted file marks it resolved.
+    """
+    return sorted(files, key=lambda f: (f.status != StagingState.CONFLICTED, f.path))
 
 
 def _deduplicate(files: list[FileStatus]) -> tuple[list[FileStatus], set[str]]:

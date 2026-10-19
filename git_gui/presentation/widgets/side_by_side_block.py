@@ -32,6 +32,7 @@ from git_gui.presentation.widgets.diff_block import (
     apply_syntax_tokens,
     apply_word_overlay,
     changed_word_spans,
+    fit_height_to_lines,
     make_diff_editor,
     make_diff_formats,
     make_hunk_header_row,
@@ -228,12 +229,8 @@ def add_side_by_side_hunk_widget(
             )
             editor.setTextCursor(cursor)
 
-        line_height = editors[0].fontMetrics().lineSpacing()
-        margins = editors[0].contentsMargins()
-        doc_margin = editors[0].document().documentMargin() * 2
-        height = int(len(rows) * line_height + doc_margin + margins.top() + margins.bottom() + 4)
         for editor in editors:
-            editor.setFixedHeight(max(height, 4))
+            fit_height_to_lines(editor, len(rows))
 
     render(formats, syntax_formats)
 

@@ -133,3 +133,82 @@ def test_make_file_block_collapse_hides_non_header_widgets(qtbot):
     toggle.click()
     assert hunk1.isVisible()
     assert hunk2.isVisible()
+
+
+def test_a_hunk_refits_its_height_when_a_theme_change_brings_a_larger_font(qtbot):
+    """A typography change reaches the hunk as a theme change, with the larger
+    font already set on the editor; keeping the old height clipped the last
+    lines until the commit was selected again."""
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    from git_gui.presentation.theme import get_theme_manager
+    from git_gui.presentation.widgets.diff_block import add_hunk_widget
+
+    hunk = Hunk(header="@@ -1,10 +1,10 @@", lines=[(" ", f"line {i}\n") for i in range(10)])
+    host = QWidget()
+    qtbot.addWidget(host)
+    add_hunk_widget(QVBoxLayout(host), hunk, make_diff_formats())
+    host.show()
+    qtbot.waitExposed(host)
+    editor = host.findChild(QPlainTextEdit)
+    before = editor.height()
+
+    font = editor.font()
+    font.setPointSizeF(font.pointSizeF() * 1.5)
+    editor.setFont(font)
+    manager = get_theme_manager()
+    manager.theme_changed.emit(manager.current)
+
+    assert editor.height() > before
+    qtbot.waitUntil(lambda: editor.verticalScrollBar().maximum() <= 1)
+
+
+def _block_in_narrow_pane(qtbot, path: str, header: str):
+    """A file block with one hunk and a hunk button, in a 400 px scroll area."""
+    from PySide6.QtWidgets import QScrollArea, QToolButton, QVBoxLayout, QWidget
+
+    from git_gui.presentation.widgets.diff_block import add_hunk_widget, make_file_block
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    qtbot.addWidget(scroll)
+    container = QWidget()
+    layout = QVBoxLayout(container)
+    frame, inner = make_file_block(path)
+    button = QToolButton()
+    hunk = Hunk(header=header, lines=[(" ", "x\n")])
+    add_hunk_widget(inner, hunk, make_diff_formats(), extra_right_widgets=[button])
+    layout.addWidget(frame)
+    scroll.setWidget(container)
+    scroll.resize(400, 300)
+    scroll.show()
+    qtbot.waitExposed(scroll)
+    return scroll, container, button
+
+
+def test_a_long_path_does_not_widen_the_block_past_the_pane(qtbot):
+    """A deep monorepo path made the block, and every editor in it, wider than
+    the pane, and pushed the hunk's buttons out of view."""
+    path = "services/" + "deeply/nested/" * 20 + "SomeVeryLongClassName.java"
+    scroll, container, button = _block_in_narrow_pane(qtbot, path, "@@ -1 +1 @@")
+
+    viewport = scroll.viewport()
+    assert container.width() <= viewport.width()
+    assert button.mapTo(viewport, button.rect().topRight()).x() <= viewport.width()
+
+
+def test_a_long_hunk_header_does_not_widen_the_block_past_the_pane(qtbot):
+    header = "@@ -1 +1 @@ " + "def a_function_with_a_long_signature(argument, " * 8
+    scroll, container, _button = _block_in_narrow_pane(qtbot, "a.py", header)
+
+    assert container.width() <= scroll.viewport().width()
+
+
+def test_a_cut_path_keeps_the_whole_text_in_its_tooltip(qtbot):
+    from PySide6.QtWidgets import QLabel
+
+    path = "services/" + "deeply/nested/" * 20 + "SomeVeryLongClassName.java"
+    _scroll, container, _button = _block_in_narrow_pane(qtbot, path, "@@ -1 +1 @@")
+
+    labels = [label for label in container.findChildren(QLabel) if path in label.text()]
+    assert [label.toolTip() for label in labels] == [f"\U0001f4c4 {path}"]

@@ -172,3 +172,40 @@ def test_refresh_does_not_stack_duplicate_connections(qtbot, rounds):
     sync._editors()[0].horizontalScrollBar().setValue(80)
 
     assert seen == [80], "the editor should move the bar exactly once"
+
+
+# ── A page is what one editor shows ──────────────────────────────────────────
+
+
+def _side_by_side_pane(qtbot) -> tuple[SharedHScroll, QScrollBar, QWidget]:
+    """Two editors sharing one row, as the side-by-side diff lays out a hunk."""
+    from PySide6.QtWidgets import QHBoxLayout
+
+    container = QWidget()
+    layout = QHBoxLayout(container)
+    for _ in range(2):
+        editor = QPlainTextEdit()
+        editor.setLineWrapMode(QPlainTextEdit.NoWrap)
+        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        editor.setPlainText(LONG)
+        editor.setFixedHeight(60)
+        layout.addWidget(editor)
+    container.resize(600, 200)
+    qtbot.addWidget(container)
+    container.show()
+
+    bar = QScrollBar()
+    qtbot.addWidget(bar)
+    sync = SharedHScroll(bar, container)
+    sync.refresh()
+    return sync, bar, container
+
+
+def test_a_page_is_one_editors_width_when_two_share_the_row(qtbot):
+    """Side by side, each editor gets half the pane; a page of the whole
+    pane skipped half of every line."""
+    sync, bar, _c = _side_by_side_pane(qtbot)
+
+    left, right = sync._editors()
+    assert bar.pageStep() == left.horizontalScrollBar().pageStep()
+    assert bar.pageStep() == right.horizontalScrollBar().pageStep()
