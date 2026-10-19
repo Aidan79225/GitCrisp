@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import NamedTuple
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal, SignalInstance
@@ -36,7 +37,11 @@ from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
 from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
 from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
-from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
+from git_gui.presentation.widgets.viewport_block_loader import (
+    BlockRef,
+    DiffMapSignals,
+    ViewportBlockLoader,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -128,9 +133,36 @@ class DiffWidget(QWidget):
         # applied to the new blocks it marked them loaded with no hunks.
         self._blocks_generation = 0
 
-        # ── State banner (merge/rebase in progress) ─────────────────────────
-        self._state_banner = QWidget()
-        banner_layout = QHBoxLayout(self._state_banner)
+        self._state_banner = self._build_state_banner()
+        self._detail = self._build_commit_detail()
+        self._msg_panel = self._build_message_panel()
+        self._diff_container = self._build_diff_container()
+        self._file_navigator = self._build_file_navigator()
+        self._scroll_area = self._build_scroll_area()
+        self._loader = ViewportBlockLoader(self._scroll_area, self._realize_block)
+        # One horizontal bar for every hunk, under the pane rather than inside
+        # each of them — see SharedHScroll.
+        self._hscroll = QScrollBar()
+        self._hscroll_sync = SharedHScroll(self._hscroll, self._diff_container, self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(8)
+        layout.addWidget(self._state_banner, 0)
+        layout.addWidget(self._scroll_area, 1)
+        layout.addWidget(self._hscroll, 0)
+
+        self._formats = make_diff_formats()
+        self._syntax_formats = make_syntax_formats()
+        self._restyle_themed_panels()
+        connect_widget(self, rebuild=self._on_theme_changed)
+
+        self._set_empty_state(True)
+
+    def _build_state_banner(self) -> QWidget:
+        """The bar above the scroll area while a merge, rebase, etc. is in progress."""
+        banner = QWidget()
+        banner_layout = QHBoxLayout(banner)
         banner_layout.setContentsMargins(8, 6, 8, 6)
         self._banner_label = QLabel("")
         self._banner_label.setStyleSheet("font-weight: bold;")
@@ -139,93 +171,74 @@ class DiffWidget(QWidget):
         banner_layout.addWidget(self._banner_label, 1)
         banner_layout.addWidget(self._btn_abort)
         banner_layout.addWidget(self._btn_continue)
-        self._state_banner.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self._state_banner.setVisible(False)
+        banner.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        banner.setVisible(False)
         self._btn_abort.clicked.connect(self._on_banner_abort)
         self._btn_continue.clicked.connect(self._on_banner_continue)
+        return banner
 
-        # ── Row 1: commit detail (3-line metadata) ──────────────────────────
-        self._detail = CommitDetailWidget()
-        self._detail.setAutoFillBackground(True)
-        self._detail.commit_oid_copy_requested.connect(self.commit_oid_copy_requested.emit)
-        self._detail.ref_copy_requested.connect(self.ref_copy_requested.emit)
+    def _build_commit_detail(self) -> CommitDetailWidget:
+        detail = CommitDetailWidget()
+        detail.setAutoFillBackground(True)
+        detail.commit_oid_copy_requested.connect(self.commit_oid_copy_requested.emit)
+        detail.ref_copy_requested.connect(self.ref_copy_requested.emit)
+        return detail
 
-        # ── Row 2: full commit message ──────────────────────────────────────
+    def _build_message_panel(self) -> QWidget:
+        """The full commit message under a slim header with a collapse chevron."""
         self._msg_view = _CommitMessageView()
         self._msg_view.viewport().installEventFilter(self)
-
-        # Wrap the message view in a panel with a slim collapsible header.
-        self._msg_panel = QWidget()
-        msg_panel_layout = QVBoxLayout(self._msg_panel)
-        msg_panel_layout.setContentsMargins(0, 0, 0, 0)
-        msg_panel_layout.setSpacing(2)
-
-        msg_header_row = QHBoxLayout()
-        msg_header_row.setContentsMargins(0, 0, 0, 0)
-        msg_header_row.setSpacing(4)
         self._msg_toggle = _CollapseToggle(expanded=True)
-        msg_header_row.addWidget(self._msg_toggle)
-        self._msg_header_label = QLabel("Message")
-        msg_header_row.addWidget(self._msg_header_label)
-        msg_header_row.addStretch()
-
-        msg_panel_layout.addLayout(msg_header_row)
-        msg_panel_layout.addWidget(self._msg_view)
-
         self._msg_toggle.state_changed.connect(self._msg_view.set_expanded)
 
-        # ── Diff container (will live inside the unified scroll area) ────────
-        self._diff_container = QWidget()
-        self._diff_layout = QVBoxLayout(self._diff_container)
+        panel = QWidget()
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(2)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(4)
+        panel_layout.addLayout(header_row)
+        header_row.addWidget(self._msg_toggle)
+        header_row.addWidget(QLabel("Message"))
+        header_row.addStretch()
+        panel_layout.addWidget(self._msg_view)
+        return panel
+
+    def _build_diff_container(self) -> QWidget:
+        """The column the file blocks go into, inside the scroll area."""
+        container = QWidget()
+        self._diff_layout = QVBoxLayout(container)
         self._diff_layout.setContentsMargins(0, 4, 0, 4)
         self._diff_layout.setSpacing(8)
+        return container
 
-        # ── Shared file model + navigator ────────────────────────────────────
+    def _build_file_navigator(self) -> FileNavigatorWidget:
         self._diff_model = DiffModel([])
-        self._file_navigator = FileNavigatorWidget(self._diff_model)
-        self._file_navigator.file_history_requested.connect(self.file_history_requested)
-        self._file_navigator.blame_requested.connect(self._request_blame)
-        self._file_navigator.currentChanged.connect(self._on_file_selected)
-        self._file_navigator.deselected.connect(self._on_file_deselected)
+        navigator = FileNavigatorWidget(self._diff_model)
+        navigator.file_history_requested.connect(self.file_history_requested)
+        navigator.blame_requested.connect(self._request_blame)
+        navigator.currentChanged.connect(self._on_file_selected)
+        navigator.deselected.connect(self._on_file_deselected)
+        return navigator
 
-        # ── Unified scroll area ──────────────────────────────────────────────
+    def _build_scroll_area(self) -> QScrollArea:
+        """One scroll area for the header, the message, the file list and the diffs."""
         self._scroll_content = QWidget()
-        scroll_content_layout = QVBoxLayout(self._scroll_content)
-        scroll_content_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_content_layout.setSpacing(8)
-        scroll_content_layout.addWidget(self._detail)
-        scroll_content_layout.addWidget(self._msg_panel)
-        scroll_content_layout.addWidget(self._file_navigator)
-        scroll_content_layout.addWidget(self._diff_container)
-        scroll_content_layout.addStretch(1)
+        content_layout = QVBoxLayout(self._scroll_content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+        content_layout.addWidget(self._detail)
+        content_layout.addWidget(self._msg_panel)
+        content_layout.addWidget(self._file_navigator)
+        content_layout.addWidget(self._diff_container)
+        content_layout.addStretch(1)
 
-        self._scroll_area = QScrollArea()
-        self._scroll_area.setWidgetResizable(True)
-        self._scroll_area.setFrameShape(QScrollArea.NoFrame)
-        self._scroll_area.setWidget(self._scroll_content)
-
-        self._loader = ViewportBlockLoader(self._scroll_area, self._realize_block)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(8)
-        # One horizontal bar for every hunk, under the pane rather than inside
-        # each of them — see SharedHScroll.
-        self._hscroll = QScrollBar()
-        self._hscroll_sync = SharedHScroll(self._hscroll, self._diff_container, self)
-
-        layout.addWidget(self._state_banner, 0)
-        layout.addWidget(self._scroll_area, 1)
-        layout.addWidget(self._hscroll, 0)
-
-        # Diff render formats
-        self._formats = make_diff_formats()
-        self._syntax_formats = make_syntax_formats()
-
-        self._restyle_themed_panels()
-        connect_widget(self, rebuild=self._on_theme_changed)
-
-        self._set_empty_state(True)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setWidget(self._scroll_content)
+        return scroll_area
 
     def _set_empty_state(self, empty: bool) -> None:
         """Hide or show all sub-panels based on whether a commit is loaded."""
@@ -542,44 +555,37 @@ class DiffWidget(QWidget):
 
     def _render_all_files(self, oid: str) -> None:
         """Render all file blocks as skeletons immediately, then fetch diffs in background."""
-        import threading
-
-        from PySide6.QtCore import QObject, Signal
-
         self._refresh_submodule_paths()
         self._clear_blocks()
+        self._loader.set_blocks(self._build_skeleton_blocks())
+        self._blocks_generation += 1
+        self._fetch_diff_map(oid, self._blocks_generation)
 
-        block_refs = []
+    def _build_skeleton_blocks(self) -> list[BlockRef]:
+        """Lay out a skeleton block per file, up to the cap, and return them.
 
-        # Each block is a frame subtree registered with the theme manager, and
-        # building one per file held the window for seconds on a commit that
-        # touches thousands. The rest stay reachable through the file list.
+        Each block is a frame subtree registered with the theme manager, and
+        building one per file held the window for seconds on a commit that
+        touches thousands. The rest stay reachable through the file list.
+        """
+        block_refs: list[BlockRef] = []
         row_count = self._diff_model.rowCount()
         for row in range(min(row_count, MAX_AGGREGATE_FILE_BLOCKS)):
-            index = self._diff_model.index(row)
-            file_status = self._diff_model.data(index, Qt.UserRole)
+            file_status = self._diff_model.data(self._diff_model.index(row), Qt.UserRole)
             if file_status is None:
                 continue
-            path = file_status.path
-            frame, inner, skeleton = self._build_skeleton_block(path)
+            frame, inner, skeleton = self._build_skeleton_block(file_status.path)
             self._diff_layout.addWidget(frame)
-            block_refs.append((path, frame, inner, skeleton))
+            block_refs.append((file_status.path, frame, inner, skeleton))
         if row_count > MAX_AGGREGATE_FILE_BLOCKS:
             self._diff_layout.addWidget(make_overflow_notice(row_count - MAX_AGGREGATE_FILE_BLOCKS))
-
         self._diff_layout.addStretch()
+        return block_refs
 
-        self._loader.set_blocks(block_refs)
-        self._blocks_generation += 1
-        generation = self._blocks_generation
-
-        # Dispatch background fetch
+    def _fetch_diff_map(self, oid: str, generation: int) -> None:
+        """Fetch every file's diff of *oid* off the UI thread, for the blocks of *generation*."""
         queries = self._queries
-
-        class _MapSignals(QObject):
-            done = Signal(object, int)  # dict, blocks generation
-
-        signals = _MapSignals()
+        signals = DiffMapSignals()
         signals.done.connect(self._on_diff_map_loaded)
         self._diff_map_signals = signals  # prevent GC
 
