@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal, SignalInstance
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.domain.entities import Branch, Commit
+from git_gui.domain.entities import Branch, Commit, RepoState
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.diff_model import DiffModel
 from git_gui.presentation.theme import connect_widget, get_theme_manager
@@ -27,7 +28,9 @@ from git_gui.presentation.widgets.diff_block import (
     make_diff_formats,
     make_file_block,
     make_overflow_notice,
+    make_skeleton_container,
     make_syntax_formats,
+    use_code_font,
 )
 from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
 from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
@@ -38,6 +41,14 @@ from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoad
 logger = logging.getLogger(__name__)
 
 _MESSAGE_MARGIN = 12
+
+
+class _OperationBanner(NamedTuple):
+    """What the state banner says and does while an operation is in progress."""
+
+    label: str
+    abort: SignalInstance
+    resume: SignalInstance | None  # None: the operation cannot be continued from here
 
 
 class _CommitMessageView(QPlainTextEdit):
@@ -57,9 +68,7 @@ class _CommitMessageView(QPlainTextEdit):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.document().setDocumentMargin(_MESSAGE_MARGIN)
-        font = self.font()
-        font.setFamily("Courier New")
-        self.setFont(font)
+        use_code_font(self)
 
     def show_message(self, text: str) -> None:
         self.setPlainText(text)
@@ -112,9 +121,12 @@ class DiffWidget(QWidget):
         # Path the panel is narrowed to while the graph shows a file history.
         self._path_filter: str | None = None
         self._submodule_paths: set[str] = set()
-
-        # Lazy loading — initialized after scroll area is created (see below)
-        self._loader: ViewportBlockLoader | None = None
+        self._current_state = RepoState.CLEAN
+        self._banners = self._operation_banners()
+        # Bumped whenever the blocks are rebuilt. A diff map fetched for an
+        # earlier set of blocks arrives with its generation and is dropped:
+        # applied to the new blocks it marked them loaded with no hunks.
+        self._blocks_generation = 0
 
         # ── State banner (merge/rebase in progress) ─────────────────────────
         self._state_banner = QWidget()
@@ -192,7 +204,6 @@ class DiffWidget(QWidget):
         self._scroll_area.setFrameShape(QScrollArea.NoFrame)
         self._scroll_area.setWidget(self._scroll_content)
 
-        # Re-point the lazy diff loader at the unified scroll area.
         self._loader = ViewportBlockLoader(self._scroll_area, self._realize_block)
 
         layout = QVBoxLayout(self)
@@ -224,47 +235,43 @@ class DiffWidget(QWidget):
         self._diff_container.setVisible(not empty)
         self._scroll_area.setVisible(not empty)
 
-    def update_state_banner(self, state_name: str) -> None:
-        """Show or hide the merge/rebase state banner."""
-        self._current_state = state_name
-        if state_name == "MERGING":
-            self._banner_label.setText("\u26a0 Merge in progress")
-            self._btn_continue.setVisible(False)
-            self._state_banner.setVisible(True)
-        elif state_name == "REBASING":
-            self._banner_label.setText("\u26a0 Rebase in progress")
-            self._btn_continue.setVisible(True)
-            self._state_banner.setVisible(True)
-        elif state_name == "CHERRY_PICKING":
-            self._banner_label.setText("\u26a0 Cherry-pick in progress")
-            self._btn_continue.setVisible(True)
-            self._state_banner.setVisible(True)
-        elif state_name == "REVERTING":
-            self._banner_label.setText("\u26a0 Revert in progress")
-            self._btn_continue.setVisible(True)
-            self._state_banner.setVisible(True)
-        else:
-            self._state_banner.setVisible(False)
+    def _operation_banners(self) -> dict[RepoState, _OperationBanner]:
+        return {
+            RepoState.MERGING: _OperationBanner(
+                "Merge in progress", self.merge_abort_requested, None
+            ),
+            RepoState.REBASING: _OperationBanner(
+                "Rebase in progress", self.rebase_abort_requested, self.rebase_continue_requested
+            ),
+            RepoState.CHERRY_PICKING: _OperationBanner(
+                "Cherry-pick in progress",
+                self.cherry_pick_abort_requested,
+                self.cherry_pick_continue_requested,
+            ),
+            RepoState.REVERTING: _OperationBanner(
+                "Revert in progress", self.revert_abort_requested, self.revert_continue_requested
+            ),
+        }
+
+    def update_state_banner(self, state: RepoState) -> None:
+        """Show the banner for a merge, rebase, cherry-pick or revert in progress."""
+        self._current_state = state
+        banner = self._banners.get(state)
+        self._state_banner.setVisible(banner is not None)
+        if banner is None:
+            return
+        self._banner_label.setText(f"⚠ {banner.label}")
+        self._btn_continue.setVisible(banner.resume is not None)
 
     def _on_banner_abort(self) -> None:
-        state = getattr(self, "_current_state", "CLEAN")
-        if state == "MERGING":
-            self.merge_abort_requested.emit()
-        elif state == "REBASING":
-            self.rebase_abort_requested.emit()
-        elif state == "CHERRY_PICKING":
-            self.cherry_pick_abort_requested.emit()
-        elif state == "REVERTING":
-            self.revert_abort_requested.emit()
+        banner = self._banners.get(self._current_state)
+        if banner is not None:
+            banner.abort.emit()
 
     def _on_banner_continue(self) -> None:
-        state = getattr(self, "_current_state", "CLEAN")
-        if state == "REBASING":
-            self.rebase_continue_requested.emit()
-        elif state == "CHERRY_PICKING":
-            self.cherry_pick_continue_requested.emit()
-        elif state == "REVERTING":
-            self.revert_continue_requested.emit()
+        banner = self._banners.get(self._current_state)
+        if banner is not None and banner.resume is not None:
+            banner.resume.emit()
 
     def _on_theme_changed(self) -> None:
         self._formats = make_diff_formats()
@@ -290,7 +297,7 @@ class DiffWidget(QWidget):
     def set_buses(self, queries: QueryBus | None, commands: CommandBus | None) -> None:
         self._queries = queries
         self._clear_commit()
-        self.update_state_banner("CLEAN")
+        self.update_state_banner(RepoState.CLEAN)
 
     def _clear_commit(self) -> None:
         self._current_oid = None
@@ -417,8 +424,7 @@ class DiffWidget(QWidget):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-        if self._loader:
-            self._loader.clear()
+        self._loader.clear()
         self._sync_hscroll()
 
     def _refresh_submodule_paths(self) -> None:
@@ -475,8 +481,6 @@ class DiffWidget(QWidget):
 
     def _build_skeleton_block(self, path: str):
         """Build a file block with a skeleton placeholder. Returns (frame, inner, skeleton)."""
-        from git_gui.presentation.widgets.diff_block import make_skeleton_container
-
         is_submodule = path in self._submodule_paths
         on_click = (lambda p=path: self.submodule_open_requested.emit(p)) if is_submodule else None
         frame, inner = make_file_block(
@@ -531,8 +535,6 @@ class DiffWidget(QWidget):
         """Clear and render one file as a bordered block."""
         self._refresh_submodule_paths()
         self._clear_blocks()
-        if self._loader:
-            self._loader.clear()
         block = self._build_file_block(path, hunks)
         self._diff_layout.addWidget(block)
         self._diff_layout.addStretch()
@@ -568,15 +570,17 @@ class DiffWidget(QWidget):
         self._diff_layout.addStretch()
 
         self._loader.set_blocks(block_refs)
+        self._blocks_generation += 1
+        generation = self._blocks_generation
 
         # Dispatch background fetch
         queries = self._queries
 
         class _MapSignals(QObject):
-            done = Signal(object)  # dict
+            done = Signal(object, int)  # dict, blocks generation
 
         signals = _MapSignals()
-        signals.done.connect(lambda diff_map: self._loader.set_diff_map(diff_map))
+        signals.done.connect(self._on_diff_map_loaded)
         self._diff_map_signals = signals  # prevent GC
 
         def _worker():
@@ -585,6 +589,10 @@ class DiffWidget(QWidget):
             except Exception:
                 logger.warning("Failed to load the diffs of commit %r", oid, exc_info=True)
                 result = {}
-            signals.done.emit(result)
+            signals.done.emit(result, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_diff_map_loaded(self, diff_map: dict, generation: int) -> None:
+        if generation == self._blocks_generation:
+            self._loader.set_diff_map(diff_map)

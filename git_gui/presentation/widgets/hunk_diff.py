@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 
@@ -32,6 +33,8 @@ from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 from git_gui.resources import get_resource_path
 
+logger = logging.getLogger(__name__)
+
 # Resolved once, against the project root or the PyInstaller bundle rather than
 # the working directory: a packaged GitCrisp starts wherever the user launched
 # it from, and a relative path finds nothing there. The cost of getting that
@@ -50,13 +53,16 @@ _CLOSE_ICON_PATH = str(get_resource_path("arts") / "ic_close.svg")
 # construction stays imperceptible.
 MAX_AGGREGATE_FILE_BLOCKS = 200
 
+# Names each hunk's discard button, so a stage or discard can find them all.
+_DISCARD_BUTTON_NAME = "discard_hunk"
+
 
 class _LoadSignals(QObject):
     done = Signal(str, list, list, bool)  # path, staged_hunks, unstaged_hunks, is_untracked
 
 
 class _DiffMapSignals(QObject):
-    done = Signal(object)  # dict[str, dict[str, list[Hunk]]]
+    done = Signal(object, int)  # dict[str, dict[str, list[Hunk]]], blocks generation
 
 
 class HunkDiffWidget(QWidget):
@@ -75,6 +81,10 @@ class HunkDiffWidget(QWidget):
         # The all-files view's blocks by path, so a reload can find the height
         # each one had before it is rebuilt as a skeleton.
         self._aggregate_blocks: dict[str, QFrame] = {}
+        # Bumped whenever the blocks are torn down. A diff map hands back the
+        # generation it was asked for, so one meant for blocks that are gone,
+        # after a repo switch or a newer load, is dropped.
+        self._blocks_generation = 0
 
         # Lazy loading — initialized after scroll area is created (see below)
         self._loader: ViewportBlockLoader | None = None
@@ -167,8 +177,9 @@ class HunkDiffWidget(QWidget):
         self._loader.set_blocks(block_refs)
 
         queries = self._queries
+        generation = self._blocks_generation
         signals = _DiffMapSignals()
-        signals.done.connect(lambda diff_map: self._loader.set_diff_map(diff_map))
+        signals.done.connect(self._on_diff_map_loaded)
         self._load_all_signals = signals  # prevent GC
 
         def _worker():
@@ -178,10 +189,15 @@ class HunkDiffWidget(QWidget):
                 # hang, even off the UI thread.
                 result = queries.get_working_tree_diff_map.execute(shown)
             except Exception:
+                logger.warning("Failed to load the working tree's diffs", exc_info=True)
                 result = {}
-            signals.done.emit(result)
+            signals.done.emit(result, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_diff_map_loaded(self, diff_map: dict, generation: int) -> None:
+        if generation == self._blocks_generation:
+            self._loader.set_diff_map(diff_map)
 
     def _aggregate_block_heights(self) -> dict[str, int]:
         """Each all-files block's height: its content's, or the one it still holds.
@@ -240,10 +256,12 @@ class HunkDiffWidget(QWidget):
             try:
                 staged_hunks = queries.get_staged_diff.execute(path)
             except Exception:
+                logger.warning("Failed to load the staged diff of %r", path, exc_info=True)
                 staged_hunks = []
             try:
                 unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
             except Exception:
+                logger.warning("Failed to load the unstaged diff of %r", path, exc_info=True)
                 unstaged_hunks = []
             is_untracked = (
                 not staged_hunks
@@ -261,6 +279,7 @@ class HunkDiffWidget(QWidget):
         try:
             self._submodule_paths = {s.path for s in self._queries.list_submodules.execute()}
         except Exception:
+            logger.warning("Failed to list the submodules", exc_info=True)
             self._submodule_paths = set()
 
     def _make_file_block(self, path: str):
@@ -358,9 +377,25 @@ class HunkDiffWidget(QWidget):
         with the new list of changed files, a list only the owner knows: a
         discard can take a file out of it. Reloading here as well rebuilt
         every block and queried every diff twice per click.
+
+        Until that reload rebuilds them, the all-files view's stage and
+        discard controls are disabled: the command may have moved the line
+        numbers of the hunks below it, so their headers no longer name a hunk
+        the index has.
         """
         if self._all_paths is None:
             self._render_sync()
+        else:
+            self._disable_hunk_controls()
+
+    def _disable_hunk_controls(self) -> None:
+        # Only the controls: disabling the container would grey every diff
+        # line on screen until the reload lands, a flash on each click.
+        controls = self._container.findChildren(QCheckBox) + self._container.findChildren(
+            QToolButton, _DISCARD_BUTTON_NAME
+        )
+        for control in controls:
+            control.setEnabled(False)
 
     def _add_hunk_block(
         self,
@@ -394,6 +429,7 @@ class HunkDiffWidget(QWidget):
             # in a confusing state.
             is_whole_file = header.startswith("@@ -0,0") or "+0,0 @@" in header
             x_btn = QToolButton()
+            x_btn.setObjectName(_DISCARD_BUTTON_NAME)
             x_btn.setIcon(QIcon(_CLOSE_ICON_PATH))
             x_btn.setIconSize(QSize(16, 16))
             x_btn.setFixedSize(22, 22)
@@ -494,6 +530,7 @@ class HunkDiffWidget(QWidget):
 
     def _clear_layout(self) -> None:
         self._aggregate_blocks = {}
+        self._blocks_generation += 1
         while self._layout.count():
             item = self._layout.takeAt(0)
             widget = item.widget()

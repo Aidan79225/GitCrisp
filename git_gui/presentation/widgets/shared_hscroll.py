@@ -57,13 +57,11 @@ class SharedHScroll(QObject):
                 editor.horizontalScrollBar().valueChanged.connect(self._on_editor_moved)
                 editor.destroyed.connect(self._on_editor_destroyed)
 
+        # Hidden editors count here: expanding a collapsed block does not
+        # re-measure, so its lines would be out of reach until something did.
         reach = max((e.horizontalScrollBar().maximum() for e in editors), default=0)
         self._bar.setRange(0, reach)
-        # A page is what one editor shows, the width its own range is measured
-        # against. Side by side, two editors split the pane, so the pane's
-        # width would page past half of every line.
-        page = max((e.viewport().width() for e in editors), default=self._container.width())
-        self._bar.setPageStep(max(page, 1))
+        self._bar.setPageStep(self._page_width(editors))
         # One character, so arrow keys and track clicks move by something that
         # lines up with the text.
         step = editors[0].fontMetrics().horizontalAdvance("0") if editors else 1
@@ -72,6 +70,17 @@ class SharedHScroll(QObject):
         self._bar.setVisible(reach > 0)
         if reach == 0 and self._bar.value():
             self._bar.setValue(0)
+
+    def _page_width(self, editors: list[QPlainTextEdit]) -> int:
+        """What one visible editor shows, the width its own range is measured against.
+
+        One editor, not the pane: side by side, two editors split the pane, so
+        the pane's width would page past half of every line. Visible ones only:
+        a collapsed block's editors are skipped by layout and keep whatever
+        width they last had — or Qt's 640px default if they never had one.
+        """
+        widths = [e.viewport().width() for e in editors if e.isVisibleTo(self._container)]
+        return max(max(widths, default=self._container.width()), 1)
 
     def _on_editor_destroyed(self, _obj=None) -> None:
         """Re-measure once the teardown has finished.

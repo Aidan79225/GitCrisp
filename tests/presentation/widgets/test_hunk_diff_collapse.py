@@ -78,23 +78,17 @@ def test_collapsing_a_block_realises_the_blocks_it_reveals(qtbot, make_widget):
     queries.released.set()
     widget.load_all_files(paths)
     qtbot.waitUntil(lambda: bool(_editors(_frame_of(widget, "f0.txt"))), timeout=2000)
-    built_before = _wait_until_the_loader_is_idle(qtbot, widget)
-    assert built_before < len(paths), "the tall first file pushes some block below the fold"
+    # The 60-line first file fills the pane on its own, so once it is built
+    # nothing else is on screen to build.
+    assert _wait_until_the_loader_is_idle(qtbot, widget) == 1, "only the first file is on screen"
 
     _frame_of(widget, "f0.txt").findChild(_CollapseToggle).click()
 
-    # Which block the collapse uncovers depends on the machine's font and
-    # layout; that it uncovers one does not.
-    qtbot.waitUntil(lambda: len(widget._loader._realized) > built_before, timeout=2000)
+    qtbot.waitUntil(lambda: len(widget._loader._realized) > 1, timeout=2000)
 
 
 def _wait_until_the_loader_is_idle(qtbot, widget: HunkDiffWidget) -> int:
-    """Return how many blocks are built once no more have been for a while.
-
-    The loader builds one block per event-loop turn while the first block is
-    still growing, so a fixed wait can end in the middle of that; the fold is
-    only meaningful once it has stopped.
-    """
+    """Return how many blocks are built once no more have been for a while."""
     built = -1
     for _ in range(30):
         qtbot.wait(100)

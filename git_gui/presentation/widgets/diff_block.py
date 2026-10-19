@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QPainter, QTextBlockFormat, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QPainter, QTextBlockFormat, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -83,6 +83,7 @@ from git_gui.presentation.widgets.side_by_side import (
     no_newline_note,
     parse_hunk_header,
 )
+from git_gui.presentation.widgets.syntax_highlighter import tokenize
 
 # Style constants
 
@@ -109,6 +110,10 @@ HEADER_ROW_VPAD = 3  # top/bottom padding inside the header row
 
 _LONG_LINE_LIMIT = 2000
 
+# The first of these the platform has (Windows, then macOS), else whatever it
+# calls monospace.
+CODE_FONT_FAMILIES = ("Consolas", "Courier New", "Menlo", "Monaco", "monospace")
+
 
 # Diff format dataclass
 
@@ -117,7 +122,6 @@ _LONG_LINE_LIMIT = 2000
 class DiffFormats:
     fmt_added: QTextCharFormat
     fmt_removed: QTextCharFormat
-    fmt_header: QTextCharFormat
     fmt_default: QTextCharFormat
     blk_added: QTextBlockFormat
     blk_removed: QTextBlockFormat
@@ -139,16 +143,16 @@ class SyntaxFormats:
     removed_word_overlay: QTextCharFormat
 
 
-# Maps the syntax_highlighter SyntaxToken.kind string → a SyntaxFormats attribute name.
+# Maps a SyntaxToken.kind role to the SyntaxFormats attribute that draws it.
 _KIND_TO_ATTR = {
-    "syntax_keyword": "keyword",
-    "syntax_function": "function",
-    "syntax_class": "class_",
-    "syntax_string": "string",
-    "syntax_number": "number",
-    "syntax_comment": "comment",
-    "syntax_operator": "operator",
-    "syntax_decorator": "decorator",
+    ColorRole.SYNTAX_KEYWORD: "keyword",
+    ColorRole.SYNTAX_FUNCTION: "function",
+    ColorRole.SYNTAX_CLASS: "class_",
+    ColorRole.SYNTAX_STRING: "string",
+    ColorRole.SYNTAX_NUMBER: "number",
+    ColorRole.SYNTAX_COMMENT: "comment",
+    ColorRole.SYNTAX_OPERATOR: "operator",
+    ColorRole.SYNTAX_DECORATOR: "decorator",
 }
 
 
@@ -232,9 +236,6 @@ def make_diff_formats() -> DiffFormats:
     fmt_removed = QTextCharFormat()
     fmt_removed.setForeground(on_surface)
 
-    fmt_header = QTextCharFormat()
-    fmt_header.setForeground(QColor(_hunk_header_color()))
-
     fmt_default = QTextCharFormat()
     fmt_default.setForeground(on_surface)
 
@@ -249,7 +250,6 @@ def make_diff_formats() -> DiffFormats:
     return DiffFormats(
         fmt_added=fmt_added,
         fmt_removed=fmt_removed,
-        fmt_header=fmt_header,
         fmt_default=fmt_default,
         blk_added=blk_added,
         blk_removed=blk_removed,
@@ -261,28 +261,39 @@ def make_syntax_formats() -> SyntaxFormats:
     """Build a SyntaxFormats dataclass from the active theme's palette."""
     c = get_theme_manager().current.colors
 
-    def _fg(role: str) -> QTextCharFormat:
+    def _fg(role: ColorRole) -> QTextCharFormat:
         f = QTextCharFormat()
         f.setForeground(c.as_qcolor(role))
         return f
 
-    def _bg(role: str) -> QTextCharFormat:
+    def _bg(role: ColorRole) -> QTextCharFormat:
         f = QTextCharFormat()
         f.setBackground(c.as_qcolor(role))
         return f
 
     return SyntaxFormats(
-        keyword=_fg("syntax_keyword"),
-        function=_fg("syntax_function"),
-        class_=_fg("syntax_class"),
-        string=_fg("syntax_string"),
-        number=_fg("syntax_number"),
-        comment=_fg("syntax_comment"),
-        operator=_fg("syntax_operator"),
-        decorator=_fg("syntax_decorator"),
-        added_word_overlay=_bg("diff_added_word_overlay"),
-        removed_word_overlay=_bg("diff_removed_word_overlay"),
+        keyword=_fg(ColorRole.SYNTAX_KEYWORD),
+        function=_fg(ColorRole.SYNTAX_FUNCTION),
+        class_=_fg(ColorRole.SYNTAX_CLASS),
+        string=_fg(ColorRole.SYNTAX_STRING),
+        number=_fg(ColorRole.SYNTAX_NUMBER),
+        comment=_fg(ColorRole.SYNTAX_COMMENT),
+        operator=_fg(ColorRole.SYNTAX_OPERATOR),
+        decorator=_fg(ColorRole.SYNTAX_DECORATOR),
+        added_word_overlay=_bg(ColorRole.DIFF_ADDED_WORD_OVERLAY),
+        removed_word_overlay=_bg(ColorRole.DIFF_REMOVED_WORD_OVERLAY),
     )
+
+
+def use_code_font(widget: QWidget) -> None:
+    """Draw *widget*'s text in the code font the diff editors use.
+
+    Only the families are set, so the theme manager keeps them across a theme
+    change and the size still follows the theme's typography scale.
+    """
+    font = widget.font()
+    font.setFamilies(list(CODE_FONT_FAMILIES))
+    widget.setFont(font)
 
 
 def make_diff_editor() -> QPlainTextEdit:
@@ -294,9 +305,8 @@ def make_diff_editor() -> QPlainTextEdit:
     editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     # Only the family is fixed here, so the size still follows the theme's
     # typography scale.
-    editor.setStyleSheet(
-        "QPlainTextEdit { font-family: 'Consolas', 'Courier New', 'Menlo', 'Monaco', monospace; }"
-    )
+    families = ", ".join(f"'{family}'" for family in CODE_FONT_FAMILIES)
+    editor.setStyleSheet(f"QPlainTextEdit {{ font-family: {families}; }}")
     return editor
 
 
@@ -315,13 +325,6 @@ def fit_height_to_lines(editor: QPlainTextEdit, line_count: int) -> None:
 
 
 # Hunk rendering helpers
-
-
-def render_hunk_header_line(cursor, hunk: Hunk, formats: DiffFormats) -> None:
-    """Insert the @@ header line of *hunk* into *cursor* using the header char format."""
-    cursor.setBlockFormat(formats.blk_default)
-    cursor.setCharFormat(formats.fmt_header)
-    cursor.insertText(hunk.header + "\n")
 
 
 _CHUNK_SIZE = 100
@@ -413,8 +416,6 @@ def apply_syntax_tokens(
     in both. A very long line is left alone: tokenizing it costs more than the
     colour is worth, and minified files are mostly one such line.
     """
-    from git_gui.presentation.widgets.syntax_highlighter import tokenize
-
     if not text or _too_long_to_highlight(text):
         return
     positions = _qt_positions(text)
@@ -648,16 +649,6 @@ def render_hunk_content_lines(
     return total
 
 
-def render_hunk_lines(cursor, hunk: Hunk, formats: DiffFormats) -> int:
-    """Render one complete hunk (header line + content lines) into *cursor*.
-
-    Returns the total number of lines inserted (1 header + len(hunk.lines) content).
-    """
-    render_hunk_header_line(cursor, hunk, formats)
-    content_count = render_hunk_content_lines(cursor, hunk, formats)
-    return 1 + content_count
-
-
 # Shared per-hunk widget builder
 
 
@@ -718,7 +709,6 @@ def add_hunk_widget(
     extra_left_widgets: list[QWidget] | None = None,
     extra_right_widgets: list[QWidget] | None = None,
     on_header_clicked: Callable[[], None] | None = None,
-    on_header_context_menu: Callable[[object], None] | None = None,
     syntax_formats: SyntaxFormats | None = None,
     filename: str | None = None,
 ) -> None:
@@ -783,21 +773,29 @@ def make_overflow_notice(hidden: int) -> QLabel:
     return label
 
 
+_SKELETON_BAR_COUNT = 4
+
+
+def _skeleton_style() -> str:
+    bar = get_theme_manager().current.colors.outline_variant
+    return f"QFrame#skeletonBar {{ background-color: {bar}; border-radius: 3px; }}"
+
+
 def make_skeleton_container() -> QWidget:
-    """Return a QWidget containing 4 gray placeholder bars that mimic diff rows.
+    """Return a QWidget of placeholder bars that mimic diff rows.
 
     Used as a placeholder inside a file block while the real hunks are being loaded.
     """
-    from PySide6.QtWidgets import QFrame, QVBoxLayout
-
     container = QWidget()
+    container.setStyleSheet(_skeleton_style())
     layout = QVBoxLayout(container)
     layout.setContentsMargins(8, 6, 8, 6)
     layout.setSpacing(4)
-    for _ in (90, 60, 75, 50):
+    for _ in range(_SKELETON_BAR_COUNT):
         bar = QFrame()
+        bar.setObjectName("skeletonBar")
         bar.setFixedHeight(10)
         bar.setMinimumWidth(40)
-        bar.setStyleSheet("background-color: rgba(128, 128, 128, 40); border-radius: 3px;")
         layout.addWidget(bar)
+    connect_widget(container, rebuild=lambda: container.setStyleSheet(_skeleton_style()))
     return container

@@ -157,3 +157,40 @@ def test_a_hidden_pane_realizes_nothing_until_it_is_shown(qtbot):
     qtbot.waitUntil(lambda: len(realized) > 0)
     qtbot.wait(200)
     assert len(realized) < len(paths)
+
+
+def _make_growing_block(layout, path: str, skeleton_height: int = 20):
+    """A block whose frame takes the height of its content, as the real ones do."""
+    frame = QFrame()
+    inner = QVBoxLayout(frame)
+    skeleton = QWidget()
+    skeleton.setFixedHeight(skeleton_height)
+    inner.addWidget(skeleton)
+    layout.addWidget(frame)
+    return (path, frame, inner, skeleton)
+
+
+def test_a_block_pushed_off_screen_by_the_one_just_built_is_not_built(qtbot, scroll_area):
+    """Building a block replaces its skeleton with content that is taller, which
+    moves every block below. Qt shows the new content a turn later, so a check
+    that measures before then sizes the block as if the content were not there
+    and reads the blocks below as on screen."""
+    sa, container, layout = scroll_area
+    realized = []
+
+    def build_tall_first(path, inner, skeleton, entry):
+        realized.append(path)
+        if path == "f0.txt":
+            inner.removeWidget(skeleton)
+            skeleton.deleteLater()
+            content = QWidget()
+            content.setFixedHeight(1000)  # taller than the 300px pane
+            inner.addWidget(content)
+
+    loader = ViewportBlockLoader(sa, build_tall_first)
+    blocks = [_make_growing_block(layout, f"f{i}.txt") for i in range(5)]
+    loader.set_blocks(blocks)
+    loader.set_diff_map({f"f{i}.txt": [f"hunk{i}"] for i in range(5)})
+
+    qtbot.wait(300)
+    assert realized == ["f0.txt"]

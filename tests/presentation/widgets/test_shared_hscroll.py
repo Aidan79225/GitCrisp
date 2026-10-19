@@ -224,3 +224,50 @@ def test_a_re_measure_queued_by_a_dying_editor_is_dropped_with_the_pane(qtbot):
     pane.deleteLater()
     QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     qtbot.wait(20)
+
+
+def _two_side_by_side_rows(qtbot, width: int) -> tuple[SharedHScroll, QScrollBar, QWidget, list]:
+    """Two hunks, each a row of two editors, as a side-by-side diff stacks them."""
+    from PySide6.QtWidgets import QHBoxLayout
+
+    container = QWidget()
+    column = QVBoxLayout(container)
+    rows = []
+    for _ in range(2):
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        for _ in range(2):
+            row_layout.addWidget(_long_editor())
+        column.addWidget(row)
+        rows.append(row)
+    container.resize(width, 300)
+    qtbot.addWidget(container)
+    container.show()
+
+    bar = QScrollBar()
+    qtbot.addWidget(bar)
+    return SharedHScroll(bar, container), bar, container, rows
+
+
+def _long_editor() -> QPlainTextEdit:
+    editor = QPlainTextEdit()
+    editor.setLineWrapMode(QPlainTextEdit.NoWrap)
+    editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    editor.setPlainText(LONG)
+    editor.setFixedHeight(60)
+    return editor
+
+
+def test_a_collapsed_blocks_editors_do_not_set_the_page(qtbot):
+    """A collapsed block's editors are hidden, so layout stops resizing them:
+    they keep the width they had when the pane was wider, and paging by that
+    width skipped part of every line the visible editors show."""
+    sync, bar, container, rows = _two_side_by_side_rows(qtbot, width=1200)
+
+    rows[1].hide()
+    container.resize(700, 300)
+    qtbot.wait(20)
+    sync.refresh()
+
+    visible = rows[0].findChildren(QPlainTextEdit)[0]
+    assert bar.pageStep() == visible.horizontalScrollBar().pageStep()

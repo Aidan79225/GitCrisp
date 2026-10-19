@@ -204,3 +204,30 @@ def test_a_late_failure_does_not_empty_the_list_a_newer_reload_filled(qtbot, pan
     qtbot.wait(200)
 
     assert _listed(w) == [("a.txt", StagingState.UNSTAGED)]
+
+
+# ── A reload fetches the selected file's diff once ───────────────────────────
+
+
+def test_a_reload_loads_the_selected_files_diff_once(qtbot, panel):
+    """Reselecting after the refill already loads it; a second load started
+    another worker and rebuilt the whole block again on every auto-reload."""
+    w, queries = panel
+    _load(
+        qtbot,
+        w,
+        queries,
+        [_fs("a.txt", StagingState.UNSTAGED), _fs("b.txt", StagingState.UNSTAGED)],
+    )
+    w._file_view.setCurrentIndex(w._file_model.index(0))
+    loaded: list[str] = []
+    w._hunk_diff.load_file = loaded.append
+
+    queries.get_working_tree.execute.return_value = [
+        _fs("a.txt", StagingState.UNSTAGED),
+        _fs("b.txt", StagingState.STAGED),
+    ]
+    w.reload()
+    qtbot.waitUntil(lambda: ("b.txt", StagingState.STAGED) in _listed(w), timeout=2000)
+
+    assert loaded == ["a.txt"]
