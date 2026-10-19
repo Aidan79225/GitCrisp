@@ -219,3 +219,31 @@ def test_a_rewritten_line_is_word_diffed_once_for_both_sides(qtbot, monkeypatch)
     _editor_for_hunk(qtbot, hunk, "x.py")
 
     assert calls == [("once = 'unified old'", "once = 'unified new'")]
+
+
+def test_a_multi_line_change_pairs_each_removed_line_with_its_replacement(qtbot):
+    """libgit2 sends every removed line of a change before every added one, so
+    pairing only a '-' directly above a '+' compared 'bar = 2' with
+    'foo = 10' and left the other two lines unhighlighted."""
+    from PySide6.QtGui import QColor
+
+    hunk = Hunk(
+        header="@@ -1,2 +1,2 @@",
+        lines=[
+            ("-", "foo = 1\n"),
+            ("-", "bar = 2\n"),
+            ("+", "foo = 10\n"),
+            ("+", "bar = 20\n"),
+        ],
+    )
+    editor = _editor_for_hunk(qtbot, hunk, "x.py")
+    syntax = make_syntax_formats()
+    removed = syntax.removed_word_overlay.background().color().name(QColor.HexArgb)
+    added = syntax.added_word_overlay.background().color().name(QColor.HexArgb)
+
+    # Content starts at col 11; the value sits at col 17 on every line.
+    assert _bg_color_at(editor, 0, 17) == removed  # foo = [1]
+    assert _bg_color_at(editor, 2, 17) == added  # foo = [10]
+    assert _bg_color_at(editor, 1, 17) == removed  # bar = [2]
+    assert _bg_color_at(editor, 3, 17) == added  # bar = [20]
+    assert _bg_color_at(editor, 1, 11) != removed  # [bar] is the same on both sides
