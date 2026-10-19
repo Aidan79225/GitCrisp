@@ -6,8 +6,14 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPainter, QTextBlockFormat, QTextCharFormat, QTextCursor
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QPainter,
+    QTextBlockFormat,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -327,7 +333,36 @@ def fit_height_to_lines(editor: QPlainTextEdit, line_count: int) -> None:
 # Hunk rendering helpers
 
 
-_CHUNK_SIZE = 100
+# Lines per slice of a long hunk: enough that ordinary hunks land in one pass,
+# small enough that a generated file does not freeze the window while it renders.
+CHUNK_SIZE = 100
+
+
+def render_in_chunks(
+    document: QTextDocument, total: int, render_range: Callable[[int, int], None]
+) -> None:
+    """Render rows 0 to *total* through *render_range*, the first slice now.
+
+    The rest follow one slice per event-loop turn. *document* is the timer's
+    context: when its widget is deleted (e.g. _clear_blocks during a commit or
+    repo switch) the document goes with it and Qt cancels the pending slice,
+    which otherwise dereferenced a dangling QTextDocument, an access violation
+    on Windows.
+    """
+    render_range(0, min(CHUNK_SIZE, total))
+
+    def render_from(start: int) -> None:
+        try:
+            end = min(start + CHUNK_SIZE, total)
+            render_range(start, end)
+            if end < total:
+                QTimer.singleShot(0, document, lambda: render_from(end))
+        except RuntimeError:
+            pass
+
+    if total > CHUNK_SIZE:
+        QTimer.singleShot(0, document, lambda: render_from(CHUNK_SIZE))
+
 
 # As wide as a numbered line's "1234 1234  ", so a note lines up with the code.
 _UNNUMBERED_GUTTER = " " * 11
@@ -492,79 +527,94 @@ def _render_no_newline_note(cursor, content: str, formats: DiffFormats) -> None:
     cursor.insertText(_UNNUMBERED_GUTTER + no_newline_note(content) + "\n")
 
 
+def _next_numbers(origin: str, old: int, new: int) -> tuple[int, int]:
+    """The old and new line numbers after a line of *origin*.
+
+    A no-newline marker is not a line of either file, so it counts for neither.
+    """
+    if origin == LineKind.ADDED:
+        return old, new + 1
+    if origin == LineKind.REMOVED:
+        return old + 1, new
+    if origin in NO_NEWLINE_MARKERS:
+        return old, new
+    return old + 1, new + 1
+
+
+def _numbers_before(hunk: Hunk, start: int) -> tuple[int, int]:
+    """The old and new line numbers of hunk.lines[start]."""
+    old, new = parse_hunk_header(hunk.header)
+    for origin, _ in hunk.lines[:start]:
+        old, new = _next_numbers(origin, old, new)
+    return old, new
+
+
+def _line_style(
+    origin: str, old: int, new: int, formats: DiffFormats
+) -> tuple[QTextBlockFormat, QTextCharFormat, str]:
+    """The block format, char format and numbered gutter of one code line."""
+    if origin == LineKind.ADDED:
+        return formats.blk_added, formats.fmt_added, f"     {new:>4}  "
+    if origin == LineKind.REMOVED:
+        return formats.blk_removed, formats.fmt_removed, f"{old:>4}       "
+    return formats.blk_default, formats.fmt_default, f"{old:>4} {new:>4}  "
+
+
+def _highlight_line(
+    document,
+    content_start: int,
+    text: str,
+    origin: str,
+    rewrite: _Rewrite | None,
+    syntax_formats: SyntaxFormats,
+    filename: str,
+) -> None:
+    """Layer syntax colour, and the words a rewrite changed, over one inserted line."""
+    apply_syntax_tokens(document, content_start, text, filename, syntax_formats)
+    if rewrite is not None:
+        _apply_rewrite_overlay(document, content_start, origin, rewrite, syntax_formats)
+
+
 def _render_lines_range(
     cursor,
-    hunk,
-    formats,
-    start,
-    end,
-    syntax_formats=None,
-    filename=None,
-    pair_index=None,
+    hunk: Hunk,
+    formats: DiffFormats,
+    start: int,
+    end: int,
+    syntax_formats: SyntaxFormats | None = None,
+    filename: str | None = None,
+    pair_index: dict[int, _Rewrite] | None = None,
 ) -> None:
-    """Render hunk.lines[start:end] into cursor, tracking line numbers.
+    """Render hunk.lines[start:end] into cursor, numbered from the hunk header.
 
-    When *syntax_formats* and *filename* are both given, layer Pygments-driven
-    syntax coloring onto the inserted content via mergeCharFormat.
-    When *pair_index* is given, also apply a word-level overlay to changed
-    spans of paired -/+ lines.
+    When *syntax_formats* and *filename* are both given, each line is also
+    syntax-coloured, and a line *pair_index* pairs with its rewrite gets a
+    word-level overlay on the spans that changed.
     """
-    old_line, new_line = parse_hunk_header(hunk.header)
-    for origin, _ in hunk.lines[:start]:
-        if origin == LineKind.ADDED:
-            new_line += 1
-        elif origin == LineKind.REMOVED:
-            old_line += 1
-        elif origin not in NO_NEWLINE_MARKERS:
-            old_line += 1
-            new_line += 1
-
-    apply_syntax = syntax_formats is not None and filename is not None
+    old, new = _numbers_before(hunk, start)
     pair_index = pair_index or {}
-
     for idx in range(start, end):
         origin, content = hunk.lines[idx]
-        if origin == LineKind.ADDED:
-            cursor.setBlockFormat(formats.blk_added)
-            cursor.setCharFormat(formats.fmt_added)
-            prefix = f"     {new_line:>4}  "
-            new_line += 1
-        elif origin == LineKind.REMOVED:
-            cursor.setBlockFormat(formats.blk_removed)
-            cursor.setCharFormat(formats.fmt_removed)
-            prefix = f"{old_line:>4}       "
-            old_line += 1
-        elif origin in NO_NEWLINE_MARKERS:
+        if origin in NO_NEWLINE_MARKERS:
             _render_no_newline_note(cursor, content, formats)
             continue
-        else:
-            cursor.setBlockFormat(formats.blk_default)
-            cursor.setCharFormat(formats.fmt_default)
-            prefix = f"{old_line:>4} {new_line:>4}  "
-            old_line += 1
-            new_line += 1
-
+        block_format, char_format, prefix = _line_style(origin, old, new, formats)
+        old, new = _next_numbers(origin, old, new)
+        cursor.setBlockFormat(block_format)
+        cursor.setCharFormat(char_format)
         line_with_eol = content if content.endswith("\n") else content + "\n"
-        full_text = prefix + line_with_eol
-        content_doc_start = cursor.position() + len(prefix)
-        cursor.insertText(full_text)
-
-        if not apply_syntax:
-            continue
-
-        content_text = line_with_eol.rstrip("\n")
-        if not content_text:
-            continue
-
-        # Pass 2 — syntax tokens
-        apply_syntax_tokens(
-            cursor.document(), content_doc_start, content_text, filename, syntax_formats
-        )
-
-        # Pass 3 — word-level overlay (only for paired -/+)
-        if idx in pair_index:
-            _apply_rewrite_overlay(
-                cursor.document(), content_doc_start, origin, pair_index[idx], syntax_formats
+        content_start = cursor.position() + len(prefix)
+        cursor.insertText(prefix + line_with_eol)
+        text = line_with_eol.rstrip("\n")
+        if syntax_formats is not None and filename is not None and text:
+            _highlight_line(
+                cursor.document(),
+                content_start,
+                text,
+                origin,
+                pair_index.get(idx),
+                syntax_formats,
+                filename,
             )
 
 
@@ -575,11 +625,9 @@ def render_hunk_content_lines(
     syntax_formats: SyntaxFormats | None = None,
     filename: str | None = None,
 ) -> int:
-    """Insert the +/-/context lines of *hunk* into *cursor*.
+    """Insert the +/-/context lines of *hunk* into *cursor*, returning the line count.
 
-    For small hunks (<= _CHUNK_SIZE lines), renders synchronously.
-    For large hunks, renders the first chunk immediately and schedules
-    the rest via QTimer.singleShot to keep the UI responsive.
+    A long hunk renders in slices; see render_in_chunks.
 
     When *syntax_formats* and *filename* are both given, the syntax pass
     layers Pygments-driven coloring on each rendered line, and adjacent -/+
@@ -590,63 +638,20 @@ def render_hunk_content_lines(
 
     pair_index = _build_pair_index(hunk.lines) if syntax_formats and filename else {}
 
-    total = len(hunk.lines)
-    if total <= _CHUNK_SIZE:
+    def render_range(start: int, end: int) -> None:
         _render_lines_range(
             cursor,
             hunk,
             formats,
-            0,
-            total,
+            start,
+            end,
             syntax_formats=syntax_formats,
             filename=filename,
             pair_index=pair_index,
         )
-        return total
 
-    _render_lines_range(
-        cursor,
-        hunk,
-        formats,
-        0,
-        _CHUNK_SIZE,
-        syntax_formats=syntax_formats,
-        filename=filename,
-        pair_index=pair_index,
-    )
-
-    from PySide6.QtCore import QTimer
-
-    state = {"start": _CHUNK_SIZE}
-
-    # The cursor's document is the context: when its parent widget is deleted
-    # (e.g. _clear_blocks during commit/repo switch), the document is destroyed
-    # and Qt cancels the pending callback. Without this guard the callback fires
-    # and dereferences a dangling QTextDocument → access violation on Windows.
-    document = cursor.document()
-
-    def _next_chunk():
-        try:
-            start = state["start"]
-            end = min(start + _CHUNK_SIZE, total)
-            _render_lines_range(
-                cursor,
-                hunk,
-                formats,
-                start,
-                end,
-                syntax_formats=syntax_formats,
-                filename=filename,
-                pair_index=pair_index,
-            )
-            state["start"] = end
-            if end < total:
-                QTimer.singleShot(0, document, _next_chunk)
-        except RuntimeError:
-            pass
-
-    QTimer.singleShot(0, document, _next_chunk)
-    return total
+    render_in_chunks(cursor.document(), len(hunk.lines), render_range)
+    return len(hunk.lines)
 
 
 # Shared per-hunk widget builder
