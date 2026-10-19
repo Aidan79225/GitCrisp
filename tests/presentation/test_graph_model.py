@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 
 from git_gui.domain.entities import Commit
 from git_gui.presentation.models.graph_model import (
@@ -11,6 +12,7 @@ from git_gui.presentation.models.graph_model import (
     GraphModel,
     LaneData,
 )
+from git_gui.presentation.theme import ColorRole, get_theme_manager
 
 
 def _make_commit(oid="abc", msg="Initial commit", parents=None):
@@ -134,32 +136,20 @@ def test_invalid_index_returns_none(qtbot):
     assert model.data(model.index(99, 0), Qt.DisplayRole) is None
 
 
+def _theme_color(role: ColorRole) -> QColor:
+    return get_theme_manager().current.colors.as_qcolor(role)
+
+
 def test_badge_color_head():
     from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
 
-    color = _badge_color("HEAD")
-    assert color.name().lower() == "#238636"
-
-
-def test_badge_color_head_arrow():
-    from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
-
-    color = _badge_color("HEAD -> main")
-    assert color.name().lower() == "#238636"
-
-
-def test_badge_color_remote():
-    from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
-
-    color = _badge_color("origin/main")
-    assert color.name().lower() == "#1f4287"
+    assert _badge_color("HEAD") == _theme_color(ColorRole.BRANCH_HEAD_BG)
 
 
 def test_badge_color_local():
     from git_gui.presentation.widgets.ref_badge_delegate import _badge_color
 
-    color = _badge_color("main")
-    assert color.name().lower() == "#0d6efd"
+    assert _badge_color("main") == _theme_color(ColorRole.REF_BADGE_BRANCH_BG)
 
 
 # ── First-parent mode: side parents are ignored ──────────────────────────────

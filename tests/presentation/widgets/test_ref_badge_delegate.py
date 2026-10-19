@@ -39,3 +39,7 @@ def test_the_checked_out_branch_is_head_coloured_even_with_a_slash():
 
 def test_a_tag_is_tag_coloured_whatever_its_name():
     assert _badge_color("tag:release/1.0", None, REMOTES) == _role(ColorRole.REF_BADGE_TAG_BG)
+
+
+def test_a_slash_alone_does_not_make_a_branch_remote():
+    assert _badge_color("feature/login") == _role(ColorRole.REF_BADGE_BRANCH_BG)
