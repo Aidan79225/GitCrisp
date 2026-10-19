@@ -6,7 +6,7 @@ import subprocess
 import pygit2
 
 from git_gui.domain.entities import LineKind
-from git_gui.infrastructure.pygit2._helpers import _patches_for_path
+from git_gui.infrastructure.pygit2._helpers import _patches_for_path, _staged_diff
 from git_gui.resources import subprocess_kwargs
 
 # Their content is already the whole "\ No newline at end of file" line, and a
@@ -145,14 +145,9 @@ class StageOps:
             raise RuntimeError(reason or f"git exited with status {result.returncode}")
 
     def _hunk_diff(self, staged: bool) -> pygit2.Diff:
-        if not staged:
-            return self._repo.diff(flags=_WITH_TYPE_CHANGES)
-        if self._repo.head_is_unborn:
-            empty_tree_oid = self._repo.TreeBuilder().write()
-            base = self._repo.get(empty_tree_oid)
-        else:
-            base = self._repo.head.peel(pygit2.Commit).tree
-        return self._repo.index.diff_to_tree(base, flags=_WITH_TYPE_CHANGES)
+        if staged:
+            return _staged_diff(self._repo, _WITH_TYPE_CHANGES)
+        return self._repo.diff(flags=_WITH_TYPE_CHANGES)
 
 
 def _is_type_change(diff: pygit2.Diff, path: str) -> bool:
