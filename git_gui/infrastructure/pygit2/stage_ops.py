@@ -73,24 +73,32 @@ class StageOps:
             except KeyError:
                 head_has_blob = False
 
+        # The work tree goes first and the index second: when the file cannot
+        # be replaced (on Windows, another program holding it open), the
+        # discard then fails with the staged change still in place.
         if head_has_blob:
-            entry = head_commit.tree[path]
-            self._repo.index.add(pygit2.IndexEntry(path, entry.id, entry.filemode))
-            self._repo.index.write()
-            self._repo.index.read()
-            blob = self._repo.get(entry.id)
-            os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
-            with open(full, "wb") as f:
-                f.write(blob.data)
+            self._restore_from_head(path, "--worktree")
+            self._restore_from_head(path, "--staged")
         else:
+            if os.path.lexists(full):
+                os.remove(full)
             try:
                 self._repo.index.remove(path)
                 self._repo.index.write()
                 self._repo.index.read()
             except (KeyError, OSError):
                 pass
-            if os.path.lexists(full):
-                os.remove(full)
+
+    def _restore_from_head(self, path: str, where: str) -> None:
+        # git CLI, not a raw blob write: a restore applies eol/autocrlf and
+        # smudge filters (LFS), restores the file mode, and replaces a symlink
+        # rather than write through it. Literal pathspecs keep `*` or `[` in a
+        # name from discarding other files' changes too. Not `git checkout
+        # HEAD -- path`: it writes the index even when the file write fails.
+        self._run_git_checked(
+            ["--literal-pathspecs", "restore", "--source=HEAD", where, "--", path]
+        )
+        self._repo.index.read()
 
     def discard_hunk(self, path: str, hunk_header: str) -> None:
         patch = self._build_hunk_patch(path, hunk_header, staged=False)
