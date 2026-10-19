@@ -55,31 +55,11 @@ class StageOps:
 
     def stage_hunk(self, path: str, hunk_header: str) -> None:
         patch = self._build_hunk_patch(path, hunk_header, staged=False)
-        if patch:
-            subprocess.run(
-                ["git", "apply", "--cached"],
-                input=patch,
-                cwd=self._repo.workdir,
-                env=self._git_env,
-                check=True,
-                capture_output=True,
-                **subprocess_kwargs(),
-            )
-            self._repo.index.read()
+        self._apply_patch(patch, "--cached")
 
     def unstage_hunk(self, path: str, hunk_header: str) -> None:
         patch = self._build_hunk_patch(path, hunk_header, staged=True)
-        if patch:
-            subprocess.run(
-                ["git", "apply", "--cached", "--reverse"],
-                input=patch,
-                cwd=self._repo.workdir,
-                env=self._git_env,
-                check=True,
-                capture_output=True,
-                **subprocess_kwargs(),
-            )
-            self._repo.index.read()
+        self._apply_patch(patch, "--cached", "--reverse")
 
     def discard_file(self, path: str) -> None:
         full = os.path.join(self._repo.workdir, path)
@@ -114,19 +94,32 @@ class StageOps:
 
     def discard_hunk(self, path: str, hunk_header: str) -> None:
         patch = self._build_hunk_patch(path, hunk_header, staged=False)
-        if patch:
-            subprocess.run(
-                ["git", "apply", "--reverse"],
-                input=patch,
-                cwd=self._repo.workdir,
-                env=self._git_env,
-                check=True,
-                capture_output=True,
-                **subprocess_kwargs(),
-            )
-            self._repo.index.read()
+        self._apply_patch(patch, "--reverse")
 
-    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> bytes | None:
+    def _apply_patch(self, patch: bytes, *options: str) -> None:
+        self._run_git_checked(["apply", *options], stdin=patch)
+        self._repo.index.read()
+
+    def _run_git_checked(self, args: list[str], stdin: bytes | None = None) -> None:
+        """Run git, raising its own explanation of a failure.
+
+        A CalledProcessError says only "returned non-zero exit status 1",
+        which tells the user nothing about a held index.lock or a patch that
+        no longer applies.
+        """
+        result = subprocess.run(
+            ["git", *args],
+            input=stdin,
+            cwd=self._repo.workdir,
+            env=self._git_env,
+            capture_output=True,
+            **subprocess_kwargs(),
+        )
+        if result.returncode != 0:
+            reason = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(reason or f"git exited with status {result.returncode}")
+
+    def _build_hunk_patch(self, path: str, hunk_header: str, staged: bool) -> bytes:
         if staged:
             if self._repo.head_is_unborn:
                 empty_tree_oid = self._repo.TreeBuilder().write()
@@ -144,7 +137,8 @@ class StageOps:
             for hunk in patch.hunks:
                 if hunk.header == hunk_header:
                     return _single_hunk_patch(path, patch.delta, hunk)
-        return None
+        # Returning quietly let the checkbox show a stage that never happened.
+        raise RuntimeError(f"hunk {hunk_header.strip()} not found in {path}")
 
 
 def _single_hunk_patch(path: str, delta: pygit2.DiffDelta, hunk: pygit2.DiffHunk) -> bytes:
