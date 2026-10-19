@@ -16,10 +16,12 @@ _STATUS_MAP: dict[int, tuple[StagingState, FileDelta]] = {
     pygit2.GIT_STATUS_INDEX_MODIFIED: (StagingState.STAGED, FileDelta.MODIFIED),
     pygit2.GIT_STATUS_INDEX_DELETED: (StagingState.STAGED, FileDelta.DELETED),
     pygit2.GIT_STATUS_INDEX_RENAMED: (StagingState.STAGED, FileDelta.RENAMED),
+    pygit2.GIT_STATUS_INDEX_TYPECHANGE: (StagingState.STAGED, FileDelta.MODIFIED),
     pygit2.GIT_STATUS_WT_NEW: (StagingState.UNTRACKED, FileDelta.ADDED),
     pygit2.GIT_STATUS_WT_MODIFIED: (StagingState.UNSTAGED, FileDelta.MODIFIED),
     pygit2.GIT_STATUS_WT_DELETED: (StagingState.UNSTAGED, FileDelta.DELETED),
     pygit2.GIT_STATUS_WT_RENAMED: (StagingState.UNSTAGED, FileDelta.RENAMED),
+    pygit2.GIT_STATUS_WT_TYPECHANGE: (StagingState.UNSTAGED, FileDelta.MODIFIED),
     pygit2.GIT_STATUS_CONFLICTED: (StagingState.CONFLICTED, FileDelta.UNKNOWN),
 }
 
@@ -49,6 +51,18 @@ def _diff_to_hunks(patch: pygit2.Patch) -> list[Hunk]:
         lines = [(LineKind(line.origin), line.content) for line in hunk.lines]
         result.append(Hunk(header=hunk.header, lines=lines))
     return result
+
+
+def _patches_for_path(diff: pygit2.Diff, path: str) -> list[pygit2.Patch]:
+    """Every patch touching *path*: a type change is a deletion and an addition of it.
+
+    Matched on the deltas so no patch is generated for the other files.
+    """
+    return [
+        diff[index]
+        for index, delta in enumerate(diff.deltas)
+        if path in (delta.new_file.path, delta.old_file.path)
+    ]
 
 
 _UNTRACKED_MAX_LINES = 5000

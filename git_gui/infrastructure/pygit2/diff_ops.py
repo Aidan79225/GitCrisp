@@ -15,6 +15,7 @@ from git_gui.domain.entities import (
 from git_gui.infrastructure.pygit2._helpers import (
     _diff_to_hunks,
     _map_statuses,
+    _patches_for_path,
     _submodule_diff_hunk,
     _synthesise_conflict_hunk,
     _synthesise_untracked_hunk,
@@ -29,21 +30,16 @@ class DiffOps:
     index, and the working tree — including untracked/conflict synthesis.
 
     Mixin — not instantiable on its own. Relies on `self._repo` set up
-    by the composite class.
+    by the composite class, and on CommitOps' `_diff_against_parent`.
     """
 
     _repo: pygit2.Repository  # provided by the composite
 
     def get_file_diff(self, oid: str, path: str) -> list[Hunk]:
         if oid == WORKING_TREE_OID:
-            diff = self._repo.diff()
-            for patch in diff:
-                if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
-                    hunks = _diff_to_hunks(patch)
-                    if hunks:
-                        return hunks
-                    # Patch found but 0 hunks (e.g. conflicted) — fall through
-                    break
+            hunks = _hunks_for_path(self._repo.diff(), path)
+            if hunks:
+                return hunks
             # Not found in tracked diff, or found with 0 hunks — check status
             try:
                 status = self._repo.status_file(path)
@@ -58,17 +54,7 @@ class DiffOps:
             if status & pygit2.GIT_STATUS_WT_NEW:
                 return _synthesise_untracked_hunk(self._repo.workdir, path)
             return []
-        commit = self._repo.get(oid)
-        if commit.parents:
-            diff = self._repo.diff(commit.parents[0].tree, commit.tree)
-        else:
-            empty_tree_oid = self._repo.TreeBuilder().write()
-            empty_tree = self._repo.get(empty_tree_oid)
-            diff = self._repo.diff(empty_tree, commit.tree)
-        for patch in diff:
-            if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
-                return _diff_to_hunks(patch)
-        return []
+        return _hunks_for_path(self._diff_against_parent(oid), path)
 
     def get_working_tree_diff_map(
         self, paths: list[str] | None = None
@@ -100,8 +86,12 @@ class DiffOps:
                     continue
                 if wanted is not None and path not in wanted:
                     continue
-                result.setdefault(path, {StagingState.STAGED: [], StagingState.UNSTAGED: []})
-                result[path][StagingState.STAGED] = _diff_to_hunks(patch)
+                entry = result.setdefault(
+                    path, {StagingState.STAGED: [], StagingState.UNSTAGED: []}
+                )
+                # Extended, not set: a type change is a deletion and an
+                # addition of the one path.
+                entry[StagingState.STAGED].extend(_diff_to_hunks(patch))
         except Exception as e:
             logger.warning("Failed to compute staged diff map: %s", e)
 
@@ -114,7 +104,9 @@ class DiffOps:
                     continue
                 if wanted is not None and path not in wanted:
                     continue
-                result.setdefault(path, {StagingState.STAGED: [], StagingState.UNSTAGED: []})
+                entry = result.setdefault(
+                    path, {StagingState.STAGED: [], StagingState.UNSTAGED: []}
+                )
                 hunks = _diff_to_hunks(patch)
                 if not hunks:
                     try:
@@ -127,7 +119,7 @@ class DiffOps:
                             hunks = conflict_hunks
                         else:
                             hunks = self._diff_workfile_against_head(path)
-                result[path][StagingState.UNSTAGED] = hunks
+                entry[StagingState.UNSTAGED].extend(hunks)
         except Exception as e:
             logger.warning("Failed to compute unstaged diff map: %s", e)
 
@@ -184,9 +176,7 @@ class DiffOps:
             else:
                 head_commit = self._repo.head.peel(pygit2.Commit)
                 diff = self._repo.index.diff_to_tree(head_commit.tree)
-            for patch in diff:
-                if patch.delta.new_file.path == path or patch.delta.old_file.path == path:
-                    return _diff_to_hunks(patch)
+            return _hunks_for_path(diff, path)
         except Exception as e:
             logger.warning("Failed to compute staged diff for %r: %s", path, e)
         return []
@@ -236,3 +226,7 @@ class DiffOps:
             **subprocess_kwargs(),
         )
         return bool(result.stdout.strip())
+
+
+def _hunks_for_path(diff: pygit2.Diff, path: str) -> list[Hunk]:
+    return [hunk for patch in _patches_for_path(diff, path) for hunk in _diff_to_hunks(patch)]
