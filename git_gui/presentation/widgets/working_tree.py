@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QRect, Qt, Signal
 from PySide6.QtGui import QBrush, QKeySequence, QPainter, QShortcut
@@ -392,33 +393,38 @@ class WorkingTreeWidget(QWidget):
         self._on_files_changed()
 
     def _on_stage_all(self) -> None:
+        self._apply_to_all(
+            lambda f: f.status != StagingState.STAGED,
+            lambda paths: self._commands.stage_files.execute(paths),
+            "Stage All",
+        )
+
+    def _on_unstage_all(self) -> None:
+        self._apply_to_all(
+            lambda f: f.status == StagingState.STAGED,
+            lambda paths: self._commands.unstage_files.execute(paths),
+            "Unstage All",
+        )
+
+    def _apply_to_all(
+        self,
+        select: Callable[[FileStatus], bool],
+        run: Callable[[list[str]], object],
+        action: str,
+    ) -> None:
+        """Run *run* on every selected file, plus every partly staged one,
+        which has changes on both sides of the index."""
         # Closing the last repo can leave this panel on screen with no buses.
         if self._queries is None:
             return
         try:
-            raw_files = self._queries.get_working_tree.execute()
-            files, partial = _deduplicate(raw_files)
-            paths = list({f.path for f in files if f.status != StagingState.STAGED} | partial)
+            files, partial = _deduplicate(self._queries.get_working_tree.execute())
+            paths = list({f.path for f in files if select(f)} | partial)
             if not paths:
                 return
-            self._commands.stage_files.execute(paths)
+            run(paths)
         except Exception as e:
-            self.commit_failed.emit(f"Stage All failed: {e}")
-            return
-        self._on_files_changed()
-
-    def _on_unstage_all(self) -> None:
-        if self._queries is None:
-            return
-        try:
-            raw_files = self._queries.get_working_tree.execute()
-            files, partial = _deduplicate(raw_files)
-            paths = list({f.path for f in files if f.status == StagingState.STAGED} | partial)
-            if not paths:
-                return
-            self._commands.unstage_files.execute(paths)
-        except Exception as e:
-            self.commit_failed.emit(f"Unstage All failed: {e}")
+            self.commit_failed.emit(f"{action} failed: {e}")
             return
         self._on_files_changed()
 
@@ -439,24 +445,26 @@ class WorkingTreeWidget(QWidget):
         # Every path below creates a commit, so identity is required.
         if not self._ensure_identity():
             return
+        if state in _OPERATIONS_IN_PROGRESS:
+            self._continue_operation(state, msg)
+        elif self._create_or_amend(msg):
+            self._reset_after_commit(msg)
 
-        if state == "MERGING":
+    def _continue_operation(self, state: str, msg: str) -> None:
+        if state == RepoState.MERGING:
             self.merge_continue_requested.emit(msg)
-            return
-        if state == "REBASING":
+        elif state == RepoState.REBASING:
             self.rebase_continue_requested.emit(msg)
-            return
-        if state == "CHERRY_PICKING":
+        elif state == RepoState.CHERRY_PICKING:
             self.cherry_pick_continue_requested.emit()
-            return
-        if state == "REVERTING":
+        elif state == RepoState.REVERTING:
             self.revert_continue_requested.emit()
-            return
 
+    def _create_or_amend(self, msg: str) -> bool:
+        """Commit *msg*, amending HEAD when Amend is ticked; False if nothing was committed."""
         amending = self._chk_amend.isChecked()
         if amending and not self._confirm_amend_published():
-            return
-
+            return False
         try:
             if amending:
                 self._commands.amend_commit.execute(msg)
@@ -465,13 +473,15 @@ class WorkingTreeWidget(QWidget):
         except Exception as e:
             verb = "Amend" if amending else "Commit"
             self.commit_failed.emit(f"{verb} failed: {e}")
-            return
+            return False
+        return True
 
-        first_line = msg.split("\n")[0]
+    def _reset_after_commit(self, msg: str) -> None:
+        """Clear the editor for the next commit, and announce this one."""
         self._draft_msg = ""
         self._msg_edit.clear()
         self._untick_amend()
-        self.commit_completed.emit(first_line)
+        self.commit_completed.emit(msg.split("\n")[0])
         self.reload_requested.emit()
         self.reload()
 
