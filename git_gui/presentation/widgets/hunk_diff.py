@@ -57,8 +57,15 @@ MAX_AGGREGATE_FILE_BLOCKS = 200
 _DISCARD_BUTTON_NAME = "discard_hunk"
 
 
+def _is_untracked(staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]) -> bool:
+    """Whether a file's hunks are the one whole-file hunk an untracked file shows."""
+    return (
+        not staged_hunks and bool(unstaged_hunks) and unstaged_hunks[0].header.startswith("@@ -0,0")
+    )
+
+
 class _LoadSignals(QObject):
-    done = Signal(str, list, list, bool)  # path, staged_hunks, unstaged_hunks, is_untracked
+    done = Signal(str, list, list)  # path, staged_hunks, unstaged_hunks
 
 
 class _DiffMapSignals(QObject):
@@ -146,8 +153,7 @@ class HunkDiffWidget(QWidget):
             self._clear_layout()
             return
 
-        self._refresh_submodule_paths()
-        self._clear_layout()
+        self._clear_for_redraw()
 
         from git_gui.presentation.widgets.diff_block import make_skeleton_container
 
@@ -263,12 +269,7 @@ class HunkDiffWidget(QWidget):
             except Exception:
                 logger.warning("Failed to load the unstaged diff of %r", path, exc_info=True)
                 unstaged_hunks = []
-            is_untracked = (
-                not staged_hunks
-                and bool(unstaged_hunks)
-                and unstaged_hunks[0].header.startswith("@@ -0,0")
-            )
-            signals.done.emit(path, staged_hunks, unstaged_hunks, is_untracked)
+            signals.done.emit(path, staged_hunks, unstaged_hunks)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -295,67 +296,60 @@ class HunkDiffWidget(QWidget):
         )
 
     def _on_load_done(
-        self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk], is_untracked: bool
+        self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]
     ) -> None:
         if path != self._current_path:
             return
-        self._refresh_submodule_paths()
-        self._clear_layout()
-
-        frame, inner = self._make_file_block(path)
-        for hunk in staged_hunks:
-            self._add_hunk_block(
-                hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
-            )
-        for hunk in unstaged_hunks:
-            self._add_hunk_block(
-                hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
-            )
-
-        self._layout.addWidget(frame)
-        self._layout.addStretch()
-        self._sync_hscroll()
+        self._clear_for_redraw()
+        self._show_file(path, staged_hunks, unstaged_hunks)
 
     def _realize_block_from_loader(self, path: str, inner, skeleton, entry) -> None:
         """Callback for ViewportBlockLoader — replace skeleton with staged/unstaged hunks."""
-        staged_hunks = entry.get(StagingState.STAGED, [])
-        unstaged_hunks = entry.get(StagingState.UNSTAGED, [])
-        is_untracked = (
-            not staged_hunks
-            and bool(unstaged_hunks)
-            and unstaged_hunks[0].header.startswith("@@ -0,0")
-        )
         if skeleton is not None:
             inner.removeWidget(skeleton)
             skeleton.deleteLater()
         inner.parentWidget().setMinimumHeight(0)  # the real content now sets it
-        for hunk in staged_hunks:
-            self._add_hunk_block(
-                hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
-            )
-        for hunk in unstaged_hunks:
-            self._add_hunk_block(
-                hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
-            )
+        self._add_file_hunks(
+            inner,
+            path,
+            entry.get(StagingState.STAGED, []),
+            entry.get(StagingState.UNSTAGED, []),
+        )
         hide_hunks_if_collapsed(inner)
         self._sync_hscroll()
 
     def _render_sync(self) -> None:
         """Post-action refresh for single-file mode."""
-        self._refresh_submodule_paths()
-        self._clear_layout()
+        self._clear_for_redraw()
         if self._current_path is None:
             return
         path = self._current_path
         staged_hunks = self._queries.get_staged_diff.execute(path)
         unstaged_hunks = self._queries.get_file_diff.execute(WORKING_TREE_OID, path)
-        is_untracked = (
-            not staged_hunks
-            and bool(unstaged_hunks)
-            and unstaged_hunks[0].header.startswith("@@ -0,0")
-        )
+        self._show_file(path, staged_hunks, unstaged_hunks)
 
+    def _clear_for_redraw(self) -> None:
+        """Empty the pane, re-reading which paths are submodules for the new blocks."""
+        self._refresh_submodule_paths()
+        self._clear_layout()
+
+    def _show_file(self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]) -> None:
+        """Lay out the single-file view: one block holding all of the file's hunks."""
         frame, inner = self._make_file_block(path)
+        self._add_file_hunks(inner, path, staged_hunks, unstaged_hunks)
+        self._layout.addWidget(frame)
+        self._layout.addStretch()
+        self._sync_hscroll()
+
+    def _add_file_hunks(
+        self,
+        inner: QVBoxLayout,
+        path: str,
+        staged_hunks: list[Hunk],
+        unstaged_hunks: list[Hunk],
+    ) -> None:
+        """Add a file's staged hunks to its block, then its unstaged ones."""
+        is_untracked = _is_untracked(staged_hunks, unstaged_hunks)
         for hunk in staged_hunks:
             self._add_hunk_block(
                 hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
@@ -364,10 +358,6 @@ class HunkDiffWidget(QWidget):
             self._add_hunk_block(
                 hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
             )
-
-        self._layout.addWidget(frame)
-        self._layout.addStretch()
-        self._sync_hscroll()
 
     def _redraw_after_command(self) -> None:
         """Redraw from the index after a stage, unstage or discard.
@@ -402,15 +392,9 @@ class HunkDiffWidget(QWidget):
         hunk: Hunk,
         is_staged: bool,
         is_untracked: bool,
-        path: str | None = None,
-        parent_layout: QVBoxLayout | None = None,
+        path: str,
+        parent_layout: QVBoxLayout,
     ) -> None:
-        # Use explicitly passed path, fall back to self._current_path for backward compat
-        if path is None:
-            path = self._current_path
-        # Use explicitly passed layout, fall back to self._layout for backward compat
-        target_layout = parent_layout if parent_layout is not None else self._layout
-
         header = hunk.header
 
         checkbox = QCheckBox()
@@ -449,7 +433,7 @@ class HunkDiffWidget(QWidget):
             else None
         )
         add_hunk_view(
-            target_layout,
+            parent_layout,
             hunk,
             self._formats,
             extra_left_widgets=[checkbox],
@@ -471,7 +455,7 @@ class HunkDiffWidget(QWidget):
         self.hunk_toggled.emit()
 
     def _stage_or_unstage(
-        self, path: str, hunk_header: str, checked: bool, is_untracked: bool
+        self, path: str, hunk_header: str, checked: bool, is_untracked: bool = False
     ) -> None:
         # Whole-file add (untracked → stage, or staged-add → unstage):
         # the synthesised "@@ -0,0 +1,N @@" hunk can't be processed by
