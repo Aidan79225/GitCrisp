@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QImage, QPainter
+
 from git_gui.domain.entities import Commit
 from git_gui.presentation.models.graph_model import LANE_ROLE, GraphModel, LaneData
+from git_gui.presentation.theme import get_theme_manager
 from git_gui.presentation.widgets.graph_lane_painter import (
     GRAPH_GAP,
     LANE_W,
@@ -13,6 +17,7 @@ from git_gui.presentation.widgets.graph_lane_painter import (
     NODE_R,
     NODE_STROKE_W,
     graph_width,
+    paint_lanes,
     row_graph_width,
     row_lane_span,
 )
@@ -142,3 +147,20 @@ def test_row_lane_span_never_clips_a_line_it_draws(qtbot):
             for from_lane, to_lane, _ in group:
                 drawn += [from_lane, to_lane]
         assert max(drawn) < span, f"row {row}: {drawn} exceeds span {span}"
+
+
+# ── Lane colours ─────────────────────────────────────────────────────────────
+
+
+def test_a_colour_index_past_the_theme_palette_wraps_to_its_first_colour(qtbot):
+    palette = get_theme_manager().current.colors.graph_lane_colors
+    past_the_end = len(palette)
+    lane = LaneData(lane=0, color_idx=past_the_end, n_lanes=1, lines=[(0, 0, past_the_end)])
+    image = QImage(LANE_W, 4 * LANE_W, QImage.Format_ARGB32)
+    image.fill(Qt.transparent)
+
+    painter = QPainter(image)
+    paint_lanes(painter, image.rect(), lane, selected=False)
+    painter.end()
+
+    assert image.pixelColor(LANE_W // 2, 1).name() == QColor(palette[0]).name()
