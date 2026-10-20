@@ -117,9 +117,7 @@ class RightPanelMixin:
         dialog.exec()
 
     def _on_clone_completed(self, path: str) -> None:
-        self._repo_store.add_open(path)
-        self._repo_store.save()
-        self._switch_repo(path)
+        self._on_repo_open(path)
         self._log_panel.log(f"Cloned repository: {path}")
 
     def _on_submodule_open_requested(self, abs_path: str) -> None:
@@ -137,9 +135,7 @@ class RightPanelMixin:
                 "Run `git submodule update --init` in the parent repo first."
             )
             return
-        self._repo_store.add_open(abs_path, after=self._repo_path)
-        self._repo_store.save()
-        self._switch_repo(abs_path)
+        self._on_repo_open(abs_path, after=self._repo_path)
 
     def _on_submodule_path_clicked(self, rel_path: str) -> None:
         """Resolve a relative submodule path against the current repo and open it."""

@@ -21,7 +21,11 @@ from git_gui.presentation.main_window.merge_rebase_flows import MergeRebaseFlows
 from git_gui.presentation.main_window.reflog_flow import ReflogFlowMixin
 from git_gui.presentation.main_window.reload_coordinator import ReloadCoordinatorMixin
 from git_gui.presentation.main_window.remote_op_queue import RemoteOpQueueMixin
-from git_gui.presentation.main_window.repo_lifecycle import RepoLifecycleMixin, _RepoReadySignals
+from git_gui.presentation.main_window.repo_lifecycle import (
+    RepoLifecycleMixin,
+    _RepoReadySignals,
+    _RepoRequest,
+)
 from git_gui.presentation.main_window.reset_flow import ResetFlowMixin
 from git_gui.presentation.main_window.right_panel import RightPanelMixin
 from git_gui.presentation.main_window.stash_flows import StashFlowsMixin
@@ -73,6 +77,9 @@ class MainWindow(
         self._repo_store = repo_store
         self._remote_tag_cache = remote_tag_cache
         self._repo_path = repo_path
+        # The repo the window was last asked to show; a session that opens
+        # for any other is a request the user has since moved on from.
+        self._repo_request = _RepoRequest(repo_path) if repo_path else None
         self._session_factory = session_factory
         self._worktree_paths_by_branch: dict[str, str] = {}
         self._smart_checkout = None  # SmartCheckout | None — set in _on_repo_ready
