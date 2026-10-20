@@ -292,3 +292,26 @@ def test_reset_takes_the_unswatched_tokens_back_to_the_active_theme_too(
 
     payload = json.loads(custom_path.read_text(encoding="utf-8"))
     assert payload["colors"]["syntax_string"] == load_builtin("dark").colors.syntax_string
+
+
+def test_apply_tells_the_user_when_the_settings_cannot_be_saved(
+    app, reset_theme, tmp_path, monkeypatch
+):
+    """The OSError used to escape the slot into the log only, so Apply
+    looked as if it did nothing."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from git_gui.presentation.theme import settings as s
+
+    not_a_directory = tmp_path / "file"
+    not_a_directory.write_text("", encoding="utf-8")
+    monkeypatch.setattr(s, "settings_path", lambda: not_a_directory / "settings.json")
+    warnings: list[tuple] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(args))
+    get_theme_manager().set_mode("dark")
+    dlg = ThemeDialog()
+    _radios(dlg)["light"].setChecked(True)
+
+    dlg._on_apply()
+
+    assert warnings
