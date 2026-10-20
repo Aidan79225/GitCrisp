@@ -322,6 +322,7 @@ class SidebarWidget(QWidget):
         tag_header.setEditable(False)
         tag_header.setData("header", Qt.UserRole + 1)
         tag_header.setSizeHint(QSize(0, _ROW_HEIGHT))
+        cloud_icon = _get_cloud_icon()
         for t in tags_sorted:
             child = QStandardItem(t.name)
             child.setEditable(False)
@@ -330,7 +331,7 @@ class SidebarWidget(QWidget):
             child.setData(t.target_oid, _TARGET_OID_ROLE)
             child.setSizeHint(QSize(0, _ROW_HEIGHT))
             if t.name in remote_tag_names:
-                child.setIcon(_get_cloud_icon())
+                child.setIcon(cloud_icon)
             tag_header.appendRow(child)
         self._model.appendRow(tag_header)
 
