@@ -19,7 +19,14 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import RemoteBranchDeleteResult, split_remote_branch
 from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
 
-_MAX_LISTED_IN_CONFIRM = 15
+_MAX_LISTED = 15
+
+
+def _capped_listing(lines: list[str]) -> str:
+    shown = "\n".join(lines[:_MAX_LISTED])
+    if len(lines) > _MAX_LISTED:
+        shown += f"\n… (+{len(lines) - _MAX_LISTED} more)"
+    return shown
 
 
 class _DeleteSignals(QObject):
@@ -176,9 +183,7 @@ class RemoteBranchesDialog(QDialog):
         selected = self._collect_selected()
         if not selected:
             return
-        shown = "\n".join(selected[:_MAX_LISTED_IN_CONFIRM])
-        if len(selected) > _MAX_LISTED_IN_CONFIRM:
-            shown += f"\n… (+{len(selected) - _MAX_LISTED_IN_CONFIRM} more)"
+        shown = _capped_listing(selected)
         if (
             QMessageBox.question(
                 self,
@@ -226,14 +231,28 @@ class RemoteBranchesDialog(QDialog):
 
     def _on_delete_finished(self, results: list) -> None:
         self._set_busy(False)
-        ok = [r for r in results if r.ok]
         failed = [r for r in results if not r.ok]
-        msg = f"{len(ok)} deleted"
-        if failed:
-            detail = "\n".join(f"  {r.branch} — {r.message}" for r in failed)
-            msg += f", {len(failed)} failed:\n{detail}"
+        summary = f"{len(results) - len(failed)} deleted"
         self._refresh()
-        QMessageBox.information(self, "Delete remote branches", msg)
+        if failed:
+            self._show_failures(summary, failed)
+        else:
+            QMessageBox.information(self, "Delete remote branches", summary)
+
+    def _show_failures(self, summary: str, failed: list[RemoteBranchDeleteResult]) -> None:
+        # git's stderr runs to several lines per branch, and a QMessageBox does
+        # not scroll: list each failure by its first line and keep the rest in
+        # the details.
+        first_lines = [f"  {r.branch} — {r.message.partition('\n')[0]}" for r in failed]
+        box = QMessageBox(
+            QMessageBox.Information,
+            "Delete remote branches",
+            f"{summary}, {len(failed)} failed:\n{_capped_listing(first_lines)}",
+            QMessageBox.Ok,
+            self,
+        )
+        box.setDetailedText("\n\n".join(f"{r.branch} — {r.message}" for r in failed))
+        box.exec()
 
     def _on_delete_failed(self, message: str) -> None:
         self._set_busy(False)

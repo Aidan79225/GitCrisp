@@ -216,3 +216,44 @@ def test_delete_pushes_to_the_remote_whose_name_has_a_slash(qtbot):
         dlg._on_delete()
 
     commands.delete_remote_branches.execute.assert_called_once_with("gh/fork", ["topic"])
+
+
+_UNREACHABLE_STDERR = (
+    "fatal: '/gone' does not appear to be a git repository\n"
+    "fatal: Could not read from remote repository.\n"
+    "\n"
+    "Please make sure you have the correct access rights\n"
+    "and the repository exists."
+)
+
+
+def _result_box_after_failing_to_delete(qtbot, count):
+    """Delete *count* branches that all fail, and return the box that reports it."""
+    branches = [Branch(f"origin/feature-{i:02}", True, False, "a") for i in range(count)]
+    dlg, _, commands = _make(qtbot, branches=branches)
+    commands.delete_remote_branches.execute.side_effect = lambda remote, br: [
+        RemoteBranchDeleteResult(f"{remote}/{b}", False, _UNREACHABLE_STDERR) for b in br
+    ]
+    dlg._select_all_visible()
+    shown: list[QMessageBox] = []
+    with (
+        patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+        patch.object(QMessageBox, "information"),
+        patch.object(QMessageBox, "exec", lambda box: shown.append(box) or 0),
+        patch("git_gui.presentation.dialogs.remote_branches_dialog.threading.Thread", _SyncThread),
+    ):
+        dlg._on_delete()
+    [box] = shown
+    return box
+
+
+def test_many_failures_keep_the_result_box_short(qtbot):
+    box = _result_box_after_failing_to_delete(qtbot, 30)
+    assert len(box.text().splitlines()) <= 17
+
+
+def test_the_result_box_details_keep_every_failure_in_full(qtbot):
+    box = _result_box_after_failing_to_delete(qtbot, 30)
+    details = box.detailedText()
+    assert all(f"origin/feature-{i:02}" in details for i in range(30))
+    assert "and the repository exists." in details
