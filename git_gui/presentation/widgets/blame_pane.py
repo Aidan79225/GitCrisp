@@ -414,7 +414,7 @@ class BlamePane(QWidget):
     def _reload(self) -> None:
         path, oid = self._path, self._oid
         self._back_btn.setVisible(bool(self._history))
-        self._set_title(loading=True)
+        self._update_status(loading=True)
 
         signals = _LoadSignals()
         signals.done.connect(self._on_loaded)
@@ -444,16 +444,14 @@ class BlamePane(QWidget):
         self._editor.set_lines(lines, spans)
         self._suppress_emit = False
         self._last_emitted = None
-        self._set_title()
+        self._update_status()
 
     def _on_failed(self, message: str) -> None:
         self._editor.set_lines([], [])
         self._status.setText(message)
-        self.setWindowTitle(f"Blame — {self._path}")
 
-    def _set_title(self, *, loading: bool = False) -> None:
+    def _update_status(self, *, loading: bool = False) -> None:
         rev = self._oid[:SHA_CHARS] if self._oid else "HEAD"
-        self.setWindowTitle(f"Blame — {self._path} @ {rev}")
         self._status.setText(f"Blaming {self._path} …" if loading else f"{self._path} @ {rev}")
 
     # ── navigation ───────────────────────────────────────────────────────────
