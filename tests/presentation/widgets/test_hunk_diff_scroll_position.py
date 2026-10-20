@@ -66,28 +66,48 @@ def _top_block_is_realised(widget: HunkDiffWidget) -> bool:
     return path is not None and _is_realised(widget, path)
 
 
+def _wait_for_the_content_to_fit(widget: HunkDiffWidget, qtbot) -> None:
+    """Wait until the scroll content is as tall as the blocks it holds.
+
+    Showing a built block's hunks lays the content out again at once, but in
+    the content's old height, which squeezes the blocks built before it; the
+    scroll area resizes the content to fit on the next event-loop turn. A
+    position read in between is wrong, and a reload started in between
+    leaves that resize to land on the emptied pane, where it drops the
+    scroll value to zero.
+    """
+    content = widget._scroll.widget()
+    qtbot.waitUntil(lambda: content.height() >= content.sizeHint().height(), timeout=2000)
+
+
+def _top_block(widget: HunkDiffWidget, qtbot) -> str | None:
+    _wait_for_the_content_to_fit(widget, qtbot)
+    return _block_at_top(widget)
+
+
 def _scroll_down_to(widget: HunkDiffWidget, qtbot, target: str) -> None:
     """Scroll block by block, realising each on the way, as a user would."""
     bar = widget._scroll.verticalScrollBar()
     for path in PATHS[: PATHS.index(target) + 1]:
+        _wait_for_the_content_to_fit(widget, qtbot)
         bar.setValue(_frames(widget)[path].y())
         qtbot.waitUntil(lambda p=path: _is_realised(widget, p), timeout=2000)
-        qtbot.wait(20)  # let the realised block's new height reach the layout
+    _wait_for_the_content_to_fit(widget, qtbot)
     bar.setValue(_frames(widget)[target].y())
-    qtbot.wait(100)
+    qtbot.wait(100)  # the loader's scroll timer is due: let it build what it will
+    _wait_for_the_content_to_fit(widget, qtbot)
 
 
 def test_a_reload_keeps_the_same_file_at_the_top(widget, qtbot):
     widget.load_all_files(PATHS)
     qtbot.waitUntil(lambda: _is_realised(widget, "f0.txt"), timeout=2000)
     _scroll_down_to(widget, qtbot, "f15.txt")
-    assert _block_at_top(widget) == "f15.txt"
+    assert _top_block(widget, qtbot) == "f15.txt"
 
     widget.load_all_files(PATHS)
     qtbot.waitUntil(lambda: _top_block_is_realised(widget), timeout=2000)
-    qtbot.wait(200)
 
-    assert _block_at_top(widget) == "f15.txt"
+    assert _top_block(widget, qtbot) == "f15.txt"
 
 
 def test_ticking_a_hunk_leaves_the_reload_to_the_owner(widget, qtbot):
