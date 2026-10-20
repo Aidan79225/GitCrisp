@@ -60,6 +60,7 @@ class RepoLifecycleMixin:
         self._repo_list.repo_close_requested.connect(self._on_repo_close)
         self._repo_list.repo_remove_recent_requested.connect(self._on_repo_remove_recent)
         self._repo_list.worktree_action_requested.connect(self._on_worktree_action)
+        self._repo_list.save_failed.connect(self._report_unsaved_repo_list)
         self._repo_ready_signals.ready.connect(self._on_repo_ready)
         self._repo_ready_signals.failed.connect(self._on_repo_failed)
 
@@ -210,8 +211,11 @@ class RepoLifecycleMixin:
         try:
             self._repo_store.save()
         except OSError as e:
-            self._log_panel.expand()
-            self._log_panel.log_error(f"Could not save the repo list: {e}")
+            self._report_unsaved_repo_list(str(e))
+
+    def _report_unsaved_repo_list(self, reason: str) -> None:
+        self._log_panel.expand()
+        self._log_panel.log_error(f"Could not save the repo list: {reason}")
 
     def _record_in_store(self, request: _RepoRequest) -> None:
         if request.reason is _SwitchReason.OPEN:

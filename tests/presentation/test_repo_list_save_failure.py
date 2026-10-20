@@ -34,9 +34,14 @@ def _repo(path: Path) -> str:
     return str(path)
 
 
-class _LockedStore(JsonRepoStore):
-    def save(self) -> None:
-        raise PermissionError("repos.json is locked by another process")
+def _store_that_cannot_save(tmp_path: Path) -> JsonRepoStore:
+    # The shipped store, not a fake whose save() raises: the window's report is
+    # only worth anything if the real store fails the way the window expects.
+    # A repos.json whose folder is a file fails every write, as a read-only or
+    # locked file does.
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("", encoding="utf-8")
+    return JsonRepoStore(blocker / "repos.json")
 
 
 @pytest.fixture
@@ -49,9 +54,9 @@ def window(qtbot, tmp_path, repos):
     from main import _open_session
 
     a, b = repos
-    store = _LockedStore(tmp_path / "repos.json")
-    JsonRepoStore.add_open(store, b)
-    JsonRepoStore.add_open(store, a)
+    store = _store_that_cannot_save(tmp_path)
+    store.add_open(b)
+    store.add_open(a)
     queries, commands = _open_session(a)
     w = MainWindow(queries, commands, store, JsonRemoteTagCache(), a, session_factory=_open_session)
     qtbot.addWidget(w)
@@ -80,3 +85,11 @@ def test_a_close_still_moves_on_when_the_repo_list_cannot_be_saved(qtbot, window
         window._close_current_repo()
 
     assert window._repo_path == b
+
+
+def test_a_reorder_that_cannot_be_saved_is_reported_in_the_log(window, repos):
+    _a, b = repos
+
+    window._repo_list._tree.repo_reorder_requested.emit(b, 0)
+
+    assert "Could not save the repo list" in _log_text(window)
