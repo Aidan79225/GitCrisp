@@ -199,7 +199,7 @@ git_gui/
     │                         #   Merge, InteractiveRebase, Reset, Identity,
     │                         #   Preferences, About, ...
     │                         #   (Insight, Clone, CreateTag live in widgets/)
-    ├── services/             # Update checker, repo change detector, smart checkout
+    ├── services/             # Update checker, repo change detector
     ├── theme/                # Theme manager + tokens
     ├── models/               # QAbstractTableModel / QAbstractListModel
     └── widgets/              # Graph, Sidebar, Diff, WorkingTree, LogPanel, ...
