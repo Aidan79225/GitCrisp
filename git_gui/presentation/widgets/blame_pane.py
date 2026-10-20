@@ -29,7 +29,7 @@ from git_gui.presentation.widgets.diff_block import (
     make_diff_editor,
     make_syntax_formats,
 )
-from git_gui.presentation.widgets.syntax_highlighter import tokenize
+from git_gui.presentation.widgets.syntax_highlighter import SyntaxToken, tokenize
 
 SHA_CHARS = 8
 AUTHOR_CHARS = 14  # author names are truncated to keep the gutter a fixed width
@@ -53,8 +53,13 @@ def _elide(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _syntax_spans(lines: list[BlameLine], path: str) -> list[SyntaxToken]:
+    """Syntax tokens over the document `set_lines` builds from `lines`."""
+    return tokenize("\n".join(line.text for line in lines), path)
+
+
 class _LoadSignals(QObject):
-    done = Signal(list, str, str)  # lines, path, oid
+    done = Signal(list, list, str, str)  # lines, syntax spans, path, oid
     failed = Signal(str)
 
 
@@ -102,7 +107,7 @@ class _BlameEditor(QPlainTextEdit):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         self._lines: list[BlameLine] = []
-        self._path = ""  # kept so a theme change can re-tokenize in place
+        self._spans: list[SyntaxToken] = []  # kept so a theme change only re-colours
         self._gutter_w = 0  # recomputed from actual content in set_lines
         self._gutter = _Gutter(self)
 
@@ -112,12 +117,12 @@ class _BlameEditor(QPlainTextEdit):
 
     # ── content ──────────────────────────────────────────────────────────────
 
-    def set_lines(self, lines: list[BlameLine], path: str) -> None:
+    def set_lines(self, lines: list[BlameLine], spans: list[SyntaxToken]) -> None:
         self._lines = lines
-        self._path = path
+        self._spans = spans
         self._gutter_w = self._measure_gutter()
         self.setPlainText("\n".join(line.text for line in lines))
-        self._apply_syntax(path)
+        self._apply_syntax()
         self._sync_gutter_width()
         self._gutter.update()
 
@@ -138,20 +143,23 @@ class _BlameEditor(QPlainTextEdit):
         Merging the new formats over the same ranges fixes them without
         disturbing the text, the cursor, or the scroll position.
         """
-        self._apply_syntax(self._path)
+        self._apply_syntax()
         self._gutter.update()
 
-    def _apply_syntax(self, path: str) -> None:
+    def _apply_syntax(self) -> None:
         formats = make_syntax_formats()
-        document = self.document()
-        for token in tokenize(self.toPlainText(), path):
-            attr = _KIND_TO_ATTR.get(token.kind)
+        cursor = QTextCursor(self.document())
+        # Merged one by one, each token re-lays out the document, and a large
+        # file has tens of thousands of them.
+        cursor.beginEditBlock()
+        for span in self._spans:
+            attr = _KIND_TO_ATTR.get(span.kind)
             if attr is None:
                 continue
-            cursor = QTextCursor(document)
-            cursor.setPosition(token.start)
-            cursor.setPosition(token.end, QTextCursor.KeepAnchor)
+            cursor.setPosition(span.start)
+            cursor.setPosition(span.end, QTextCursor.KeepAnchor)
             cursor.mergeCharFormat(getattr(formats, attr))
+        cursor.endEditBlock()
 
     # ── gutter geometry ──────────────────────────────────────────────────────
 
@@ -392,21 +400,25 @@ class BlamePane(QWidget):
             except Exception as e:  # surfaced in the header, not swallowed
                 signals.failed.emit(str(e))
                 return
-            signals.done.emit(lines, path, oid or "")
+            # Tokenizing a large file takes long enough to freeze the window
+            # if it runs where the window does.
+            signals.done.emit(lines, _syntax_spans(lines, path), path, oid or "")
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_loaded(self, lines: list[BlameLine], path: str, oid: str) -> None:
+    def _on_loaded(
+        self, lines: list[BlameLine], spans: list[SyntaxToken], path: str, oid: str
+    ) -> None:
         if (path, oid or None) != (self._path, self._oid):
             return  # the user moved on while this was in flight
         self._suppress_emit = True
-        self._editor.set_lines(lines, path)
+        self._editor.set_lines(lines, spans)
         self._suppress_emit = False
         self._last_emitted = None
         self._set_title()
 
     def _on_failed(self, message: str) -> None:
-        self._editor.set_lines([], self._path)
+        self._editor.set_lines([], [])
         self._status.setText(message)
         self.setWindowTitle(f"Blame — {self._path}")
 

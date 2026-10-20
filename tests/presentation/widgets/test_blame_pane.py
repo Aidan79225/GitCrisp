@@ -97,7 +97,7 @@ def test_a_result_for_a_revision_the_user_left_is_discarded(qtbot):
     w, _ = _window(qtbot)
     w._oid = "some-other-revision"
 
-    w._on_loaded([_line(1, "stale", AAA, run_start=True)], "src/app.py", "")
+    w._on_loaded([_line(1, "stale", AAA, run_start=True)], [], "src/app.py", "")
 
     assert w._editor.toPlainText() == "first\nsecond\nthird"
 
@@ -147,9 +147,7 @@ def test_line_lookup_is_bounded(qtbot):
 def test_gutter_widens_with_the_line_number_column(qtbot):
     w, _ = _window(qtbot)
     narrow = w._editor.gutter_width()
-    w._editor.set_lines(
-        [_line(n, "x", AAA, run_start=n == 1) for n in range(1, 10001)], "src/app.py"
-    )
+    w._editor.set_lines([_line(n, "x", AAA, run_start=n == 1) for n in range(1, 10001)], [])
     assert w._editor.gutter_width() > narrow
 
 
@@ -327,3 +325,42 @@ def test_a_gutter_click_on_the_line_the_cursor_is_already_on_loads_its_commit(qt
     w._editor.select_line_at_block(0)
 
     assert got == [AAA]
+
+
+# ── Syntax pass cost ─────────────────────────────────────────────────────────
+
+
+def test_the_file_is_tokenized_off_the_gui_thread(qtbot, monkeypatch):
+    """Tokenizing a few thousand lines takes long enough to freeze the window.
+
+    It happens once, in the load worker; a theme change only re-colours.
+    """
+    import threading
+
+    from git_gui.presentation.widgets import blame_pane
+
+    tokenizing_threads: list[threading.Thread] = []
+    real_tokenize = blame_pane.tokenize
+
+    def spy(text: str, path: str):
+        tokenizing_threads.append(threading.current_thread())
+        return real_tokenize(text, path)
+
+    monkeypatch.setattr(blame_pane, "tokenize", spy)
+    w, _ = _window(qtbot)
+    w._editor.restyle()
+
+    assert tokenizing_threads, "the file is still tokenized, just not here"
+    assert threading.main_thread() not in tokenizing_threads
+
+
+def test_a_theme_change_recolours_in_a_single_document_change(qtbot):
+    """One change per token re-laid out the document once per token."""
+    lines = [_line(n, f"value_{n} = {n}  # note", AAA, run_start=n == 1) for n in range(1, 51)]
+    w, _ = _window(qtbot, lines=lines)
+    changes: list[tuple[int, int, int]] = []
+    w._editor.document().contentsChange.connect(lambda *change: changes.append(change))
+
+    w._editor.restyle()
+
+    assert len(changes) <= 1
