@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import NamedTuple
 
 WORKING_TREE_OID = "WORKING_TREE"
 
@@ -227,6 +228,22 @@ class ResetMode(StrEnum):
     SOFT = "SOFT"
     MIXED = "MIXED"
     HARD = "HARD"
+
+
+class RebaseAction(StrEnum):
+    """What an interactive rebase does with a commit; values are git's todo verbs."""
+
+    PICK = "pick"
+    SQUASH = "squash"
+    FIXUP = "fixup"
+    DROP = "drop"
+
+
+class RebaseTodoEntry(NamedTuple):
+    """One line of an interactive rebase's todo list."""
+
+    action: RebaseAction
+    oid: str
 
 
 @dataclass(frozen=True)

@@ -213,6 +213,7 @@ def test_rebase_continue_delegates():
 
 
 from git_gui.application.commands import InteractiveRebase
+from git_gui.domain.entities import RebaseAction
 
 
 class _FakeInteractiveRebaseWriter:
@@ -225,7 +226,7 @@ class _FakeInteractiveRebaseWriter:
 
 def test_interactive_rebase_delegates():
     w = _FakeInteractiveRebaseWriter()
-    entries = [("pick", "abc"), ("squash", "def")]
+    entries = [(RebaseAction.PICK, "abc"), (RebaseAction.SQUASH, "def")]
     InteractiveRebase(w).execute("target123", entries)
     assert w.called_with == ("target123", entries)
 
