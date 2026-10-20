@@ -4,7 +4,7 @@ import logging
 
 import pygit2
 
-from git_gui.domain.entities import Branch, LocalBranchInfo
+from git_gui.domain.entities import Branch, LocalBranchInfo, split_remote_branch
 
 logger = logging.getLogger(__name__)
 
@@ -165,9 +165,7 @@ class BranchOps:
 
     def checkout_remote_branch(self, remote_branch: str) -> None:
         self._refresh_index()
-        # "origin/feature" → local branch "feature" tracking "origin/feature"
-        parts = remote_branch.split("/", 1)
-        local_name = parts[1] if len(parts) > 1 else remote_branch
+        _, local_name = split_remote_branch(remote_branch)
         remote_ref = self._repo.branches.remote[remote_branch]
         local_ref = self._repo.branches.local.create(local_name, self._repo.get(remote_ref.target))
         try:

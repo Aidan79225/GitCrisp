@@ -201,13 +201,6 @@ def test_the_list_is_locked_while_a_delete_runs(qtbot):
     assert dlg._table.isEnabled() is True
 
 
-def test_a_remote_named_with_a_slash_owns_its_branches():
-    grouped = RemoteBranchesDialog._grouped_by_remote(
-        ["gh/fork/topic", "gh/fix/x"], ["gh", "gh/fork"]
-    )
-    assert grouped == {"gh/fork": ["topic"], "gh": ["fix/x"]}
-
-
 def test_delete_pushes_to_the_remote_whose_name_has_a_slash(qtbot):
     dlg, queries, commands = _make(qtbot, branches=[Branch("gh/fork/topic", True, False, "a")])
     queries.list_remotes.execute.return_value = [Remote("gh/fork", "../up", "../up")]
