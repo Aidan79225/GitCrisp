@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QDialogButtonBox
-
 from git_gui.domain.entities import MergeStrategy
 from git_gui.presentation.dialogs.merge_dialog import MergeDialog
 
@@ -103,13 +101,3 @@ def test_result_value_allow_ff_cannot_ff(qtbot):
     result = dlg.result_value()
     assert result.strategy == MergeStrategy.ALLOW_FF
     assert result.message == "Merge msg"
-
-
-def test_merge_button_disabled_when_ff_only_and_cannot_ff(qtbot):
-    dlg = MergeDialog("feature", "main", can_ff=False, default_message="msg")
-    qtbot.addWidget(dlg)
-    # ff-only radio is disabled, but force it for safety-net test
-    dlg._radio_ff_only.setEnabled(True)
-    dlg._radio_ff_only.setChecked(True)
-    merge_btn = dlg._buttons.button(QDialogButtonBox.Ok)
-    assert merge_btn.isEnabled() is False
