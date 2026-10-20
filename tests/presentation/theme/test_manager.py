@@ -241,3 +241,18 @@ def test_a_widget_without_its_own_font_follows_the_typography_scale(
     mgr.set_mode("light", force=True)
 
     assert label.font().pointSize() == app.font().pointSize()
+
+
+def test_a_new_text_scale_is_shown_even_when_the_mode_is_unchanged(
+    app, isolated_settings, restore_app_font
+):
+    """Apply in the Appearance dialog often keeps the mode and changes only
+    the scale, which must still reach the screen."""
+    mgr = ThemeManager(app)
+    mgr.set_mode("light")
+    unscaled = app.font().pointSize()
+
+    mgr.set_appearance("light", 2.0)
+
+    assert app.font().pointSize() > unscaled
+    assert s.load_settings()["typography_scale"] == 2.0
