@@ -46,6 +46,19 @@ _WATCH_DIRS = (
 )
 
 
+def _nearest_dot_git(path: Path) -> Path | None:
+    """The `.git` git itself finds from *path*: its own, or the nearest above.
+
+    The Open dialog accepts any folder git can discover a repository from, so
+    the path may be a subdirectory of a working tree with no `.git` of its own.
+    """
+    for directory in (path, *path.parents):
+        candidate = directory / ".git"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def resolve_git_dirs(repo_path: Path) -> tuple[Path, Path] | None:
     """The two directories holding *repo_path*'s git state, or None if it has none.
 
@@ -80,11 +93,11 @@ def resolve_git_dirs(repo_path: Path) -> tuple[Path, Path] | None:
             logger.warning("RepoChangeDetector: could not read %s: %s", path, e)
             return ""
 
-    dot_git = repo_path / ".git"
+    dot_git = _nearest_dot_git(repo_path)
+    if dot_git is None:
+        return None
     if dot_git.is_dir():
         return dot_git, dot_git
-    if not dot_git.is_file():
-        return None
 
     pointer = _first_line(dot_git)
     prefix = "gitdir:"
@@ -92,7 +105,7 @@ def resolve_git_dirs(repo_path: Path) -> tuple[Path, Path] | None:
         logger.warning("RepoChangeDetector: %s is not a gitdir pointer", dot_git)
         return None
 
-    git_dir = _absolute(pointer[len(prefix) :].strip(), repo_path)
+    git_dir = _absolute(pointer[len(prefix) :].strip(), dot_git.parent)
     if not git_dir.is_dir():
         logger.warning("RepoChangeDetector: %s points at missing %s", dot_git, git_dir)
         return None
@@ -171,8 +184,8 @@ class RepoChangeDetector(QObject):
             app.applicationStateChanged.disconnect(self._on_app_state_changed)
             self._app_state_connected = False
         # Qt warns "removePaths: list is empty" if either argument is empty —
-        # which happens when the watch list never got populated (e.g. the path
-        # is a monorepo subdirectory with no .git/ of its own).
+        # which happens when the watch list never got populated (e.g. no git
+        # directory was found at or above the path).
         files = self._watcher.files()
         if files:
             self._watcher.removePaths(files)
