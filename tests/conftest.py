@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pygit2
 import pytest
+from pygit2.enums import ConfigLevel
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -101,7 +102,7 @@ def _theme_manager(_isolated_theme_settings, _isolated_check_icon_dir):
 @pytest.fixture
 def repo_path(tmp_path) -> Path:
     """Creates a temp git repo with one commit on 'master'."""
-    repo = pygit2.init_repository(str(tmp_path))
+    repo = pygit2.init_repository(str(tmp_path), initial_head="master")
     repo.config["user.name"] = "Test User"
     repo.config["user.email"] = "test@example.com"
     sig = pygit2.Signature("Test User", "test@example.com")
@@ -118,6 +119,25 @@ def repo_impl(repo_path):
     from git_gui.infrastructure.pygit2 import Pygit2Repository
 
     return Pygit2Repository(str(repo_path))
+
+
+@pytest.fixture
+def global_default_branch_main(tmp_path_factory):
+    """A global git config naming ``main`` as the default branch.
+
+    The suite leaves HOME alone, so libgit2 reads the contributor's own
+    global config; a fixture repo must land on the branch its tests name
+    whatever ``init.defaultBranch`` says there.
+    """
+    config_dir = tmp_path_factory.mktemp("global-git-config")
+    (config_dir / ".gitconfig").write_text("[init]\n\tdefaultBranch = main\n", encoding="utf-8")
+    search_path = pygit2.settings.search_path
+    original = search_path[ConfigLevel.GLOBAL]
+    search_path[ConfigLevel.GLOBAL] = str(config_dir)
+    try:
+        yield
+    finally:
+        search_path[ConfigLevel.GLOBAL] = original
 
 
 @pytest.fixture(autouse=True)

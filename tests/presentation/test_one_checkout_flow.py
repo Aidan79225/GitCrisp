@@ -24,7 +24,7 @@ def main_with_feat_worktree(tmp_path) -> tuple[Path, Path]:
     """`main` on master, branch `feat` (which changes a.txt) checked out in `wt`,
     and an unheld branch `topic`."""
     main = tmp_path / "main"
-    repo = pygit2.init_repository(str(main))
+    repo = pygit2.init_repository(str(main), initial_head="master")
     sig = pygit2.Signature("T", "t@e.com")
     (main / "a.txt").write_text("master\n")
     repo.index.add("a.txt")
@@ -130,3 +130,14 @@ def test_the_branches_dialog_checkout_opens_the_worktree_holding_the_branch(
 
     assert Path(win._repo_path) == wt.resolve()
     assert (main / "a.txt").read_text() == "master\n"
+
+
+def test_the_fixture_repo_is_on_master_whatever_the_default_branch(
+    global_default_branch_main, request
+):
+    main, _wt = request.getfixturevalue("main_with_feat_worktree")
+
+    repo = pygit2.Repository(str(main))
+
+    assert not repo.head_is_unborn
+    assert repo.head.shorthand == "master"
