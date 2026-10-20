@@ -84,10 +84,6 @@ class RepoLifecycleMixin:
         worktrees callback, so `Git → Worktrees…` did nothing until the user
         switched repos.
         """
-        bar = self.menuBar()
-        for action in list(bar.actions()):
-            if action.text() == "&Git":
-                bar.removeAction(action)
         install_git_menu(
             self,
             queries=self._queries,
