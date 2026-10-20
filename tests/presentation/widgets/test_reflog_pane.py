@@ -17,8 +17,6 @@ from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.reflog_pane import (
     _OPERATION_ROLES,
-    ORPHAN_STRIPE_W,
-    ROW_PAD,
     SHA_CHARS,
     ReflogModel,
     ReflogPane,
@@ -80,6 +78,16 @@ def _painted_row(delegate, option, index) -> list[tuple[int, int, int, str]]:
     delegate.paint(painter, option, index)
     painter.end()
     return calls
+
+
+def _option_for(pane, height: int) -> QStyleOptionViewItem:
+    """The option the view hands its delegate for a 400px-wide row."""
+    option = QStyleOptionViewItem()
+    option.initFrom(pane._view)
+    option.font = pane._view.font()
+    option.fontMetrics = QFontMetrics(option.font)
+    option.rect = QRect(0, 0, 400, height)
+    return option
 
 
 def _pane(
@@ -337,21 +345,18 @@ def test_content_starts_at_the_same_x_marked_or_not(qtbot):
     """The orphan stripe's width is reserved on every row.
 
     Adding it only to the marked rows shifted their text right, undoing the
-    column alignment the chip column exists to provide. This is a geometry
-    fact, so it is checked as one — comparing rendered pixels ends up
-    measuring the tint's effect on antialiasing instead.
+    column alignment the chip column exists to provide.
     """
-    from git_gui.presentation.widgets.reflog_pane import ReflogDelegate
+    entries = [_entry(0, "commit", "lost", orphaned=True), _entry(1, "commit", "kept")]
+    pane, _ = _pane(qtbot, entries)
+    delegate = pane._view.itemDelegate()
 
-    rect = QRect(0, 0, 600, 30)
-    assert ReflogDelegate.content_left(rect) == rect.left() + ROW_PAD + ORPHAN_STRIPE_W
+    def summary_and_position_x(row: int) -> tuple[int, int]:
+        painted = _painted_row(delegate, _option_for(pane, 50), pane._model.index(row, 0))
+        x_of = {text: x for x, _y, _w, text in painted}
+        return x_of[entries[row].summary], x_of[f"@{{{entries[row].index}}}"]
 
-
-def test_the_stripe_never_overlaps_the_content(qtbot):
-    from git_gui.presentation.widgets.reflog_pane import ReflogDelegate
-
-    rect = QRect(0, 0, 600, 30)
-    assert ReflogDelegate.content_left(rect) >= rect.left() + ORPHAN_STRIPE_W
+    assert summary_and_position_x(0) == summary_and_position_x(1)
 
 
 # ── Folding the entries that changed nothing ─────────────────────────────────
@@ -543,13 +548,8 @@ def test_the_summary_gets_the_width_the_metadata_used_to_hold(qtbot):
     """
     pane, _ = _pane(qtbot)
     delegate = pane._view.itemDelegate()
-    option = QStyleOptionViewItem()
-    option.initFrom(pane._view)
-    option.font = pane._view.font()
-    option.fontMetrics = QFontMetrics(option.font)
-    option.rect = QRect(0, 0, 400, 50)
 
-    painted = _painted_row(delegate, option, pane._model.index(0, 0))
+    painted = _painted_row(delegate, _option_for(pane, 50), pane._model.index(0, 0))
 
     summary_end = max(x + w for x, _y, w, text in painted if text == ENTRIES[0].summary)
     metadata = {text for *_rest, text in painted}
@@ -561,13 +561,10 @@ def test_the_summary_gets_the_width_the_metadata_used_to_hold(qtbot):
 def test_the_two_lines_do_not_overlap(qtbot):
     pane, _ = _pane(qtbot)
     delegate = pane._view.itemDelegate()
-    option = QStyleOptionViewItem()
-    option.initFrom(pane._view)
-    option.font = pane._view.font()
-    option.fontMetrics = QFontMetrics(option.font)
-    option.rect = QRect(0, 0, 400, delegate.sizeHint(option, pane._model.index(0, 0)).height())
+    index = pane._model.index(0, 0)
+    option = _option_for(pane, delegate.sizeHint(_option_for(pane, 0), index).height())
 
-    painted = _painted_row(delegate, option, pane._model.index(0, 0))
+    painted = _painted_row(delegate, option, index)
     summary_y = next(y for _x, y, _w, text in painted if text == ENTRIES[0].summary)
     meta_y = next(y for _x, y, _w, text in painted if text.startswith("@{"))
 
@@ -579,13 +576,8 @@ def test_the_row_is_tall_enough_for_both_lines(qtbot):
     """The view pinned rows to the header's 30px default, clipping the row."""
     pane, _ = _pane(qtbot)
     delegate = pane._view.itemDelegate()
-    option = QStyleOptionViewItem()
-    option.initFrom(pane._view)
-    option.font = pane._view.font()
-    option.fontMetrics = QFontMetrics(option.font)
-    option.rect = QRect(0, 0, 400, 50)
 
-    wanted = delegate.sizeHint(option, pane._model.index(0, 0)).height()
+    wanted = delegate.sizeHint(_option_for(pane, 50), pane._model.index(0, 0)).height()
     assert pane._view.rowHeight(0) >= wanted
 
 

@@ -54,14 +54,11 @@ def test_realizes_one_block_per_check(qtbot, scroll_area):
     loader.set_blocks(blocks)
     loader.set_diff_map({f"f{i}.txt": [f"hunk{i}"] for i in range(5)})
 
-    # After one tick, only 1 should be realized (serial)
-    qtbot.wait(20)
-    first_count = len(realized)
-    assert first_count >= 1
+    # Called directly, before the event loop runs any of the scheduled checks.
+    loader._check_viewport()
+    assert realized == ["f0.txt"]
 
-    # After more ticks, more get realized
-    qtbot.wait(200)
-    assert len(realized) >= first_count
+    qtbot.waitUntil(lambda: len(realized) == 5)
 
 
 def test_skips_realized_blocks(qtbot, scroll_area):

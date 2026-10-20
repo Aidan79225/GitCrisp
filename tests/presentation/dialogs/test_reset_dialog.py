@@ -31,6 +31,7 @@ def test_dirty_file_list_hidden_for_soft(qtbot):
     files = [_status("src/foo.py")]
     dlg = ResetDialog("master", "abc1234", "msg", default_mode=ResetMode.SOFT, dirty_files=files)
     qtbot.addWidget(dlg)
+    dlg.show()
     assert dlg._dirty_list.isVisible() is False
 
 
@@ -38,6 +39,7 @@ def test_dirty_file_list_hidden_for_mixed(qtbot):
     files = [_status("src/foo.py")]
     dlg = ResetDialog("master", "abc1234", "msg", default_mode=ResetMode.MIXED, dirty_files=files)
     qtbot.addWidget(dlg)
+    dlg.show()
     assert dlg._dirty_list.isVisible() is False
 
 

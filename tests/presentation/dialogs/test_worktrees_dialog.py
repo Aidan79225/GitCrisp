@@ -33,7 +33,12 @@ def test_rows_render_branch_and_path(qtbot):
 
 def test_locked_column_shows_reason(qtbot):
     dlg = _open(qtbot, [_wt("feat", locked=True, reason="busy")])
-    assert "busy" in dlg.row_locked_text(0).lower() or dlg.row_locked_text(0) == "Locked"
+    assert dlg.row_locked_text(0) == "busy"
+
+
+def test_locked_column_says_locked_when_no_reason_was_given(qtbot):
+    dlg = _open(qtbot, [_wt("feat", locked=True, reason=None)])
+    assert dlg.row_locked_text(0) == "Locked"
 
 
 def test_open_button_emits_open_requested(qtbot):
