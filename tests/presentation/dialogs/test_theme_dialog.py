@@ -352,3 +352,31 @@ def test_a_custom_theme_that_cannot_be_saved_leaves_the_settings_as_they_were(
     dlg._on_apply()
 
     assert s.load_settings() == before
+
+
+def test_switching_radios_from_a_custom_theme_with_fewer_lanes_keeps_working(
+    app, reset_theme, tmp_path, monkeypatch
+):
+    """The lane buttons are made for the active theme's lanes, and Dark's
+    longer list was painted onto buttons that did not exist."""
+    import dataclasses
+    import json
+
+    from git_gui.presentation.dialogs.theme_dialog import _theme_to_json
+    from git_gui.presentation.theme import settings as s
+    from git_gui.presentation.theme.loader import load_builtin
+
+    custom_path = tmp_path / "custom_theme.json"
+    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+    dark = load_builtin("dark")
+    one_lane = dataclasses.replace(
+        dark, colors=dataclasses.replace(dark.colors, graph_lane_colors=["#123456"])
+    )
+    custom_path.write_text(json.dumps(_theme_to_json(one_lane)), encoding="utf-8")
+    get_theme_manager().set_mode("custom")
+    dlg = ThemeDialog()
+
+    _radios(dlg)["dark"].setChecked(True)
+
+    assert dlg._working_colors["surface"] == dark.colors.surface
