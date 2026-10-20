@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from git_gui.domain.entities import RepoState
 from git_gui.infrastructure.commit_ops_cli import CommitOpsCli, CommitOpsCommandError
+from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
 def _run(cwd: str, *args: str) -> None:
@@ -306,3 +308,14 @@ def test_a_failure_naming_a_non_ascii_file_keeps_git_s_message(tmp_path: Path):
 
     with pytest.raises(RuntimeError, match="中文"):
         CommitOpsCli(str(tmp_path)).cherry_pick(adds_file, is_merge=False)
+
+
+def test_the_repository_leaves_a_linked_worktree_s_cherry_pick_conflict_in_progress(
+    linked_worktree,
+):
+    worktree, _git_dir, oids = linked_worktree
+    repo = Pygit2Repository(str(worktree))
+
+    repo.cherry_pick(oids["from_a"])  # Conflict; must not raise.
+
+    assert repo.repo_state().state is RepoState.CHERRY_PICKING
