@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from git_gui.presentation.bus import QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets.background import BackgroundRunner, start_daemon_thread
 
 logger = logging.getLogger(__name__)
 
@@ -313,10 +314,12 @@ class InsightDialog(QDialog):
         parent=None,
         *,
         today: Callable[[], date] = date.today,
+        run_in_background: BackgroundRunner = start_daemon_thread,
     ) -> None:
         super().__init__(parent)
         self._queries = queries
         self._today = today
+        self._run_in_background = run_in_background
         self._load_generation = 0
         self._cancel: threading.Event | None = None
         self._last_render: tuple | None = None
@@ -501,7 +504,7 @@ class InsightDialog(QDialog):
                 total,
             )
 
-        threading.Thread(target=_worker, daemon=True).start()
+        self._run_in_background(_worker)
 
     def _on_loaded(
         self,

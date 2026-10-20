@@ -283,3 +283,19 @@ def test_choosing_custom_shows_the_date_pickers(qtbot, window):
     QTest.mouseClick(dialog._range_buttons[InsightRange.CUSTOM], Qt.LeftButton)
 
     assert dialog._custom_widget.isVisible()
+
+
+# ── Background walk ─────────────────────────────────────────────────────────
+def test_a_walk_superseded_by_a_new_range_is_not_shown(qtbot, window):
+    held: list = []
+    queries = MagicMock()
+    queries.get_commit_stats.execute.side_effect = lambda since, until, cancel: iter(_HISTORY)
+    dialog = InsightDialog(queries, window, run_in_background=held.append)
+    QTest.mouseClick(dialog._range_buttons[InsightRange.ALL], Qt.LeftButton)
+    first_walk, current_walk = held
+
+    current_walk()
+    shown = dialog._last_render
+    first_walk()
+
+    assert dialog._last_render is shown
