@@ -17,6 +17,21 @@ class ReloadCoordinatorMixin:
     def _wire_reload_signals(self) -> None:
         self._working_tree.reload_requested.connect(self._reload)
         self._graph.reload_requested.connect(self._reload)
+        self._graph.load_failed.connect(
+            lambda reason: self._report_load_failure("Load commits", reason)
+        )
+        self._sidebar.load_failed.connect(
+            lambda reason: self._report_load_failure("List branches and tags", reason)
+        )
+        self._working_tree.load_failed.connect(
+            lambda reason: self._report_load_failure("List changed files", reason)
+        )
+
+    def _report_load_failure(self, what: str, reason: str) -> None:
+        # The pane that failed has been cleared, so this line is the only sign
+        # of why — and a line added to the collapsed log is never seen.
+        self._log_panel.expand()
+        self._log_panel.log_error(f"{what} — ERROR: {reason}")
 
     def _reload(self) -> None:
         if getattr(self, "_change_detector", None) is not None:
