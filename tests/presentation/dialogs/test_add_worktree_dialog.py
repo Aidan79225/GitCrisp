@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtWidgets import QDialog
+
 from git_gui.presentation.dialogs.add_worktree_dialog import AddWorktreeDialog
 
 
@@ -95,9 +97,136 @@ def test_submit_with_create_new_emits_correct_payload(qtbot):
     assert received[0]["location"] == "/tmp/wt-feat-new"
 
 
-def test_add_button_disabled_until_valid(qtbot):
+def test_add_button_disabled_until_valid(qtbot, tmp_path):
     dlg = _open_dialog(qtbot, branches=["master"])
     dlg.set_location("")
     assert dlg.add_button_enabled() is False
-    dlg.set_location("/tmp/x")
+    dlg.set_location(str(tmp_path / "x"))
     assert dlg.add_button_enabled() is True
+
+
+def _open_on_branch_in_use(qtbot):
+    return _open_dialog(
+        qtbot,
+        branches=["master", "feat/a"],
+        in_use={"feat/a": "/tmp/wt-feat-a"},
+        preselect="feat/a",
+    )
+
+
+def test_a_branch_in_another_worktree_says_where_it_is_checked_out(qtbot):
+    dlg = _open_on_branch_in_use(qtbot)
+    assert dlg._in_use_notice.isVisibleTo(dlg)
+    assert "/tmp/wt-feat-a" in dlg._in_use_label.text()
+
+
+def test_switch_button_asks_to_open_the_worktree_that_has_the_branch(qtbot):
+    dlg = _open_on_branch_in_use(qtbot)
+    received: list = []
+    dlg.switch_to_existing_requested.connect(received.append)
+    dlg._switch_btn.click()
+    assert received == ["/tmp/wt-feat-a"]
+    assert dlg.result() == QDialog.Accepted
+
+
+def test_in_use_notice_hides_for_a_branch_that_is_free(qtbot):
+    dlg = _open_on_branch_in_use(qtbot)
+    dlg.select_branch("master")
+    assert not dlg._in_use_notice.isVisibleTo(dlg)
+
+
+def test_in_use_notice_hides_when_creating_a_new_branch(qtbot):
+    dlg = _open_on_branch_in_use(qtbot)
+    dlg.set_create_new(True)
+    assert not dlg._in_use_notice.isVisibleTo(dlg)
+
+
+def test_a_location_with_files_in_it_disables_add_and_says_why(qtbot, tmp_path):
+    (tmp_path / "notes.txt").write_text("x")
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location(str(tmp_path))
+    assert dlg.add_button_enabled() is False
+    assert dlg._location_error.isVisibleTo(dlg)
+    assert "exists" in dlg._location_error.text()
+
+
+def test_an_existing_empty_folder_enables_add_because_browse_can_only_pick_one(qtbot, tmp_path):
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location(str(tmp_path))
+    assert dlg.add_button_enabled() is True
+    assert not dlg._location_error.isVisibleTo(dlg)
+
+
+def test_an_existing_file_disables_add_and_says_why(qtbot, tmp_path):
+    target = tmp_path / "notes.txt"
+    target.write_text("x")
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location(str(target))
+    assert dlg.add_button_enabled() is False
+    assert "exists" in dlg._location_error.text()
+
+
+def test_a_relative_location_disables_add_and_says_why(qtbot):
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location("wt")
+    assert dlg.add_button_enabled() is False
+    assert "absolute" in dlg._location_error.text()
+
+
+def test_a_new_absolute_location_enables_add_without_a_message(qtbot, tmp_path):
+    dlg = _open_dialog(qtbot, branches=["master"])
+    dlg.set_location(str(tmp_path / "repo-master"))
+    assert dlg.add_button_enabled() is True
+    assert not dlg._location_error.isVisibleTo(dlg)
+
+
+def test_a_location_that_cannot_be_accessed_disables_add_and_says_why(qtbot, tmp_path, monkeypatch):
+    denied = tmp_path / "denied" / "wt"
+    real_stat = Path.stat
+
+    def stat(self, *args, **kwargs):
+        if self == denied:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_stat(self, *args, **kwargs)
+
+    dlg = _open_dialog(qtbot, branches=["master"])
+    monkeypatch.setattr(Path, "stat", stat)
+    dlg.set_location(str(denied))
+    assert dlg.add_button_enabled() is False
+    assert dlg._location_error.isVisibleTo(dlg)
+    assert "cannot be accessed" in dlg._location_error.text()
+
+
+def _open_on_the_branch_of_this_worktree(qtbot, repo, held_at):
+    return _open_dialog(
+        qtbot,
+        repo_path=str(repo),
+        branches=["master", "feat/a"],
+        in_use={"master": held_at},
+        preselect="master",
+    )
+
+
+def test_the_branch_of_the_open_worktree_offers_no_switch(qtbot, tmp_path):
+    dlg = _open_on_the_branch_of_this_worktree(qtbot, tmp_path, str(tmp_path.resolve()))
+    assert dlg._in_use_notice.isVisibleTo(dlg)
+    assert not dlg._switch_btn.isVisibleTo(dlg)
+    assert "this worktree" in dlg._in_use_label.text()
+
+
+def test_the_open_worktree_is_recognised_however_its_path_is_spelt(qtbot, tmp_path):
+    dlg = _open_on_the_branch_of_this_worktree(qtbot, tmp_path, tmp_path.as_posix() + "/")
+    assert not dlg._switch_btn.isVisibleTo(dlg)
+
+
+def test_switch_reappears_for_a_branch_held_by_another_worktree(qtbot, tmp_path):
+    dlg = _open_dialog(
+        qtbot,
+        repo_path=str(tmp_path),
+        branches=["master", "feat/a"],
+        in_use={"master": str(tmp_path), "feat/a": "/tmp/wt-feat-a"},
+        preselect="master",
+    )
+    dlg.select_branch("feat/a")
+    assert dlg._switch_btn.isVisibleTo(dlg)
+    assert "/tmp/wt-feat-a" in dlg._in_use_label.text()
