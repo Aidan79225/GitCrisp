@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, QRect, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication
 
@@ -74,130 +74,99 @@ def _send_click(widget: CommitDetailWidget, pos: QPoint) -> None:
     QApplication.sendEvent(widget, press)
 
 
-def test_oid_rect_is_none_before_set_commit(app, qtbot):
-    """Fresh widget has no _oid_rect before a commit is loaded."""
+def _shown(qtbot, refs: list[str] | None = None) -> CommitDetailWidget:
     widget = CommitDetailWidget()
     qtbot.addWidget(widget)
-    assert widget._oid_rect is None
+    widget.resize(800, 120)
+    widget.set_commit(_make_commit(), refs or [])
+    return widget
+
+
+def _layout(widget: CommitDetailWidget):
+    """Where the widget puts each part, as painting and clicks both see it."""
+    return widget._layout(widget._commit, widget.fontMetrics())
+
+
+def _copy_requests(widget: CommitDetailWidget) -> tuple[list[str], list[str]]:
+    oids: list[str] = []
+    refs: list[str] = []
+    widget.commit_oid_copy_requested.connect(oids.append)
+    widget.ref_copy_requested.connect(refs.append)
+    return oids, refs
+
+
+def test_a_click_before_any_commit_is_shown_copies_nothing(app, qtbot):
+    widget = CommitDetailWidget()
+    qtbot.addWidget(widget)
+    widget.resize(800, 120)
+    oids, refs = _copy_requests(widget)
+
+    _send_click(widget, QPoint(200, 40))
+
+    assert (oids, refs) == ([], [])
 
 
 def test_clicking_oid_emits_copy_signal_with_full_oid(app, qtbot):
-    """Left-clicking within _oid_rect emits commit_oid_copy_requested.
+    widget = _shown(qtbot)
+    oids, _ = _copy_requests(widget)
 
-    We seed _oid_rect directly (as paintEvent would after a real paint
-    pass) because calling paintEvent on a hidden widget with QPainter(self)
-    corrupts Qt-internal paint-device state on PySide6 6.11/Windows and
-    causes crashes in subsequent tests that create native window handles.
-    """
-    widget = CommitDetailWidget()
-    qtbot.addWidget(widget)
-    widget.resize(800, 120)
+    _send_click(widget, _layout(widget).oid.center())
 
-    commit = _make_commit()
-    widget.set_commit(commit, [])
-
-    # Simulate what paintEvent would set after rendering the OID text.
-    oid_rect = QRect(60, 30, 320, 18)
-    widget._oid_rect = oid_rect
-
-    received: list[str] = []
-    widget.commit_oid_copy_requested.connect(received.append)
-
-    _send_click(widget, oid_rect.center())
-
-    assert received == [commit.oid]
+    assert oids == [_make_commit().oid]
 
 
 def test_clicking_outside_oid_does_not_emit(app, qtbot):
-    """Clicking outside _oid_rect does NOT emit the signal."""
-    widget = CommitDetailWidget()
-    qtbot.addWidget(widget)
-    widget.resize(800, 120)
-
-    commit = _make_commit()
-    widget.set_commit(commit, [])
-
-    oid_rect = QRect(60, 30, 320, 18)
-    widget._oid_rect = oid_rect
-
-    received: list[str] = []
-    widget.commit_oid_copy_requested.connect(received.append)
+    widget = _shown(qtbot)
+    oids, _ = _copy_requests(widget)
 
     # Bottom-right corner is well outside the OID rect.
     _send_click(widget, widget.rect().bottomRight())
 
-    assert received == []
+    assert oids == []
 
 
-def test_clear_resets_oid_rect(app, qtbot):
-    """clear() must reset _oid_rect to None."""
-    widget = CommitDetailWidget()
-    qtbot.addWidget(widget)
-
-    # Seed _oid_rect as paintEvent would after a set_commit + paint pass.
-    widget._oid_rect = QRect(0, 0, 100, 20)
-    assert widget._oid_rect is not None
+def test_after_clear_nothing_is_left_to_click(app, qtbot):
+    widget = _shown(qtbot, ["main"])
+    layout = _layout(widget)
+    oids, refs = _copy_requests(widget)
 
     widget.clear()
-    assert widget._oid_rect is None
+    _send_click(widget, layout.oid.center())
+    _send_click(widget, layout.badges[0].rect.center())
+
+    assert (oids, refs) == ([], [])
 
 
 def test_clicking_ref_badge_emits_copy_signal_with_bare_name(app, qtbot):
-    """Left-clicking a ref badge emits ref_copy_requested with its name.
+    """'tag:' and 'HEAD -> ' decorations are stripped from the copied text."""
+    widget = _shown(qtbot, ["main", "tag:v1.2.0", "origin/feature"])
+    _, refs = _copy_requests(widget)
 
-    Badge rects are seeded directly (as paintEvent would after rendering)
-    to avoid the PySide6/Windows paint-device crash described above.
-    """
-    widget = CommitDetailWidget()
-    qtbot.addWidget(widget)
-    widget.resize(800, 120)
-    widget.set_commit(_make_commit(), ["main", "tag:v1.2.0", "origin/feature"])
+    _send_click(widget, _layout(widget).badges[1].rect.center())
 
-    # 'tag:' and 'HEAD -> ' decorations are stripped from the copied text.
-    widget._badge_rects = [
-        (QRect(60, 30, 60, 18), "main"),
-        (QRect(130, 30, 70, 18), "v1.2.0"),
-        (QRect(210, 30, 110, 18), "origin/feature"),
-    ]
-
-    received: list[str] = []
-    widget.ref_copy_requested.connect(received.append)
-
-    _send_click(widget, QRect(130, 30, 70, 18).center())
-
-    assert received == ["v1.2.0"]
+    assert refs == ["v1.2.0"]
 
 
 def test_clicking_ref_badge_does_not_emit_oid_signal(app, qtbot):
     """A badge click must not also fire the OID copy signal."""
-    widget = CommitDetailWidget()
-    qtbot.addWidget(widget)
-    widget.resize(800, 120)
-    widget.set_commit(_make_commit(), ["main"])
+    widget = _shown(qtbot, ["main"])
+    oids, refs = _copy_requests(widget)
 
-    widget._oid_rect = QRect(60, 30, 320, 18)
-    badge_rect = QRect(400, 30, 60, 18)
-    widget._badge_rects = [(badge_rect, "main")]
+    _send_click(widget, _layout(widget).badges[0].rect.center())
 
-    oid_received: list[str] = []
-    ref_received: list[str] = []
-    widget.commit_oid_copy_requested.connect(oid_received.append)
-    widget.ref_copy_requested.connect(ref_received.append)
-
-    _send_click(widget, badge_rect.center())
-
-    assert ref_received == ["main"]
-    assert oid_received == []
+    assert refs == ["main"]
+    assert oids == []
 
 
-def test_clear_resets_badge_rects(app, qtbot):
-    """clear() must drop the clickable badge rects."""
-    widget = CommitDetailWidget()
-    qtbot.addWidget(widget)
+def test_the_badges_start_after_the_hash_without_overlapping_it(app, qtbot):
+    widget = _shown(qtbot, ["main", "origin/feature"])
+    layout = _layout(widget)
 
-    widget._badge_rects = [(QRect(0, 0, 50, 20), "main")]
-    widget.clear()
-    assert widget._badge_rects == []
+    first, second = (badge.rect for badge in layout.badges)
+
+    assert not first.intersects(layout.oid)
+    assert first.left() > layout.oid.right()
+    assert second.left() > first.right()
 
 
 # ── A long author in a narrow pane ───────────────────────────────────────────
@@ -230,9 +199,17 @@ def test_a_long_author_ends_before_the_timestamp_starts(app, qtbot):
 
 
 def test_a_cut_author_stays_whole_in_its_tooltip(app, qtbot):
-    widget, commit = _narrow_widget_with_long_author(qtbot)
-    line = widget._author_line(commit, widget.fontMetrics())
-    widget._cut_author_rect = QRect(line.author_x, 0, line.timestamp_x - line.author_x, 20)
+    widget, _ = _narrow_widget_with_long_author(qtbot)
+    layout = _layout(widget)
+    line, y = layout.author_line, layout.author_top + 2
 
-    assert widget._tooltip_at(QPoint(line.author_x + 5, 10)) == LONG_AUTHOR
-    assert widget._tooltip_at(QPoint(line.timestamp_x + 5, 10)) == ""
+    assert widget._tooltip_at(QPoint(line.author_x + 5, y)) == LONG_AUTHOR
+    assert widget._tooltip_at(QPoint(line.timestamp_x + 5, y)) == ""
+
+
+def test_an_author_that_fits_gets_no_tooltip(app, qtbot):
+    widget = _shown(qtbot)
+    layout = _layout(widget)
+
+    assert layout.cut_author is None
+    assert widget._tooltip_at(QPoint(layout.author_line.author_x + 5, layout.author_top + 2)) == ""
