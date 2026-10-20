@@ -43,6 +43,7 @@ class RemoteBranchesDialog(QDialog):
         self._commands = commands
         self._defaults: set[str] = set()
         self._remotes: list[str] = []
+        self._remotes_known = False
         self._signals: _DeleteSignals | None = None
         self._busy: bool = False
 
@@ -88,14 +89,7 @@ class RemoteBranchesDialog(QDialog):
 
     def _refresh(self) -> None:
         names = self._load_branch_names()
-        try:
-            self._defaults = set(self._queries.remote_default_branches.execute().values())
-        except Exception:
-            self._defaults = set()
-        try:
-            self._remotes = [r.name for r in self._queries.list_remotes.execute()]
-        except Exception:
-            self._remotes = []
+        self._remotes_known = self._load_remotes()
         self._populate(names)
         self._apply_filter(self._filter.text())
         self._update_delete_button()
@@ -107,6 +101,24 @@ class RemoteBranchesDialog(QDialog):
             QMessageBox.warning(self, "Load remote branches failed", str(e))
             return []
         return [b.name for b in branches if b.is_remote and not b.name.endswith("/HEAD")]
+
+    def _load_remotes(self) -> bool:
+        """Load the default branches and remote names a delete relies on.
+
+        Without the defaults a default branch could be ticked, and without the
+        remote names a remote named with a '/' would get the wrong push, so
+        when either fails to load, Delete stays off.
+        """
+        try:
+            defaults = set(self._queries.remote_default_branches.execute().values())
+            remotes = [r.name for r in self._queries.list_remotes.execute()]
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Load remotes failed", f"Deleting stays off until they load.\n\n{e}"
+            )
+            return False
+        self._defaults, self._remotes = defaults, remotes
+        return True
 
     def _populate(self, names: list[str]) -> None:
         self._table.blockSignals(True)
@@ -171,7 +183,7 @@ class RemoteBranchesDialog(QDialog):
     def _update_delete_button(self) -> None:
         n = len(self._collect_selected())
         self._delete_btn.setText(f"Delete Selected ({n})")
-        self._delete_btn.setEnabled(n > 0 and not self._busy)
+        self._delete_btn.setEnabled(n > 0 and self._remotes_known and not self._busy)
 
     @staticmethod
     def _grouped_by_remote(names: list[str], remotes: list[str]) -> dict[str, list[str]]:
