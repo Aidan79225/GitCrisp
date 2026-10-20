@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pygit2
-from PySide6.QtCore import QRect, QSize, Qt, Signal
+from PySide6.QtCore import QPersistentModelIndex, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -53,25 +54,40 @@ class _RepoTree(QTreeView):
     """QTreeView that paints full-row hover and active repo highlight.
 
     Implements manual drag-and-drop reordering for OPEN section items.
-    Uses Qt's drag detection (setDragEnabled) but overrides startDrag
-    and dropEvent so we control the data and the reorder logic.
+    The view detects the drag gesture itself: Qt's own detection only starts
+    a drag when something is selected, and this list has no selection.
+    startDrag and dropEvent are overridden so we control the data and the
+    reorder logic.
     """
 
     repo_reorder_requested = Signal(str, int)  # (path, target_row)
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
-        from PySide6.QtCore import QPersistentModelIndex
-
         self._hover_idx = QPersistentModelIndex()
         self._drop_indicator_y: int | None = None  # y position in viewport
+        self._drag_origin: QPoint | None = None
+        self._drag_row = QPersistentModelIndex()
+
+    def mousePressEvent(self, event) -> None:
+        # The row is kept from the press itself: a press on blank space or an
+        # expand arrow leaves currentIndex() on whatever was clicked before.
+        origin = event.position().toPoint()
+        pressed = self.indexAt(origin)
+        grabbed = event.button() == Qt.LeftButton and pressed.data(Qt.UserRole + 1) == "open"
+        self._drag_origin = origin if grabbed else None
+        self._drag_row = QPersistentModelIndex(pressed) if grabbed else QPersistentModelIndex()
+        super().mousePressEvent(event)
+
+    def _is_drag_gesture(self, event) -> bool:
+        if self._drag_origin is None or not event.buttons() & Qt.LeftButton:
+            return False
+        moved = (event.position().toPoint() - self._drag_origin).manhattanLength()
+        return moved >= QApplication.startDragDistance()
 
     def startDrag(self, supportedActions) -> None:
         """Override Qt's drag start to use our own mime data (repo path as text)."""
-        idx = self.currentIndex()
-        if not idx.isValid() or idx.data(Qt.UserRole + 1) != "open":
-            return
-        path = idx.data(Qt.UserRole)
+        path = self._drag_row.data(Qt.UserRole) if self._drag_row.isValid() else None
         if not path:
             return
         from PySide6.QtCore import QMimeData
@@ -158,6 +174,10 @@ class _RepoTree(QTreeView):
         if new_idx != self._hover_idx:
             self._hover_idx = new_idx
             self.viewport().update()
+        if self._is_drag_gesture(event):
+            self._drag_origin = None
+            self.startDrag(Qt.MoveAction)
+            return
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:
@@ -200,7 +220,7 @@ _ROW_H_PADDING = 8
 class _RepoItemDelegate(QStyledItemDelegate):
     """Two-line item delegate for repo rows.
 
-    Line 1: the repo name (Path.name), default font.
+    Line 1: the row's label — the repo name, or a worktree's branch — default font.
     Line 2: _display_path(path), smaller font, dimmer color, middle-elided.
 
     Header rows (marked with "header" in Qt.UserRole + 1) keep their default
@@ -222,7 +242,7 @@ class _RepoItemDelegate(QStyledItemDelegate):
             super().paint(painter, option, index)
             return
 
-        name = Path(path).name
+        name = index.data(Qt.DisplayRole)
         disp = _display_path(path)
         is_active = bool(index.data(_IS_ACTIVE_ROLE))
 
@@ -336,11 +356,10 @@ class RepoListWidget(QWidget):
         # indicator (full-row fill), and hover is painted by the view. Qt's
         # selection highlight is redundant and, because the custom delegate
         # suppresses it in the item body, only leaks into the branch (indent)
-        # column as a stray block on click. Disable it; click-to-switch, drag
-        # (uses currentIndex), and the context menu all work without it.
+        # column as a stray block on click. Disable it; click-to-switch and the
+        # context menu work without it, and _RepoTree starts drags itself.
         self._tree.setSelectionMode(QAbstractItemView.NoSelection)
         self._tree.setMouseTracking(True)
-        self._tree.setDragEnabled(True)
         self._tree.setAcceptDrops(True)
         self._tree.setDropIndicatorShown(True)
         self._tree.viewport().setAttribute(Qt.WA_Hover, True)
@@ -474,6 +493,8 @@ class RepoListWidget(QWidget):
     def _on_item_clicked(self, index) -> None:
         kind = index.data(Qt.UserRole + 1)
         path = index.data(Qt.UserRole)
+        if index.data(_IS_ACTIVE_ROLE):
+            return  # already open; switching would rebuild the whole session
         if kind == "open" and path:
             self.repo_switch_requested.emit(path)
         elif kind == "recent" and path:
