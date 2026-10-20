@@ -2,21 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-from git_gui.presentation.main_window import MainWindow
+from tests.presentation.window_helpers import blank_window
 
 
 def _make_window(qtbot):
-    repo_store = MagicMock()
-    repo_store.get_open_repos.return_value = []
-    repo_store.get_recent_repos.return_value = []
-    repo_store.get_active.return_value = None
-    win = MainWindow(
-        queries=None,
-        commands=None,
-        repo_store=repo_store,
-        session_factory=lambda _p: (MagicMock(), MagicMock()),
-    )
-    qtbot.addWidget(win)
+    win = blank_window(qtbot)
     win._commands = MagicMock()
     return win
 

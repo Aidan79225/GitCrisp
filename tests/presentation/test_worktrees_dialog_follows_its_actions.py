@@ -7,13 +7,14 @@ worktrees as they were when it opened.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from PySide6.QtWidgets import QMessageBox
 
 from git_gui.domain.entities import Worktree
 from git_gui.presentation.dialogs.worktrees_dialog import WorktreesDialog
 from git_gui.presentation.main_window import MainWindow
+from tests.presentation.window_helpers import empty_repo_store, wired_window
 
 _MAIN = "/repo"
 _LINKED = "/repo-wt"
@@ -50,20 +51,11 @@ class _Worktrees:
 
 
 def _make_window(qtbot, worktrees: _Worktrees) -> MainWindow:
-    repo_store = MagicMock()
+    repo_store = empty_repo_store()
     repo_store.get_open_repos.return_value = [_MAIN]
-    repo_store.get_recent_repos.return_value = []
     repo_store.get_active.return_value = _MAIN
-    win = MainWindow(
-        queries=None,
-        commands=None,
-        repo_store=repo_store,
-        session_factory=lambda _p: (MagicMock(), MagicMock()),
-    )
-    qtbot.addWidget(win)
+    win = wired_window(qtbot, repo_store)
     win._repo_path = _MAIN
-    win._queries = MagicMock()
-    win._commands = MagicMock()
     win._queries.list_worktrees.execute.side_effect = lambda: list(worktrees.items)
     win._commands.lock_worktree.execute.side_effect = worktrees.lock
     win._commands.remove_worktree.execute.side_effect = worktrees.remove
