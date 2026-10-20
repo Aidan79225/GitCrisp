@@ -85,7 +85,6 @@ class _LoadSignals(QObject):
     done = Signal(int, dict, dict, dict, dict, set, int)
     # generation, author_commits, author_added, author_deleted,
     # file_counts, files_changed, total_commits
-    cancelled = Signal(int)  # generation
     failed = Signal(int, str)  # generation, message
 
 
@@ -272,6 +271,9 @@ class InsightDialog(QDialog):
 
         self.setWindowTitle("Git Insight")
         self.resize(700, 800)
+        # Opened afresh each time and parented to the main window: without
+        # this every closed dialog stays alive holding its last results.
+        self.setAttribute(Qt.WA_DeleteOnClose)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -344,10 +346,13 @@ class InsightDialog(QDialog):
             self._render_content(*self._last_render)
         self.update()
 
-    def closeEvent(self, event) -> None:
+    def done(self, result: int) -> None:
+        # Esc, reject() and the title-bar X all end here. Since Qt 6.3 done()
+        # closes the dialog without delivering a close event, so cancelling
+        # in closeEvent left the walk running after Esc.
         if self._cancel is not None:
             self._cancel.set()
-        super().closeEvent(event)
+        super().done(result)
 
     def _on_range_changed(self, label: str) -> None:
         self._custom_widget.setVisible(label == "Custom")
@@ -401,7 +406,6 @@ class InsightDialog(QDialog):
         signals = _LoadSignals()
         signals.progress.connect(self._on_progress)
         signals.done.connect(self._on_loaded)
-        signals.cancelled.connect(self._on_cancelled)
         signals.failed.connect(self._on_failed)
         self._load_signals = signals  # prevent GC
 
@@ -445,8 +449,7 @@ class InsightDialog(QDialog):
                     return
 
             if cancel_event.is_set():
-                signals.cancelled.emit(generation)
-                return
+                return  # superseded or closed: nobody is waiting for this result
 
             signals.done.emit(
                 generation,
@@ -482,15 +485,6 @@ class InsightDialog(QDialog):
             files_changed,
             total_commits,
         )
-
-    def _on_cancelled(self, generation: int) -> None:
-        # Worker was cancelled (closeEvent or supersession). Nothing to render.
-        if generation != self._load_generation:
-            return
-        # Keep the loading label visible briefly so a fast cancel still
-        # shows that we acknowledged it; closeEvent will tear the dialog
-        # down anyway.
-        self._loading_label.setText("Cancelled.")
 
     def _on_failed(self, generation: int, message: str) -> None:
         if generation != self._load_generation:
