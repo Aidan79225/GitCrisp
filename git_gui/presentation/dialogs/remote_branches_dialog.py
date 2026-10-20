@@ -87,12 +87,7 @@ class RemoteBranchesDialog(QDialog):
         self._refresh()
 
     def _refresh(self) -> None:
-        try:
-            names = [b.name for b in self._queries.get_branches.execute() if b.is_remote]
-        except Exception as e:
-            QMessageBox.warning(self, "Load remote branches failed", str(e))
-            names = []
-        names = [n for n in names if not n.endswith("/HEAD")]
+        names = self._load_branch_names()
         try:
             self._defaults = set(self._queries.remote_default_branches.execute().values())
         except Exception:
@@ -101,25 +96,38 @@ class RemoteBranchesDialog(QDialog):
             self._remotes = [r.name for r in self._queries.list_remotes.execute()]
         except Exception:
             self._remotes = []
+        self._populate(names)
+        self._apply_filter(self._filter.text())
+        self._update_delete_button()
 
+    def _load_branch_names(self) -> list[str]:
+        try:
+            branches = self._queries.get_branches.execute()
+        except Exception as e:
+            QMessageBox.warning(self, "Load remote branches failed", str(e))
+            return []
+        return [b.name for b in branches if b.is_remote and not b.name.endswith("/HEAD")]
+
+    def _populate(self, names: list[str]) -> None:
         self._table.blockSignals(True)
         self._table.setRowCount(0)
         for name in sorted(names):
             row = self._table.rowCount()
             self._table.insertRow(row)
-            item = QTableWidgetItem(name)
-            item.setData(Qt.UserRole, name)
-            if name in self._defaults:
-                item.setText(f"{name}  (default)")
-                item.setFlags(Qt.ItemIsEnabled)
-                item.setToolTip("Default branch — cannot be batch-deleted")
-            else:
-                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Unchecked)
-            self._table.setItem(row, 0, item)
+            self._table.setItem(row, 0, self._row_item(name))
         self._table.blockSignals(False)
-        self._apply_filter(self._filter.text())
-        self._update_delete_button()
+
+    def _row_item(self, name: str) -> QTableWidgetItem:
+        item = QTableWidgetItem(name)
+        item.setData(Qt.UserRole, name)
+        if name in self._defaults:
+            item.setText(f"{name}  (default)")
+            item.setFlags(Qt.ItemIsEnabled)
+            item.setToolTip("Default branch — cannot be batch-deleted")
+        else:
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Unchecked)
+        return item
 
     def _apply_filter(self, text: str) -> None:
         needle = text.strip().lower()
@@ -181,22 +189,21 @@ class RemoteBranchesDialog(QDialog):
 
     def _on_delete(self) -> None:
         selected = self._collect_selected()
-        if not selected:
-            return
-        shown = _capped_listing(selected)
-        if (
-            QMessageBox.question(
-                self,
-                "Delete remote branches",
-                f"Delete {len(selected)} remote branch(es)? This cannot be undone.\n\n{shown}",
-                QMessageBox.Yes | QMessageBox.Cancel,
-                QMessageBox.Cancel,
-            )
-            != QMessageBox.Yes
-        ):
-            return
+        if selected and self._confirm_delete(selected):
+            self._start_delete(self._grouped_by_remote(selected, self._remotes))
 
-        grouped = self._grouped_by_remote(selected, self._remotes)
+    def _confirm_delete(self, selected: list[str]) -> bool:
+        answer = QMessageBox.question(
+            self,
+            "Delete remote branches",
+            f"Delete {len(selected)} remote branch(es)? This cannot be undone.\n\n"
+            f"{_capped_listing(selected)}",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        return answer == QMessageBox.Yes
+
+    def _start_delete(self, grouped: dict[str, list[str]]) -> None:
         self._set_busy(True)
         signals = _DeleteSignals(self)
         signals.finished.connect(self._on_delete_finished)
