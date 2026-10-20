@@ -1,11 +1,4 @@
-"""The staging/delta vocabulary, as enums rather than bare strings.
-
-Every member's value is the string the codebase used before, and every enum is
-a StrEnum, so a member compares and hashes equal to that string. That is what
-lets the layers migrate one at a time: infrastructure can hand out
-``StagingState.STAGED`` while a widget still asks ``status == "staged"``, and
-neither has to know about the other yet.
-"""
+"""The staging/delta vocabulary, as enums rather than bare strings."""
 
 from __future__ import annotations
 
@@ -32,7 +25,6 @@ def test_line_kinds_are_the_diff_prefixes():
 
 
 def test_a_member_is_interchangeable_with_its_string():
-    """Untouched call sites keep working while the layers migrate."""
     assert StagingState.STAGED == "staged"
     assert {"staged": 1}[StagingState.STAGED] == 1
     assert {StagingState.STAGED: 1}["staged"] == 1
