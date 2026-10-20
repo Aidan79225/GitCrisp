@@ -26,7 +26,7 @@ class _Host(TagFlowsMixin, RemoteOpQueueMixin):
     def _reload(self) -> None:
         pass
 
-    def _run_remote_op(self, name: str, fn) -> None:
+    def _run_remote_op(self, name: str, fn, *, commands=None) -> None:
         # Single-flight, as RemoteOpQueueMixin is: the flag is set as the op
         # starts and cleared only once it finishes, and a request that
         # arrives meanwhile is dropped.
@@ -74,3 +74,25 @@ def test_a_skipped_delete_names_the_op_that_holds_the_slot(host):
     host._remote_op_name = "Fetch origin"
     host._delete_tag_local_and_remote("v1", ["origin", "upstream"])
     assert "Fetch origin" in host._log_panel.log_error.call_args.args[0]
+
+
+def _switch_repo(host) -> MagicMock:
+    """Make another repo active, as switching tabs does; returns the bus it replaced."""
+    started_in = host._commands
+    host._commands, host._repo_path = MagicMock(), "/other"
+    return started_in
+
+
+def test_a_repo_switch_while_the_delete_runs_leaves_the_new_repo_alone(host):
+    host._delete_tag_local_and_remote("v1", ["origin", "upstream"])
+    started_in = _switch_repo(host)
+    host.finish_ops()
+    assert started_in.delete_remote_tag.execute.call_count == 2
+    host._commands.delete_remote_tag.execute.assert_not_called()
+
+
+def test_a_repo_switch_while_the_delete_runs_prunes_the_cache_of_the_repo_it_ran_in(host):
+    host._delete_tag_local_and_remote("v1", ["origin", "upstream"])
+    _switch_repo(host)
+    host.finish_ops()
+    assert {c.args[0] for c in host._remote_tag_cache.save.call_args_list} == {"/repo"}

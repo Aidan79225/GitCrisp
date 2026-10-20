@@ -136,9 +136,11 @@ class BranchFlowsMixin:
         )
         if reply != QMessageBox.Yes:
             return
+        commands = self._commands
         self._run_remote_op(
             op_name,
-            lambda: self._commands.delete_remote_branch.execute(remote, branch),
+            lambda: commands.delete_remote_branch.execute(remote, branch),
+            commands=commands,
         )
 
     def _on_create_branch(self, oid: str) -> None:

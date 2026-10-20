@@ -142,6 +142,7 @@ class MergeRebaseFlowsMixin:
         # edits a plan, not after.
         if self._remote_slot_busy(op_name):
             return
+        commands = self._commands
         try:
             head_oid = self._queries.get_head_oid.execute()
             if not head_oid:
@@ -157,7 +158,8 @@ class MergeRebaseFlowsMixin:
             entries = dlg.result_entries()
             self._run_remote_op(
                 op_name,
-                lambda: self._commands.interactive_rebase.execute(target_oid, entries),
+                lambda: commands.interactive_rebase.execute(target_oid, entries),
+                commands=commands,
             )
         except Exception as e:
             self._log_panel.expand()
