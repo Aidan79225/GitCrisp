@@ -126,14 +126,7 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
 
     def _on_delete_remote_branch(self, remote: str, branch: str) -> None:
         op_name = f"Delete {remote}/{branch}"
-        if self._remote_running:
-            # The remote-op slot drops a request made while it is busy; say
-            # so before asking, rather than after the user has confirmed.
-            self._log_panel.expand()
-            self._log_panel.log_error(
-                f"{op_name} — skipped: another remote operation is running. "
-                "Try again once it finishes."
-            )
+        if self._remote_slot_busy(op_name):
             return
         commands = self._commands
         reply = QMessageBox.question(
@@ -152,13 +145,16 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         )
 
     def _on_create_branch(self, oid: str) -> None:
+        commands = self._commands
         name, ok = QInputDialog.getText(self, "Create Branch", "Branch name:")
         if not ok or not name.strip():
             return
         branch_name = name.strip()
+        if self._repo_switched_while_asking(commands, f"Create branch {branch_name}"):
+            return
         try:
-            self._commands.create_branch.execute(branch_name, oid)
-            self._commands.checkout.execute(branch_name)
+            commands.create_branch.execute(branch_name, oid)
+            commands.checkout.execute(branch_name)
             self._log_panel.log(f"Created and checked out branch: {branch_name}")
         except Exception as e:
             self._log_panel.expand()
@@ -291,6 +287,7 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         """
         if self._queries is None or not oid:
             return
+        commands = self._commands
         try:
             all_branches = self._queries.get_branches.execute()
         except Exception as e:
@@ -318,6 +315,8 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
             if chosen is None:
                 return
 
+        if self._repo_switched_while_asking(commands, f"Checkout {chosen.name}"):
+            return
         self._switch_to_branch(chosen, all_branches)
 
     def _switch_to_branch(self, branch: Branch, all_branches: list[Branch]) -> None:

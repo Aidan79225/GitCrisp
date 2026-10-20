@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from git_gui.domain.entities import ResetMode
 from git_gui.presentation.dialogs.reset_dialog import ResetDialog
+from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 
 
-class ResetFlowMixin:
+class ResetFlowMixin(AskedRepoGuardMixin):
     """Reset-to-commit flow — dialog, command dispatch, logging.
 
     Mixin — not instantiable on its own. Relies on composite-provided
@@ -16,6 +17,7 @@ class ResetFlowMixin:
 
     def _on_reset_to_commit(self, oid: str, default_mode: ResetMode) -> None:
         short = oid[:7]
+        commands = self._commands
         head_before = self.head_before_operation()
         try:
             commit = self._queries.get_commit_detail.execute(oid)
@@ -30,10 +32,12 @@ class ResetFlowMixin:
                 dirty_files=dirty_files,
                 parent=self,
             )
-            if dlg.exec() != ResetDialog.Accepted:
+            if dlg.exec() != ResetDialog.Accepted or self._repo_switched_while_asking(
+                commands, f"Reset to {short}"
+            ):
                 return
             mode = dlg.result_mode()
-            self._commands.reset_branch.execute(oid, mode)
+            commands.reset_branch.execute(oid, mode)
             self._log_undoable(
                 f"Reset {head_branch} --{mode.value.lower()} to {short}", head_before
             )
