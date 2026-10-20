@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-import tempfile
+import logging
 from pathlib import Path
+
+from PySide6.QtCore import QStandardPaths
 
 from git_gui.resources import get_resource_path
 
 from .tokens import Theme
+
+_log = logging.getLogger(__name__)
 
 # The QCheckBox indicator's geometry. Item views paint their own indicator
 # (widgets/check_indicator.py) from these same numbers, so the two kinds of
@@ -146,7 +150,7 @@ QCheckBox::indicator:hover {
 QCheckBox::indicator:checked {
     background: %(on_primary_container)s;
     border-color: %(on_primary_container)s;
-    image: url(%(check_icon)s);
+    image: url("%(check_icon)s");
 }
 
 /* Scrollbar — once any QApplication stylesheet exists, Qt routes
@@ -206,21 +210,38 @@ QScrollBar::add-page, QScrollBar::sub-page {
 """
 
 
+def _icon_dir() -> Path:
+    # Per user, not the temp directory: on Linux that is the shared /tmp,
+    # where another user's directory fails the write and their symlink
+    # redirects it into this user's files.
+    return Path(QStandardPaths.writableLocation(QStandardPaths.CacheLocation))
+
+
 def _check_icon(color: str) -> str:
     """Path to the checkbox tick drawn in ``color``, for a QSS ``url()``.
 
     A QSS image cannot be recolored, so the tick is written out once per
     color. The path is absolute: a relative ``url()`` resolves against the
     working directory, which is only the project root when run from a
-    checkout, so an installed build showed no tick at all.
+    checkout, so an installed build showed no tick at all. If the copy
+    cannot be written, the bundled white tick stands in, because this runs
+    at launch and a missing tint is no reason to stop the app.
     """
-    template = get_resource_path("arts/ic_check.svg").read_text(encoding="utf-8")
-    svg = template.replace("#fff", color)
-    icon = Path(tempfile.gettempdir()) / "gitcrisp" / f"ic_check_{color.lstrip('#')}.svg"
+    bundled = get_resource_path("arts/ic_check.svg")
+    try:
+        return _write_tinted_icon(bundled, color).as_posix()
+    except OSError as e:
+        _log.warning("Could not write the %s checkbox tick: %s", color, e)
+        return bundled.as_posix()
+
+
+def _write_tinted_icon(template: Path, color: str) -> Path:
+    svg = template.read_text(encoding="utf-8").replace("#fff", color)
+    icon = _icon_dir() / f"ic_check_{color.lstrip('#')}.svg"
     if not icon.exists() or icon.read_text(encoding="utf-8") != svg:
         icon.parent.mkdir(parents=True, exist_ok=True)
         icon.write_text(svg, encoding="utf-8")
-    return icon.as_posix()
+    return icon
 
 
 def render(theme: Theme) -> str:
