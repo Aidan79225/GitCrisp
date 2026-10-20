@@ -660,11 +660,7 @@ class GraphWidget(QWidget):
             return
 
         # Nothing to fetch when every tip is already drawn — just scroll and select.
-        loaded = {
-            self._model.data(self._model.index(row, 0), OID_ROLE)
-            for row in range(self._model.rowCount())
-        }
-        if loaded.issuperset(tips):
+        if self._loaded_oids().issuperset(tips):
             self.scroll_to_oid(oid, select=True)
             return
         self._load_tips_and_land(oid, tips)
@@ -677,11 +673,7 @@ class GraphWidget(QWidget):
         without it does the click go to the full graph, which can load it:
         leaving earlier threw away the file view for a commit on a later page.
         """
-        loaded = {
-            self._model.data(self._model.index(row, 0), OID_ROLE)
-            for row in range(self._model.rowCount())
-        }
-        if oid in loaded:
+        if self._row_of(oid) is not None:
             self.scroll_to_oid(oid, select=True)
         elif self._has_more:
             self._pending_scroll_oid = oid
@@ -792,10 +784,7 @@ class GraphWidget(QWidget):
 
         retrying = False
         if self._pending_scroll_oid:
-            loaded_oids = {
-                self._model.data(self._model.index(r, 0), OID_ROLE)
-                for r in range(self._model.rowCount())
-            }
+            loaded_oids = self._loaded_oids()
             target_loaded = self._pending_scroll_oid in loaded_oids
             base_loaded = (
                 self._pending_merge_base is None or self._pending_merge_base in loaded_oids
@@ -901,7 +890,7 @@ class GraphWidget(QWidget):
         top_left = self._view.viewport().rect().topLeft()
         index = self._view.indexAt(top_left)
         if index.isValid():
-            self._scroll_anchor_oid = self._model.data(self._model.index(index.row(), 0), OID_ROLE)
+            self._scroll_anchor_oid = self._oid_at(index.row())
         else:
             self._scroll_anchor_oid = None
 
@@ -911,14 +900,11 @@ class GraphWidget(QWidget):
         loaded."""
         if self._scroll_anchor_oid is None:
             return
-        for row in range(self._model.rowCount()):
-            if self._model.data(self._model.index(row, 0), OID_ROLE) == self._scroll_anchor_oid:
-                index = self._model.index(row, 0)
-                self._view.scrollTo(index, QTableView.PositionAtTop)
-                return
-        # Anchor commit no longer in the loaded set; clear so we don't keep
-        # trying.
-        self._scroll_anchor_oid = None
+        row = self._row_of(self._scroll_anchor_oid)
+        if row is None:
+            self._scroll_anchor_oid = None
+            return
+        self._view.scrollTo(self._model.index(row, 0), QTableView.PositionAtTop)
 
     def _restore_selection_no_scroll(self, oid: str) -> bool:
         """Re-apply the highlighted row to the row matching `oid` after a
@@ -926,15 +912,14 @@ class GraphWidget(QWidget):
         graph's highlight survives auto-reloads (RepoChangeDetector,
         post-operation flows) without losing the user's selection.
         Returns whether `oid` still has a row."""
-        for row in range(self._model.rowCount()):
-            if self._model.data(self._model.index(row, 0), OID_ROLE) == oid:
-                index = self._model.index(row, 0)
-                self._view.selectionModel().setCurrentIndex(
-                    index,
-                    QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows,
-                )
-                return True
-        return False
+        row = self._row_of(oid)
+        if row is None:
+            return False
+        self._view.selectionModel().setCurrentIndex(
+            self._model.index(row, 0),
+            QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows,
+        )
+        return True
 
     def _on_scroll(self, value: int) -> None:
         scrollbar = self._view.verticalScrollBar()
@@ -1313,14 +1298,13 @@ class GraphWidget(QWidget):
 
     def scroll_to_oid(self, oid: str, select: bool = False) -> None:
         """Scroll so the row with the given oid is the first visible item."""
-        for row in range(self._model.rowCount()):
-            row_oid = self._model.data(self._model.index(row, 0), OID_ROLE)
-            if row_oid == oid:
-                index = self._model.index(row, 0)
-                self._view.scrollTo(index, QTableView.PositionAtTop)
-                if select:
-                    self._view.setCurrentIndex(index)
-                return
+        row = self._row_of(oid)
+        if row is None:
+            return
+        index = self._model.index(row, 0)
+        self._view.scrollTo(index, QTableView.PositionAtTop)
+        if select:
+            self._view.setCurrentIndex(index)
 
     def clear_selection(self) -> None:
         self._view.clearSelection()
@@ -1365,8 +1349,7 @@ class GraphWidget(QWidget):
         bottom = self._view.indexAt(self._view.viewport().rect().bottomLeft())
         last_row = bottom.row() if bottom.isValid() else rows - 1
         last_row = max(last_row, self._view.currentIndex().row())
-        first_oid = self._model.data(self._model.index(0, 0), OID_ROLE)
-        working_tree_rows = 1 if first_oid == WORKING_TREE_OID else 0
+        working_tree_rows = 1 if self._oid_at(0) == WORKING_TREE_OID else 0
         return last_row + 1 - working_tree_rows
 
     def _on_search_text_changed(self, text: str) -> None:
@@ -1437,9 +1420,15 @@ class GraphWidget(QWidget):
 
     def _row_of(self, oid: str) -> int | None:
         for row in range(self._model.rowCount()):
-            if self._model.data(self._model.index(row, 0), OID_ROLE) == oid:
+            if self._oid_at(row) == oid:
                 return row
         return None
+
+    def _loaded_oids(self) -> set[str]:
+        return {self._oid_at(row) for row in range(self._model.rowCount())}
+
+    def _oid_at(self, row: int) -> str:
+        return self._model.data(self._model.index(row, 0), OID_ROLE)
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._model.data(self._model.index(current.row(), 0), OID_ROLE)
