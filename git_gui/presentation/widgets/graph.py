@@ -266,16 +266,12 @@ class _PathFilterBar(QWidget):
         btn_close.clicked.connect(self.closed.emit)
         layout.addWidget(btn_close)
 
-        self._path: str | None = None
-
     def open(self, path: str) -> None:
-        self._path = path
         self._label.set_full_text(f"History of  {path}")
         self._label.setToolTip(path)
         self.setVisible(True)
 
     def close_bar(self) -> None:
-        self._path = None
         self.setVisible(False)
 
     def follow(self) -> bool:
@@ -1321,10 +1317,6 @@ class GraphWidget(QWidget):
                         )
                     )
 
-    def reload_and_scroll_to(self, oid: str) -> None:
-        self._pending_scroll_oid = oid
-        self.reload()
-
     def scroll_to_oid(self, oid: str, select: bool = False) -> None:
         """Scroll so the row with the given oid is the first visible item."""
         for row in range(self._model.rowCount()):
@@ -1341,9 +1333,6 @@ class GraphWidget(QWidget):
         self._view.setCurrentIndex(self._model.index(-1, 0))
         # Left set, it would swallow the next click on the same commit.
         self._selected_oid = None
-
-    def set_stash_visible(self, visible: bool) -> None:
-        self._stash_btn.setVisible(visible)
 
     # ── Search ───────────────────────────────────────────────────────────
     def open_search(self) -> None:
@@ -1395,9 +1384,6 @@ class GraphWidget(QWidget):
             self._search_bar.set_match_label(0, 0)
             return
 
-        # If not all commits are loaded yet, reload with a large limit so the
-        # search covers the full history. The reload callback will re-trigger
-        # the search via _run_search_after_load.
         if self._has_more:
             self._search_after_full_load(needle)
             return
