@@ -95,3 +95,24 @@ def test_error_shows_messagebox(qtbot, buses):
         d._on_delete()
     warn.assert_called_once()
     assert "boom" in warn.call_args[0][2]
+
+
+def test_create_from_a_branch_name_start_point_creates_the_branch(qtbot, repo_impl):
+    from PySide6.QtWidgets import QDialog
+
+    from git_gui.presentation.bus import CommandBus, QueryBus
+
+    queries = QueryBus.from_reader(repo_impl)
+    commands = CommandBus.from_writer(repo_impl)
+    d = BranchesDialog(queries, commands)
+    qtbot.addWidget(d)
+    d._table.selectRow(0)  # master: the Create dialog prefills its name as the start point
+    with (
+        patch("git_gui.presentation.dialogs.branches_dialog._CreateDialog") as CD,
+        patch.object(QMessageBox, "warning") as warn,
+    ):
+        CD.return_value.exec.return_value = QDialog.Accepted
+        CD.return_value.values.return_value = ("feat", "master")
+        d._on_create()
+    warn.assert_not_called()
+    assert "feat" in {b.name for b in queries.get_branches.execute()}
