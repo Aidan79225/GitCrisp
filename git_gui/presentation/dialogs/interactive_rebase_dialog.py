@@ -82,8 +82,6 @@ class InteractiveRebaseDialog(QDialog):
         self.setMinimumWidth(600)
         self.setMinimumHeight(400)
 
-        self._commits = list(commits)
-
         layout = QVBoxLayout(self)
 
         # Table
@@ -113,7 +111,9 @@ class InteractiveRebaseDialog(QDialog):
             self._table.setItem(row, _ACTION_COLUMN, _cell(""))
 
             # OID
-            self._table.setItem(row, _OID_COLUMN, _cell(commit.oid[:7]))
+            oid_cell = _cell(commit.oid[:7])
+            oid_cell.setData(Qt.UserRole, commit.oid)
+            self._table.setItem(row, _OID_COLUMN, oid_cell)
 
             # Message (first line)
             msg_line = commit.message.split("\n", 1)[0]
@@ -179,15 +179,7 @@ class InteractiveRebaseDialog(QDialog):
 
     def result_entries(self) -> list[tuple[str, str]]:
         """Return (action, full_oid) tuples in current row order."""
-        entries: list[tuple[str, str]] = []
-        for row in range(self._table.rowCount()):
-            action = self._action_at(row)
-            # Find the original commit by matching the short oid
-            short_oid = self._table.item(row, _OID_COLUMN).text()
-            full_oid = short_oid  # fallback
-            for c in self._commits:
-                if c.oid[:7] == short_oid:
-                    full_oid = c.oid
-                    break
-            entries.append((action, full_oid))
-        return entries
+        return [
+            (self._action_at(row), self._table.item(row, _OID_COLUMN).data(Qt.UserRole))
+            for row in range(self._table.rowCount())
+        ]

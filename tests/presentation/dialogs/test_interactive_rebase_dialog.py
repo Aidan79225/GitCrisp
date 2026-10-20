@@ -167,3 +167,14 @@ def test_squash_after_a_kept_commit_and_a_drop_enables_execute(qtbot):
     dlg._table.cellWidget(1, 0).setCurrentText("drop")
     dlg._table.cellWidget(2, 0).setCurrentText("fixup")
     assert dlg._buttons.button(QDialogButtonBox.Ok).isEnabled() is True
+
+
+def test_commits_whose_short_oids_collide_each_keep_their_own_full_oid(qtbot):
+    first, second = "abcdef1" + "0" * 33, "abcdef1" + "f" * 33
+    commits = [
+        Commit(oid=first, message="one", author="a", timestamp=datetime.now(), parents=[]),
+        Commit(oid=second, message="two", author="a", timestamp=datetime.now(), parents=[first]),
+    ]
+    dlg = InteractiveRebaseDialog(commits, "main")
+    qtbot.addWidget(dlg)
+    assert dlg.result_entries() == [("pick", first), ("pick", second)]
