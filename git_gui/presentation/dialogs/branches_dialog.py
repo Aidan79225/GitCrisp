@@ -83,6 +83,7 @@ class _UpstreamDialog(QDialog):
 
 
 class BranchesDialog(QDialog):
+    checkout_requested = Signal(str)  # branch name
     checkout_in_new_worktree_requested = Signal(str)  # branch name
 
     def __init__(self, queries, commands, parent=None) -> None:
@@ -180,15 +181,18 @@ class BranchesDialog(QDialog):
             return []
 
     def _on_checkout(self) -> None:
+        """Close, then hand the branch to the window's checkout flow.
+
+        That flow opens the worktree already holding the branch instead of
+        checking it out here, and logs the outcome. The dialog closes first
+        because it lists this repo's branches, and once the flow is done
+        this may no longer be the repo on screen.
+        """
         name = self._selected_name()
         if not name:
             return
-        try:
-            self._commands.checkout.execute(name)
-        except Exception as e:
-            QMessageBox.warning(self, "Checkout failed", str(e))
-            return
         self.accept()
+        self.checkout_requested.emit(name)
 
     def _on_create(self) -> None:
         default_start = self._selected_name() or ""
@@ -271,9 +275,14 @@ class BranchesDialog(QDialog):
         self._refresh()
 
     def _on_checkout_in_new_worktree(self) -> None:
+        """Close, then hand the branch to Add Worktree, for the reason
+        `_on_checkout` gives: that dialog can switch the window to another
+        worktree."""
         name = self._selected_name()
-        if name:
-            self.checkout_in_new_worktree_requested.emit(name)
+        if not name:
+            return
+        self.accept()
+        self.checkout_in_new_worktree_requested.emit(name)
 
     def click_checkout_in_new_worktree(self) -> None:
         # Test seam.

@@ -61,3 +61,21 @@ def test_checkout_in_new_worktree_button_emits_signal(qtbot):
     dlg._table.selectRow(0)
     dlg.click_checkout_in_new_worktree()
     assert received == ["master"]
+
+
+def test_checkout_in_new_worktree_closes_the_dialog_before_the_window_may_switch(qtbot):
+    """Add Worktree can switch the window to another worktree, and this
+    dialog lists, and acts on, the repo it was opened for."""
+    from PySide6.QtWidgets import QDialog
+
+    dlg = BranchesDialog(_Q([_info("master")]), _C())
+    qtbot.addWidget(dlg)
+    dlg._table.selectRow(0)
+    closed_first: list[bool] = []
+    dlg.checkout_in_new_worktree_requested.connect(
+        lambda _name: closed_first.append(dlg.result() == QDialog.Accepted)
+    )
+
+    dlg._checkout_wt_btn.click()
+
+    assert closed_first == [True]
