@@ -15,9 +15,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from git_gui.domain.entities import Commit
+from git_gui.domain.entities import Commit, RebaseAction, RebaseTodoEntry
 
-_ACTIONS = ["pick", "squash", "fixup", "drop"]
 _ACTION_COLUMN, _OID_COLUMN, _MESSAGE_COLUMN = range(3)
 _HEADERS = ["Action", "OID", "Message"]
 _ACTION_COLUMN_WIDTH = 100
@@ -112,8 +111,8 @@ class InteractiveRebaseDialog(QDialog):
 
     def _add_commit_row(self, row: int, commit: Commit) -> None:
         combo = QComboBox()
-        combo.addItems(_ACTIONS)
-        combo.setCurrentText("pick")
+        combo.addItems([action.value for action in RebaseAction])
+        combo.setCurrentText(RebaseAction.PICK.value)
         combo.currentTextChanged.connect(self._validate)
         self._table.setCellWidget(row, _ACTION_COLUMN, combo)
         self._table.setItem(row, _ACTION_COLUMN, _cell(""))
@@ -136,13 +135,13 @@ class InteractiveRebaseDialog(QDialog):
         rows = [self._take_row(row) for row in range(self._table.rowCount())]
         rows.insert(destination, rows.pop(source))
         for row, (action, items) in enumerate(rows):
-            self._action_combo(row).setCurrentText(action)
+            self._action_combo(row).setCurrentText(action.value)
             for column, item in enumerate(items):
                 self._table.setItem(row, column, item)
         self._table.selectRow(destination)
         self._validate()
 
-    def _take_row(self, row: int) -> tuple[str, list[QTableWidgetItem]]:
+    def _take_row(self, row: int) -> tuple[RebaseAction, list[QTableWidgetItem]]:
         action = self._action_at(row)
         items = [self._table.takeItem(row, column) for column in range(self._table.columnCount())]
         return action, items
@@ -150,8 +149,8 @@ class InteractiveRebaseDialog(QDialog):
     def _action_combo(self, row: int) -> QComboBox:
         return self._table.cellWidget(row, _ACTION_COLUMN)
 
-    def _action_at(self, row: int) -> str:
-        return self._action_combo(row).currentText()
+    def _action_at(self, row: int) -> RebaseAction:
+        return RebaseAction(self._action_combo(row).currentText())
 
     def _validate(self) -> None:
         """Disable Execute when squash/fixup is the first action that keeps a commit."""
@@ -159,7 +158,7 @@ class InteractiveRebaseDialog(QDialog):
         if self._table.rowCount() == 0:
             execute_btn.setEnabled(False)
             return
-        if self._first_kept_action() in ("squash", "fixup"):
+        if self._first_kept_action() in (RebaseAction.SQUASH, RebaseAction.FIXUP):
             execute_btn.setEnabled(False)
             execute_btn.setToolTip(
                 "Cannot squash/fixup the first kept commit — no preceding commit to combine with."
@@ -168,17 +167,19 @@ class InteractiveRebaseDialog(QDialog):
             execute_btn.setEnabled(True)
             execute_btn.setToolTip("")
 
-    def _first_kept_action(self) -> str | None:
+    def _first_kept_action(self) -> RebaseAction | None:
         """git does not count a dropped commit as one to squash or fix up into."""
         for row in range(self._table.rowCount()):
             action = self._action_at(row)
-            if action != "drop":
+            if action != RebaseAction.DROP:
                 return action
         return None
 
-    def result_entries(self) -> list[tuple[str, str]]:
-        """Return (action, full_oid) tuples in current row order."""
+    def result_entries(self) -> list[RebaseTodoEntry]:
+        """Return the todo entries in current row order."""
         return [
-            (self._action_at(row), self._table.item(row, _OID_COLUMN).data(Qt.UserRole))
+            RebaseTodoEntry(
+                self._action_at(row), self._table.item(row, _OID_COLUMN).data(Qt.UserRole)
+            )
             for row in range(self._table.rowCount())
         ]

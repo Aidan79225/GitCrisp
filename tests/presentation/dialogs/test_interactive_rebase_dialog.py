@@ -178,3 +178,20 @@ def test_commits_whose_short_oids_collide_each_keep_their_own_full_oid(qtbot):
     dlg = InteractiveRebaseDialog(commits, "main")
     qtbot.addWidget(dlg)
     assert dlg.result_entries() == [("pick", first), ("pick", second)]
+
+
+def test_the_plan_names_each_action_as_a_rebase_action(qtbot):
+    from git_gui.domain.entities import RebaseAction
+
+    dlg = InteractiveRebaseDialog(_commits(), "main")
+    qtbot.addWidget(dlg)
+    dlg._table.cellWidget(1, 0).setCurrentText("fixup")
+    actions = [action for action, _oid in dlg.result_entries()]
+    assert actions == [RebaseAction.PICK, RebaseAction.FIXUP, RebaseAction.PICK]
+    assert all(type(action) is RebaseAction for action in actions)
+    assert [dlg._table.cellWidget(0, 0).itemText(i) for i in range(4)] == [
+        "pick",
+        "squash",
+        "fixup",
+        "drop",
+    ]
