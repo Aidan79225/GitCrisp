@@ -63,6 +63,16 @@ class WorktreesDialog(QDialog):
 
         self._populate()
 
+    def set_worktrees(self, worktrees: list[Worktree]) -> None:
+        """Show *worktrees* in place of the list the dialog opened with.
+
+        Lock, unlock, remove and add run in the background after the dialog
+        has emitted its request, so the dialog's owner calls this once one
+        completes; otherwise the table keeps showing the state from before it.
+        """
+        self._worktrees = list(worktrees)
+        self._populate()
+
     # ── Public test/inspection API ───────────────────────────────────────
 
     def row_count(self) -> int:
@@ -122,6 +132,7 @@ class WorktreesDialog(QDialog):
         path = self._selected_path()
         if path:
             self.open_requested.emit(path)
+            self.accept()
 
     def _on_remove(self) -> None:
         path = self._selected_path()

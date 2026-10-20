@@ -78,3 +78,23 @@ def test_add_button_emits_add_requested(qtbot):
     dlg.add_requested.connect(lambda: received.append(True))
     dlg.click_add()
     assert received == [True]
+
+
+def test_opening_a_worktree_closes_the_dialog(qtbot):
+    dlg = _open(qtbot, [_wt("feat", "/tmp/wt-feat")])
+    dlg.show()
+    dlg.select_row(0)
+    dlg.click_open()
+    assert not dlg.isVisible()
+
+
+def test_set_worktrees_shows_a_lock_taken_after_opening(qtbot):
+    dlg = _open(qtbot, [_wt("feat", "/tmp/wt-feat")])
+    dlg.set_worktrees([_wt("feat", "/tmp/wt-feat", locked=True, reason="overnight")])
+    assert dlg.row_locked_text(0) == "overnight"
+
+
+def test_set_worktrees_drops_a_removed_worktree(qtbot):
+    dlg = _open(qtbot, [_wt("main", "/tmp/main", main=True), _wt("feat", "/tmp/wt-feat")])
+    dlg.set_worktrees([_wt("main", "/tmp/main", main=True)])
+    assert [dlg.row_path(r) for r in range(dlg.row_count())] == ["/tmp/main"]
