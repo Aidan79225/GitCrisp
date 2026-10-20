@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+from dataclasses import replace
 from datetime import datetime
 from typing import ClassVar
 from unittest.mock import MagicMock
@@ -585,3 +587,118 @@ def test_the_row_is_tall_enough_for_both_lines(qtbot):
 
     wanted = delegate.sizeHint(option, pane._model.index(0, 0)).height()
     assert pane._view.rowHeight(0) >= wanted
+
+
+# ── Reloading ────────────────────────────────────────────────────────────────
+
+
+def _start_a_held_reload(pane, queries, outcome):
+    """Start a reload whose read waits until the returned event is set.
+
+    The read then returns `outcome`, or raises it when it is an exception.
+    Returns the event and the signals that reload will answer on.
+    """
+    entered, release = threading.Event(), threading.Event()
+
+    def held_read(_ref):
+        entered.set()
+        release.wait(5)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    queries.get_reflog.execute.side_effect = held_read
+    pane.reload()
+    assert entered.wait(5), "the held reload never started reading"
+    queries.get_reflog.execute.side_effect = None
+    return release, pane._load_signals
+
+
+def _reload_to(qtbot, pane, queries, entries) -> None:
+    queries.get_reflog.execute.return_value = entries
+    pane.reload()
+    qtbot.waitUntil(lambda: pane._model.entry_at(0).summary == entries[0].summary)
+
+
+def test_a_superseded_reload_does_not_overwrite_a_newer_one(qtbot):
+    pane, queries = _pane(qtbot)
+    release, superseded = _start_a_held_reload(pane, queries, [_entry(0, "commit", "old")])
+    _reload_to(qtbot, pane, queries, [_entry(0, "commit", "newest")])
+
+    with qtbot.waitSignal(superseded.done):
+        release.set()
+
+    assert pane._model.entry_at(0).summary == "newest"
+
+
+def test_a_superseded_failure_does_not_clear_a_newer_reload(qtbot):
+    pane, queries = _pane(qtbot)
+    release, superseded = _start_a_held_reload(pane, queries, ValueError("lock held"))
+    _reload_to(qtbot, pane, queries, [_entry(0, "commit", "newest")])
+
+    with qtbot.waitSignal(superseded.failed):
+        release.set()
+
+    assert pane._model.entry_at(0).summary == "newest"
+    assert "lock held" not in pane._status.full_text()
+
+
+def _with_a_new_movement_on_top() -> list[ReflogEntry]:
+    """ENTRIES after one more movement: every HEAD@{n} below it moves down one."""
+    renumbered = [replace(e, index=e.index + 1) for e in ENTRIES]
+    return [_entry(0, "commit", "made after the pick", oid_old="d" * 40), *renumbered]
+
+
+def test_a_reload_keeps_the_movement_the_user_picked(qtbot):
+    pane, queries = _pane(qtbot)
+    pane.select_row(2)
+
+    _reload_to(qtbot, pane, queries, _with_a_new_movement_on_top())
+
+    assert pane.current_entry().summary == ENTRIES[2].summary
+
+
+def test_a_reload_that_keeps_the_pick_does_not_reload_its_commit(qtbot):
+    pane, queries = _pane(qtbot)
+    pane.select_row(2)
+    got: list[str] = []
+    pane.commit_selected.connect(got.append)
+
+    _reload_to(qtbot, pane, queries, _with_a_new_movement_on_top())
+
+    assert got == []
+
+
+def test_a_pick_that_a_reload_dropped_hands_its_commit_over_again(qtbot):
+    pane, queries = _pane(qtbot)
+    pane.select_row(2)
+    got: list[str] = []
+    pane.commit_selected.connect(got.append)
+
+    _reload_to(qtbot, pane, queries, [_entry(0, "commit", "another history")])
+    queries.get_reflog.execute.return_value = list(ENTRIES)
+    pane.reload()
+    qtbot.waitUntil(lambda: pane._model.rowCount() == len(ENTRIES))
+    pane.select_row(2)
+
+    assert got == [ENTRIES[2].oid_new]
+
+
+def test_a_reload_keeps_the_user_where_they_scrolled_to(qtbot):
+    """The app reloads every time it becomes active again; that must not
+    yank the list back to the picked row while the user is reading an older one."""
+    entries = [_entry(i, "commit", f"thing {i}") for i in range(100)]
+    pane, queries = _pane(qtbot, entries)
+    pane.resize(500, 400)
+    pane.show()
+    qtbot.waitExposed(pane)
+    pane.select_row(2)
+    scrollbar = pane._view.verticalScrollBar()
+    scrollbar.setValue(scrollbar.maximum())
+    scrolled_to = scrollbar.value()
+
+    with qtbot.waitSignal(pane._model.modelReset):
+        pane.reload()
+
+    assert scrollbar.value() == scrolled_to
+    assert pane.current_entry().summary == "thing 2"
