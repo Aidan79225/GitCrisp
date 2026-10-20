@@ -82,6 +82,14 @@ def _went_nowhere(entry: ReflogEntry) -> bool:
     return entry.oid_old is not None and entry.oid_old == entry.oid_new
 
 
+def _movement(entry: ReflogEntry) -> tuple:
+    """What identifies one movement from one reload to the next.
+
+    Not its index: each new movement renumbers every entry before it.
+    """
+    return (entry.oid_old, entry.oid_new, entry.timestamp, entry.operation, entry.summary)
+
+
 class ReflogModel(QAbstractTableModel):
     """One column per row; the whole row is painted by ReflogDelegate."""
 
@@ -154,6 +162,11 @@ class ReflogModel(QAbstractTableModel):
         if 0 <= row < len(self._entries):
             return self._entries[row]
         return None
+
+    def row_of(self, entry: ReflogEntry) -> int | None:
+        """The row showing the same movement as `entry`, if one does."""
+        wanted = _movement(entry)
+        return next((row for row, e in enumerate(self._entries) if _movement(e) == wanted), None)
 
     def reload(self, entries: list[ReflogEntry]) -> None:
         self.beginResetModel()
@@ -300,8 +313,8 @@ class ReflogDelegate(QStyledItemDelegate):
 
 
 class _LoadSignals(QObject):
-    done = Signal(list, object)  # entries, current branch name or None
-    failed = Signal(str)
+    done = Signal(int, list, object)  # generation, entries, current branch name or None
+    failed = Signal(int, str)  # generation, message
 
 
 class ReflogPane(QWidget):
@@ -318,6 +331,9 @@ class ReflogPane(QWidget):
         self._branch: str | None = None
         self._last_emitted: str | None = None
         self._load_signals: _LoadSignals | None = None
+        # Every window reload reloads this pane too, so loads overlap, and a
+        # slow one must not land on top of a newer one.
+        self._load_generation = 0
 
         self._status = ElidingLabel()
 
@@ -372,6 +388,8 @@ class ReflogPane(QWidget):
 
     def reload(self) -> None:
         ref = self._ref
+        self._load_generation += 1
+        generation = self._load_generation
         self._status.setText(f"Reading the {ref} reflog …")
 
         signals = _LoadSignals()
@@ -389,17 +407,42 @@ class ReflogPane(QWidget):
                 # read while a context menu is opening is the wrong place for it.
                 branch = queries.get_repo_state.execute().head_branch
             except Exception as e:  # surfaced in the header, not swallowed
-                signals.failed.emit(str(e))
+                signals.failed.emit(generation, str(e))
                 return
-            signals.done.emit(entries, branch)
+            signals.done.emit(generation, entries, branch)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_loaded(self, entries: list[ReflogEntry], branch: str | None) -> None:
+    def _on_loaded(self, generation: int, entries: list[ReflogEntry], branch: str | None) -> None:
+        if generation != self._load_generation:
+            return
+        picked = self.current_entry()
         self._branch = branch
         self._model.reload(entries)
-        self._last_emitted = None
+        self._reselect(picked)
         self._update_status()
+
+    def _reselect(self, picked: ReflogEntry | None) -> None:
+        """Put the selection back on the movement picked before a reload.
+
+        The model reset clears it, and the pane reloads with every window
+        reload. Its commit is still the one in the diff pane, so finding it
+        again emits nothing; a pick that is gone is forgotten, so picking
+        that commit again hands it over.
+
+        Finding it again must not scroll to it either: the app reloads every
+        time it becomes active, and the user may be reading rows far from the
+        one they picked.
+        """
+        row = self._model.row_of(picked) if picked is not None else None
+        if row is None:
+            self._last_emitted = None
+            return
+        self._view.setAutoScroll(False)
+        try:
+            self.select_row(row)
+        finally:
+            self._view.setAutoScroll(True)
 
     def _on_show_all_toggled(self, checked: bool) -> None:
         self._model.set_show_all(checked)
@@ -413,7 +456,9 @@ class ReflogPane(QWidget):
             text += f"  ({hidden} that changed nothing hidden)"
         self._status.setText(text)
 
-    def _on_failed(self, message: str) -> None:
+    def _on_failed(self, generation: int, message: str) -> None:
+        if generation != self._load_generation:
+            return
         self._branch = None
         self._model.reload([])
         self._status.setText(message)
