@@ -20,7 +20,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.domain.entities import WORKING_TREE_OID, Branch, Commit, ResetMode, Tag
+from git_gui.domain.entities import (
+    WORKING_TREE_OID,
+    Branch,
+    Commit,
+    ResetMode,
+    Tag,
+    split_remote_branch,
+)
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE, GraphModel
@@ -1103,15 +1110,10 @@ class GraphWidget(QWidget):
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
     def _emit_remote_delete(self, name: str) -> None:
-        """Split a qualified remote-branch name (e.g. 'origin/feature/foo')
-        on the first slash and emit (remote, branch). Defensively bail if
-        the input is malformed."""
-        if "/" not in name:
-            return
-        remote, branch = name.split("/", 1)
-        if not remote or not branch:
-            return
-        self.remote_branch_delete_requested.emit(remote, branch)
+        remotes = (r.name for r in self._queries.list_remotes.execute())
+        remote, branch = split_remote_branch(name, remotes)
+        if remote and branch:
+            self.remote_branch_delete_requested.emit(remote, branch)
 
     def _add_merge_rebase_section(
         self, menu: QMenu, oid: str, branches_on_commit: list[str]
