@@ -202,3 +202,75 @@ def test_thread_uncaught_exception_is_logged(tmp_path, monkeypatch):
     assert "test-worker" in content
     assert "RuntimeError" in content
     assert "thread boom" in content
+
+
+def test_records_past_the_size_limit_survive_another_process_holding_the_log(tmp_path, monkeypatch):
+    """A second GitCrisp keeps the log open, and Windows will not rename an
+    open file, so every rollover fails; the records must still reach disk."""
+    log_file = _point_log_dir_at(tmp_path, monkeypatch)
+    monkeypatch.setattr(logging_setup, "_MAX_BYTES", 2000)
+    monkeypatch.setattr(logging, "raiseExceptions", False)
+    logging_setup.setup_logging()
+    logger = logging.getLogger("test.held_log")
+
+    with open(log_file, "a", encoding="utf-8"):
+        for i in range(100):
+            logger.warning("record-%03d", i)
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
+    written = "".join(
+        path.read_text(encoding="utf-8") for path in log_file.parent.glob("gitcrisp.log*")
+    )
+    assert [i for i in range(100) if f"record-{i:03d}" not in written] == []
+
+
+def test_a_rollover_that_cannot_move_the_log_keeps_every_backup(tmp_path, monkeypatch):
+    """While a second GitCrisp holds the log, no rollover can finish; the
+    backups of earlier sessions must not be shifted away trying."""
+    log_file = _point_log_dir_at(tmp_path, monkeypatch)
+    monkeypatch.setattr(logging_setup, "_MAX_BYTES", 2000)
+    monkeypatch.setattr(logging, "raiseExceptions", False)
+    log_file.parent.mkdir(parents=True)
+    for n in (1, 2, 3):
+        Path(f"{log_file}.{n}").write_text(f"BACKUP-{n}", encoding="utf-8")
+    log_file.write_text("x" * 3000, encoding="utf-8")
+    logging_setup.setup_logging()
+    handler = next(
+        h
+        for h in logging.getLogger().handlers
+        if isinstance(h, logging_setup._SharedRotatingFileHandler)
+    )
+
+    def held_by_another_process(source: str, dest: str) -> None:
+        raise PermissionError(32, "The file is in use by another process", source)
+
+    monkeypatch.setattr(handler, "rotate", held_by_another_process)
+    for i in range(5):
+        logging.getLogger("test.held_log").warning("record-%d", i)
+
+    backups = {
+        n: Path(f"{log_file}.{n}").read_text(encoding="utf-8")
+        for n in (1, 2, 3)
+        if Path(f"{log_file}.{n}").exists()
+    }
+    assert backups == {1: "BACKUP-1", 2: "BACKUP-2", 3: "BACKUP-3"}
+
+
+def test_a_rollover_moves_the_log_to_the_first_backup_and_drops_the_oldest(tmp_path, monkeypatch):
+    log_file = _point_log_dir_at(tmp_path, monkeypatch)
+    monkeypatch.setattr(logging_setup, "_MAX_BYTES", 2000)
+    log_file.parent.mkdir(parents=True)
+    for n in (1, 2, 3):
+        Path(f"{log_file}.{n}").write_text(f"BACKUP-{n}", encoding="utf-8")
+    log_file.write_text("FULL" + "x" * 3000, encoding="utf-8")
+    logging_setup.setup_logging()
+
+    logging.getLogger("test.rollover").warning("first record of the new log")
+
+    def backup(n: int) -> str:
+        return Path(f"{log_file}.{n}").read_text(encoding="utf-8")
+
+    assert [backup(1)[:4], backup(2), backup(3)] == ["FULL", "BACKUP-1", "BACKUP-2"]
+    assert not Path(f"{log_file}.4").exists()
+    assert not Path(f"{log_file}.rolling").exists()

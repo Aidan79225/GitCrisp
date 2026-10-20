@@ -21,6 +21,7 @@ from __future__ import annotations
 import faulthandler
 import logging
 import logging.handlers
+import os
 import sys
 import threading
 from pathlib import Path
@@ -34,6 +35,52 @@ _BACKUP_COUNT = 3  # keep gitcrisp.log.1 .. .3
 
 _uncaught_logger = logging.getLogger("gitcrisp.uncaught")
 _fault_fp: IO[str] | None = None
+
+
+class _SharedRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """A rotating handler that keeps appending when the log cannot be rotated.
+
+    Every running GitCrisp holds the same log open, and Windows will not
+    rename a file another process has open. The stock handler then drops the
+    record, and every record after it, for as long as the other one runs; a
+    log that outgrows its limit loses less than one that goes silent.
+
+    The log is moved aside before the backups are touched. The stock handler
+    shifts and deletes them first and fails only at the last rename, so every
+    record past the limit would push the logs of earlier sessions out.
+    """
+
+    def doRollover(self) -> None:
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        aside = f"{self.baseFilename}.rolling"
+        if self._moved(self.baseFilename, aside):
+            self._shift_backups()
+            self.rotate(aside, self._backup_name(1))
+        if not self.delay:
+            self.stream = self._open()
+
+    def _moved(self, source: str, dest: str) -> bool:
+        """Move *source* to *dest*, or say it is held open and cannot move."""
+        try:
+            if os.path.exists(dest):
+                os.remove(dest)  # left by a rollover that a crash cut short
+            self.rotate(source, dest)
+        except OSError:
+            return False
+        return True
+
+    def _shift_backups(self) -> None:
+        """Move each backup one place down, dropping the oldest."""
+        for n in range(self.backupCount - 1, 0, -1):
+            if os.path.exists(self._backup_name(n)):
+                os.replace(self._backup_name(n), self._backup_name(n + 1))
+        if os.path.exists(self._backup_name(1)):
+            os.remove(self._backup_name(1))
+
+    def _backup_name(self, n: int) -> str:
+        return self.rotation_filename(f"{self.baseFilename}.{n}")
 
 
 def _log_uncaught(exc_type, exc_value, exc_traceback) -> None:
@@ -75,7 +122,7 @@ def setup_logging() -> None:
     root = logging.getLogger()
     if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
         _LOG_DIR.mkdir(parents=True, exist_ok=True)
-        handler = logging.handlers.RotatingFileHandler(
+        handler = _SharedRotatingFileHandler(
             _LOG_FILE,
             maxBytes=_MAX_BYTES,
             backupCount=_BACKUP_COUNT,
