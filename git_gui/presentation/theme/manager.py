@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from enum import StrEnum
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QPalette
@@ -14,7 +15,18 @@ from .tokens import Theme
 
 _log = logging.getLogger(__name__)
 
-_VALID_MODES = ("system", "light", "dark", "custom")
+
+class ThemeMode(StrEnum):
+    """Which theme the app shows; the values are what settings.json stores.
+
+    Listed in the order the Appearance dialog offers them.
+    """
+
+    SYSTEM = "system"
+    DARK = "dark"
+    LIGHT = "light"
+    CUSTOM = "custom"
+
 
 # Theme sizes are calibrated for the Windows body text size.
 _WINDOWS_BODY_PT = 9
@@ -26,9 +38,8 @@ class ThemeManager(QObject):
     def __init__(self, app: QApplication, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._app = app
-        self._mode: str = load_settings().get("theme_mode", "system")
-        if self._mode not in _VALID_MODES:
-            self._mode = "system"
+        saved = load_settings().get("theme_mode")
+        self._mode = ThemeMode(saved) if saved in ThemeMode else ThemeMode.SYSTEM
         self._current: Theme = self._resolve_theme()
         self._apply()
 
@@ -43,21 +54,20 @@ class ThemeManager(QObject):
         return self._current
 
     @property
-    def mode(self) -> str:
+    def mode(self) -> ThemeMode:
         return self._mode
 
-    def set_mode(self, mode: str, force: bool = False) -> None:
-        _check_mode(mode)
-        if mode == self._mode and not force:
+    def set_mode(self, mode: ThemeMode, force: bool = False) -> None:
+        mode = ThemeMode(mode)
+        if mode is self._mode and not force:
             return
         self._save_and_adopt(mode, {})
 
-    def set_appearance(self, mode: str, typography_scale: float) -> None:
+    def set_appearance(self, mode: ThemeMode, typography_scale: float) -> None:
         """Adopt a mode and text scale together: both are saved, or neither."""
-        _check_mode(mode)
-        self._save_and_adopt(mode, {"typography_scale": typography_scale})
+        self._save_and_adopt(ThemeMode(mode), {"typography_scale": typography_scale})
 
-    def _save_and_adopt(self, mode: str, other_settings: dict) -> None:
+    def _save_and_adopt(self, mode: ThemeMode, other_settings: dict) -> None:
         # Saved before it is adopted, so a write that raises leaves the old
         # mode in force, which is also the one still on screen.
         data = load_settings()
@@ -113,14 +123,14 @@ class ThemeManager(QObject):
                 w.viewport().update()
             w.update()
 
-    def theme_for_mode(self, mode: str) -> Theme:
-        """Resolve a mode name to a Theme without changing the active mode."""
-        _check_mode(mode)
-        if mode == "light":
+    def theme_for_mode(self, mode: ThemeMode) -> Theme:
+        """Resolve a mode to a Theme without changing the active mode."""
+        mode = ThemeMode(mode)
+        if mode is ThemeMode.LIGHT:
             return load_builtin("light")
-        if mode == "dark":
+        if mode is ThemeMode.DARK:
             return load_builtin("dark")
-        if mode == "custom":
+        if mode is ThemeMode.CUSTOM:
             return self._load_custom_or_fallback()
         return self._system_theme()
 
@@ -147,7 +157,7 @@ class ThemeManager(QObject):
         return load_builtin("light")
 
     def _on_system_scheme_changed(self, *_args) -> None:
-        if self._mode == "system":
+        if self._mode is ThemeMode.SYSTEM:
             self._refresh()
 
 
@@ -161,11 +171,6 @@ def _scaled_point_size(theme_size: int, scale: float) -> int:
     if native_pt <= 0:
         return size
     return round(size * native_pt / _WINDOWS_BODY_PT)
-
-
-def _check_mode(mode: str) -> None:
-    if mode not in _VALID_MODES:
-        raise ValueError(f"Invalid theme mode: {mode}")
 
 
 def _font_for(widget: QWidget, theme_font: QFont) -> QFont:
