@@ -4,7 +4,7 @@ import logging
 
 from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
-from git_gui.domain.entities import Branch, Worktree
+from git_gui.domain.entities import Branch, StagingState, Worktree
 from git_gui.presentation.dialogs.branch_select_dialog import BranchSelectDialog
 
 logger = logging.getLogger(__name__)
@@ -154,23 +154,8 @@ class BranchFlowsMixin:
             else:
                 local_name = name.split("/", 1)[1] if "/" in name else name
                 if local_name in local_branches:
-                    if self._switch_to_worktree_holding(local_branches[local_name]):
+                    if not self._reset_local_to_remote(local_branches[local_name], name):
                         return
-                    reply = QMessageBox.question(
-                        self,
-                        "Local branch exists",
-                        f"Local branch '{local_name}' already exists.\n\n"
-                        f"Reset it to '{name}' (HEAD)? This discards any local "
-                        f"commits and uncommitted changes on '{local_name}'.",
-                        QMessageBox.Yes | QMessageBox.Cancel,
-                        QMessageBox.Cancel,
-                    )
-                    if reply != QMessageBox.Yes:
-                        return
-                    head_before = self.head_before_operation()
-                    self._commands.checkout.execute(local_name)
-                    self._commands.reset_branch_to_ref.execute(local_name, name)
-                    self._log_undoable(f"Reset {local_name} to {name}", head_before)
                 else:
                     self._commands.checkout_remote_branch.execute(name)
                     self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
@@ -182,6 +167,50 @@ class BranchFlowsMixin:
             head_oid = self._queries.get_head_oid.execute()
             if head_oid:
                 self._graph.scroll_to_oid(head_oid, select=True)
+
+    def _reset_local_to_remote(self, local: Branch, remote: str) -> bool:
+        """Check out `local` and hard-reset it to `remote`, once the user
+        agrees. Returns False when nothing was changed."""
+        if self._switch_to_worktree_holding(local):
+            return False
+        if self._carries_changes_from_another_branch(local):
+            self._log_panel.expand()
+            self._log_panel.log_error(
+                f"Reset {local.name} to {remote} — skipped: it would discard your "
+                "uncommitted changes. Commit or stash them first."
+            )
+            return False
+        reply = QMessageBox.question(
+            self,
+            "Local branch exists",
+            f"Local branch '{local.name}' already exists.\n\n"
+            f"Reset it to '{remote}' (HEAD)? This discards any local "
+            f"commits and uncommitted changes on '{local.name}'.",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if reply != QMessageBox.Yes:
+            return False
+        self._commands.checkout.execute(local.name)
+        self._commands.reset_branch_to_ref.execute(local.name, remote)
+        # Undo returns the reset branch to its own tip; HEAD may have been on
+        # a different branch when this started.
+        self._log_undoable(f"Reset {local.name} to {remote}", local.target_oid)
+        return True
+
+    def _carries_changes_from_another_branch(self, branch: Branch) -> bool:
+        """Whether the working tree holds uncommitted edits made on a branch
+        other than `branch`, which checking it out carries along and a hard
+        reset of it would then destroy.
+
+        `branch` must be as listed before any checkout, so that `is_head` says
+        whether the edits were made on it. Untracked files do not count: a
+        hard reset leaves them alone.
+        """
+        if branch.is_head:
+            return False
+        changes = self._queries.get_working_tree.execute()
+        return any(f.status != StagingState.UNTRACKED for f in changes)
 
     def _switch_to_worktree_holding(self, branch: Branch) -> bool:
         """Open the worktree that has `branch` checked out, in place of
@@ -291,6 +320,12 @@ class BranchFlowsMixin:
         )
         if remote_oid is None or remote_oid == branch.target_oid:
             return  # No upstream ref loaded, or already in sync.
+        if self._carries_changes_from_another_branch(branch):
+            self._log_panel.log(
+                f"'{branch.name}' differs from '{upstream}' — commit or stash your "
+                "uncommitted changes to reset it"
+            )
+            return
 
         reply = QMessageBox.question(
             self,
