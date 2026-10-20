@@ -209,3 +209,45 @@ def test_pull_with_no_upstream_takes_the_same_named_branch_from_origin(qtbot):
     win = _pull_with_upstream(qtbot, None)
 
     win._commands.pull.execute.assert_called_once_with("origin", "fix")
+
+
+def test_pull_still_runs_when_the_repos_remotes_cannot_be_listed(qtbot):
+    # One remote with an invalid name in .git/config makes pygit2 fail the
+    # whole listing, while `git pull` itself works fine.
+    win = _make_window(qtbot)
+    win._queries = _queries_on_branch("main")
+    win._queries.list_local_branches_with_upstream.execute.return_value = [
+        LocalBranchInfo("main", "origin/main", "0123456789", "Fix it")
+    ]
+    win._queries.list_remotes.execute.side_effect = RuntimeError("'bad name' is not valid")
+    with patch.object(win, "_reload"):
+        win._on_pull()
+        _wait_until_idle(qtbot, win)
+
+    win._commands.pull.execute.assert_called_once_with("origin", "main")
+
+
+@pytest.mark.parametrize(
+    ("start", "command", "args", "remote"),
+    [
+        (lambda win: win._on_fetch_all_prune(), "fetch_all_prune", (), "origin"),
+        (lambda win: win._on_fetch_single("upstream"), "fetch", ("upstream",), "upstream"),
+        (lambda win: win._on_push_tag("v1"), "push_tag", ("origin", "v1"), "origin"),
+    ],
+    ids=["fetch-all", "fetch-one", "push-tag"],
+)
+def test_an_op_that_changes_remote_tags_refreshes_that_remotes_cached_tags(
+    qtbot, start, command, args, remote
+):
+    win = _make_window(qtbot)
+    win._remote_tag_cache = MagicMock()
+    win._remote_tag_cache.load.return_value = {}
+    win._repo_path = "/repo/a"
+    win._queries.get_remote_tags.execute.return_value = ["v1"]
+    with patch.object(win, "_reload"):
+        start(win)
+        _wait_until_idle(qtbot, win)
+
+    getattr(win._commands, command).execute.assert_called_once_with(*args)
+    win._queries.get_remote_tags.execute.assert_called_once_with(remote)
+    win._remote_tag_cache.save.assert_called_once_with("/repo/a", {remote: ["v1"]})
