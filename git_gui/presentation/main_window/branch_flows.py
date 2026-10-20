@@ -117,6 +117,16 @@ class BranchFlowsMixin:
         return msg.clickedButton() is force_btn
 
     def _on_delete_remote_branch(self, remote: str, branch: str) -> None:
+        op_name = f"Delete {remote}/{branch}"
+        if self._remote_running:
+            # The remote-op slot drops a request made while it is busy; say
+            # so before asking, rather than after the user has confirmed.
+            self._log_panel.expand()
+            self._log_panel.log_error(
+                f"{op_name} — skipped: another remote operation is running. "
+                "Try again once it finishes."
+            )
+            return
         reply = QMessageBox.question(
             self,
             "Delete Remote Branch",
@@ -127,7 +137,7 @@ class BranchFlowsMixin:
         if reply != QMessageBox.Yes:
             return
         self._run_remote_op(
-            f"Delete {remote}/{branch}",
+            op_name,
             lambda: self._commands.delete_remote_branch.execute(remote, branch),
         )
 

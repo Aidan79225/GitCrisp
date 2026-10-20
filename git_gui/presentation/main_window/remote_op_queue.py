@@ -7,7 +7,9 @@ from typing import NamedTuple
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
-from git_gui.presentation.bus import CommandBus
+from git_gui.presentation.bus import CommandBus, QueryBus
+
+_RETRY_WHEN_FREE = "Try again once it finishes."
 
 
 class _RemoteSignals(QObject):
@@ -68,7 +70,7 @@ class RemoteOpQueueMixin:
         *commands* is the bus *fn* works on, the active repo's unless given.
         *push_target* marks the op as a push that may be offered a force push.
         """
-        if self._remote_running:
+        if self._remote_slot_busy(name):
             return
 
         self._log_panel.expand()
@@ -102,15 +104,33 @@ class RemoteOpQueueMixin:
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
 
+    def _remote_slot_busy(self, name: str, *, retry_hint: str = _RETRY_WHEN_FREE) -> bool:
+        """Whether another remote op holds the slot, logging *name* as skipped if so.
+
+        An op that asks the user first calls this before asking, so that what
+        they confirm is never dropped.
+        """
+        if self._remote_running:
+            self._report_remote_op_skipped(name, retry_hint)
+        return self._remote_running
+
+    def _report_remote_op_skipped(self, name: str, retry_hint: str = _RETRY_WHEN_FREE) -> None:
+        """The user may already have confirmed *name*, so dropping it unannounced
+        would leave them believing it ran."""
+        running = self._remote_op_name or "another remote operation"
+        self._log_panel.expand()
+        self._log_panel.log_error(f"{name} — skipped: {running} is still running. {retry_hint}")
+
     def _cancel_remote_op(self) -> None:
         """Ask the running push/pull/fetch to abort by terminating its git
         subprocess. Completion is reported via the `cancelled` signal."""
-        if not self._remote_running or self._commands is None:
+        commands = self._remote_op_commands
+        if not self._remote_running or commands is None:
             return
         self._log_panel.log(f"{self._remote_op_name or 'Remote operation'} — cancelling...")
         self._cancel_remote_btn.setEnabled(False)
         try:
-            self._commands.cancel_remote_op.execute()
+            commands.cancel_remote_op.execute()
         except Exception as e:
             self._log_panel.log_error(f"Cancel — ERROR: {e}")
 
@@ -162,7 +182,7 @@ class RemoteOpQueueMixin:
             )
 
     def _on_push(self) -> None:
-        branch = self._get_current_branch()
+        branch = self._branch_to_sync("Push")
         if branch:
             self._on_push_branch(branch)
 
@@ -177,33 +197,73 @@ class RemoteOpQueueMixin:
         )
 
     def _on_pull(self) -> None:
+        branch = self._branch_to_sync("Pull")
+        if branch is None:
+            return
+        commands = self._commands
+        remote, source = self._pull_source(branch)
+        self._run_remote_op(
+            f"Pull {remote}/{source}",
+            lambda: commands.pull.execute(remote, source),
+            commands=commands,
+        )
+
+    def _pull_source(self, branch: str) -> tuple[str, str]:
+        """The remote and branch `git pull` takes *branch* from: its upstream
+        when that is on a remote, else the same-named branch on origin."""
+        upstream = self._upstream_for(branch)
+        if upstream:
+            # Longest first, because a remote's name may itself contain a slash.
+            remotes = self._queries.list_remotes.execute()
+            for remote in sorted((r.name for r in remotes), key=len, reverse=True):
+                if upstream.startswith(f"{remote}/"):
+                    return remote, upstream[len(remote) + 1 :]
+        return "origin", branch
+
+    def _branch_to_sync(self, op: str) -> str | None:
+        """The checked-out branch, or None after logging that HEAD is on none.
+
+        The toolbar's Push and Pull stay enabled on a detached HEAD (every
+        rebase stops on one) and in a repo with no commits yet, so a click
+        there needs an answer.
+        """
+        if self._queries is None:
+            return None
         branch = self._get_current_branch()
-        if branch:
-            self._run_remote_op(
-                f"Pull origin/{branch}",
-                lambda: self._commands.pull.execute("origin", branch),
+        if branch is None:
+            self._log_panel.expand()
+            self._log_panel.log_error(
+                f"{op} — HEAD is not on a branch (detached, or no commits yet). "
+                "Check out a branch first."
             )
+        return branch
 
     def _on_fetch_all_prune(self) -> None:
-        def _fn():
-            self._commands.fetch_all_prune.execute()
-            self._update_remote_tag_cache("origin")
+        commands, queries, repo_path = self._commands, self._queries, self._repo_path
 
-        self._run_remote_op("Fetch --all --prune", _fn)
+        def _fn():
+            commands.fetch_all_prune.execute()
+            self._update_remote_tag_cache(queries, repo_path, "origin")
+
+        self._run_remote_op("Fetch --all --prune", _fn, commands=commands)
 
     def _on_fetch_single(self, remote: str) -> None:
-        def _fn():
-            self._commands.fetch.execute(remote)
-            self._update_remote_tag_cache(remote)
+        commands, queries, repo_path = self._commands, self._queries, self._repo_path
 
-        self._run_remote_op(f"Fetch {remote}", _fn)
+        def _fn():
+            commands.fetch.execute(remote)
+            self._update_remote_tag_cache(queries, repo_path, remote)
+
+        self._run_remote_op(f"Fetch {remote}", _fn, commands=commands)
 
     def _on_push_tag(self, name: str) -> None:
-        def _fn():
-            self._commands.push_tag.execute("origin", name)
-            self._update_remote_tag_cache("origin")
+        commands, queries, repo_path = self._commands, self._queries, self._repo_path
 
-        self._run_remote_op(f"Push tag {name}", _fn)
+        def _fn():
+            commands.push_tag.execute("origin", name)
+            self._update_remote_tag_cache(queries, repo_path, "origin")
+
+        self._run_remote_op(f"Push tag {name}", _fn, commands=commands)
 
     def _get_current_branch(self) -> str | None:
         if self._queries is None:
@@ -214,13 +274,17 @@ class RemoteOpQueueMixin:
                 return b.name
         return None
 
-    def _update_remote_tag_cache(self, remote: str) -> None:
-        if not self._remote_tag_cache or not self._repo_path or not self._queries:
+    def _update_remote_tag_cache(
+        self, queries: QueryBus | None, repo_path: str | None, remote: str
+    ) -> None:
+        """Runs on the worker thread, so it is handed the repo the op ran in:
+        the active one may have been switched while the op ran."""
+        if not self._remote_tag_cache or not repo_path or not queries:
             return
         try:
-            remote_tags = self._queries.get_remote_tags.execute(remote)
-            data = self._remote_tag_cache.load(self._repo_path)
+            remote_tags = queries.get_remote_tags.execute(remote)
+            data = self._remote_tag_cache.load(repo_path)
             data[remote] = remote_tags
-            self._remote_tag_cache.save(self._repo_path, data)
+            self._remote_tag_cache.save(repo_path, data)
         except Exception:
             pass  # cache update failure is non-critical

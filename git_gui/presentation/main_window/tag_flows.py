@@ -8,6 +8,9 @@ from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 
 logger = logging.getLogger(__name__)
 
+# The new tag already exists, so creating it again is not the way to retry.
+_PUSH_FROM_SIDEBAR_LATER = "Push it from the sidebar's tag menu once it finishes."
+
 
 class TagFlowsMixin:
     """Tag operations — create and delete (local and/or remote).
@@ -36,17 +39,10 @@ class TagFlowsMixin:
             self._reload()
             return
         self._reload()
-        if dialog.push_requested():
-            if self._remote_running:
-                # _run_remote_op drops a request while another one runs; say
-                # so rather than leave the user thinking the tag went out.
-                self._log_panel.expand()
-                self._log_panel.log_error(
-                    f"Push tag {name} — skipped: another remote operation is running. "
-                    "Push it from the sidebar's tag menu once it finishes."
-                )
-            else:
-                self._on_push_tag(name)
+        if dialog.push_requested() and not self._remote_slot_busy(
+            f"Push tag {name}", retry_hint=_PUSH_FROM_SIDEBAR_LATER
+        ):
+            self._on_push_tag(name)
 
     def _has_origin(self) -> bool:
         """Whether the Create Tag dialog can offer to push to origin."""
@@ -109,7 +105,12 @@ class TagFlowsMixin:
         self._reload()
 
     def _delete_tag_local_and_remote(self, name: str, remotes: list[str]) -> None:
-        # Local delete first (synchronous), then each remote in background.
+        op_name = f"Delete tag {name} from {', '.join(remotes)}"
+        # Refused before the local delete, so the tag is not left gone here
+        # but still published on the remotes.
+        if self._remote_slot_busy(op_name):
+            return
+        # Local delete first (synchronous), then the remotes in background.
         try:
             self._commands.delete_tag.execute(name)
             self._log_panel.log(f"Deleted tag: {name}")
@@ -119,25 +120,31 @@ class TagFlowsMixin:
             self._reload()
             return
 
-        for remote in remotes:
+        def _fn():
+            # Every remote in one op: _run_remote_op runs one op at a time and
+            # drops any request made while one runs, so an op per remote lost
+            # all but the first.
+            for remote in remotes:
+                self._commands.delete_remote_tag.execute(remote, name)
+                self._forget_remote_tag(remote, name)
 
-            def _fn(r=remote):
-                self._commands.delete_remote_tag.execute(r, name)
-                # Update cache: remove the tag from this remote's list.
-                if self._remote_tag_cache and self._repo_path:
-                    try:
-                        data = self._remote_tag_cache.load(self._repo_path)
-                        if r in data and name in data[r]:
-                            data[r] = [t for t in data[r] if t != name]
-                            self._remote_tag_cache.save(self._repo_path, data)
-                    except Exception as e:
-                        logger.warning(
-                            "Remote tag cache update failed for %s (remote=%s, tag=%s): %s",
-                            self._repo_path,
-                            r,
-                            name,
-                            e,
-                        )
-
-            self._run_remote_op(f"Delete tag {name} from {remote}", _fn)
+        self._run_remote_op(op_name, _fn)
         self._reload()
+
+    def _forget_remote_tag(self, remote: str, name: str) -> None:
+        """Remove `name` from the cached tag list of `remote`."""
+        if not (self._remote_tag_cache and self._repo_path):
+            return
+        try:
+            data = self._remote_tag_cache.load(self._repo_path)
+            if remote in data and name in data[remote]:
+                data[remote] = [t for t in data[remote] if t != name]
+                self._remote_tag_cache.save(self._repo_path, data)
+        except Exception as e:
+            logger.warning(
+                "Remote tag cache update failed for %s (remote=%s, tag=%s): %s",
+                self._repo_path,
+                remote,
+                name,
+                e,
+            )

@@ -137,6 +137,11 @@ class MergeRebaseFlowsMixin:
         self._open_interactive_rebase(oid, f"commit {oid[:7]}")
 
     def _open_interactive_rebase(self, target_oid: str, target_label: str) -> None:
+        op_name = f"Interactive rebase onto {target_label}"
+        # The rebase runs in the remote-op slot: check it before the user
+        # edits a plan, not after.
+        if self._remote_slot_busy(op_name):
+            return
         try:
             head_oid = self._queries.get_head_oid.execute()
             if not head_oid:
@@ -151,7 +156,7 @@ class MergeRebaseFlowsMixin:
                 return
             entries = dlg.result_entries()
             self._run_remote_op(
-                f"Interactive rebase onto {target_label}",
+                op_name,
                 lambda: self._commands.interactive_rebase.execute(target_oid, entries),
             )
         except Exception as e:
