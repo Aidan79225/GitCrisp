@@ -151,3 +151,19 @@ def test_dragging_a_row_onto_the_upper_half_of_another_lands_above_it(qtbot):
         ("pick", "aaa111"),
         ("pick", "bbb222"),
     ]
+
+
+def test_squash_after_only_dropped_rows_disables_execute(qtbot):
+    dlg = InteractiveRebaseDialog(_commits(), "main")
+    qtbot.addWidget(dlg)
+    dlg._table.cellWidget(0, 0).setCurrentText("drop")
+    dlg._table.cellWidget(1, 0).setCurrentText("squash")
+    assert dlg._buttons.button(QDialogButtonBox.Ok).isEnabled() is False
+
+
+def test_squash_after_a_kept_commit_and_a_drop_enables_execute(qtbot):
+    dlg = InteractiveRebaseDialog(_commits(), "main")
+    qtbot.addWidget(dlg)
+    dlg._table.cellWidget(1, 0).setCurrentText("drop")
+    dlg._table.cellWidget(2, 0).setCurrentText("fixup")
+    assert dlg._buttons.button(QDialogButtonBox.Ok).isEnabled() is True
