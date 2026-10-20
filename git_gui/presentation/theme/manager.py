@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QPalette
+from PySide6.QtWidgets import QApplication, QWidget
 
 from .loader import ThemeValidationError, load_builtin, load_theme
 from .qss_template import render
@@ -69,8 +69,6 @@ class ThemeManager(QObject):
         self._app.setPalette(palette)
         # Apply theme typography to the app default font so the scale
         # slider in the theme dialog actually affects rendered text.
-        from PySide6.QtGui import QFont
-
         body = self._current.typography.body_medium
         font = QFont(self._app.font())
         if body.family:
@@ -105,7 +103,7 @@ class ThemeManager(QObject):
         style = self._app.style()
         for w in self._app.allWidgets():
             w.setPalette(palette)
-            w.setFont(font)
+            w.setFont(_font_for(w, font))
             # Force re-evaluation of any inline stylesheet that uses
             # palette(role) references — Qt caches the resolved colors
             # and won't recompute on a palette change without a polish.
@@ -153,6 +151,20 @@ class ThemeManager(QObject):
     def _on_system_scheme_changed(self, *_args) -> None:
         if self._mode == "system":
             self._refresh()
+
+
+def _font_for(widget: QWidget, theme_font: QFont) -> QFont:
+    """The theme font beneath whatever the widget set for itself.
+
+    A widget keeps the attributes it chose (Courier New in the commit
+    message, a bold header) and takes the rest from the theme. One that
+    chose nothing gets an empty font, which makes it inherit the
+    application font again: under an application style sheet Qt does not
+    pass that down to child widgets on its own.
+    """
+    if widget.testAttribute(Qt.WA_SetFont):
+        return widget.font().resolve(theme_font)
+    return QFont()
 
 
 def _build_palette(theme: Theme) -> QPalette:
