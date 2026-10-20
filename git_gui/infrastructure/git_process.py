@@ -46,3 +46,26 @@ def run_git(
         errors="replace",
         **git_popen_kwargs(),
     )
+
+
+def git_run_dir(work_tree: str | None, git_dir: str | None) -> str:
+    """The directory to start git in: the working tree, or a bare repository's gitdir."""
+    run_dir = work_tree or git_dir
+    if run_dir is None:
+        raise ValueError("git needs a working tree or a gitdir to run in")
+    return run_dir
+
+
+def pinned_git_env(git_dir: str | None, work_tree: str | None) -> dict[str, str]:
+    """This process's environment with git pinned to `git_dir`, when one is given.
+
+    Left to discover the repository from its working directory, git walks up
+    from a submodule whose `.git` link is missing and reads the parent instead.
+    A bare repository has no working tree to name, so it gets GIT_DIR alone.
+    """
+    env = os.environ.copy()
+    if git_dir is not None:
+        env["GIT_DIR"] = git_dir
+        if work_tree:
+            env["GIT_WORK_TREE"] = work_tree
+    return env
