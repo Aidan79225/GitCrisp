@@ -313,13 +313,10 @@ class RepoListWidget(QWidget):
         # Header with "+" button
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(4, 4, 4, 4)
-        title = QLabel("REPOSITORIES")
-        title.setFixedHeight(_ROW_HEIGHT)
-        title_font = title.font()
-        title_font.setBold(True)
-        title_font.setPointSize(title_font.pointSize() - 1)
-        title.setFont(title_font)
-        header_layout.addWidget(title, 1)
+        self._title = QLabel("REPOSITORIES")
+        self._title.setFixedHeight(_ROW_HEIGHT)
+        self._restyle_title()
+        header_layout.addWidget(self._title, 1)
         header_layout.addSpacing(8)
 
         self._btn_add = QPushButton("Open")
@@ -378,7 +375,19 @@ class RepoListWidget(QWidget):
         layout.addLayout(header_layout)
         layout.addWidget(self._tree)
 
-        connect_widget(self)
+        connect_widget(self, rebuild=self._restyle_title)
+
+    def _restyle_title(self) -> None:
+        """Bold, a point under the body text, at the current typography scale.
+
+        A point size a widget sets is kept across a theme change, so it is
+        rebuilt from the application font each time rather than left at the
+        scale it was first built at.
+        """
+        font = QFont(QApplication.font())
+        font.setBold(True)
+        font.setPointSize(font.pointSize() - 1)
+        self._title.setFont(font)
 
     def set_active_worktrees(
         self, worktrees: list[Worktree], owner_path: str | None = None
