@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from git_gui.domain.entities import Worktree
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.menus.git_menu import install_git_menu
 from git_gui.presentation.services.repo_change_detector import RepoChangeDetector
@@ -227,26 +228,31 @@ class RepoLifecycleMixin:
     def _load_worktrees_for_active_repo(self) -> None:
         if self._queries is None or self._repo_path is None:
             return
-        # When the active path is a linked worktree (not a top-level open repo),
-        # its session reports worktree metadata relative to itself — its own
-        # directory as the main worktree, with the real main repo absent. Re-
-        # listing here would corrupt the group shown in the repo list. Keep the
-        # group loaded for the owning main repo and just refresh the active
-        # highlight onto the worktree row.
-        if self._repo_path not in self._repo_store.get_open_repos():
-            self._repo_list.reload()
-            return
+        self._refresh_worktrees_dialog()
         try:
             wts = self._queries.list_worktrees.execute()
         except Exception as e:
             self._report_worktree_error(f"Failed to list worktrees: {e}")
             wts = []
-        self._repo_list.set_active_worktrees(wts, owner_path=self._repo_path)
+        self._repo_list.set_active_worktrees(wts, owner_path=self._worktree_group_owner(wts))
         self._repo_list.reload()
         wt_branches = {wt.branch for wt in wts if wt.branch and not wt.is_main}
         wt_paths = {wt.branch: str(wt.path) for wt in wts if wt.branch and not wt.is_main}
         self._sidebar.set_worktree_branches(wt_branches)
         self._worktree_paths_by_branch = wt_paths
+
+    def _worktree_group_owner(self, worktrees: list[Worktree]) -> str | None:
+        """The open row the worktree group hangs under, spelled as the store has it.
+
+        While a linked worktree is active, that is the open repo it belongs to:
+        the worktree has no open row of its own, so without one it is nowhere
+        in the list. A relaunch opens straight onto it with no owner recorded.
+        """
+        open_repos = self._repo_store.get_open_repos()
+        if self._repo_path in open_repos:
+            return self._repo_path
+        main = next((Path(wt.path).resolve() for wt in worktrees if wt.is_main), None)
+        return next((p for p in open_repos if Path(p).resolve() == main), None)
 
     def _report_worktree_error(self, message: str) -> None:
         # The log starts collapsed, and a line added to it unopened is never
@@ -325,7 +331,25 @@ class RepoLifecycleMixin:
         dlg.add_requested.connect(
             lambda: self._open_add_worktree_dialog(preselect_branch=None, default_create=False)
         )
-        dlg.exec()
+        self._worktrees_dialog = dlg
+        try:
+            dlg.exec()
+        finally:
+            self._worktrees_dialog = None
+
+    def _refresh_worktrees_dialog(self) -> None:
+        """Give the open Worktrees dialog the list as it is now.
+
+        Its actions finish on background threads after it has emitted them,
+        so without this its table keeps showing the state from before them.
+        """
+        dlg = self._worktrees_dialog
+        if dlg is None:
+            return
+        try:
+            dlg.set_worktrees(self._queries.list_worktrees.execute())
+        except Exception as e:
+            self._report_worktree_error(f"Failed to list worktrees: {e}")
 
     def _on_add_worktree_requested(self, payload: dict) -> None:
         if self._commands is None:

@@ -76,6 +76,7 @@ class MainWindow(
         self._session_factory = session_factory
         self._worktree_paths_by_branch: dict[str, str] = {}
         self._smart_checkout = None  # SmartCheckout | None — set in _on_repo_ready
+        self._worktrees_dialog = None  # WorktreesDialog | None — set while it is open
 
         self._build_chrome()
         self._build_widgets()
@@ -114,6 +115,7 @@ class MainWindow(
         self._repo_list.reload()
         if self._repo_path is not None:
             self._start_change_detector(self._repo_path)
+            self._load_worktrees_for_active_repo()
         self._start_update_check()
 
     def closeEvent(self, event) -> None:
