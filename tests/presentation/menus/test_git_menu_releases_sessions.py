@@ -29,6 +29,9 @@ def _install(window: QMainWindow, session) -> None:
         commands=session,
         repo_workdir=None,
         on_open_submodule=lambda _p: None,
+        on_open_worktrees_dialog=lambda: None,
+        on_open_reflog=lambda: None,
+        on_checkout_branch=lambda _b: None,
     )
 
 
