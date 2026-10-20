@@ -153,3 +153,36 @@ def _reset_crash_reporting_state(monkeypatch):
 
     monkeypatch.setattr(obs, "_enabled", True)
     monkeypatch.setattr(obs, "_initialized", False)
+
+
+@pytest.fixture(autouse=True)
+def _no_sentry_dsn(monkeypatch):
+    """Keep every test away from a real Sentry project.
+
+    The release workflow bakes the production DSN into ``_build_config``
+    before it runs the suite, so a test that turns crash reporting on —
+    accepting the Preferences dialog does — started the real client, and
+    the tests that log CRITICAL or raise on purpose then reported to
+    production as the release being built. The baked version is kept: the
+    About box and the update check read it. A test that needs a DSN sets one.
+    """
+    import git_gui.observability as obs
+
+    baked_config = obs._get_baked_config
+    monkeypatch.setattr(obs, "_get_baked_config", lambda: (None, baked_config()[1]))
+    monkeypatch.delenv("GITCRISP_SENTRY_DSN", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_update_check(monkeypatch):
+    """Keep every window from asking GitHub for the latest release.
+
+    With the release tag baked in, ``MainWindow.__init__`` starts the update
+    check, so each window a test built sent an unauthenticated request to the
+    releases API from every release runner. Only the request is cut: the
+    preference and the version stay real for the tests that read them. The
+    checker's own tests override this fixture.
+    """
+    from git_gui.presentation.services.update_checker import UpdateChecker
+
+    monkeypatch.setattr(UpdateChecker, "check", lambda self: None)

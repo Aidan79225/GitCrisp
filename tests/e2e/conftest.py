@@ -36,14 +36,10 @@ _EMAIL = "test@example.com"
 def _offline(monkeypatch):
     """Keep the window off the network.
 
-    ``MainWindow.__init__`` starts a GitHub release check and the commit rows
-    fetch Gravatar images. Both are opt-out rather than off, and neither
-    belongs in a test.
+    The commit rows fetch Gravatar images, which is opt-out rather than off
+    and does not belong in a test. The release check is cut for the whole
+    suite in ``tests/conftest.py``.
     """
-    monkeypatch.setattr(
-        "git_gui.presentation.app_settings.get_check_updates",
-        lambda: False,
-    )
     # The avatar loader is a process-wide singleton whose `enabled` flag is
     # broadcast to every live widget; flipping it would fire that signal at
     # widgets a previous test already destroyed. Cutting the fetch instead
