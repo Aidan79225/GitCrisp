@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QPalette
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QPalette
+from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QWidget
 
 from .loader import ThemeValidationError, load_builtin, load_theme
 from .qss_template import render
@@ -14,6 +15,9 @@ from .tokens import Theme
 _log = logging.getLogger(__name__)
 
 _VALID_MODES = ("system", "light", "dark", "custom")
+
+# Theme sizes are calibrated for the Windows body text size.
+_WINDOWS_BODY_PT = 9
 
 
 class ThemeManager(QObject):
@@ -60,53 +64,41 @@ class ThemeManager(QObject):
         data.update(other_settings, theme_mode=mode)
         save_settings(data)
         self._mode = mode
-        self._refresh(force=True)
+        self._refresh()
 
-    def _refresh(self, force: bool = False) -> None:
-        new_theme = self._resolve_theme()
-        if new_theme is self._current and not force:
-            return
-        self._current = new_theme
+    def _refresh(self) -> None:
+        self._current = self._resolve_theme()
         self._apply()
-        self.theme_changed.emit(new_theme)
+        self.theme_changed.emit(self._current)
 
     def _apply(self) -> None:
         self._app.setStyleSheet(render(self._current))
         palette = _build_palette(self._current)
         self._app.setPalette(palette)
-        # Apply theme typography to the app default font so the scale
-        # slider in the theme dialog actually affects rendered text.
+        font = self._theme_font()
+        self._app.setFont(font)
+        self._restyle_live_widgets(palette, font)
+
+    def _theme_font(self) -> QFont:
+        """The app font in the theme's body style, at the saved text scale."""
         body = self._current.typography.body_medium
         font = QFont(self._app.font())
         if body.family:
             font.setFamily(body.family)
         if body.size > 0:
-            import sys
-
             scale = float(load_settings().get("typography_scale", 1.0))
-            size = max(1, round(body.size * scale))
-            if sys.platform == "darwin":
-                from PySide6.QtGui import QFontDatabase
-
-                native_pt = QFontDatabase.systemFont(
-                    QFontDatabase.SystemFont.GeneralFont
-                ).pointSize()
-                # Theme sizes are calibrated for Windows (~9 pt body).
-                # Scale up proportionally for macOS (~13 pt native body).
-                if native_pt > 0:
-                    size = round(size * native_pt / 9)
-            font.setPointSize(size)
+            font.setPointSize(_scaled_point_size(body.size, scale))
         if body.weight:
             font.setWeight(QFont.Weight(body.weight))
-        self._app.setFont(font)
+        return font
+
+    def _restyle_live_widgets(self, palette: QPalette, font: QFont) -> None:
         # QApplication.setPalette only updates the *default* palette in
         # Qt 6 — already-shown widgets keep their inherited copy and
         # don't repaint. Walk every live widget and re-apply, then force
         # the viewport repaint for QAbstractScrollArea (tree/list/table
         # views, where update() on the view itself doesn't repaint
         # items).
-        from PySide6.QtWidgets import QAbstractScrollArea
-
         style = self._app.style()
         for w in self._app.allWidgets():
             w.setPalette(palette)
@@ -157,6 +149,18 @@ class ThemeManager(QObject):
     def _on_system_scheme_changed(self, *_args) -> None:
         if self._mode == "system":
             self._refresh()
+
+
+def _scaled_point_size(theme_size: int, scale: float) -> int:
+    size = max(1, round(theme_size * scale))
+    if sys.platform != "darwin":
+        return size
+    # macOS body text is about 13 pt against Windows' 9, so the theme's
+    # sizes grow by the native size to keep the same proportion.
+    native_pt = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont).pointSize()
+    if native_pt <= 0:
+        return size
+    return round(size * native_pt / _WINDOWS_BODY_PT)
 
 
 def _check_mode(mode: str) -> None:
