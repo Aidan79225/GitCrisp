@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 
 import pygit2
@@ -42,7 +43,20 @@ def _display_path(path: str) -> str:
     return "~/" + rel.as_posix()
 
 
+_KIND_ROLE = Qt.UserRole + 1
 _IS_ACTIVE_ROLE = Qt.UserRole + 2
+
+
+class _RowKind(Enum):
+    OPEN_HEADER = "open_header"
+    RECENT_HEADER = "recent_header"
+    OPEN = "open"
+    RECENT = "recent"
+    WORKTREE = "worktree"
+
+
+_HEADERS = (_RowKind.OPEN_HEADER, _RowKind.RECENT_HEADER)
+
 _ROW_HEIGHT = 28
 
 
@@ -69,7 +83,7 @@ class _RepoTree(HighlightingTreeView):
         # expand arrow leaves currentIndex() on whatever was clicked before.
         origin = event.position().toPoint()
         pressed = self.indexAt(origin)
-        grabbed = event.button() == Qt.LeftButton and pressed.data(Qt.UserRole + 1) == "open"
+        grabbed = event.button() == Qt.LeftButton and pressed.data(_KIND_ROLE) is _RowKind.OPEN
         self._drag_origin = origin if grabbed else None
         self._drag_row = QPersistentModelIndex(pressed) if grabbed else QPersistentModelIndex()
         super().mousePressEvent(event)
@@ -104,7 +118,7 @@ class _RepoTree(HighlightingTreeView):
         if event.mimeData().hasText():
             pos = event.position().toPoint()
             idx = self.indexAt(pos)
-            if idx.isValid() and idx.data(Qt.UserRole + 1) == "open":
+            if idx.isValid() and idx.data(_KIND_ROLE) is _RowKind.OPEN:
                 rect = self.visualRect(idx)
                 mid = rect.top() + rect.height() // 2
                 if pos.y() < mid:
@@ -133,11 +147,10 @@ class _RepoTree(HighlightingTreeView):
         drop_idx = self.indexAt(pos)
         if not drop_idx.isValid():
             return
-        # Only allow drop within the OPEN section
-        kind = drop_idx.data(Qt.UserRole + 1)
-        if kind not in ("open", "header"):
+        kind = drop_idx.data(_KIND_ROLE)
+        if kind not in (_RowKind.OPEN, _RowKind.OPEN_HEADER):
             return
-        if kind == "header":
+        if kind is _RowKind.OPEN_HEADER:
             target_row = 0
         else:
             rect = self.visualRect(drop_idx)
@@ -180,17 +193,17 @@ class _RepoItemDelegate(QStyledItemDelegate):
     Line 1: the row's label — the repo name, or a worktree's branch — default font.
     Line 2: _display_path(path), smaller font, dimmer color, middle-elided.
 
-    Header rows (marked with "header" in Qt.UserRole + 1) keep their default
-    rendering by deferring to super().paint/sizeHint.
+    Section header rows keep their default rendering by deferring to
+    super().paint/sizeHint.
     """
 
     def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
-        if index.data(Qt.UserRole + 1) == "header":
+        if index.data(_KIND_ROLE) in _HEADERS:
             return super().sizeHint(option, index)
         return QSize(option.rect.width(), _REPO_ROW_HEIGHT)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        if index.data(Qt.UserRole + 1) == "header":
+        if index.data(_KIND_ROLE) in _HEADERS:
             super().paint(painter, option, index)
             return
 
@@ -384,10 +397,10 @@ class RepoListWidget(QWidget):
             open_header = QStandardItem("OPEN")
             open_header.setEditable(False)
             open_header.setSelectable(False)
-            open_header.setData("header", Qt.UserRole + 1)
+            open_header.setData(_RowKind.OPEN_HEADER, _KIND_ROLE)
             open_header.setSizeHint(QSize(0, _ROW_HEIGHT))
             for path in open_repos:
-                item = self._make_repo_item(path, "open", is_active=(path == active))
+                item = self._make_repo_item(path, _RowKind.OPEN, is_active=(path == active))
                 if path == group_owner and self._active_worktrees:
                     for wt in self._active_worktrees:
                         if wt.is_main:
@@ -404,10 +417,10 @@ class RepoListWidget(QWidget):
             recent_header = QStandardItem("RECENT")
             recent_header.setEditable(False)
             recent_header.setSelectable(False)
-            recent_header.setData("header", Qt.UserRole + 1)
+            recent_header.setData(_RowKind.RECENT_HEADER, _KIND_ROLE)
             recent_header.setSizeHint(QSize(0, _ROW_HEIGHT))
             for path in recent_repos:
-                item = self._make_repo_item(path, "recent", is_active=False)
+                item = self._make_repo_item(path, _RowKind.RECENT, is_active=False)
                 recent_header.appendRow(item)
             self._model.appendRow(recent_header)
 
@@ -419,7 +432,7 @@ class RepoListWidget(QWidget):
         item.setEditable(False)
         item.setToolTip(str(wt.path))
         item.setData(str(wt.path), Qt.UserRole)
-        item.setData("worktree", Qt.UserRole + 1)
+        item.setData(_RowKind.WORKTREE, _KIND_ROLE)
         if is_active:
             font = item.font()
             font.setBold(True)
@@ -427,13 +440,13 @@ class RepoListWidget(QWidget):
             item.setData(True, _IS_ACTIVE_ROLE)
         return item
 
-    def _make_repo_item(self, path: str, kind: str, is_active: bool) -> QStandardItem:
+    def _make_repo_item(self, path: str, kind: _RowKind, is_active: bool) -> QStandardItem:
         display_name = Path(path).name
         item = QStandardItem(display_name)
         item.setEditable(False)
         item.setToolTip(path)
         item.setData(path, Qt.UserRole)
-        item.setData(kind, Qt.UserRole + 1)
+        item.setData(kind, _KIND_ROLE)
         if is_active:
             font = item.font()
             font.setBold(True)
@@ -457,16 +470,14 @@ class RepoListWidget(QWidget):
         self.reload()
 
     def _on_item_clicked(self, index) -> None:
-        kind = index.data(Qt.UserRole + 1)
+        kind = index.data(_KIND_ROLE)
         path = index.data(Qt.UserRole)
         if index.data(_IS_ACTIVE_ROLE):
             return  # already open; switching would rebuild the whole session
-        if kind == "open" and path:
+        if kind in (_RowKind.OPEN, _RowKind.WORKTREE) and path:
             self.repo_switch_requested.emit(path)
-        elif kind == "recent" and path:
+        elif kind is _RowKind.RECENT and path:
             self.repo_open_requested.emit(path)
-        elif kind == "worktree" and path:
-            self.repo_switch_requested.emit(path)
 
     def _build_context_actions_for_active_repo(self, path: str) -> list[dict]:
         return [
@@ -494,12 +505,12 @@ class RepoListWidget(QWidget):
 
     def _show_context_menu(self, pos) -> None:
         index = self._tree.indexAt(pos)
-        kind = index.data(Qt.UserRole + 1)
+        kind = index.data(_KIND_ROLE)
         path = index.data(Qt.UserRole)
         active = self._store.get_active()
 
         menu = QMenu(self)
-        if kind == "open" and path:
+        if kind is _RowKind.OPEN and path:
             menu.addAction("Close").triggered.connect(lambda: self.repo_close_requested.emit(path))
             if path == active:
                 menu.addSeparator()
@@ -510,7 +521,7 @@ class RepoListWidget(QWidget):
                             e["action"], e["path"]
                         )
                     )
-        elif kind == "worktree" and path:
+        elif kind is _RowKind.WORKTREE and path:
             locked = self._is_worktree_locked(path)
             for entry in self._build_context_actions_for_worktree(path, locked=locked):
                 a = menu.addAction(entry["label"])
@@ -519,19 +530,15 @@ class RepoListWidget(QWidget):
                         e["action"], e["path"]
                     )
                 )
-        elif kind == "recent" and path:
+        elif kind is _RowKind.RECENT and path:
             menu.addAction("Remove from recent").triggered.connect(
                 lambda: self.repo_remove_recent_requested.emit(path)
             )
-        elif kind == "header":
-            title = index.data(Qt.DisplayRole)
-            if title == "OPEN":
-                menu.addAction("Open Repository...").triggered.connect(self._on_add_clicked)
-                menu.addAction("Clone Repository...").triggered.connect(
-                    lambda: self.clone_requested.emit()
-                )
-            else:
-                return
+        elif kind is _RowKind.OPEN_HEADER:
+            menu.addAction("Open Repository...").triggered.connect(self._on_add_clicked)
+            menu.addAction("Clone Repository...").triggered.connect(
+                lambda: self.clone_requested.emit()
+            )
         else:
             return
         menu.exec(self._tree.viewport().mapToGlobal(pos))
