@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from git_gui.presentation.dialogs.identity_dialog import ensure_identity
 from git_gui.presentation.dialogs.interactive_rebase_dialog import InteractiveRebaseDialog
 from git_gui.presentation.dialogs.merge_dialog import MergeDialog
 
@@ -51,6 +52,8 @@ class MergeRebaseFlowsMixin:
             dlg = MergeDialog(branch, head_branch, analysis.can_ff, default_msg, parent=self)
             if dlg.exec() != MergeDialog.Accepted:
                 return
+            if not ensure_identity(self, self._queries, self._commands):
+                return
             req = dlg.result_value()
             head_before = self.head_before_operation()
             self._commands.merge.execute(branch, strategy=req.strategy, message=req.message)
@@ -71,10 +74,10 @@ class MergeRebaseFlowsMixin:
         self._reload()
 
     def _on_merge_commit(self, oid: str) -> None:
+        short_oid = oid[:7]
         try:
             analysis = self._queries.get_merge_analysis.execute(oid)
             head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
-            short_oid = oid[:7]
             default_msg = f"Merge commit {short_oid}"
 
             if analysis.is_up_to_date:
@@ -85,6 +88,8 @@ class MergeRebaseFlowsMixin:
                 f"commit {short_oid}", head_branch, analysis.can_ff, default_msg, parent=self
             )
             if dlg.exec() != MergeDialog.Accepted:
+                return
+            if not ensure_identity(self, self._queries, self._commands):
                 return
             req = dlg.result_value()
             head_before = self.head_before_operation()
