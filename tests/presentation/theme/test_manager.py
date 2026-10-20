@@ -2,7 +2,9 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from git_gui.presentation.theme import settings as s
+from git_gui.presentation.theme.loader import load_builtin
 from git_gui.presentation.theme.manager import ThemeManager
+from git_gui.presentation.theme.qss_template import render
 from git_gui.presentation.theme.tokens import Theme
 
 
@@ -44,14 +46,14 @@ def test_set_mode_persists(app, isolated_settings):
 
 def test_set_mode_applies_global_qss(app, isolated_settings):
     mgr = ThemeManager(app)
+
     mgr.set_mode("dark")
-    # Global QSS is intentionally empty until widget migration; just
-    # confirm the call path runs and styleSheet() returns a string.
-    assert isinstance(app.styleSheet(), str)
-    return
-    qss = app.styleSheet()
-    assert "QPushButton" in qss
-    assert len(qss) > 200
+    dark_qss = app.styleSheet()
+    mgr.set_mode("light")
+    light_qss = app.styleSheet()
+
+    assert dark_qss == render(load_builtin("dark"))
+    assert light_qss == render(load_builtin("light"))
 
 
 def test_set_mode_custom_loads_from_file(app, isolated_settings, tmp_path, monkeypatch):
