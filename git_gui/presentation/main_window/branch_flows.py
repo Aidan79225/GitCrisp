@@ -5,12 +5,14 @@ import logging
 from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
 from git_gui.domain.entities import Branch, StagingState, Worktree
+from git_gui.presentation.bus import CommandBus
 from git_gui.presentation.dialogs.branch_select_dialog import BranchSelectDialog
+from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 
 logger = logging.getLogger(__name__)
 
 
-class BranchFlowsMixin:
+class BranchFlowsMixin(AskedRepoGuardMixin):
     """Branch operations — checkout, create, delete, and commit checkout.
 
     Mixin — not instantiable on its own. Relies on composite-provided
@@ -33,14 +35,17 @@ class BranchFlowsMixin:
         # worktree. When that's the case, offer to remove the worktree first
         # (instead of surfacing libgit2's opaque "current HEAD of a linked
         # repository" error).
+        commands = self._commands
         wt = self._linked_worktree_for_branch(branch)
         if wt is not None:
-            if not self._remove_worktree_for_branch_delete(branch, wt):
+            if not self._remove_worktree_for_branch_delete(branch, wt, commands):
                 return
         elif not self._confirm_delete_branch(branch):
             return
+        elif self._repo_switched_while_asking(commands, f"Delete branch {branch}"):
+            return
         try:
-            self._commands.delete_branch.execute(branch)
+            commands.delete_branch.execute(branch)
             self._log_panel.log(f"Deleted branch: {branch}")
         except Exception as e:
             self._log_panel.expand()
@@ -70,9 +75,10 @@ class BranchFlowsMixin:
             return None
         return wt
 
-    def _remove_worktree_for_branch_delete(self, branch: str, wt) -> bool:
+    def _remove_worktree_for_branch_delete(self, branch: str, wt, commands: CommandBus) -> bool:
         """Confirm and remove the worktree holding `branch`. Returns True if it
         was removed (so deletion can proceed), False to abort."""
+        op_name = f"Remove worktree {wt.path}"
         reply = QMessageBox.question(
             self,
             "Branch in use by a worktree",
@@ -81,13 +87,13 @@ class BranchFlowsMixin:
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, op_name):
             return False
 
         force = False
         while True:
             try:
-                self._commands.remove_worktree.execute(wt.path, force=force)
+                commands.remove_worktree.execute(wt.path, force=force)
                 self._log_panel.log(f"Removed worktree: {wt.path}")
                 self._load_worktrees_for_active_repo()
                 return True
@@ -99,12 +105,14 @@ class BranchFlowsMixin:
                     detail = (
                         "has uncommitted changes" if name == "WorktreeDirtyError" else "is locked"
                     )
-                    if self._ask_force_remove_worktree(wt.path, detail):
-                        force = True
-                        continue
-                    return False
+                    if not self._ask_force_remove_worktree(wt.path, detail):
+                        return False
+                    if self._repo_switched_while_asking(commands, op_name):
+                        return False
+                    force = True
+                    continue
                 self._log_panel.expand()
-                self._log_panel.log_error(f"Remove worktree {wt.path} — ERROR: {e}")
+                self._log_panel.log_error(f"{op_name} — ERROR: {e}")
                 return False
 
     def _ask_force_remove_worktree(self, path: str, detail: str) -> bool:
@@ -127,6 +135,7 @@ class BranchFlowsMixin:
                 "Try again once it finishes."
             )
             return
+        commands = self._commands
         reply = QMessageBox.question(
             self,
             "Delete Remote Branch",
@@ -134,9 +143,8 @@ class BranchFlowsMixin:
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, op_name):
             return
-        commands = self._commands
         self._run_remote_op(
             op_name,
             lambda: commands.delete_remote_branch.execute(remote, branch),
@@ -196,12 +204,14 @@ class BranchFlowsMixin:
     def _reset_local_to_remote(self, local: Branch, remote: str) -> bool:
         """Check out `local` and hard-reset it to `remote`, once the user
         agrees. Returns False when nothing was changed."""
+        op_name = f"Reset {local.name} to {remote}"
+        commands = self._commands
         if self._switch_to_worktree_holding(local):
             return False
         if self._carries_changes_from_another_branch(local):
             self._log_panel.expand()
             self._log_panel.log_error(
-                f"Reset {local.name} to {remote} — skipped: it would discard your "
+                f"{op_name} — skipped: it would discard your "
                 "uncommitted changes. Commit or stash them first."
             )
             return False
@@ -214,13 +224,13 @@ class BranchFlowsMixin:
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, op_name):
             return False
-        self._commands.checkout.execute(local.name)
-        self._commands.reset_branch_to_ref.execute(local.name, remote)
+        commands.checkout.execute(local.name)
+        commands.reset_branch_to_ref.execute(local.name, remote)
         # Undo returns the reset branch to its own tip; HEAD may have been on
         # a different branch when this started.
-        self._log_undoable(f"Reset {local.name} to {remote}", local.target_oid)
+        self._log_undoable(op_name, local.target_oid)
         return True
 
     def _carries_changes_from_another_branch(self, branch: Branch) -> bool:
@@ -336,6 +346,7 @@ class BranchFlowsMixin:
     ) -> None:
         """When a just-checked-out local branch differs from its upstream,
         offer to hard-reset it to the remote."""
+        commands = self._commands
         upstream = self._upstream_for(branch.name)
         if not upstream:
             return
@@ -361,11 +372,12 @@ class BranchFlowsMixin:
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if reply != QMessageBox.Yes:
+        op_name = f"Reset {branch.name} to {upstream}"
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, op_name):
             return
         head_before = self.head_before_operation()
-        self._commands.reset_branch_to_ref.execute(branch.name, upstream)
-        self._log_undoable(f"Reset {branch.name} to {upstream}", head_before)
+        commands.reset_branch_to_ref.execute(branch.name, upstream)
+        self._log_undoable(op_name, head_before)
 
     def _upstream_for(self, name: str) -> str | None:
         """Return the upstream (remote-tracking) shorthand for a local branch,
