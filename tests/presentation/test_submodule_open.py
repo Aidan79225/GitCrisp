@@ -29,11 +29,10 @@ def test_an_uninitialized_submodule_is_reported_instead_of_opening_its_parent(qt
     (tmp_path / "lib").mkdir()  # a clone made without --recursive
     win = _make_window(qtbot, tmp_path)
 
-    with patch.object(win, "_switch_repo") as switch:
+    with patch.object(win, "_request_repo") as request:
         win._on_submodule_path_clicked("lib")
 
-    switch.assert_not_called()
-    win._repo_store.add_open.assert_not_called()
+    request.assert_not_called()
     win._log_panel.expand.assert_called_once_with()
     assert "git submodule update --init" in win._log_panel.log_error.call_args.args[0]
 
