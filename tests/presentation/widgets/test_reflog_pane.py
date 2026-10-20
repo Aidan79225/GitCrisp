@@ -14,7 +14,7 @@ from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import QStyleOptionViewItem
 
 from git_gui.domain.entities import ReflogEntry
-from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.reflog_pane import (
     _OPERATION_ROLES,
     ORPHAN_STRIPE_W,
@@ -124,7 +124,7 @@ def test_every_operation_role_keeps_its_hue_across_themes(qtbot):
         for mode in ("light", "dark"):
             manager.set_mode(mode)
             colors = manager.current.colors
-            for role in set(_OPERATION_ROLES.values()) | {"status_unknown"}:
+            for role in set(_OPERATION_ROLES.values()) | {ColorRole.STATUS_UNKNOWN}:
                 seen.setdefault(role, []).append(getattr(colors, role))
 
         for role, (light, dark) in seen.items():
