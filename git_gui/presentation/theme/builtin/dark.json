@@ -9,7 +9,7 @@
     "secondary": "#0d6efd",
     "on_secondary": "#ffffff",
     "error": "#f85149",
-    "on_error": "#ffffff",
+    "on_error": "#410002",
     "surface": "#252526",
     "on_surface": "#cccccc",
     "surface_variant": "#2a2d2e",
