@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
+from typing import NamedTuple
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QPushButton
+
+from git_gui.presentation.bus import CommandBus
 
 
 class _RemoteSignals(QObject):
@@ -12,6 +16,13 @@ class _RemoteSignals(QObject):
     finished = Signal(str)
     failed = Signal(str, str)
     cancelled = Signal(str)
+
+
+class _PushTarget(NamedTuple):
+    """The remote branch a push wrote to: what a rejection offers to force."""
+
+    remote: str
+    branch: str
 
 
 class RemoteOpQueueMixin:
@@ -31,11 +42,7 @@ class RemoteOpQueueMixin:
         self._graph.fetch_all_requested.connect(self._on_fetch_all_prune)
         self._sidebar.fetch_requested.connect(self._on_fetch_single)
         self._sidebar.tag_push_requested.connect(self._on_push_tag)
-        self._sidebar.branch_push_requested.connect(
-            lambda b: self._run_remote_op(
-                f"Push origin/{b}", lambda: self._commands.push.execute("origin", b)
-            )
-        )
+        self._sidebar.branch_push_requested.connect(self._on_push_branch)
         # Cancel button lives in the status bar, shown only while a remote op runs.
         self._cancel_remote_btn = QPushButton("✕ Cancel")
         self._cancel_remote_btn.setToolTip("Cancel the running push/pull/fetch")
@@ -43,8 +50,24 @@ class RemoteOpQueueMixin:
         self._cancel_remote_btn.setVisible(False)
         self.statusBar().addPermanentWidget(self._cancel_remote_btn)
         self._remote_op_name: str | None = None
+        # A repo switch replaces self._commands while the op runs, so what
+        # follows up on the op must go to the repo it started in.
+        self._remote_op_commands: CommandBus | None = None
+        self._remote_op_push_target: _PushTarget | None = None
 
-    def _run_remote_op(self, name: str, fn) -> None:
+    def _run_remote_op(
+        self,
+        name: str,
+        fn: Callable[[], object],
+        *,
+        commands: CommandBus | None = None,
+        push_target: _PushTarget | None = None,
+    ) -> None:
+        """Run *fn* on a worker thread unless another remote op is running.
+
+        *commands* is the bus *fn* works on, the active repo's unless given.
+        *push_target* marks the op as a push that may be offered a force push.
+        """
         if self._remote_running:
             return
 
@@ -52,6 +75,8 @@ class RemoteOpQueueMixin:
         self._log_panel.log(f"{name} — started...")
         self._remote_running = True
         self._remote_op_name = name
+        self._remote_op_commands = commands if commands is not None else self._commands
+        self._remote_op_push_target = push_target
         self.statusBar().showMessage(f"⏳ {name}...")
         self._cancel_remote_btn.setEnabled(True)
         self._cancel_remote_btn.setVisible(True)
@@ -93,6 +118,8 @@ class RemoteOpQueueMixin:
         """Shared teardown for the done / error / cancelled outcomes."""
         self._remote_running = False
         self._remote_op_name = None
+        self._remote_op_commands = None
+        self._remote_op_push_target = None
         self.statusBar().clearMessage()
         self._cancel_remote_btn.setVisible(False)
         self._cancel_remote_btn.setEnabled(True)
@@ -108,37 +135,46 @@ class RemoteOpQueueMixin:
         self._reload()
 
     def _on_remote_error(self, name: str, error: str) -> None:
+        commands, rejected = self._remote_op_commands, self._remote_op_push_target
         self._log_panel.log_error(f"{name} — ERROR: {error}")
         self._end_remote_op()
         self._reload()
+        if commands is not None and rejected is not None and "non-fast-forward" in error:
+            self._offer_force_push(commands, rejected)
 
-        # Detect push rejection and offer force push
-        if name.startswith("Push ") and "non-fast-forward" in error:
-            branch = self._get_current_branch()
-            if branch:
-                reply = QMessageBox.warning(
-                    self,
-                    "Push Rejected",
-                    "Push was rejected because the remote branch has changes "
-                    "you don't have locally.\n\n"
-                    "Would you like to force push with --force-with-lease?\n"
-                    "This will overwrite the remote branch.",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No,
-                )
-                if reply == QMessageBox.Yes:
-                    self._run_remote_op(
-                        f"Force push origin/{branch}",
-                        lambda: self._commands.force_push.execute("origin", branch),
-                    )
+    def _offer_force_push(self, commands: CommandBus, target: _PushTarget) -> None:
+        remote_branch = f"{target.remote}/{target.branch}"
+        reply = QMessageBox.warning(
+            self,
+            "Push Rejected",
+            f"Push of '{target.branch}' was rejected because {remote_branch} has "
+            "changes you don't have locally.\n\n"
+            f"Would you like to force push '{target.branch}' with --force-with-lease?\n"
+            f"This will overwrite {remote_branch}.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self._run_remote_op(
+                f"Force push {remote_branch}",
+                lambda: commands.force_push.execute(target.remote, target.branch),
+                commands=commands,
+            )
 
     def _on_push(self) -> None:
         branch = self._get_current_branch()
         if branch:
-            self._run_remote_op(
-                f"Push origin/{branch}",
-                lambda: self._commands.push.execute("origin", branch),
-            )
+            self._on_push_branch(branch)
+
+    def _on_push_branch(self, branch: str) -> None:
+        commands = self._commands
+        target = _PushTarget("origin", branch)
+        self._run_remote_op(
+            f"Push {target.remote}/{target.branch}",
+            lambda: commands.push.execute(target.remote, target.branch),
+            commands=commands,
+            push_target=target,
+        )
 
     def _on_pull(self) -> None:
         branch = self._get_current_branch()
