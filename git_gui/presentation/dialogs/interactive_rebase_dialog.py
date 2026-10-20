@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import Commit
 
 _ACTIONS = ["pick", "squash", "fixup", "drop"]
+_ACTION_COLUMN, _OID_COLUMN, _MESSAGE_COLUMN = range(3)
+_HEADERS = ["Action", "OID", "Message"]
 
 # Read-only, and never a drop target, so a drop always lands between rows.
 _CELL_FLAGS = Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsDragEnabled
@@ -85,13 +87,13 @@ class InteractiveRebaseDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Table
-        self._table = _RowMoveTable(len(commits), 3)
-        self._table.setHorizontalHeaderLabels(["Action", "OID", "Message"])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self._table.setColumnWidth(0, 100)
-        self._table.setColumnWidth(1, 80)
+        self._table = _RowMoveTable(len(commits), len(_HEADERS))
+        self._table.setHorizontalHeaderLabels(_HEADERS)
+        self._table.horizontalHeader().setSectionResizeMode(_ACTION_COLUMN, QHeaderView.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(_OID_COLUMN, QHeaderView.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(_MESSAGE_COLUMN, QHeaderView.Stretch)
+        self._table.setColumnWidth(_ACTION_COLUMN, 100)
+        self._table.setColumnWidth(_OID_COLUMN, 80)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -107,15 +109,15 @@ class InteractiveRebaseDialog(QDialog):
             combo.addItems(_ACTIONS)
             combo.setCurrentText("pick")
             combo.currentTextChanged.connect(self._validate)
-            self._table.setCellWidget(row, 0, combo)
-            self._table.setItem(row, 0, _cell(""))
+            self._table.setCellWidget(row, _ACTION_COLUMN, combo)
+            self._table.setItem(row, _ACTION_COLUMN, _cell(""))
 
             # OID
-            self._table.setItem(row, 1, _cell(commit.oid[:7]))
+            self._table.setItem(row, _OID_COLUMN, _cell(commit.oid[:7]))
 
             # Message (first line)
             msg_line = commit.message.split("\n", 1)[0]
-            self._table.setItem(row, 2, _cell(msg_line))
+            self._table.setItem(row, _MESSAGE_COLUMN, _cell(msg_line))
 
         layout.addWidget(self._table)
 
@@ -135,16 +137,22 @@ class InteractiveRebaseDialog(QDialog):
         rows = [self._take_row(row) for row in range(self._table.rowCount())]
         rows.insert(destination, rows.pop(source))
         for row, (action, items) in enumerate(rows):
-            self._table.cellWidget(row, 0).setCurrentText(action)
+            self._action_combo(row).setCurrentText(action)
             for column, item in enumerate(items):
                 self._table.setItem(row, column, item)
         self._table.selectRow(destination)
         self._validate()
 
     def _take_row(self, row: int) -> tuple[str, list[QTableWidgetItem]]:
-        action = self._table.cellWidget(row, 0).currentText()
+        action = self._action_at(row)
         items = [self._table.takeItem(row, column) for column in range(self._table.columnCount())]
         return action, items
+
+    def _action_combo(self, row: int) -> QComboBox:
+        return self._table.cellWidget(row, _ACTION_COLUMN)
+
+    def _action_at(self, row: int) -> str:
+        return self._action_combo(row).currentText()
 
     def _validate(self) -> None:
         """Disable Execute when squash/fixup is the first action that keeps a commit."""
@@ -164,7 +172,7 @@ class InteractiveRebaseDialog(QDialog):
     def _first_kept_action(self) -> str | None:
         """git does not count a dropped commit as one to squash or fix up into."""
         for row in range(self._table.rowCount()):
-            action = self._table.cellWidget(row, 0).currentText()
+            action = self._action_at(row)
             if action != "drop":
                 return action
         return None
@@ -173,10 +181,9 @@ class InteractiveRebaseDialog(QDialog):
         """Return (action, full_oid) tuples in current row order."""
         entries: list[tuple[str, str]] = []
         for row in range(self._table.rowCount()):
-            combo = self._table.cellWidget(row, 0)
-            action = combo.currentText() if combo else "pick"
+            action = self._action_at(row)
             # Find the original commit by matching the short oid
-            short_oid = self._table.item(row, 1).text()
+            short_oid = self._table.item(row, _OID_COLUMN).text()
             full_oid = short_oid  # fallback
             for c in self._commits:
                 if c.oid[:7] == short_oid:
