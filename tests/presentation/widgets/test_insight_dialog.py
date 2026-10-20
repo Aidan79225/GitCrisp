@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QDate, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget
 
-from git_gui.presentation.widgets.insight_dialog import InsightDialog
+from git_gui.domain.entities import CommitStat, FileStat
+from git_gui.presentation.widgets.insight_dialog import InsightDialog, _AuthorRow, _FileRow
 
 
 class _EndlessHistory:
@@ -78,3 +80,186 @@ def test_a_closed_dialog_does_not_stay_behind_in_its_window(window):
     dialog.exec()
 
     assert window.findChildren(InsightDialog) == []
+
+
+# ── Date ranges ─────────────────────────────────────────────────────────────
+_WEDNESDAY = date(2026, 10, 21)
+
+
+def _no_history() -> MagicMock:
+    queries = MagicMock()
+    queries.get_commit_stats.execute.return_value = []
+    return queries
+
+
+def _range(window, label: str, today: date = _WEDNESDAY):
+    dialog = InsightDialog(_no_history(), window, today=lambda: today)
+    return dialog._compute_range(label)
+
+
+def _on_the_users_clock(moment: datetime) -> datetime:
+    return moment.astimezone().replace(tzinfo=None)
+
+
+def test_this_week_starts_at_local_midnight_on_monday(window):
+    since, until = _range(window, "This Week")
+
+    assert _on_the_users_clock(since) == datetime(2026, 10, 19)
+    assert until is None
+
+
+def test_on_monday_this_week_starts_that_morning(window):
+    """Early on Monday local time it is still Sunday in UTC; the week is the new one."""
+    since, _until = _range(window, "This Week", today=date(2026, 10, 19))
+
+    assert _on_the_users_clock(since) == datetime(2026, 10, 19)
+
+
+def test_this_month_starts_at_local_midnight_on_the_first(window):
+    since, _until = _range(window, "This Month")
+
+    assert _on_the_users_clock(since) == datetime(2026, 10, 1)
+
+
+def test_this_year_starts_at_local_midnight_on_new_years_day(window):
+    since, _until = _range(window, "This Year")
+
+    assert _on_the_users_clock(since) == datetime(2026, 1, 1)
+
+
+def test_a_custom_range_covers_whole_local_days(window):
+    dialog = InsightDialog(_no_history(), window)
+    dialog._start_date.setDate(QDate(2026, 10, 18))
+    dialog._end_date.setDate(QDate(2026, 10, 18))
+
+    since, until = dialog._compute_range("Custom")
+
+    assert _on_the_users_clock(since) == datetime(2026, 10, 18)
+    assert _on_the_users_clock(until) == datetime(2026, 10, 18, 23, 59, 59)
+
+
+# ── What it shows ───────────────────────────────────────────────────────────
+_ALICE = "Alice <alice@example.com>"
+_BOB = "Bob <bob@example.com>"
+
+
+def _commit(oid: str, author: str, *files: tuple[str, int, int]) -> CommitStat:
+    return CommitStat(
+        oid=oid,
+        author=author,
+        timestamp=datetime(2026, 10, 1, tzinfo=UTC),
+        files=[FileStat(path, added, deleted) for path, added, deleted in files],
+    )
+
+
+_HISTORY = [
+    _commit("c1", _ALICE, ("app.py", 10, 2), ("README.md", 1, 0)),
+    _commit("c2", _ALICE, ("app.py", 5, 5)),
+    _commit("c3", _BOB, ("lib.py", 0, 7)),
+]
+
+
+def _loaded_dialog(qtbot, window, history) -> InsightDialog:
+    queries = MagicMock()
+    queries.get_commit_stats.execute.side_effect = lambda since, until, cancel: iter(history)
+    dialog = InsightDialog(queries, window)
+    qtbot.waitUntil(lambda: dialog._last_render is not None)
+    return dialog
+
+
+def test_each_author_is_credited_with_their_commits(qtbot, window):
+    commits, _added, _deleted, _files, _changed, total = _loaded_dialog(
+        qtbot, window, _HISTORY
+    )._last_render
+
+    assert commits == {_ALICE: 2, _BOB: 1}
+    assert total == 3
+
+
+def test_each_author_is_credited_with_the_lines_they_added_and_deleted(qtbot, window):
+    _commits, added, deleted, _files, _changed, _total = _loaded_dialog(
+        qtbot, window, _HISTORY
+    )._last_render
+
+    assert added == {_ALICE: 16, _BOB: 0}
+    assert deleted == {_ALICE: 7, _BOB: 7}
+
+
+def test_a_file_counts_once_per_commit_that_changes_it(qtbot, window):
+    _commits, _added, _deleted, file_counts, changed, _total = _loaded_dialog(
+        qtbot, window, _HISTORY
+    )._last_render
+
+    assert file_counts == {"app.py": 2, "README.md": 1, "lib.py": 1}
+    assert changed == {"app.py", "README.md", "lib.py"}
+
+
+def test_a_superseded_load_that_finishes_late_is_not_shown(qtbot, window):
+    dialog = _loaded_dialog(qtbot, window, _HISTORY)
+    shown = dialog._last_render
+
+    dialog._on_loaded(dialog._load_generation - 1, {"Mallory": 99}, {}, {}, {}, set(), 99)
+
+    assert dialog._last_render is shown
+
+
+def test_a_superseded_load_that_fails_late_does_not_hide_the_results(qtbot, window):
+    dialog = _loaded_dialog(qtbot, window, _HISTORY)
+
+    dialog._on_failed(dialog._load_generation - 1, "boom")
+
+    assert not dialog._scroll.isHidden()
+
+
+def test_authors_are_ranked_by_commit_count(qtbot, window):
+    dialog = _loaded_dialog(qtbot, window, [*reversed(_HISTORY)])
+
+    rows = dialog._content.findChildren(_AuthorRow)
+
+    assert [row._name for row in rows] == [_ALICE, _BOB]
+
+
+def test_only_the_ten_most_modified_files_are_listed(qtbot, window):
+    many_files = [_commit(f"c{n}", _ALICE, (f"file{n}.py", 1, 0)) for n in range(12)]
+    dialog = _loaded_dialog(qtbot, window, many_files)
+
+    assert len(dialog._content.findChildren(_FileRow)) == 10
+
+
+def test_the_result_rows_paint(qtbot, window):
+    dialog = _loaded_dialog(qtbot, window, _HISTORY)
+
+    assert not dialog.grab().isNull()
+
+
+# ── Custom range edges ──────────────────────────────────────────────────────
+def _custom_range(window, start: QDate, end: QDate):
+    dialog = InsightDialog(_no_history(), window)
+    dialog._start_date.setDate(start)
+    dialog._end_date.setDate(end)
+    return dialog._compute_range("Custom")
+
+
+def test_a_custom_start_before_the_epoch_leaves_the_range_open_at_the_start(window):
+    since, _until = _custom_range(window, QDate(1969, 12, 31), QDate(2026, 10, 18))
+
+    assert since is None
+
+
+def test_a_custom_start_at_the_earliest_date_the_picker_offers_is_open(window):
+    since, _until = _custom_range(window, QDate(1752, 9, 14), QDate(2026, 10, 18))
+
+    assert since is None
+
+
+def test_a_custom_end_on_the_last_date_the_picker_offers_leaves_the_range_open(window):
+    _since, until = _custom_range(window, QDate(2026, 10, 18), QDate(9999, 12, 31))
+
+    assert until is None
+
+
+def test_a_custom_range_just_inside_the_convertible_days_keeps_both_bounds(window):
+    since, until = _custom_range(window, QDate(1970, 1, 3), QDate(2999, 12, 30))
+
+    assert _on_the_users_clock(since) == datetime(1970, 1, 3)
+    assert _on_the_users_clock(until) == datetime(2999, 12, 30, 23, 59, 59)
