@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -33,7 +35,8 @@ class ResetDialog(QDialog):
         layout = QVBoxLayout(self)
 
         header = QLabel(
-            f"Reset <b>{branch_name}</b> to <code>{short_sha}</code> &quot;{commit_subject}&quot;"
+            f"Reset <b>{escape(branch_name)}</b> to <code>{escape(short_sha)}</code> "
+            f"&quot;{escape(commit_subject)}&quot;"
         )
         header.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(header)
