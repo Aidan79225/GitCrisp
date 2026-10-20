@@ -28,6 +28,7 @@ def _wire_buses(win):
         Branch("feature", False, False, "abc"),
         Branch("origin/feature", True, False, "abc"),
     ]
+    queries.find_worktree_for_branch.execute.return_value = None
     win._queries = queries
     win._commands = commands
     return queries, commands

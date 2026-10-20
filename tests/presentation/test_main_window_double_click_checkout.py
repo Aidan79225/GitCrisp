@@ -32,6 +32,7 @@ def _make_window(qtbot):
     win._graph = MagicMock()
     win._queries.get_head_oid.execute.return_value = "abc"
     win._queries.list_local_branches_with_upstream.execute.return_value = []
+    win._queries.find_worktree_for_branch.execute.return_value = None
     return win
 
 
