@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 _PUSH_FROM_SIDEBAR_LATER = "Push it from the sidebar's tag menu once it finishes."
 
 
+def _is_cancellation(error: Exception) -> bool:
+    """Whether *error* is the user cancelling the running remote op.
+
+    Matched by class name, as RemoteOpQueueMixin does, because presentation
+    may not import the infrastructure class that raises it.
+    """
+    return type(error).__name__ == "RemoteOperationCancelled"
+
+
 class TagFlowsMixin(AskedRepoGuardMixin):
     """Tag operations — create and delete (local and/or remote).
 
@@ -134,9 +143,21 @@ class TagFlowsMixin(AskedRepoGuardMixin):
             # Every remote in one op: _run_remote_op runs one op at a time and
             # drops any request made while one runs, so an op per remote lost
             # all but the first.
+            failures: list[str] = []
             for remote in remotes:
-                commands.delete_remote_tag.execute(remote, name)
+                try:
+                    commands.delete_remote_tag.execute(remote, name)
+                except Exception as e:
+                    if _is_cancellation(e):
+                        raise
+                    # The local tag is already gone, and the sidebar lists
+                    # only local tags: a remote skipped now could not be
+                    # retried from the UI.
+                    failures.append(f"{remote} ({e})")
+                    continue
                 self._forget_remote_tag(repo_path, remote, name)
+            if failures:
+                raise RuntimeError(f"still on {', '.join(failures)}")
 
         self._run_remote_op(op_name, _fn, commands=commands)
         self._reload()
