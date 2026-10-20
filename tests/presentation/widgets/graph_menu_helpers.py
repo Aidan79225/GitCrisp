@@ -1,4 +1,4 @@
-"""Open GraphWidget's real context menu on one commit row, without a repository."""
+"""The real GraphWidget without a repository, and its context menu on one commit row."""
 
 from __future__ import annotations
 
@@ -23,6 +23,14 @@ class _NullStore:
         pass
 
 
+def graph_widget(qtbot, queries=None) -> GraphWidget:
+    """The real GraphWidget with no repository, answering from `queries`."""
+    widget = GraphWidget(queries=None, commands=None, repo_store=_NullStore())
+    qtbot.addWidget(widget)
+    widget._queries = queries
+    return widget
+
+
 def open_context_menu(qtbot, branches: list[Branch]) -> tuple[GraphWidget, QMenu]:
     """Right-click a commit that `branches` point at; return the widget and its menu.
 
@@ -30,9 +38,7 @@ def open_context_menu(qtbot, branches: list[Branch]) -> tuple[GraphWidget, QMenu
     C++ modal from opening, so graph's QMenu is swapped for a subclass whose
     exec returns at once (the same approach as test_sidebar_signals).
     """
-    widget = GraphWidget(queries=None, commands=None, repo_store=_NullStore())
-    qtbot.addWidget(widget)
-    widget._queries = _queries_listing(branches)
+    widget = graph_widget(qtbot, _queries_listing(branches))
     commit = Commit(ROW_OID, "subject", "T", datetime(2026, 1, 1), [])
     widget._model.reload([commit], {ROW_OID: [b.name for b in branches]})
     widget._view.indexAt = MagicMock(return_value=widget._model.index(0, 0))
