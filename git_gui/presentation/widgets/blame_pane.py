@@ -33,7 +33,7 @@ from git_gui.presentation.widgets.diff_block import (
 from git_gui.presentation.widgets.syntax_highlighter import SyntaxToken, tokenize
 
 SHA_CHARS = 8
-AUTHOR_CHARS = 14  # author names are truncated to keep the gutter a fixed width
+AUTHOR_CHARS = 14  # longer author names are cut, which bounds how wide the gutter can grow
 STRIPE_W = 5  # commit colour bar down the left of the gutter
 GUTTER_PAD = 8
 COL_GAP = 10
@@ -153,8 +153,13 @@ class _BlameEditor(QPlainTextEdit):
         place — light-theme token colours on a dark surface are unreadable.
         Merging the new formats over the same ranges fixes them without
         disturbing the text, the cursor, or the scroll position.
+
+        The typography scale arrives as a new font just before this, and the
+        gutter was measured in the old one, so it is measured again.
         """
         self._apply_syntax()
+        self._gutter_w = self._measure_gutter()
+        self._sync_gutter_width()
         self._gutter.update()
 
     def _apply_syntax(self) -> None:

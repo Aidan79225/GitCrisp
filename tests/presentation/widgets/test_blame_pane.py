@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -293,9 +294,12 @@ def test_back_does_nothing_with_an_empty_history(qtbot):
     assert w._oid is None
 
 
-def test_author_column_is_capped(qtbot):
-    """The gutter is a fixed width, so a long name must not push the columns apart."""
-    assert len(_elide("An Extremely Long Contributor Name", AUTHOR_CHARS)) == AUTHOR_CHARS
+def test_a_long_author_widens_the_gutter_no_further_than_the_cap(qtbot):
+    """The gutter grows with the widest author shown, up to AUTHOR_CHARS of them."""
+    at_cap, _ = _window(qtbot, lines=[replace(LINES[0], author="W" * AUTHOR_CHARS)])
+    past_cap, _ = _window(qtbot, lines=[replace(LINES[0], author="W" * (AUTHOR_CHARS * 3))])
+
+    assert past_cap._editor.gutter_width() <= at_cap._editor.gutter_width()
 
 
 # ── Picking a line of the first run ──────────────────────────────────────────
@@ -389,3 +393,25 @@ def test_an_emoji_does_not_shift_the_colours_after_it(qtbot):
     def_start = w._editor.document().findBlockByNumber(1).position()
     assert [colour_at(def_start + i) for i in range(3)] == [keyword] * 3
     assert colour_at(def_start + 3) != keyword, "the space after def stays plain"
+
+
+# ── Gutter after a font change ───────────────────────────────────────────────
+
+
+def test_the_gutter_widens_with_a_larger_font_after_a_theme_change(qtbot):
+    """The typography scale reaches the editor as a new font, then a theme change.
+
+    Measured once at load, the gutter kept its old width: author names ran
+    into the line numbers and the numbers were clipped.
+    """
+    w, _ = _window(qtbot)
+    editor = w._editor
+    before = editor.gutter_width()
+    font = editor.font()
+    font.setPointSizeF(font.pointSizeF() * 1.6)
+    editor.setFont(font)
+
+    editor.restyle()
+
+    assert editor.gutter_width() == editor._measure_gutter() > before
+    assert editor._gutter.width() == editor.gutter_width()
