@@ -151,7 +151,7 @@ class RemoteBranchesDialog(QDialog):
     def _update_delete_button(self) -> None:
         n = len(self._collect_selected())
         self._delete_btn.setText(f"Delete Selected ({n})")
-        self._delete_btn.setEnabled(n > 0)
+        self._delete_btn.setEnabled(n > 0 and not self._busy)
 
     @staticmethod
     def _grouped_by_remote(names: list[str]) -> dict[str, list[str]]:
@@ -209,8 +209,15 @@ class RemoteBranchesDialog(QDialog):
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
-        for btn in (self._delete_btn, self._select_all_btn, self._clear_btn, self._close_btn):
-            btn.setEnabled(not busy)
+        for widget in (
+            self._table,
+            self._filter,
+            self._delete_btn,
+            self._select_all_btn,
+            self._clear_btn,
+            self._close_btn,
+        ):
+            widget.setEnabled(not busy)
 
     def _on_delete_finished(self, results: list) -> None:
         self._set_busy(False)
