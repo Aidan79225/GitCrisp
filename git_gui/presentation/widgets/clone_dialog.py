@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from git_gui.infrastructure.git_clone import CloneProgress, clone_repo
+from git_gui.infrastructure.git_clone import CloneCancelled, CloneProgress, clone_repo
 from git_gui.presentation.theme import connect_widget, get_theme_manager
 
 _REPO_NAME_RE = re.compile(r"[/:\\]([^/:\\]+?)(?:\.git)?[/\\]?$")
@@ -42,7 +42,8 @@ class CloneDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Clone Repository")
         self.setMinimumWidth(500)
-        self._proc_thread: threading.Thread | None = None
+        self._cloning = False
+        self._cancel_requested = threading.Event()
 
         # URL
         self._url_edit = QLineEdit()
@@ -142,8 +143,7 @@ class CloneDialog(QDialog):
 
         dest = str(Path(folder) / name)
 
-        # Disable inputs
-        self._set_inputs_enabled(False)
+        self._set_cloning(True)
         self._error_label.setVisible(False)
         self._progress_label.setVisible(True)
         self._progress_bar.setVisible(True)
@@ -156,30 +156,35 @@ class CloneDialog(QDialog):
         signals.failed.connect(self._on_failed)
         self._clone_signals = signals  # prevent GC
 
+        cancelled = self._cancel_requested
+
         def _worker():
             try:
 
                 def _report(p: CloneProgress):
                     signals.progress.emit(p.phase, p.percent)
 
-                clone_repo(url, dest, on_progress=_report)
+                clone_repo(url, dest, on_progress=_report, cancelled=cancelled)
                 signals.finished.emit(dest)
+            except CloneCancelled:
+                pass  # The dialog closed when the user cancelled; there is nothing to show.
             except Exception as e:
                 signals.failed.emit(str(e))
 
-        self._proc_thread = threading.Thread(target=_worker, daemon=True)
-        self._proc_thread.start()
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _on_progress(self, phase: str, percent: int) -> None:
         self._progress_label.setText(f"{phase}: {percent}%")
         self._progress_bar.setValue(percent)
 
     def _on_finished(self, dest: str) -> None:
+        if self._cancel_requested.is_set():
+            return
         self.clone_completed.emit(dest)
         self.accept()
 
     def _on_failed(self, error: str) -> None:
-        self._set_inputs_enabled(True)
+        self._set_cloning(False)
         self._progress_label.setVisible(False)
         self._progress_bar.setVisible(False)
         self._show_error(error)
@@ -188,9 +193,21 @@ class CloneDialog(QDialog):
         self._error_label.setText(msg)
         self._error_label.setVisible(True)
 
-    def _set_inputs_enabled(self, enabled: bool) -> None:
-        self._url_edit.setEnabled(enabled)
-        self._folder_edit.setEnabled(enabled)
-        self._folder_browse.setEnabled(enabled)
-        self._name_edit.setEnabled(enabled)
-        self._clone_btn.setEnabled(enabled)
+    def _set_cloning(self, cloning: bool) -> None:
+        self._cloning = cloning
+        for widget in (
+            self._url_edit,
+            self._folder_edit,
+            self._folder_browse,
+            self._name_edit,
+            self._clone_btn,
+        ):
+            widget.setEnabled(not cloning)
+
+    def reject(self) -> None:
+        # The clone stops git and removes what it wrote in the background; the
+        # dialog closes without waiting, so a git slow to die cannot hold the
+        # app behind it, and a clone that finished meanwhile is still not opened.
+        if self._cloning:
+            self._cancel_requested.set()
+        super().reject()
