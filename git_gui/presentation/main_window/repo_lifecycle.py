@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -38,12 +39,8 @@ class _RepoRequest:
 
 
 class _WorktreeOpSignals(QObject):
-    succeeded = Signal(str)  # the path that was removed
-    completed = Signal()  # an op with nothing to hand on (lock/unlock)
-    dirty_error = Signal(str)
-    locked_error = Signal(str, str)  # path, reason
-    failed = Signal(str)
-    added = Signal(str, bool)  # new worktree path, switch_after
+    done = Signal(object)  # what the command returned
+    failed = Signal(object)  # the exception it raised
 
 
 class RepoLifecycleMixin:
@@ -462,28 +459,51 @@ class RepoLifecycleMixin:
         except Exception as e:
             self._report_worktree_error(f"Failed to list worktrees: {e}")
 
-    def _on_add_worktree_requested(self, payload: dict) -> None:
-        if self._commands is None:
+    def _run_worktree_op(
+        self,
+        label: str,
+        op: Callable[[CommandBus], object],
+        on_done: Callable[[object], None],
+        on_error: Callable[[Exception], bool] | None = None,
+    ) -> None:
+        """Run one worktree command off the GUI thread, on the repo open now.
+
+        *on_done* gets the command's result back on the GUI thread. A failure
+        *on_error* does not claim (by returning True) is reported as
+        "<label> worktree failed: ...".
+        """
+        commands = self._commands
+        if commands is None:
             return
         signals = _WorktreeOpSignals(self)
 
         def _worker():
             try:
-                wt = self._commands.add_worktree.execute(
-                    payload["location"],
-                    payload["branch"],
-                    create_branch=payload["create_new"],
-                    base_ref=payload["base_ref"],
-                )
-                signals.added.emit(str(wt.path), payload["switch_after"])
+                signals.done.emit(op(commands))
             except Exception as e:
-                signals.failed.emit(str(e))
+                signals.failed.emit(e)
 
-        signals.added.connect(self._on_worktree_added)
-        signals.failed.connect(
-            lambda msg: self._report_worktree_error(f"Add worktree failed: {msg}")
-        )
+        def _failed(error: Exception) -> None:
+            if on_error is None or not on_error(error):
+                self._report_worktree_error(f"{label} worktree failed: {error}")
+
+        signals.done.connect(on_done)
+        signals.failed.connect(_failed)
+        signals.done.connect(signals.deleteLater)
+        signals.failed.connect(signals.deleteLater)
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_add_worktree_requested(self, payload: dict) -> None:
+        self._run_worktree_op(
+            "Add",
+            lambda commands: commands.add_worktree.execute(
+                payload["location"],
+                payload["branch"],
+                create_branch=payload["create_new"],
+                base_ref=payload["base_ref"],
+            ),
+            lambda wt: self._on_worktree_added(str(wt.path), payload["switch_after"]),
+        )
 
     def _on_worktree_added(self, path: str, switch_after: bool) -> None:
         self._load_worktrees_for_active_repo()
@@ -491,20 +511,11 @@ class RepoLifecycleMixin:
             self._switch_repo(path)
 
     def _run_lock_worktree_with_reason(self, path: str, reason: str) -> None:
-        signals = _WorktreeOpSignals(self)
-
-        def _worker():
-            try:
-                self._commands.lock_worktree.execute(path, reason=reason or None)
-                signals.completed.emit()
-            except Exception as e:
-                signals.failed.emit(str(e))
-
-        signals.completed.connect(self._load_worktrees_for_active_repo)
-        signals.failed.connect(
-            lambda msg: self._report_worktree_error(f"Lock worktree failed: {msg}")
+        self._run_worktree_op(
+            "Lock",
+            lambda commands: commands.lock_worktree.execute(path, reason=reason or None),
+            lambda _: self._load_worktrees_for_active_repo(),
         )
-        threading.Thread(target=_worker, daemon=True).start()
 
     def _run_lock_worktree(self, path: str) -> None:
         from PySide6.QtWidgets import QInputDialog
@@ -515,20 +526,11 @@ class RepoLifecycleMixin:
         self._run_lock_worktree_with_reason(path, text.strip())
 
     def _run_unlock_worktree(self, path: str) -> None:
-        signals = _WorktreeOpSignals(self)
-
-        def _worker():
-            try:
-                self._commands.unlock_worktree.execute(path)
-                signals.completed.emit()
-            except Exception as e:
-                signals.failed.emit(str(e))
-
-        signals.completed.connect(self._load_worktrees_for_active_repo)
-        signals.failed.connect(
-            lambda msg: self._report_worktree_error(f"Unlock worktree failed: {msg}")
+        self._run_worktree_op(
+            "Unlock",
+            lambda commands: commands.unlock_worktree.execute(path),
+            lambda _: self._load_worktrees_for_active_repo(),
         )
-        threading.Thread(target=_worker, daemon=True).start()
 
     def _begin_remove_worktree(self, path: str) -> None:
         from PySide6.QtWidgets import QMessageBox
@@ -541,31 +543,26 @@ class RepoLifecycleMixin:
         self._run_remove_worktree(path, force=False)
 
     def _run_remove_worktree(self, path: str, *, force: bool) -> None:
-        signals = _WorktreeOpSignals(self)
-
-        def _worker():
-            try:
-                self._commands.remove_worktree.execute(path, force=force)
-                signals.succeeded.emit(path)
-            except Exception as e:
-                # Dispatch by class name to keep this layer infra-free
-                # (the architecture guard forbids importing the concrete
-                # error types here).
-                name = type(e).__name__
-                if name == "WorktreeDirtyError":
-                    signals.dirty_error.emit(path)
-                elif name == "WorktreeLockedError":
-                    signals.locked_error.emit(path, str(e))
-                else:
-                    signals.failed.emit(str(e))
-
-        signals.succeeded.connect(self._on_worktree_removed)
-        signals.dirty_error.connect(self._on_remove_dirty)
-        signals.locked_error.connect(self._on_remove_locked)
-        signals.failed.connect(
-            lambda msg: self._report_worktree_error(f"Remove worktree failed: {msg}")
+        self._run_worktree_op(
+            "Remove",
+            lambda commands: commands.remove_worktree.execute(path, force=force),
+            lambda _: self._on_worktree_removed(path),
+            lambda error: self._offer_force_remove(path, error),
         )
-        threading.Thread(target=_worker, daemon=True).start()
+
+    def _offer_force_remove(self, path: str, error: Exception) -> bool:
+        """Offer to force a removal git refused for a reason the user can
+        override; False for any other failure."""
+        # Dispatch by class name to keep this layer infra-free (the
+        # architecture guard forbids importing the concrete error types here).
+        name = type(error).__name__
+        if name == "WorktreeDirtyError":
+            self._on_remove_dirty(path)
+        elif name == "WorktreeLockedError":
+            self._on_remove_locked(path, str(error))
+        else:
+            return False
+        return True
 
     def _on_worktree_removed(self, path: str) -> None:
         """Leave the deleted directory rather than sitting in it.

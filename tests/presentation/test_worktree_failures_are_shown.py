@@ -97,3 +97,21 @@ def test_failing_to_list_worktrees_opens_the_log(window, monkeypatch):
 
     assert "Failed to list worktrees: refused by git" in _log_text(window)
     assert _log_is_open(window)
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        _add,
+        lambda w: w._run_lock_worktree_with_reason("/tmp/wt", ""),
+        lambda w: w._run_unlock_worktree("/tmp/wt"),
+        lambda w: w._run_remove_worktree("/tmp/wt", force=False),
+    ],
+)
+def test_a_worktree_operation_with_no_repo_open_does_nothing(qtbot, window, run):
+    window._commands = None
+
+    run(window)
+
+    qtbot.wait(100)
+    assert not _log_is_open(window)
