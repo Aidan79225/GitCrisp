@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 
+from PySide6.QtCore import QByteArray
 from PySide6.QtGui import QImage
+from PySide6.QtNetwork import QNetworkReply
 
 from git_gui.presentation.widgets.avatar_loader import (
     AvatarLoader,
@@ -236,3 +238,93 @@ class TestAvatarLoaderSignal:
             loader.get_pixmap("Eve <eve@example.com>")
             captured["cb"](png_bytes)
         assert blocker.args == [md5_email("eve@example.com")]
+
+
+# ── Gravatar's HTTP replies ─────────────────────────────────────────────────
+class _Reply:
+    """The parts of a QNetworkReply that AvatarLoader reads."""
+
+    def __init__(self, error, status, body: bytes = b"") -> None:
+        self._error = error
+        self._status = status
+        self._body = body
+
+    def error(self):
+        return self._error
+
+    def attribute(self, _attribute):
+        return self._status
+
+    def readAll(self) -> QByteArray:
+        return QByteArray(self._body)
+
+    def deleteLater(self) -> None:
+        pass
+
+
+_BOB = "Bob <bob@example.com>"
+_BOB_HASH = md5_email("bob@example.com")
+
+
+def _answer_fetch(cache_dir, reply: _Reply) -> list[str]:
+    """Look Bob up, answer the fetch with *reply*; return the fetches started."""
+    fetched: list[str] = []
+    loader = AvatarLoader(cache_dir=cache_dir, fetcher=lambda h, cb: fetched.append(h))
+    loader.get_pixmap(_BOB)
+    loader._on_reply(_BOB_HASH, reply)
+    loader.get_pixmap(_BOB)
+    return fetched
+
+
+def _fetches_after_restart(cache_dir) -> list[str]:
+    fetched: list[str] = []
+    loader = AvatarLoader(cache_dir=cache_dir, fetcher=lambda h, cb: fetched.append(h))
+    loader.get_pixmap(_BOB)
+    return fetched
+
+
+class TestAvatarLoaderHttpReplies:
+    def test_a_404_is_remembered_across_restarts(self, tmp_path):
+        _answer_fetch(tmp_path, _Reply(QNetworkReply.ContentNotFoundError, 404))
+
+        assert (tmp_path / f"{_BOB_HASH}.404").exists()
+        assert _fetches_after_restart(tmp_path) == []
+
+    def test_being_offline_is_not_remembered_as_no_avatar(self, tmp_path):
+        _answer_fetch(tmp_path, _Reply(QNetworkReply.HostNotFoundError, None))
+
+        assert not (tmp_path / f"{_BOB_HASH}.404").exists()
+        assert _fetches_after_restart(tmp_path) == [_BOB_HASH]
+
+    def test_a_server_error_is_not_remembered_as_no_avatar(self, tmp_path):
+        _answer_fetch(tmp_path, _Reply(QNetworkReply.InternalServerError, 503))
+
+        assert _fetches_after_restart(tmp_path) == [_BOB_HASH]
+
+    def test_a_page_that_is_not_an_image_is_not_remembered_as_no_avatar(self, tmp_path):
+        """A captive portal answers 200 with its own sign-in page."""
+        _answer_fetch(tmp_path, _Reply(QNetworkReply.NoError, 200, b"<html>Sign in</html>"))
+
+        assert _fetches_after_restart(tmp_path) == [_BOB_HASH]
+
+    def test_a_failed_fetch_is_not_retried_on_every_paint(self, tmp_path):
+        fetched = _answer_fetch(tmp_path, _Reply(QNetworkReply.HostNotFoundError, None))
+
+        assert fetched == [_BOB_HASH]
+
+
+class TestAvatarLoaderUnwritableCache:
+    """The cache directory cannot be created: a file sits at its path."""
+
+    def test_a_fetched_avatar_is_still_shown(self, tmp_path, qtbot):
+        blocked = tmp_path / "avatars"
+        blocked.write_text("")
+        answers = []
+        loader = AvatarLoader(cache_dir=blocked, fetcher=lambda h, cb: answers.append(cb))
+        loader.get_pixmap(_BOB)
+
+        with qtbot.waitSignal(loader.avatar_ready, timeout=1000):
+            answers[0](_make_png_bytes())
+
+        pix = loader.get_pixmap(_BOB)
+        assert pix is not None and not pix.isNull()
