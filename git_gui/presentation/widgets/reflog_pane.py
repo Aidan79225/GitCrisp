@@ -16,10 +16,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QMenu,
     QPushButton,
-    QSizePolicy,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -31,6 +29,7 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.bus import QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets.eliding_label import ElidingLabel
 
 ENTRY_ROLE = Qt.UserRole + 1  # ReflogEntry for the row
 OID_ROLE = Qt.UserRole  # the commit the ref moved to
@@ -300,38 +299,6 @@ class ReflogDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-class _ElidingLabel(QLabel):
-    """A status line that gives way to the controls beside it.
-
-    A QLabel reports its full text width as its *minimum*, so a stretch factor
-    cannot shrink it: below the header's natural width the layout had nowhere
-    to take the space from and pushed the close button off the right edge, into
-    the checkbox. A status line is the part of a header that can afford to lose
-    characters, so it is the part that gives.
-    """
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._full = ""
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-
-    def setText(self, text: str) -> None:
-        self._full = text
-        self.setToolTip(text)  # the whole line stays reachable when it is cut
-        self._elide()
-
-    def full_text(self) -> str:
-        """The text as set, whatever is currently painted."""
-        return self._full
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._elide()
-
-    def _elide(self) -> None:
-        QLabel.setText(self, self.fontMetrics().elidedText(self._full, Qt.ElideRight, self.width()))
-
-
 class _LoadSignals(QObject):
     done = Signal(list, object)  # entries, current branch name or None
     failed = Signal(str)
@@ -352,7 +319,7 @@ class ReflogPane(QWidget):
         self._last_emitted: str | None = None
         self._load_signals: _LoadSignals | None = None
 
-        self._status = _ElidingLabel()
+        self._status = ElidingLabel()
 
         self._show_all_box = QCheckBox("Show every movement")
         self._show_all_box.setToolTip(

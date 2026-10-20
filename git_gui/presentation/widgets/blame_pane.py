@@ -14,7 +14,6 @@ from PySide6.QtCore import QEvent, QObject, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QLabel,
     QMenu,
     QPlainTextEdit,
     QPushButton,
@@ -30,6 +29,7 @@ from git_gui.presentation.widgets.diff_block import (
     make_diff_editor,
     make_syntax_formats,
 )
+from git_gui.presentation.widgets.eliding_label import ElidingLabel
 from git_gui.presentation.widgets.syntax_highlighter import SyntaxToken, tokenize
 
 SHA_CHARS = 8
@@ -359,7 +359,7 @@ class BlamePane(QWidget):
         self._back_btn.setVisible(False)
         self._back_btn.clicked.connect(self._go_back)
 
-        self._status = QLabel()
+        self._status = ElidingLabel()
         self._status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self._status.setWordWrap(False)
 
@@ -442,7 +442,6 @@ class BlamePane(QWidget):
         rev = self._oid[:SHA_CHARS] if self._oid else "HEAD"
         self.setWindowTitle(f"Blame — {self._path} @ {rev}")
         self._status.setText(f"Blaming {self._path} …" if loading else f"{self._path} @ {rev}")
-        self._status.setToolTip(f"{self._path} @ {rev}")
 
     # ── navigation ───────────────────────────────────────────────────────────
 
