@@ -34,10 +34,10 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         # git refuses to delete a branch that is checked out in a linked
         # worktree. When that's the case, offer to remove the worktree first
         # (instead of surfacing libgit2's opaque "current HEAD of a linked
-        # repository" error).
+        # repository" error). The main worktree can't be removed.
         commands = self._commands
-        wt = self._linked_worktree_for_branch(branch)
-        if wt is not None:
+        wt = self._worktree_for_branch(branch)
+        if wt is not None and not wt.is_main:
             if not self._remove_worktree_for_branch_delete(branch, wt, commands):
                 return
         elif not self._confirm_delete_branch(branch):
@@ -62,20 +62,20 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         )
         return reply == QMessageBox.Yes
 
-    def _linked_worktree_for_branch(self, branch: str):
-        """Return the linked (non-main) worktree that has `branch` checked out,
-        or None. The main worktree is excluded — it can't be removed."""
+    def _worktree_for_branch(self, name: str) -> Worktree | None:
+        """The worktree that has branch `name` checked out, or None — also when
+        the lookup fails, which is logged."""
         if self._queries is None:
             return None
         try:
-            wt = self._queries.find_worktree_for_branch.execute(branch)
-        except Exception:
+            return self._queries.find_worktree_for_branch.execute(name)
+        except Exception as e:
+            logger.warning("Looking up the worktree for %s failed: %s", name, e)
             return None
-        if wt is None or wt.is_main:
-            return None
-        return wt
 
-    def _remove_worktree_for_branch_delete(self, branch: str, wt, commands: CommandBus) -> bool:
+    def _remove_worktree_for_branch_delete(
+        self, branch: str, wt: Worktree, commands: CommandBus
+    ) -> bool:
         """Confirm and remove the worktree holding `branch`. Returns True if it
         was removed (so deletion can proceed), False to abort."""
         op_name = f"Remove worktree {wt.path}"
@@ -174,28 +174,45 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         try:
             all_branches = self._queries.get_branches.execute()
             local_branches = {b.name: b for b in all_branches if not b.is_remote}
-
             if name in local_branches:
-                if self._switch_to_worktree_holding(local_branches[name]):
-                    return
-                self._commands.checkout.execute(name)
-                self._log_panel.log(f"Checkout branch: {name}")
+                checked_out = self._checkout_local(local_branches[name])
             else:
-                local_name = name.split("/", 1)[1] if "/" in name else name
-                if local_name in local_branches:
-                    if not self._reset_local_to_remote(local_branches[local_name], name):
-                        return
-                else:
-                    self._commands.checkout_remote_branch.execute(name)
-                    self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
+                checked_out = self._checkout_remote(name, local_branches)
+            if not checked_out:
+                return
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Checkout {name} — ERROR: {e}")
         self._reload()
-        if self._queries is not None:
-            head_oid = self._queries.get_head_oid.execute()
-            if head_oid:
-                self._graph.scroll_to_oid(head_oid, select=True)
+        self._scroll_to_head()
+
+    def _checkout_local(self, branch: Branch) -> bool:
+        """Check out local `branch` here. Returns False when another worktree
+        holds it and that worktree was opened instead."""
+        if self._switch_to_worktree_holding(branch):
+            return False
+        self._commands.checkout.execute(branch.name)
+        self._log_panel.log(f"Checkout branch: {branch.name}")
+        return True
+
+    def _checkout_remote(self, name: str, local_branches: dict[str, Branch]) -> bool:
+        """Check out remote branch `name` as a local branch: a new one, or the
+        existing namesake reset to it once the user agrees. Returns False when
+        nothing was changed."""
+        local_name = name.split("/", 1)[1] if "/" in name else name
+        if local_name in local_branches:
+            return self._reset_local_to_remote(local_branches[local_name], name)
+        self._commands.checkout_remote_branch.execute(name)
+        self._log_panel.log(f"Checkout remote: {name} → local {local_name}")
+        return True
+
+    def _scroll_to_head(self) -> None:
+        """Show and select the commit HEAD is on now, after a checkout."""
+        if self._queries is None:
+            return
+        head_oid = self._queries.get_head_oid.execute()
+        if head_oid:
+            self._graph.scroll_to_oid(head_oid, select=True)
 
     def _reset_local_to_remote(self, local: Branch, remote: str) -> bool:
         """Check out `local` and hard-reset it to `remote`, once the user
@@ -252,7 +269,7 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         refuses to move HEAD onto a branch another worktree holds, which
         leaves this worktree's files on one branch and its HEAD on another.
         """
-        wt = self._worktree_holding_elsewhere(branch)
+        wt = None if branch.is_head else self._worktree_for_branch(branch.name)
         if wt is None:
             return False
         self._log_panel.log(
@@ -260,15 +277,6 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         )
         self._switch_repo(wt.path)
         return True
-
-    def _worktree_holding_elsewhere(self, branch: Branch) -> Worktree | None:
-        if branch.is_head or self._queries is None:
-            return None
-        try:
-            return self._queries.find_worktree_for_branch.execute(branch.name)
-        except Exception as e:
-            logger.warning("Looking up the worktree for %s failed: %s", branch.name, e)
-            return None
 
     # ── Double-click to switch branch ───────────────────────────────────
 
@@ -325,20 +333,15 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
             # which creates/updates the tracking local branch as needed.
             self._on_checkout_branch(branch.name)
             return
-        if self._switch_to_worktree_holding(branch):
-            return
         try:
-            self._commands.checkout.execute(branch.name)
-            self._log_panel.log(f"Checkout branch: {branch.name}")
+            if not self._checkout_local(branch):
+                return
             self._offer_reset_to_remote_if_diverged(branch, all_branches)
         except Exception as e:
             self._log_panel.expand()
             self._log_panel.log_error(f"Checkout {branch.name} — ERROR: {e}")
         self._reload()
-        if self._queries is not None:
-            head_oid = self._queries.get_head_oid.execute()
-            if head_oid:
-                self._graph.scroll_to_oid(head_oid, select=True)
+        self._scroll_to_head()
 
     def _offer_reset_to_remote_if_diverged(
         self, branch: Branch, all_branches: list[Branch]
