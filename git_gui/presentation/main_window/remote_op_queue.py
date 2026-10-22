@@ -14,6 +14,8 @@ from git_gui.presentation.bus import CommandBus, QueryBus
 logger = logging.getLogger(__name__)
 
 _RETRY_WHEN_FREE = "Try again once it finishes."
+# The remote `git pull` reads as this repository, to pull a local branch.
+_THIS_REPO = "."
 
 
 class _RemoteSignals(QObject):
@@ -207,26 +209,35 @@ class RemoteOpQueueMixin:
             return
         commands = self._commands
         remote, source = self._pull_source(branch)
+        label = source if remote == _THIS_REPO else f"{remote}/{source}"
         self._run_remote_op(
-            f"Pull {remote}/{source}",
+            f"Pull {label}",
             lambda: commands.pull.execute(remote, source),
             commands=commands,
         )
 
     def _pull_source(self, branch: str) -> tuple[str, str]:
-        """The remote and branch `git pull` takes *branch* from: its upstream
-        when that is on a remote, else the same-named branch on origin.
+        """The remote and branch `git pull` takes *branch* from: its upstream,
+        else the same-named branch on origin.
 
-        Without the list of remotes the upstream still splits, at its first
+        An upstream that is a local branch (one branch stacked on another) is
+        pulled from this repo. Its shorthand cannot tell it from a
+        remote-tracking branch of the same name; the local one wins, as it
+        does when git itself resolves such a name. Any other upstream is on a
+        remote, and without the list of remotes it still splits, at its first
         '/', so a branch that tracks another remote or a branch of another
         name keeps pulling what it tracks rather than origin's namesake.
         """
         upstream = self._upstream_for(branch)
-        if upstream:
-            remote, source = split_remote_branch(upstream, self._remote_names())
-            if remote:
-                return remote, source
-        return "origin", branch
+        if not upstream:
+            return "origin", branch
+        if self._is_local_branch(upstream):
+            return _THIS_REPO, upstream
+        remote, source = split_remote_branch(upstream, self._remote_names())
+        return (remote, source) if remote else ("origin", branch)
+
+    def _is_local_branch(self, name: str) -> bool:
+        return any(not b.is_remote and b.name == name for b in self._queries.get_branches.execute())
 
     def _remote_names(self) -> list[str]:
         """The repo's remotes, or none (reported) when they cannot be listed:
