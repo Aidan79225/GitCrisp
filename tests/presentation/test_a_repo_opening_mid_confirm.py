@@ -197,6 +197,27 @@ def test_a_reset_to_commit_confirmed_as_another_repo_opens_resets_nothing(qtbot,
     win._commands.reset_branch.execute.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "restore",
+    [
+        lambda win, oid: win._on_reflog_restore_requested(oid, "HEAD@{1}"),
+        lambda win, oid: win._on_log_action(oid),
+    ],
+    ids=["reflog-restore", "undo-link"],
+)
+def test_a_restore_confirmed_as_another_repo_opens_resets_nothing(qtbot, win, restore):
+    oid = "c" * 40
+    win._undoable[oid] = "Merge: topic into main"
+    asked_in = win._commands
+    with patch("git_gui.presentation.main_window.reflog_flow.ResetDialog") as dialog_cls:
+        _accepted_as_another_repo_opens(qtbot, win, dialog_cls)
+        dialog_cls.return_value.result_mode.return_value = ResetMode.HARD
+        restore(win, oid)
+    asked_in.reset_branch.execute.assert_not_called()
+    win._commands.reset_branch.execute.assert_not_called()
+    assert "Restore to ccccccc — skipped: another repo opened" in _log_text(win)
+
+
 def test_a_merge_confirmed_as_another_repo_opens_merges_nothing(qtbot, win):
     win._queries.get_merge_analysis.execute.return_value = MagicMock(is_up_to_date=False)
     asked_in = win._commands
