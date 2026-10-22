@@ -233,6 +233,20 @@ def test_a_merge_confirmed_as_another_repo_opens_merges_nothing(qtbot, win):
     win._commands.merge_commit.execute.assert_not_called()
 
 
+def test_a_merge_confirmed_as_another_repo_opens_asks_for_no_identity(qtbot, win):
+    # The repo that opened may have none, and saving one there for a merge
+    # that is then skipped changes a repo the user never asked about.
+    win._queries.get_merge_analysis.execute.return_value = MagicMock(is_up_to_date=False)
+    flows = "git_gui.presentation.main_window.merge_rebase_flows"
+    with (
+        patch(f"{flows}.MergeDialog") as dialog_cls,
+        patch(f"{flows}.ensure_identity", return_value=True) as ensure_identity,
+    ):
+        _accepted_as_another_repo_opens(qtbot, win, dialog_cls)
+        win._on_merge_commit("c" * 40)
+    ensure_identity.assert_not_called()
+
+
 def test_a_tag_created_as_another_repo_opens_is_not_created_or_pushed(qtbot, win):
     asked_in = win._commands
     with patch("git_gui.presentation.main_window.tag_flows.CreateTagDialog") as dialog_cls:
@@ -261,6 +275,17 @@ def test_a_stash_confirmed_as_another_repo_opens_stashes_nothing(qtbot, win):
         win._on_stash_requested()
     asked_in.stash.execute.assert_not_called()
     win._commands.stash.execute.assert_not_called()
+
+
+def test_a_stash_confirmed_as_another_repo_opens_asks_for_no_identity(qtbot, win):
+    with (
+        patch.object(QMessageBox, "question", side_effect=_answering(qtbot, win, QMessageBox.Yes)),
+        patch(
+            "git_gui.presentation.main_window.stash_flows.ensure_identity", return_value=True
+        ) as ensure_identity,
+    ):
+        win._on_stash_requested()
+    ensure_identity.assert_not_called()
 
 
 def test_a_branch_created_as_another_repo_opens_is_not_created(qtbot, win):

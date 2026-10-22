@@ -64,7 +64,8 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
     ) -> None:
         """Merge the commit *resolve_target* finds into HEAD once the user
         confirms it in the merge dialog. *label* names the target in the log."""
-        commands = self._commands
+        queries, commands = self._queries, self._commands
+        op_name = f"Merge {label}"
         try:
             target_oid = resolve_target()
             if target_oid is None:
@@ -75,7 +76,12 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
                 self._log_panel.log(f"Merge {label}: already up to date")
                 return
             req = self._ask_merge(label, head_branch, analysis.can_ff, default_message)
-            if req is None or self._repo_switched_while_asking(commands, f"Merge {label}"):
+            if req is None or self._repo_switched_while_asking(commands, op_name):
+                return
+            if not ensure_identity(self, queries, commands):
+                return
+            # The identity prompt is a dialog too, so a switch can land in it as well.
+            if self._repo_switched_while_asking(commands, op_name):
                 return
             head_before = self.head_before_operation()
             run(req)
@@ -88,12 +94,9 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
     def _ask_merge(
         self, label: str, head_branch: str, can_ff: bool, default_message: str
     ) -> MergeRequest | None:
-        """The merge the user chose in the dialog, or None if they cancelled
-        or have no git identity to sign it with."""
+        """The merge the user chose in the dialog, or None if they cancelled."""
         dlg = MergeDialog(label, head_branch, can_ff, default_message, parent=self)
         if dlg.exec() != MergeDialog.Accepted:
-            return None
-        if not ensure_identity(self, self._queries, self._commands):
             return None
         return dlg.result_value()
 
