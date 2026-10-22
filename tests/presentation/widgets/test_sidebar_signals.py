@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QStandardItem
 from PySide6.QtWidgets import QMenu
 
+from git_gui.domain.entities import Remote
 from git_gui.presentation.widgets.sidebar import (
     _IS_HEAD_ROLE,
     _TARGET_OID_ROLE,
@@ -354,6 +355,43 @@ def test_remote_branch_delete_handles_slash_in_branch_name(sidebar, qtbot):
     with qtbot.waitSignal(w.remote_branch_delete_requested, timeout=1000) as blocker:
         actions["Delete"].trigger()
     assert blocker.args == ["origin", "feature/foo"]
+
+
+def _remote_branch_actions_on(sidebar, name: str) -> list[tuple]:
+    """What Fetch and then Delete on remote branch *name* emit."""
+    w, _, _ = sidebar
+    item = _remote_branch_item(name, "abc123")
+    _add_section(w, "REMOTE BRANCHES", [item])
+    emitted: list[tuple] = []
+    w.fetch_requested.connect(lambda remote: emitted.append(("fetch", remote)))
+    w.remote_branch_delete_requested.connect(lambda *args: emitted.append(("delete", *args)))
+    actions = _capture_menu_actions(w, item)
+    actions["Fetch"].trigger()
+    actions["Delete"].trigger()
+    return emitted
+
+
+def test_remote_branch_actions_go_to_the_remote_whose_name_holds_a_slash(sidebar):
+    # libgit2's Add Remote accepts 'gh/fork' beside 'gh'; both own names
+    # under gh/, and the longest remote is the one that owns the branch.
+    _, queries, _ = sidebar
+    queries.list_remotes.execute.return_value = [
+        Remote(name, f"https://example.com/{name}.git", f"https://example.com/{name}.git")
+        for name in ("gh", "gh/fork")
+    ]
+
+    emitted = _remote_branch_actions_on(sidebar, "gh/fork/topic")
+
+    assert emitted == [("fetch", "gh/fork"), ("delete", "gh/fork", "topic")]
+
+
+def test_remote_branch_actions_still_work_when_the_remotes_cannot_be_listed(sidebar):
+    _, queries, _ = sidebar
+    queries.list_remotes.execute.side_effect = RuntimeError("'bad name' is not valid")
+
+    emitted = _remote_branch_actions_on(sidebar, "origin/feature/foo")
+
+    assert emitted == [("fetch", "origin"), ("delete", "origin", "feature/foo")]
 
 
 # -- 6. Bus detach clears model -------------------------------------------

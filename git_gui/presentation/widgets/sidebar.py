@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.domain.entities import Branch, Stash, Tag
+from git_gui.domain.entities import Branch, Stash, Tag, split_remote_branch
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.background import BackgroundRunner, start_daemon_thread
@@ -316,15 +316,7 @@ class SidebarWidget(QWidget):
                 if entry["action"] in ("rebase", "push"):
                     menu.addSeparator()
         elif kind == "remote_branch":
-            remote, branch = value.split("/", 1)
-            menu.addAction("Checkout").triggered.connect(
-                lambda: self.checkout_branch_requested.emit(value)
-            )
-            menu.addAction("Fetch").triggered.connect(lambda: self.fetch_requested.emit(remote))
-            menu.addSeparator()
-            menu.addAction("Delete").triggered.connect(
-                lambda: self.remote_branch_delete_requested.emit(remote, branch)
-            )
+            self._add_remote_branch_actions(menu, value)
         elif kind == "stash":
             idx = int(value)
             menu.addAction("Pop").triggered.connect(lambda: self.stash_pop_requested.emit(idx))
@@ -338,6 +330,30 @@ class SidebarWidget(QWidget):
                 lambda: self.tag_delete_requested.emit(value)
             )
         menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    def _add_remote_branch_actions(self, menu: QMenu, name: str) -> None:
+        remote, branch = split_remote_branch(name, self._remote_names())
+        menu.addAction("Checkout").triggered.connect(
+            lambda: self.checkout_branch_requested.emit(name)
+        )
+        menu.addAction("Fetch").triggered.connect(lambda: self.fetch_requested.emit(remote))
+        menu.addSeparator()
+        menu.addAction("Delete").triggered.connect(
+            lambda: self.remote_branch_delete_requested.emit(remote, branch)
+        )
+
+    def _remote_names(self) -> list[str]:
+        """The repo's remotes, or none when they cannot be listed.
+
+        One remote with an invalid name in .git/config fails the whole
+        listing. The branch name then splits at its first '/', which is right
+        for every remote whose name holds none.
+        """
+        try:
+            return [r.name for r in self._queries.list_remotes.execute()]
+        except Exception as e:
+            logger.warning("Listing remotes failed: %s", e)
+            return []
 
     # ── Worktree-awareness helpers ──────────────────────────────────────
 
