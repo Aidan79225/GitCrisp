@@ -17,7 +17,7 @@ import pytest
 
 from git_gui.domain.entities import Commit
 from git_gui.presentation.widgets.graph import MAX_RELOAD_LIMIT, PAGE_SIZE, GraphWidget
-from tests.presentation.widgets.graph_menu_helpers import graph_widget
+from tests.presentation.widgets.graph_helpers import graph_widget
 
 
 class _InlineThread:

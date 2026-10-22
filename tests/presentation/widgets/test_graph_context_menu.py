@@ -14,10 +14,10 @@ from unittest.mock import MagicMock
 from PySide6.QtWidgets import QMenu
 
 from git_gui.domain.entities import Branch, Remote, RepoState, RepoStateInfo
+from tests.presentation.widgets.graph_helpers import graph_widget
 from tests.presentation.widgets.graph_menu_helpers import (
     ROW_OID,
     find_action,
-    graph_widget,
     open_context_menu,
     queries_listing,
 )

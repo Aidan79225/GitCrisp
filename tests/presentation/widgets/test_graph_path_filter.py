@@ -9,7 +9,7 @@ from git_gui.domain.entities import Commit
 from git_gui.presentation.models.graph_model import LANE_ROLE
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.graph_lane_painter import row_graph_width
-from tests.presentation.widgets.graph_menu_helpers import graph_widget
+from tests.presentation.widgets.graph_helpers import graph_widget
 
 
 def _make_commit(oid: str, parents: list[str] | None = None) -> Commit:

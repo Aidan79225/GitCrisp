@@ -1,4 +1,4 @@
-"""The real GraphWidget without a repository, and its context menu on one commit row."""
+"""The real GraphWidget's context menu on one commit row."""
 
 from __future__ import annotations
 
@@ -11,24 +11,9 @@ from PySide6.QtWidgets import QMenu
 
 from git_gui.domain.entities import Branch, Commit, Remote, RepoState, RepoStateInfo
 from git_gui.presentation.widgets.graph import GraphWidget
+from tests.presentation.widgets.graph_helpers import graph_widget
 
 ROW_OID = "c" * 40
-
-
-class _NullStore:
-    def get_repo_setting(self, *_args, **_kwargs):
-        return None
-
-    def set_repo_setting(self, *_args, **_kwargs):
-        pass
-
-
-def graph_widget(qtbot, queries=None) -> GraphWidget:
-    """The real GraphWidget with no repository, answering from `queries`."""
-    widget = GraphWidget(queries=None, commands=None, repo_store=_NullStore())
-    qtbot.addWidget(widget)
-    widget._queries = queries
-    return widget
 
 
 def open_context_menu(
