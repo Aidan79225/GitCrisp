@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import os
 import re
 import shutil
@@ -145,6 +146,7 @@ def clone_repo(
         destination.restore()
         raise CloneCancelled(f"Clone of {url} was cancelled")
     if proc.returncode != 0:
+        destination.remove_created_parents()  # git removes only the destination itself.
         raise RuntimeError("\n".join(messages) or f"git clone exited with code {proc.returncode}")
 
 
@@ -201,15 +203,32 @@ class _Destination:
         self._path = path
         self._existed = path.exists()
         self._was_free = _is_free_for_a_clone(path)
+        # git creates the folders on the way to a destination that is not there yet.
+        self._new_parents = list(itertools.takewhile(lambda p: not p.exists(), path.parents))
 
     def restore(self) -> None:
         if not self._was_free:
             return  # git refuses a folder with files in it, so none of them are the clone's.
         if not self._existed:
             _remove(self._path)
+            self.remove_created_parents()
         elif self._path.is_dir():
             for entry in self._path.iterdir():
                 _remove(entry)
+
+    def remove_created_parents(self) -> None:
+        """Remove the folders git created on the way to the destination, nearest first.
+
+        Only empty ones go: a folder that holds anything else by now, such as a
+        clone git kept after its checkout failed, stays, and so do those above it.
+        """
+        for parent in self._new_parents:
+            try:
+                parent.rmdir()
+            except FileNotFoundError:
+                continue  # git stopped before it got this far down.
+            except OSError:
+                return
 
 
 def _remove(path: Path) -> None:

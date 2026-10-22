@@ -103,6 +103,13 @@ def test_a_failed_clone_leaves_no_folder_behind(tmp_path):
     assert not dest.exists()
 
 
+def test_a_failed_clone_leaves_no_parent_folder_it_created_behind(tmp_path):
+    location = tmp_path / "new-location"
+    with pytest.raises(RuntimeError):
+        clone_repo(str(tmp_path / "no-such-repo"), str(location / "group" / "repo"))
+    assert not location.exists()
+
+
 @pytest.fixture
 def probed_clone(repo_path, tmp_path_factory, monkeypatch):
     """Clone repo_path with no ssh command in the environment, so the clone
@@ -210,6 +217,22 @@ def test_a_cancelled_clone_removes_the_folder_it_created(stalled_clone):
     dest = work / "repo"
     _cancel(start(dest))
     assert not dest.exists()
+
+
+def test_a_cancelled_clone_removes_the_parent_folders_it_created(stalled_clone):
+    start, work = stalled_clone
+    location = work / "new-location"
+    _cancel(start(location / "group" / "repo"))
+    assert not location.exists()
+
+
+def test_a_cancelled_clone_keeps_a_new_parent_folder_that_gained_other_files(stalled_clone):
+    start, work = stalled_clone
+    location = work / "new-location"
+    clone = start(location / "repo")
+    (location / "notes.txt").write_text("mine")
+    _cancel(clone)
+    assert (location / "notes.txt").exists()
 
 
 def test_a_cancelled_clone_keeps_the_empty_folder_it_was_given(stalled_clone):
