@@ -388,3 +388,35 @@ class TestPruningKeepsWhatIsBackBeforeItEnds:
 
         assert store.get_open_repos() == [str(on_screen), str(valid)]
         assert store.get_active() == str(on_screen)
+
+
+class TestAGitFileThatCannotBeFollowed:
+    """An interrupted submodule checkout or a sync-tool conflict can leave a
+    .git file empty, and discover_repository raises on it rather than
+    answering. The folder is still a repo to keep, like one that will not
+    open, not a reason to stop the launch or the pruning."""
+
+    @staticmethod
+    def _malformed(path):
+        path.mkdir()
+        (path / ".git").write_bytes(b"")
+        return path
+
+    def test_the_pruning_keeps_it_and_forgets_what_is_gone(self, tmp_path, qtbot):
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        malformed = self._malformed(tmp_path / "malformed")
+        dead = tmp_path / "deleted_worktree"
+        store = _store_of(tmp_path, open_paths=[valid], recent_paths=[dead, malformed])
+
+        _prune_in_background(store, qtbot)
+
+        assert store.get_recent_repos() == [str(malformed)]
+
+    def test_the_launch_passes_over_it_to_the_next_open_repo(self, tmp_path):
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        malformed = self._malformed(tmp_path / "malformed")
+        store = _store_of(tmp_path, open_paths=[malformed, valid])
+        store.set_active(str(malformed))
+
+        assert _startup_repo(store) == str(valid)
+        assert store.get_open_repos() == [str(malformed), str(valid)]

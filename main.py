@@ -26,7 +26,18 @@ from git_gui.resources import get_resource_path
 
 
 def _is_git_repo(path: str) -> bool:
-    return pygit2.discover_repository(path) is not None
+    """Whether *path* is a git repository.
+
+    A .git file that git cannot follow, left empty by an interrupted submodule
+    checkout or a sync-tool conflict, makes discover_repository raise rather
+    than answer. That folder still counts: like a repo that will not open, it
+    is kept and the launch passes over it, where the error used to end the
+    launch or the pruning.
+    """
+    try:
+        return pygit2.discover_repository(path) is not None
+    except pygit2.GitError:
+        return True
 
 
 class _StoredRepo(Enum):
