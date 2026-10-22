@@ -39,7 +39,8 @@ class _RepoRequest:
     reason: _SwitchReason = _SwitchReason.SWITCH
     after: str | None = None  # the open repo an OPEN is listed after; None lists it first
     # Set once a closed repo hands over to this request: the open repo to go
-    # to instead if it fails, as closing would have without it.
+    # to instead if it fails, as closing would have without it. None when no
+    # other repo is open.
     fallback: str | None = None
 
 
@@ -249,13 +250,14 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             # It was taking over from a repo closed while it opened: go where
             # that close would have gone without it.
             self._request_repo(_RepoRequest(request.fallback, _SwitchReason.REPLACE))
-        elif request.reason is _SwitchReason.REPLACE or request.fallback is not None:
+        elif request.reason is _SwitchReason.REPLACE:
             # The repo on screen is already closed. Staying on it would leave
             # Ctrl+W retrying this one forever.
             self._enter_empty_state()
         else:
-            # The window stays where it was. Left pending, the failed request
-            # would be what Ctrl+W hands over to, and it never lands.
+            # The window stays where it was, empty if a close handed over to
+            # this request. Left pending, the failed request would be what
+            # Ctrl+W hands over to, and it never lands.
             self._stop_waiting_for_request()
 
     def _stop_waiting_for_request(self) -> None:
@@ -295,7 +297,10 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
     def _on_repo_close(self, path: str) -> None:
         on_screen = self._closing_takes_what_is_on_screen(path)
-        successor = self._repo_after_closing(path)
+        # The repo on its way is never its own fallback: retrying it when it
+        # fails would wait out the same dead share a second time.
+        pending = self._pending_request()
+        successor = self._repo_after_closing(path, skipping=pending.path if pending else None)
         self._repo_store.close_repo(path)
         if on_screen and self._repo_store.get_active() == self._repo_path:
             # The linked worktree of *path* on screen goes with it. Whatever
@@ -338,14 +343,14 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if pending is not None and pending.path == path:
             self._stop_waiting_for_request()
 
-    def _repo_after_closing(self, path: str) -> str | None:
-        """The open repo listed just before *path*, or after it when it is first."""
+    def _repo_after_closing(self, path: str, skipping: str | None = None) -> str | None:
+        """The open repo listed just before *path*, or after it when it is
+        first, passing over *skipping*."""
         open_repos = self._repo_store.get_open_repos()
-        others = [p for p in open_repos if p != path]
-        if not others:
-            return None
         index = open_repos.index(path) if path in open_repos else 0
-        return others[max(index - 1, 0)]
+        before = [p for p in open_repos[:index] if p != skipping]
+        after = [p for p in open_repos[index:] if p not in (path, skipping)]
+        return before[-1] if before else next(iter(after), None)
 
     def _close_current_repo(self) -> None:
         """Ctrl+W: close the active repo and switch to the previous open one."""
