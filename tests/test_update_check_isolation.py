@@ -19,6 +19,9 @@ from tests.presentation.window_helpers import blank_window
 
 def test_a_window_on_a_release_build_never_asks_github_for_updates(qtbot, monkeypatch):
     monkeypatch.setattr(obs, "_get_baked_config", lambda: (None, "9.9.9"))
+    # With the preference off no check starts at all, and the assertion below
+    # would pass without the suite's stub; other tests leave it either way.
+    monkeypatch.setattr("git_gui.presentation.app_settings.get_check_updates", lambda: True)
     requested = threading.Event()
 
     def _record_request(*args, **kwargs):
