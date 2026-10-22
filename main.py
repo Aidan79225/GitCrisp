@@ -20,6 +20,7 @@ from git_gui.presentation.app_settings import get_send_crash_reports
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
 from git_gui.presentation.theme import ThemeManager, set_theme_manager
+from git_gui.presentation.widgets.log_panel import LogPanel
 from git_gui.presentation.widgets.repo_list import RepoListWidget
 from git_gui.resources import get_resource_path
 
@@ -75,7 +76,6 @@ def _open_startup_repo(repo_store: JsonRepoStore) -> _Startup | None:
     started = _first_that_opens(_present_repos(repo_store, _startup_candidates(repo_store)))
     if started is not None:
         repo_store.set_active(started.path)
-    repo_store.save()
     return started
 
 
@@ -243,7 +243,7 @@ def _reload_repo_list(window: MainWindow) -> None:
 def _open_window(repo_store: JsonRepoStore, remote_tag_cache: JsonRemoteTagCache) -> MainWindow:
     """The main window, on the repo the last session left active if it still opens."""
     repo_path, queries, commands = _open_startup_repo(repo_store) or (None, None, None)
-    return MainWindow(
+    window = MainWindow(
         queries,
         commands,
         repo_store,
@@ -251,6 +251,30 @@ def _open_window(repo_store: JsonRepoStore, remote_tag_cache: JsonRemoteTagCache
         repo_path,
         session_factory=_open_session,
     )
+    _save_repo_store(repo_store, on_failed=lambda reason: _report_unsaved_repo_list(window, reason))
+    return window
+
+
+def _save_repo_store(repo_store: JsonRepoStore, on_failed: Callable[[str], None]) -> None:
+    """Write the repo list out, handing a failed write to *on_failed* rather than raising.
+
+    save() raises when repos.json cannot be written (read-only, locked by a
+    sync client, a full disk) and on every call after load() could not read
+    it. At launch that error left main() before the window showed, so GitCrisp
+    would not start until the file was fixed by hand. The in-memory store is
+    right either way, and the next save tries again.
+    """
+    try:
+        repo_store.save()
+    except OSError as e:
+        on_failed(str(e))
+
+
+def _report_unsaved_repo_list(window: MainWindow, reason: str) -> None:
+    # Worded as the window reports its own failed saves of the list.
+    log_panel = window.findChild(LogPanel)
+    log_panel.expand()
+    log_panel.log_error(f"Could not save the repo list: {reason}")
 
 
 if __name__ == "__main__":
