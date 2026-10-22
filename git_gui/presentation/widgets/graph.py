@@ -1136,7 +1136,7 @@ class GraphWidget(QWidget):
         index = self._view.indexAt(pos)
         if not index.isValid():
             return
-        oid = self._model.data(self._model.index(index.row(), 0), OID_ROLE)
+        oid = self._oid_at(index.row())
         if not oid or oid == WORKING_TREE_OID:
             return
 
@@ -1465,7 +1465,7 @@ class GraphWidget(QWidget):
         return self._model.data(self._model.index(row, 0), OID_ROLE)
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
-        oid = self._model.data(self._model.index(current.row(), 0), OID_ROLE)
+        oid = self._oid_at(current.row())
         # Skip re-emitting for the already-selected commit. A model reset (from
         # an auto-reload) invalidates the current index, so restoring the
         # selection fires currentRowChanged with the same oid. Re-emitting there
@@ -1486,6 +1486,6 @@ class GraphWidget(QWidget):
         no branch to switch to, so it is ignored."""
         if not index.isValid():
             return
-        oid = self._model.data(self._model.index(index.row(), 0), OID_ROLE)
+        oid = self._oid_at(index.row())
         if oid and oid != WORKING_TREE_OID:
             self.commit_double_clicked.emit(oid)
