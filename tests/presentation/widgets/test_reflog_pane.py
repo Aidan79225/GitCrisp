@@ -17,6 +17,7 @@ from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.reflog_pane import (
     _OPERATION_ROLES,
+    ORPHAN_STRIPE_W,
     SHA_CHARS,
     ReflogModel,
     ReflogPane,
@@ -357,6 +358,18 @@ def test_content_starts_at_the_same_x_marked_or_not(qtbot):
         return x_of[entries[row].summary], x_of[f"@{{{entries[row].index}}}"]
 
     assert summary_and_position_x(0) == summary_and_position_x(1)
+
+
+def test_the_stripe_never_overlaps_the_content(qtbot):
+    """The alignment test above holds wherever content starts, stripe or not;
+    an orphaned row's chip and text have to start clear of its stripe."""
+    pane, _ = _pane(qtbot, [_entry(0, "commit", "lost", orphaned=True)])
+
+    painted = _painted_row(
+        pane._view.itemDelegate(), _option_for(pane, 50), pane._model.index(0, 0)
+    )
+
+    assert min(x for x, _y, _w, _text in painted) >= ORPHAN_STRIPE_W
 
 
 # ── Folding the entries that changed nothing ─────────────────────────────────
