@@ -12,9 +12,9 @@ from git_gui.presentation.widgets.author_avatar import (
     _color_for_author,
     _initials,
     _initials_color,
-    _relative_luminance,
     paint_avatar,
 )
+from tests.presentation.theme.test_light_contrast import _ratio
 
 
 class TestInitials:
@@ -93,11 +93,6 @@ class TestPaintAvatar:
 # ── Theme ───────────────────────────────────────────────────────────────────
 
 
-def _contrast(a: QColor, b: QColor) -> float:
-    light, dark = sorted((_relative_luminance(a), _relative_luminance(b)), reverse=True)
-    return (light + 0.05) / (dark + 0.05)
-
-
 def test_an_avatar_is_filled_from_the_themes_lane_colours():
     lanes = {QColor(c).name() for c in get_theme_manager().current.colors.graph_lane_colors}
 
@@ -108,6 +103,8 @@ def test_an_avatar_is_filled_from_the_themes_lane_colours():
 def test_initials_meet_aa_contrast_on_every_lane_colour(theme):
     fills = [QColor(c) for c in load_builtin(theme).colors.graph_lane_colors]
 
-    worst = min(_contrast(_initials_color(fill), fill) for fill in fills)
+    # Measured with the theme tests' own WCAG formula, not the one the
+    # avatar chooses with, so a wrong luminance cannot pass its own check.
+    worst = min(_ratio(_initials_color(fill).name(), fill.name()) for fill in fills)
 
     assert worst >= 4.5
