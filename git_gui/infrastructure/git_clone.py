@@ -69,10 +69,39 @@ def _is_free_for_a_clone(dest: Path) -> bool:
 
 
 def _probe_has_config(dest: Path, url: str, key: str) -> bool:
-    if run_git(["git", "init", "--quiet", str(dest)], cwd=".").returncode != 0:
+    env = _probe_env()
+    if run_git(["git", "init", "--quiet", str(dest)], cwd=".", env=env).returncode != 0:
         return False
-    run_git(["git", "-C", str(dest), "config", "remote.origin.url", url], cwd=".")
-    return run_git(["git", "-C", str(dest), "config", "--get", key], cwd=".").returncode == 0
+    probe = f"--git-dir={dest / '.git'}"
+    run_git(["git", probe, "config", "remote.origin.url", url], cwd=".", env=env)
+    return run_git(["git", probe, "config", "--get", key], cwd=".", env=env).returncode == 0
+
+
+# Variables that aim git at a repository other than the one it is pointed at;
+# GIT_CONFIG does the same for `git config`. The GIT_CONFIG_* variables that add
+# settings stay, because the clone reads them too.
+_OTHER_REPOSITORY_VARIABLES = frozenset(
+    {
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_CONFIG",
+    }
+)
+
+
+def _probe_env() -> dict[str, str]:
+    """This process's environment, minus what would point the probe at another repo.
+
+    Started with GIT_DIR set (a dotfiles setup, a git hook), git ranks it above
+    both ``-C`` and the folder it runs in: the probe would write the clone's URL
+    into that repository's origin and read that repository's config.
+    """
+    return {
+        name: value for name, value in os.environ.items() if name not in _OTHER_REPOSITORY_VARIABLES
+    }
 
 
 def _remove_probe(dest: Path, created: bool) -> None:

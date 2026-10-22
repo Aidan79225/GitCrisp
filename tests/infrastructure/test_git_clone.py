@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 
+import pygit2
 import pytest
 
 from git_gui.infrastructure import git_clone
@@ -100,6 +101,46 @@ def test_a_failed_clone_leaves_no_folder_behind(tmp_path):
     with pytest.raises(RuntimeError):
         clone_repo(str(tmp_path / "no-such-repo"), str(dest))
     assert not dest.exists()
+
+
+@pytest.fixture
+def probed_clone(repo_path, tmp_path_factory, monkeypatch):
+    """Clone repo_path with no ssh command in the environment, so the clone
+    probes the destination's config for one first."""
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
+
+    def clone() -> None:
+        clone_repo(repo_path.as_uri(), str(tmp_path_factory.mktemp("clones") / "repo"))
+
+    return clone
+
+
+def test_a_clone_leaves_the_repository_an_inherited_git_dir_names_alone(
+    probed_clone, tmp_path_factory, monkeypatch
+):
+    """Started with GIT_DIR set (a dotfiles setup, a git hook), the probe wrote
+    the clone's URL into that repository's origin."""
+    other = tmp_path_factory.mktemp("dotfiles")
+    pygit2.init_repository(str(other)).remotes.create("origin", "https://example.com/mine.git")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+
+    probed_clone()
+
+    assert pygit2.Repository(str(other)).remotes["origin"].url == "https://example.com/mine.git"
+
+
+def test_a_clone_leaves_the_file_an_inherited_git_config_names_alone(
+    probed_clone, tmp_path_factory, monkeypatch
+):
+    """GIT_CONFIG sends every `git config` write to the file it names."""
+    config = tmp_path_factory.mktemp("elsewhere") / "config"
+    config.write_text("[user]\n\tname = Me\n")
+    monkeypatch.setenv("GIT_CONFIG", str(config))
+
+    probed_clone()
+
+    assert config.read_text() == "[user]\n\tname = Me\n"
 
 
 # The hook stands in for a remote that stops sending mid-clone. It runs a few
