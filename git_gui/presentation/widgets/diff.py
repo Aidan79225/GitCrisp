@@ -4,7 +4,7 @@ import logging
 import threading
 from typing import NamedTuple
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal, SignalInstance
+from PySide6.QtCore import QEvent, Qt, Signal, SignalInstance
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -417,14 +417,6 @@ class DiffWidget(QWidget):
 
     # ── Internal helpers ────────────────────────────────────────────────────
 
-    def _sync_hscroll(self) -> None:
-        """Re-measure the shared horizontal bar once the layout has settled.
-
-        Deferred: an editor added this turn has no width yet, so its scroll
-        range reads as zero until Qt has laid it out.
-        """
-        QTimer.singleShot(0, self._hscroll_sync.refresh)
-
     def _clear_blocks(self) -> None:
         """Remove all widgets and items from the diff layout."""
         while self._diff_layout.count():
@@ -433,7 +425,7 @@ class DiffWidget(QWidget):
             if widget:
                 widget.deleteLater()
         self._loader.clear()
-        self._sync_hscroll()
+        self._hscroll_sync.refresh_later()
 
     def _refresh_submodule_paths(self) -> None:
         """Refresh the cached set of submodule paths from the repository."""
@@ -472,7 +464,7 @@ class DiffWidget(QWidget):
             path,
             on_header_clicked=on_click,
             on_header_context_menu=lambda pos, p=path: self._show_file_header_menu(pos, p),
-            on_state_changed=lambda _expanded: self._sync_hscroll(),
+            on_state_changed=lambda _expanded: self._hscroll_sync.refresh_later(),
         )
         frame.setProperty("file_path", path)
 
@@ -507,7 +499,7 @@ class DiffWidget(QWidget):
         """A block collapsed or expanded: the blocks below it moved, and the
         editors the shared bar measures were hidden or shown."""
         self._loader.check_viewport()
-        self._sync_hscroll()
+        self._hscroll_sync.refresh_later()
 
     def _realize_block(self, path: str, inner, skeleton, hunks) -> None:
         """Callback for ViewportBlockLoader — replace skeleton with hunk widgets."""
@@ -526,7 +518,7 @@ class DiffWidget(QWidget):
                 filename=path,
             )
         hide_hunks_if_collapsed(inner)
-        self._sync_hscroll()
+        self._hscroll_sync.refresh_later()
 
     def _on_file_selected(self, index) -> None:
         if self._current_oid is None:
@@ -553,7 +545,7 @@ class DiffWidget(QWidget):
         block = self._build_file_block(path, hunks)
         self._diff_layout.addWidget(block)
         self._diff_layout.addStretch()
-        self._sync_hscroll()
+        self._hscroll_sync.refresh_later()
 
     def _render_all_files(self, oid: str) -> None:
         """Render all file blocks as skeletons immediately, then fetch diffs in background."""
