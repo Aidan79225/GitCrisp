@@ -41,7 +41,7 @@ class _Worktrees:
     def lock(self, path: str, reason: str | None = None) -> None:
         self.items = [_worktree(_MAIN, is_main=True), _worktree(path, lock_reason=reason)]
 
-    def remove(self, path: str, force: bool = False) -> None:
+    def remove(self, path: str, **_flags) -> None:
         self.items = [wt for wt in self.items if wt.path != path]
 
     def add(self, path: str, branch: str, **_kwargs) -> Worktree:

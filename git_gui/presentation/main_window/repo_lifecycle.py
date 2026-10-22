@@ -523,24 +523,36 @@ class RepoLifecycleMixin:
             return
         self._run_remove_worktree(path, force=False)
 
-    def _run_remove_worktree(self, path: str, *, force: bool) -> None:
+    def _run_remove_worktree(self, path: str, *, force: bool, override_lock: bool = False) -> None:
         self._run_worktree_op(
             "Remove",
-            lambda commands: commands.remove_worktree.execute(path, force=force),
+            lambda commands: commands.remove_worktree.execute(
+                path, force=force, override_lock=override_lock
+            ),
             lambda _: self._on_worktree_removed(path),
-            lambda error: self._offer_force_remove(path, error),
+            lambda error: self._offer_force_remove(
+                path, error, force=force, override_lock=override_lock
+            ),
         )
 
-    def _offer_force_remove(self, path: str, error: Exception) -> bool:
-        """Offer to force a removal git refused for a reason the user can
-        override; False for any other failure."""
+    def _offer_force_remove(
+        self, path: str, error: Exception, *, force: bool, override_lock: bool
+    ) -> bool:
+        """Offer to override what git refused the removal for; False for any
+        other failure, and for one the user has already overridden.
+
+        Each prompt grants only its own override and keeps the other: git
+        checks the lock before the changes, so a locked worktree with changes
+        is refused twice, and dropping the first override on the second retry
+        would bring its prompt back.
+        """
         # Dispatch by class name to keep this layer infra-free (the
         # architecture guard forbids importing the concrete error types here).
         name = type(error).__name__
-        if name == "WorktreeDirtyError":
-            self._on_remove_dirty(path)
-        elif name == "WorktreeLockedError":
-            self._on_remove_locked(path, str(error))
+        if name == "WorktreeDirtyError" and not force:
+            self._on_remove_dirty(path, override_lock=override_lock)
+        elif name == "WorktreeLockedError" and not override_lock:
+            self._on_remove_locked(path, str(error), force=force)
         else:
             return False
         return True
@@ -588,7 +600,7 @@ class RepoLifecycleMixin:
                 return candidate
         return None
 
-    def _on_remove_dirty(self, path: str) -> None:
+    def _on_remove_dirty(self, path: str, *, override_lock: bool) -> None:
         from PySide6.QtWidgets import QMessageBox
 
         msg = QMessageBox(self)
@@ -598,16 +610,18 @@ class RepoLifecycleMixin:
         msg.addButton("Cancel", QMessageBox.RejectRole)
         msg.exec()
         if msg.clickedButton() is force:
-            self._run_remove_worktree(path, force=True)
+            self._run_remove_worktree(path, force=True, override_lock=override_lock)
 
-    def _on_remove_locked(self, path: str, reason: str) -> None:
+    def _on_remove_locked(self, path: str, reason: str, *, force: bool) -> None:
         from PySide6.QtWidgets import QMessageBox
 
         msg = QMessageBox(self)
         msg.setWindowTitle("Worktree is locked")
         msg.setText(f"The worktree at {path} is locked.\n{reason}\n\nForce remove anyway?")
-        force = msg.addButton("Force remove", QMessageBox.DestructiveRole)
+        override = msg.addButton("Force remove", QMessageBox.DestructiveRole)
         msg.addButton("Cancel", QMessageBox.RejectRole)
         msg.exec()
-        if msg.clickedButton() is force:
-            self._run_remove_worktree(path, force=True)
+        if msg.clickedButton() is override:
+            # Lifting the lock alone: uncommitted changes still get their
+            # own prompt.
+            self._run_remove_worktree(path, force=force, override_lock=True)

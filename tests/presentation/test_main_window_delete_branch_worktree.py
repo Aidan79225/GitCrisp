@@ -36,7 +36,9 @@ def test_confirm_removes_worktree_then_deletes_branch(qtbot):
         patch.object(win, "_load_worktrees_for_active_repo"),
     ):
         win._on_delete_branch("wt-branch")
-    win._commands.remove_worktree.execute.assert_called_once_with("/repo/.wt/agent", force=False)
+    win._commands.remove_worktree.execute.assert_called_once_with(
+        "/repo/.wt/agent", force=False, override_lock=False
+    )
     win._commands.delete_branch.execute.assert_called_once_with("wt-branch")
 
 
@@ -94,7 +96,9 @@ def test_dirty_worktree_offers_force_then_removes(qtbot):
     ):
         win._on_delete_branch("wt-branch")
     assert win._commands.remove_worktree.execute.call_count == 2
-    win._commands.remove_worktree.execute.assert_any_call("/repo/.wt/agent", force=True)
+    win._commands.remove_worktree.execute.assert_any_call(
+        "/repo/.wt/agent", force=True, override_lock=False
+    )
     win._commands.delete_branch.execute.assert_called_once_with("wt-branch")
 
 
