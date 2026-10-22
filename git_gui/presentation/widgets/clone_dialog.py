@@ -4,7 +4,7 @@ import re
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -202,6 +202,12 @@ class CloneDialog(QDialog):
 
     def _set_cloning(self, cloning: bool) -> None:
         self._cloning = cloning
+        # Cancel is the one control left enabled, so the focus leaving the
+        # disabled ones would land on it, and a second Enter or a Space would
+        # throw the clone away. It stays a click or Esc away.
+        self._cancel_btn.setFocusPolicy(
+            Qt.FocusPolicy.NoFocus if cloning else Qt.FocusPolicy.StrongFocus
+        )
         for widget in (
             self._url_edit,
             self._folder_edit,
