@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from git_gui.presentation.theme import ThemeMode, get_theme_manager
 from git_gui.presentation.theme import settings as _settings
-from git_gui.presentation.theme.loader import load_builtin
+from git_gui.presentation.theme.loader import ThemeValidationError, load_builtin, load_theme
 from git_gui.presentation.theme.tokens import Theme
 from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
 
@@ -420,7 +420,6 @@ class ThemeDialog(QDialog):
         import dataclasses
         import json
 
-        from git_gui.presentation.theme import settings as _settings
         from git_gui.presentation.theme.tokens import Colors
 
         # Tokens without a swatch come from the theme the swatches were
@@ -447,9 +446,6 @@ class ThemeDialog(QDialog):
         path.write_text(json.dumps(_theme_to_json(custom_theme), indent=2))
 
     def _maybe_load_existing_custom_theme(self) -> None:
-        from git_gui.presentation.theme import settings as _settings
-        from git_gui.presentation.theme.loader import ThemeValidationError, load_theme
-
         path = _settings.custom_theme_path()
         if not path.exists():
             return
