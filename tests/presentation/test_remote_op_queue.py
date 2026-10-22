@@ -218,6 +218,44 @@ def test_pull_still_runs_when_the_repos_remotes_cannot_be_listed(qtbot):
     win._commands.pull.execute.assert_called_once_with("origin", "main")
 
 
+def _pull_with_unlistable_remotes(qtbot, local: str, upstream: str) -> MainWindow:
+    win = _make_window(qtbot)
+    win._queries = _queries_on_branch(local)
+    win._queries.list_local_branches_with_upstream.execute.return_value = [
+        LocalBranchInfo(local, upstream, "0123456789", "Fix it")
+    ]
+    win._queries.list_remotes.execute.side_effect = RuntimeError(
+        "'bad name' is not a valid remote name"
+    )
+    with patch.object(win, "_reload"):
+        win._on_pull()
+        _wait_until_idle(qtbot, win)
+    return win
+
+
+@pytest.mark.parametrize(
+    ("local", "upstream", "pulled"),
+    [
+        # A fork: origin is the user's own copy, main tracks the canonical repo.
+        ("main", "upstream/main", ("upstream", "main")),
+        ("rel", "origin/release/1.x", ("origin", "release/1.x")),
+    ],
+    ids=["upstream-on-another-remote", "upstream-under-another-name"],
+)
+def test_pull_keeps_to_the_upstream_when_the_repos_remotes_cannot_be_listed(
+    qtbot, local, upstream, pulled
+):
+    win = _pull_with_unlistable_remotes(qtbot, local, upstream)
+
+    win._commands.pull.execute.assert_called_once_with(*pulled)
+
+
+def test_the_log_says_why_the_remotes_could_not_be_listed(qtbot):
+    win = _pull_with_unlistable_remotes(qtbot, "main", "upstream/main")
+
+    assert "'bad name' is not a valid remote name" in win._log_panel._body.toPlainText()
+
+
 @pytest.mark.parametrize(
     ("start", "command", "args", "remote"),
     [
