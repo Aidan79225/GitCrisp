@@ -689,14 +689,21 @@ def test_a_pick_that_a_reload_dropped_hands_its_commit_over_again(qtbot):
     assert got == [ENTRIES[2].oid_new]
 
 
-def test_a_reload_keeps_the_user_where_they_scrolled_to(qtbot):
-    """The app reloads every time it becomes active again; that must not
-    yank the list back to the picked row while the user is reading an older one."""
-    entries = [_entry(i, "commit", f"thing {i}") for i in range(100)]
-    pane, queries = _pane(qtbot, entries)
+_HUNDRED_THINGS = [_entry(i, "commit", f"thing {i}") for i in range(100)]
+
+
+def _shown_pane_of_a_hundred_things(qtbot) -> tuple[ReflogPane, MagicMock]:
+    pane, queries = _pane(qtbot, _HUNDRED_THINGS)
     pane.resize(500, 400)
     pane.show()
     qtbot.waitExposed(pane)
+    return pane, queries
+
+
+def test_a_reload_keeps_the_user_where_they_scrolled_to(qtbot):
+    """The app reloads every time it becomes active again; that must not
+    yank the list back to the picked row while the user is reading an older one."""
+    pane, _queries = _shown_pane_of_a_hundred_things(qtbot)
     pane.select_row(2)
     scrollbar = pane._view.verticalScrollBar()
     scrollbar.setValue(scrollbar.maximum())
@@ -707,17 +714,6 @@ def test_a_reload_keeps_the_user_where_they_scrolled_to(qtbot):
 
     assert scrollbar.value() == scrolled_to
     assert pane.current_entry().summary == "thing 2"
-
-
-_HUNDRED_THINGS = [_entry(i, "commit", f"thing {i}") for i in range(100)]
-
-
-def _shown_pane_of_a_hundred_things(qtbot) -> tuple[ReflogPane, MagicMock]:
-    pane, queries = _pane(qtbot, _HUNDRED_THINGS)
-    pane.resize(500, 400)
-    pane.show()
-    qtbot.waitExposed(pane)
-    return pane, queries
 
 
 def _top_row_summary(pane) -> str | None:
