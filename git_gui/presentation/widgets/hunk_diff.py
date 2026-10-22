@@ -57,6 +57,14 @@ MAX_AGGREGATE_FILE_BLOCKS = 200
 _DISCARD_BUTTON_NAME = "discard_hunk"
 
 
+def skipped_after_repo_switch(op_name: str) -> str:
+    """What the log says when another repo opened while the user was asked about *op_name*.
+
+    Worded as MainWindow words its own skipped confirmations, so every one reads alike.
+    """
+    return f"{op_name} — skipped: another repo opened while you were deciding. Nothing was changed."
+
+
 def _is_untracked(staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]) -> bool:
     """Whether a file's hunks are the one whole-file hunk an untracked file shows."""
     return (

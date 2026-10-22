@@ -33,7 +33,7 @@ from git_gui.presentation.widgets.file_list_view import (
     badge_kind,
 )
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
-from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
+from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget, skipped_after_repo_switch
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 
 logger = logging.getLogger(__name__)
@@ -436,6 +436,9 @@ class WorkingTreeWidget(QWidget):
     def _on_commit(self) -> None:
         if self._queries is None:
             return
+        # The repo this message and state belong to. A prompt on the way can
+        # outlast it, and the commit must not follow the switch.
+        commands = self._commands
         state = getattr(self, "_current_state", "CLEAN")
         msg = self._msg_edit.toPlainText().strip()
         if state not in _OPERATIONS_IN_PROGRESS and not msg:
@@ -443,11 +446,11 @@ class WorkingTreeWidget(QWidget):
             return
 
         # Every path below creates a commit, so identity is required.
-        if not self._ensure_identity():
+        if not self._ensure_identity(commands):
             return
         if state in _OPERATIONS_IN_PROGRESS:
             self._continue_operation(state, msg)
-        elif self._create_or_amend(msg):
+        elif self._create_or_amend(msg, commands):
             self._reset_after_commit(msg)
 
     def _continue_operation(self, state: str, msg: str) -> None:
@@ -460,16 +463,16 @@ class WorkingTreeWidget(QWidget):
         elif state == RepoState.REVERTING:
             self.revert_continue_requested.emit()
 
-    def _create_or_amend(self, msg: str) -> bool:
+    def _create_or_amend(self, msg: str, commands: CommandBus) -> bool:
         """Commit *msg*, amending HEAD when Amend is ticked; False if nothing was committed."""
         amending = self._chk_amend.isChecked()
-        if amending and not self._confirm_amend_published():
+        if amending and not self._confirm_amend_published(commands):
             return False
         try:
             if amending:
-                self._commands.amend_commit.execute(msg)
+                commands.amend_commit.execute(msg)
             else:
-                self._commands.create_commit.execute(msg)
+                commands.create_commit.execute(msg)
         except Exception as e:
             verb = "Amend" if amending else "Commit"
             self.commit_failed.emit(f"{verb} failed: {e}")
@@ -520,11 +523,12 @@ class WorkingTreeWidget(QWidget):
             return None
         return self._queries.get_commit_detail.execute(head_oid).message
 
-    def _confirm_amend_published(self) -> bool:
+    def _confirm_amend_published(self, commands: CommandBus) -> bool:
         """Warn before amending a commit a remote branch still points at.
 
-        Returns True to go ahead. A remote ref on HEAD means the commit has been
-        pushed, so amending it rewrites published history.
+        Returns True to go ahead, and False if another repo replaced
+        *commands*' while the warning was up. A remote ref on HEAD means the
+        commit has been pushed, so amending it rewrites published history.
         """
         try:
             head_oid = self._queries.get_head_oid.execute()
@@ -545,14 +549,15 @@ class WorkingTreeWidget(QWidget):
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
-        return answer == QMessageBox.Yes
+        return answer == QMessageBox.Yes and not self._repo_switched_while_asking(commands, "Amend")
 
-    def _ensure_identity(self) -> bool:
-        """Prompt for git identity if missing.
+    def _ensure_identity(self, commands: CommandBus) -> bool:
+        """Prompt for git identity if missing, saving it through *commands*.
 
         Returns True when identity is already configured or the user
-        successfully sets it via the prompt; False if the user cancels
-        or saving fails (in which case commit_failed has been emitted).
+        successfully sets it via the prompt; False if the user cancels,
+        another repo opened during the prompt, or saving fails (in the last
+        two cases commit_failed has been emitted).
         """
         name, email = self._queries.get_identity.execute()
         if name and email:
@@ -562,14 +567,26 @@ class WorkingTreeWidget(QWidget):
         from git_gui.presentation.dialogs.identity_dialog import IdentityDialog
 
         dlg = IdentityDialog(name, email, parent=self)
-        if dlg.exec() != QDialog.Accepted:
+        if dlg.exec() != QDialog.Accepted or self._repo_switched_while_asking(commands, "Commit"):
             return False
         new_name, new_email, global_ = dlg.values()
         try:
-            self._commands.set_identity.execute(new_name, new_email, global_)
+            commands.set_identity.execute(new_name, new_email, global_)
         except Exception as e:
             self.commit_failed.emit(f"Failed to save identity: {e}")
             return False
+        return True
+
+    def _repo_switched_while_asking(self, asked_in: CommandBus | None, op_name: str) -> bool:
+        """Whether the open repo is no longer *asked_in*'s, reporting *op_name* as skipped if so.
+
+        A prompt runs a nested event loop, and a repo switch already on its
+        way lands inside it and hands this panel the new repo's buses; what
+        the user answered was about the repo on screen when they were asked.
+        """
+        if self._commands is asked_in:
+            return False
+        self.commit_failed.emit(skipped_after_repo_switch(op_name))
         return True
 
     def _on_files_changed(self) -> None:
