@@ -348,13 +348,25 @@ class WorkingTreeWidget(QWidget):
         fs = self._file_model.data(index, Qt.UserRole)
         if fs is None:
             return
+        # The menu runs a nested event loop, and a repo switch on its way lands
+        # inside it. What the user picks is about the file on screen when the
+        # menu opened, and the new repo may well have a file of that name.
+        commands = self._commands
         menu = QMenu(self._file_view)
         history_action = menu.addAction("Show file history")
         blame_action = menu.addAction("Blame this file")
         menu.addSeparator()
         discard_action = menu.addAction("Discard changes")
         ignore_action = menu.addAction("Add to .gitignore")
+        op_names = {
+            history_action: f"Show the history of {fs.path}",
+            blame_action: f"Blame {fs.path}",
+            discard_action: f"Discard {fs.path}",
+            ignore_action: f"Add {fs.path} to .gitignore",
+        }
         chosen = menu.exec(self._file_view.viewport().mapToGlobal(pos))
+        if chosen not in op_names or self._repo_switched_while_asking(commands, op_names[chosen]):
+            return
         if chosen is history_action:
             self.file_history_requested.emit(fs.path)
         elif chosen is blame_action:

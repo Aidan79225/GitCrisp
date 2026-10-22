@@ -11,9 +11,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtWidgets import QDialog, QMessageBox, QToolButton
+from PySide6.QtWidgets import QDialog, QMenu, QMessageBox, QToolButton
 
-from git_gui.domain.entities import Hunk, LineKind, RepoState
+from git_gui.domain.entities import FileDelta, FileStatus, Hunk, LineKind, RepoState, StagingState
 from tests.presentation.widgets.hunk_diff_helpers import workers_joined_on_exit
 from tests.presentation.widgets.working_tree_helpers import working_tree_widget
 
@@ -166,4 +166,92 @@ def test_a_discard_confirmed_in_the_diff_while_another_repo_opened_discards_in_n
 
     getattr(commands_a, command).execute.assert_not_called()
     getattr(buses_b[1], command).execute.assert_not_called()
+    assert reported == [f"{action} — {SKIPPED}"]
+
+
+# ── Changed-files menu ───────────────────────────────────────────────────────
+
+
+def _menu_during_which_b_opens(panel, buses_b, repo_b: str, choice: str) -> type[QMenu]:
+    """A file menu during which repo B finishes opening, then *choice* is picked.
+
+    The real menu runs a nested event loop, and the repo-ready signal is
+    queued, so it lands there exactly as it does inside a confirmation box.
+    """
+
+    class _Menu(QMenu):
+        def exec(self, *_args):
+            panel.set_repo_path(repo_b)
+            panel.set_buses(*buses_b)
+            return next(a for a in self.actions() if a.text() == choice)
+
+    return _Menu
+
+
+@pytest.fixture
+def file_menu(qtbot, panel, tmp_path, monkeypatch):
+    """Opens repo A's file menu on a.txt, picking an entry once repo B has opened."""
+    w, _, buses_b, _ = panel
+    repo_a, repo_b = tmp_path / "a", tmp_path / "b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    w.set_repo_path(str(repo_a))
+    w._file_model.reload([FileStatus("a.txt", StagingState.UNSTAGED, FileDelta.MODIFIED)], set())
+    w.show()
+    qtbot.waitUntil(lambda: w._file_view.visualRect(w._file_model.index(0)).isValid())
+
+    def _pick(choice: str) -> None:
+        menu = _menu_during_which_b_opens(w, buses_b, str(repo_b), choice)
+        monkeypatch.setattr("git_gui.presentation.widgets.working_tree.QMenu", menu)
+        w._on_file_context_menu(w._file_view.visualRect(w._file_model.index(0)).center())
+
+    return _pick, repo_a, repo_b
+
+
+def test_a_discard_picked_from_the_menu_while_another_repo_opened_discards_in_neither(
+    panel, file_menu, monkeypatch
+):
+    w, commands_a, buses_b, reported = panel
+    pick, _, _ = file_menu
+    monkeypatch.setattr(QMessageBox, "question", lambda *_a, **_k: QMessageBox.Yes)
+
+    pick("Discard changes")
+
+    commands_a.discard_file.execute.assert_not_called()
+    buses_b[1].discard_file.execute.assert_not_called()
+    assert reported == [f"Discard a.txt — {SKIPPED}"]
+
+
+def test_an_ignore_picked_from_the_menu_while_another_repo_opened_writes_neither_gitignore(
+    panel, file_menu
+):
+    _, _, _, reported = panel
+    pick, repo_a, repo_b = file_menu
+
+    pick("Add to .gitignore")
+
+    assert not (repo_a / ".gitignore").exists()
+    assert not (repo_b / ".gitignore").exists()
+    assert reported == [f"Add a.txt to .gitignore — {SKIPPED}"]
+
+
+@pytest.mark.parametrize(
+    "choice, signal, action",
+    [
+        ("Show file history", "file_history_requested", "Show the history of a.txt"),
+        ("Blame this file", "blame_requested", "Blame a.txt"),
+    ],
+)
+def test_a_view_picked_from_the_menu_while_another_repo_opened_does_not_open_in_it(
+    panel, file_menu, choice, signal, action
+):
+    """The other repo may have a file of the same name, and its history is not this one's."""
+    w, _, _, reported = panel
+    pick, _, _ = file_menu
+    opened: list[tuple] = []
+    getattr(w, signal).connect(lambda *args: opened.append(args))
+
+    pick(choice)
+
+    assert opened == []
     assert reported == [f"{action} — {SKIPPED}"]

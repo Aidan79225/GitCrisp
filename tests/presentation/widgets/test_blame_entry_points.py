@@ -79,6 +79,7 @@ def test_working_tree_menu_blames_head(qtbot):
     qtbot.addWidget(w)
     w._file_view = MagicMock()
     w._file_model = MagicMock()
+    w._commands = MagicMock()
     w._file_model.data.return_value = MagicMock(path="src/app.py")
     w._file_view.indexAt.return_value = MagicMock(isValid=lambda: True)
 
@@ -138,6 +139,7 @@ def test_file_history_still_fires_from_every_menu(qtbot):
     QWidget.__init__(wt)
     wt._file_view = MagicMock()
     wt._file_model = MagicMock()
+    wt._commands = MagicMock()
     wt._file_model.data.return_value = MagicMock(path="src/app.py")
     wt._file_view.indexAt.return_value = MagicMock(isValid=lambda: True)
 
