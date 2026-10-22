@@ -481,6 +481,52 @@ def test_searching_with_no_repo_open_reports_no_failed_load(graph, qtbot, inline
     assert failures == []
 
 
+# ── A search left open when the listing changes ──────────────────────────────
+
+
+def _match_count(graph: GraphWidget) -> str:
+    return graph._search_bar._label.text()
+
+
+def test_a_search_typed_with_no_repo_open_searches_all_of_the_repo_opened_next(
+    graph, inline_workers
+):
+    """Ctrl+F works on the empty state. The search waited for a full load that
+    never ran, so opening a repo searched its first page only: 1 match of 11."""
+    graph.set_buses(None, None)
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    graph.set_buses(_queries(_chain(4 * PAGE_SIZE)), MagicMock())
+
+    assert graph._model.rowCount() == 4 * PAGE_SIZE
+    assert _match_count(graph) == "1 / 11"  # c12 and c120…c129
+
+
+def test_switching_repos_while_a_search_loads_searches_all_of_the_new_repo(graph, held_workers):
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    graph.set_buses(_queries(_chain(4 * PAGE_SIZE, prefix="d")), MagicMock())
+    _finish_all(held_workers)
+
+    assert graph._model.rowCount() == 4 * PAGE_SIZE
+    assert _match_count(graph) == "1 / 11"
+    assert _current_oid(graph) == "d12"
+
+
+def test_filtering_to_a_file_while_a_search_loads_searches_its_whole_history(graph, held_workers):
+    _paged_file_history(graph, 3 * PAGE_SIZE)
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    graph.set_path_filter("README.md")
+    _finish_all(held_workers)
+
+    assert graph._model.rowCount() == 3 * PAGE_SIZE
+    assert _match_count(graph) == "1 / 11"
+
+
 # ── Clicking a commit further down a file's history ──────────────────────────
 
 

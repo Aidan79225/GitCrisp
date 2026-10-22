@@ -555,8 +555,7 @@ class GraphWidget(QWidget):
         # The previous repo's commits mean nothing here, and would stay on
         # screen under this repo's name if its first load failed.
         self._model.reload([], {})
-        if queries is not None:
-            self.reload()
+        self._load_new_listing()
 
     def set_repo_path(self, path: str | None) -> None:
         """Load the persisted first-parent setting for `path` and sync the
@@ -605,15 +604,13 @@ class GraphWidget(QWidget):
         self._path_filter_bar.open(path)
         self._reset_paging()
         self.path_filter_changed.emit(path)
-        if self._queries is not None:
-            self.reload()
+        self._load_new_listing()
 
     def clear_path_filter(self) -> None:
         if self._path_filter is None:
             return
         self._leave_path_filter()
-        if self._queries is not None:
-            self.reload()
+        self._load_new_listing()
 
     def _leave_path_filter(self) -> None:
         self._path_filter = None
@@ -622,13 +619,16 @@ class GraphWidget(QWidget):
         self.path_filter_changed.emit(None)
 
     def _reset_paging(self) -> None:
-        """Drop paging and scroll state that belongs to the previous listing.
+        """Drop paging, scroll and search-load state that belongs to the previous listing.
 
         A limit doubled for the previous one (up to 2000 for a deep
         divergence) would otherwise over-load the next one's first render.
+        A search left waiting on the previous listing's full load would run
+        over the next one's first page and report that as all its matches.
         """
         self._reload_limit = PAGE_SIZE
         self._limit_before_search = None
+        self._pending_search = None
         self._extra_tips = None
         self._pending_scroll_oid = None
         self._pending_merge_base = None
@@ -636,8 +636,20 @@ class GraphWidget(QWidget):
         self._has_more = True
 
     def _on_follow_toggled(self, _checked: bool) -> None:
-        if self._path_filter is not None and self._queries is not None:
+        if self._path_filter is not None:
             self._reset_paging()
+            self._load_new_listing()
+
+    def _load_new_listing(self) -> None:
+        """Load the listing that replaced the previous one, and search it if a search is open.
+
+        The previous listing's matches say nothing about this one, so an open
+        search runs again, loading the whole of it as typing does.
+        """
+        needle = self._search_bar.text()
+        if needle.strip():
+            self._on_search_text_changed(needle)
+        else:
             self.reload()
 
     def reload(self, extra_tips: list[str] | None = None, limit: int | None = None) -> None:
