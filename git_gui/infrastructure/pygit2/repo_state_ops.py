@@ -6,7 +6,7 @@ from typing import NamedTuple
 import pygit2
 
 from git_gui.domain.entities import RepoState, RepoStateInfo
-from git_gui.infrastructure.git_process import run_git
+from git_gui.infrastructure.git_process import pinned_git_env, run_git
 from git_gui.resources import GitConfig, git_ssh_env
 
 _SSH_COMMAND_KEY = "core.sshCommand"
@@ -69,10 +69,7 @@ class RepoStateOps:
         fail on first-time SSH host-key verification, unless this repo's
         config, which includes the user's global one, names an ssh command.
         """
-        env = os.environ.copy()
-        env["GIT_DIR"] = self._repo.path
-        if self._repo.workdir:
-            env["GIT_WORK_TREE"] = self._repo.workdir
+        env = pinned_git_env(self._repo.path, self._repo.workdir)
         return git_ssh_env(env, config=self._ssh_config(env))
 
     def _ssh_config(self, env: dict[str, str]) -> GitConfig:

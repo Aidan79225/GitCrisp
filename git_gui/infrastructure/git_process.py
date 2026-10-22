@@ -89,8 +89,9 @@ def pinned_git_env(git_dir: str | None, work_tree: str | None) -> dict[str, str]
     Left to discover the repository from its working directory, git walks up
     from a submodule whose `.git` link is missing and reads the parent instead.
     A bare repository has no working tree to name, so it gets GIT_DIR alone.
+    An inherited GIT_INDEX_FILE and its kind go: GIT_DIR does not reset them.
     """
-    env = os.environ.copy()
+    env = isolated_git_env()
     if git_dir is not None:
         env["GIT_DIR"] = git_dir
         if work_tree:
