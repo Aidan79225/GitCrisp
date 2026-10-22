@@ -51,7 +51,7 @@ class ReloadCoordinatorMixin:
         state = self._read_repo_state()
         merge_msg = self._read_merge_msg() if state is RepoState.MERGING else None
         self._working_tree.update_conflict_banner(state.name, merge_msg)
-        self._diff.update_state_banner(state.name)
+        self._diff.update_state_banner(state)
 
     def _read_repo_state(self) -> RepoState:
         try:

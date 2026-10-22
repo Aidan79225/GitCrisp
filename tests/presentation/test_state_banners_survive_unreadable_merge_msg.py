@@ -37,7 +37,8 @@ def test_an_unreadable_merge_message_keeps_the_merge_banner(qtbot):
     win._refresh_state_banners()
 
     win._working_tree.update_conflict_banner.assert_called_once_with("MERGING", None)
-    win._diff.update_state_banner.assert_called_once_with("MERGING")
+    win._diff.update_state_banner.assert_called_once()
+    assert win._diff.update_state_banner.call_args.args[0] is RepoState.MERGING
 
 
 def test_an_unreadable_merge_message_is_logged(qtbot, caplog):
@@ -59,4 +60,5 @@ def test_an_unreadable_repo_state_is_logged_and_shown_as_clean(qtbot, caplog):
 
     assert "HEAD is gone" in caplog.text
     win._working_tree.update_conflict_banner.assert_called_once_with("CLEAN", None)
-    win._diff.update_state_banner.assert_called_once_with("CLEAN")
+    win._diff.update_state_banner.assert_called_once()
+    assert win._diff.update_state_banner.call_args.args[0] is RepoState.CLEAN
