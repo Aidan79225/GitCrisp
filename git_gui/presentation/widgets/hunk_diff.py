@@ -291,15 +291,16 @@ class HunkDiffWidget(QWidget):
             logger.warning("Failed to list the submodules", exc_info=True)
             self._submodule_paths = set()
 
+    def _submodule_opener(self, path: str) -> Callable[[], None] | None:
+        """What a click on one of *path*'s headers does: open it, if it is a submodule."""
+        if path not in self._submodule_paths:
+            return None
+        return lambda: self.submodule_open_requested.emit(path)
+
     def _make_file_block(self, path: str):
-        on_click = (
-            (lambda p=path: self.submodule_open_requested.emit(p))
-            if path in self._submodule_paths
-            else None
-        )
         return make_file_block(
             path,
-            on_header_clicked=on_click,
+            on_header_clicked=self._submodule_opener(path),
             on_state_changed=self._on_block_toggled,
         )
 
@@ -401,52 +402,45 @@ class HunkDiffWidget(QWidget):
         path: str,
         parent_layout: QVBoxLayout,
     ) -> None:
-        header = hunk.header
-
-        checkbox = QCheckBox()
-        checkbox.setAccessibleName(f"Stage hunk {header}")
-        checkbox.setChecked(is_staged)
-        checkbox.toggled.connect(
-            lambda checked, p=path, h=header: self._on_hunk_toggled(p, h, checked)
-        )
-
-        extra_right: list = []
-        if not is_staged:
-            # Whole-file add (`@@ -0,0 ...`) or whole-file delete (`+0,0 @@`)
-            # is best handled by discard_file (full reset), since `git apply
-            # --reverse` only touches the working tree and leaves the index
-            # in a confusing state.
-            is_whole_file = _adds_whole_file(header) or _removes_whole_file(header)
-            x_btn = QToolButton()
-            x_btn.setObjectName(_DISCARD_BUTTON_NAME)
-            x_btn.setIcon(QIcon(_CLOSE_ICON_PATH))
-            x_btn.setIconSize(QSize(16, 16))
-            x_btn.setFixedSize(22, 22)
-            x_btn.setToolTip("Discard this file" if is_whole_file else "Discard this hunk")
-            x_btn.setAccessibleName(x_btn.toolTip())
-            x_btn.setAutoRaise(True)
-            x_btn.clicked.connect(
-                lambda _=False, p=path, h=header, w=is_whole_file: (
-                    self._on_discard_file_clicked(p) if w else self._on_discard_hunk_clicked(p, h)
-                )
-            )
-            extra_right = [x_btn]
-
-        on_click = (
-            (lambda p=path: self.submodule_open_requested.emit(p))
-            if path in self._submodule_paths
-            else None
-        )
+        """Add *hunk*'s view with its stage box and, while it is unstaged, a discard button."""
+        discard = [] if is_staged else [self._make_discard_button(path, hunk.header)]
         add_hunk_view(
             parent_layout,
             hunk,
             self._formats,
-            extra_left_widgets=[checkbox],
-            extra_right_widgets=extra_right,
-            on_header_clicked=on_click,
+            extra_left_widgets=[self._make_stage_checkbox(path, hunk.header, is_staged)],
+            extra_right_widgets=discard,
+            on_header_clicked=self._submodule_opener(path),
             syntax_formats=self._syntax_formats,
             filename=path,
         )
+
+    def _make_stage_checkbox(self, path: str, header: str, is_staged: bool) -> QCheckBox:
+        checkbox = QCheckBox()
+        checkbox.setAccessibleName(f"Stage hunk {header}")
+        checkbox.setChecked(is_staged)
+        checkbox.toggled.connect(lambda checked: self._on_hunk_toggled(path, header, checked))
+        return checkbox
+
+    def _make_discard_button(self, path: str, header: str) -> QToolButton:
+        # Whole-file add (`@@ -0,0 ...`) or whole-file delete (`+0,0 @@`)
+        # is best handled by discard_file (full reset), since `git apply
+        # --reverse` only touches the working tree and leaves the index
+        # in a confusing state.
+        is_whole_file = _adds_whole_file(header) or _removes_whole_file(header)
+        button = QToolButton()
+        button.setObjectName(_DISCARD_BUTTON_NAME)
+        button.setIcon(QIcon(_CLOSE_ICON_PATH))
+        button.setIconSize(QSize(16, 16))
+        button.setFixedSize(22, 22)
+        button.setToolTip("Discard this file" if is_whole_file else "Discard this hunk")
+        button.setAccessibleName(button.toolTip())
+        button.setAutoRaise(True)
+        if is_whole_file:
+            button.clicked.connect(lambda: self._on_discard_file_clicked(path))
+        else:
+            button.clicked.connect(lambda: self._on_discard_hunk_clicked(path, header))
+        return button
 
     def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool) -> None:
         verb = "Stage" if checked else "Unstage"
