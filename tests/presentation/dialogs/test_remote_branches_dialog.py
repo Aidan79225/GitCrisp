@@ -285,3 +285,29 @@ def test_delete_stays_off_while_the_remotes_are_unknown(qtbot, query):
     dlg, _ = _make_with_failing_query(qtbot, query)
     dlg._select_all_visible()
     assert dlg._delete_btn.isEnabled() is False
+
+
+@pytest.mark.parametrize("query", ["remote_default_branches", "list_remotes"])
+def test_the_warning_says_how_to_turn_delete_back_on(qtbot, query):
+    """While they are unknown nothing in the dialog loads them again, so waiting never helps."""
+    _, warning = _make_with_failing_query(qtbot, query)
+    assert "reopen this dialog" in warning.call_args.args[2]
+
+
+@pytest.mark.parametrize("query", ["remote_default_branches", "list_remotes"])
+def test_the_disabled_delete_says_why_while_the_remotes_are_unknown(qtbot, query):
+    dlg, _ = _make_with_failing_query(qtbot, query)
+    dlg._select_all_visible()
+    assert "reopen this dialog" in dlg._delete_btn.toolTip()
+
+
+def test_reopening_once_the_remotes_load_turns_delete_back_on(qtbot):
+    dlg, _ = _make_with_failing_query(qtbot, "list_remotes")
+    dlg._queries.list_remotes.execute.side_effect = None
+    reopened = RemoteBranchesDialog(dlg._queries, MagicMock())
+    qtbot.addWidget(reopened)
+
+    reopened._select_all_visible()
+
+    assert reopened._delete_btn.isEnabled()
+    assert reopened._delete_btn.toolTip() == ""
