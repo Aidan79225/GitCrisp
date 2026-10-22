@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -108,6 +109,35 @@ def test_a_failed_clone_leaves_no_parent_folder_it_created_behind(tmp_path):
     with pytest.raises(RuntimeError):
         clone_repo(str(tmp_path / "no-such-repo"), str(location / "group" / "repo"))
     assert not location.exists()
+
+
+def test_a_url_that_starts_like_an_option_is_never_read_as_one(
+    repo_path, tmp_path_factory, monkeypatch
+):
+    """A pasted '--upload-pack=<command>' ran that command in place of git's own."""
+    work = tmp_path_factory.mktemp("work")
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("GIT_SSH_COMMAND", "ssh")  # no probe of a destination that is a URL here
+    ran = work / "command-ran"
+    url = f"--upload-pack=: > '{ran.as_posix()}'; git-upload-pack"
+
+    with contextlib.suppress(RuntimeError):  # there is no repository of that name
+        clone_repo(url, repo_path.as_uri())
+
+    assert not ran.exists()
+
+
+def test_a_folder_that_starts_like_an_option_is_cloned_into(
+    repo_path, tmp_path_factory, monkeypatch
+):
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
+    work = tmp_path_factory.mktemp("work")
+    monkeypatch.chdir(work)
+
+    clone_repo(repo_path.as_uri(), "-repo")
+
+    assert (work / "-repo" / ".git").is_dir()
 
 
 @pytest.fixture

@@ -85,7 +85,7 @@ def _is_free_for_a_clone(dest: Path) -> bool:
 
 def _probe_has_config(dest: Path, url: str, key: str) -> bool:
     env = _probe_env()
-    if run_git(["git", "init", "--quiet", str(dest)], cwd=".", env=env).returncode != 0:
+    if run_git(["git", "init", "--quiet", "--", str(dest)], cwd=".", env=env).returncode != 0:
         return False
     probe = f"--git-dir={dest / '.git'}"
     run_git(["git", probe, "config", "remote.origin.url", url], cwd=".", env=env)
@@ -144,7 +144,8 @@ def clone_repo(
         cancelled = threading.Event()
     destination = _Destination(Path(dest))
     proc = subprocess.Popen(
-        ["git", "clone", "--progress", "--recurse-submodules", url, dest],
+        # "--": a URL or folder that starts with "-" is still a URL or folder, not an option.
+        ["git", "clone", "--progress", "--recurse-submodules", "--", url, dest],
         # Nothing reads stdout, and git writes a line there per submodule: a
         # pipe would fill up and block git while we wait for stderr to close.
         stdout=subprocess.DEVNULL,
