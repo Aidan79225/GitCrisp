@@ -300,8 +300,14 @@ class HunkDiffWidget(QWidget):
         return make_file_block(
             path,
             on_header_clicked=on_click,
-            on_state_changed=lambda _expanded: self._loader.check_viewport(),
+            on_state_changed=self._on_block_toggled,
         )
+
+    def _on_block_toggled(self, _expanded: bool) -> None:
+        """A block collapsed or expanded: the blocks below it moved, and the
+        editors the shared bar measures were hidden or shown."""
+        self._loader.check_viewport()
+        self._sync_hscroll()
 
     def _on_load_done(
         self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]
