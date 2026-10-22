@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
-from git_gui.infrastructure.git_process import git_popen_kwargs, run_git
+from git_gui.infrastructure.git_process import git_popen_kwargs, isolated_git_env, run_git
 from git_gui.resources import git_ssh_env, subprocess_kwargs
 
 
@@ -84,39 +84,13 @@ def _is_free_for_a_clone(dest: Path) -> bool:
 
 
 def _probe_has_config(dest: Path, url: str, key: str) -> bool:
-    env = _probe_env()
+    # An inherited GIT_DIR would get the clone's URL as that repository's origin.
+    env = isolated_git_env()
     if run_git(["git", "init", "--quiet", "--", str(dest)], cwd=".", env=env).returncode != 0:
         return False
     probe = f"--git-dir={dest / '.git'}"
     run_git(["git", probe, "config", "remote.origin.url", url], cwd=".", env=env)
     return run_git(["git", probe, "config", "--get", key], cwd=".", env=env).returncode == 0
-
-
-# Variables that aim git at a repository other than the one it is pointed at;
-# GIT_CONFIG does the same for `git config`. The GIT_CONFIG_* variables that add
-# settings stay, because the clone reads them too.
-_OTHER_REPOSITORY_VARIABLES = frozenset(
-    {
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_COMMON_DIR",
-        "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_CONFIG",
-    }
-)
-
-
-def _probe_env() -> dict[str, str]:
-    """This process's environment, minus what would point the probe at another repo.
-
-    Started with GIT_DIR set (a dotfiles setup, a git hook), git ranks it above
-    both ``-C`` and the folder it runs in: the probe would write the clone's URL
-    into that repository's origin and read that repository's config.
-    """
-    return {
-        name: value for name, value in os.environ.items() if name not in _OTHER_REPOSITORY_VARIABLES
-    }
 
 
 def _remove_probe(dest: Path, created: bool) -> None:
@@ -150,7 +124,7 @@ def clone_repo(
         # pipe would fill up and block git while we wait for stderr to close.
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
-        env=git_ssh_env(config=_CloneConfig(url, dest)),
+        env=git_ssh_env(isolated_git_env(), config=_CloneConfig(url, dest)),
         **git_popen_kwargs(),
     )
     _stop_when_cancelled(proc, cancelled)

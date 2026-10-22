@@ -7,6 +7,33 @@ from typing import Any
 
 from git_gui.resources import subprocess_kwargs
 
+# Variables that aim git at a repository other than the one it is pointed at;
+# GIT_CONFIG does the same for `git config`. The GIT_CONFIG_* variables that add
+# settings stay: the user set them for every git command.
+_OTHER_REPOSITORY_VARIABLES = frozenset(
+    {
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_CONFIG",
+    }
+)
+
+
+def isolated_git_env() -> dict[str, str]:
+    """This process's environment, minus what would aim git at another repository.
+
+    Started from a shell that exports them (a dotfiles setup, a git hook), git
+    ranks these variables above both ``-C`` and the folder it runs in: a clone
+    checks out into the GIT_WORK_TREE folder, or writes the index and objects
+    that GIT_INDEX_FILE and GIT_OBJECT_DIRECTORY name.
+    """
+    return {
+        name: value for name, value in os.environ.items() if name not in _OTHER_REPOSITORY_VARIABLES
+    }
+
 
 def git_popen_kwargs() -> dict[str, Any]:
     """Popen kwargs for a git process started from the GUI.
