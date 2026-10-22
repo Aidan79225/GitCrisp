@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import pygit2
 import pytest
 
+from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
@@ -153,3 +156,59 @@ def test_remote_checkout_switches_to_a_local_branch_tracking_it(clone_with_a_fea
 
     assert _git(clone, "rev-parse", "--abbrev-ref", "HEAD@{upstream}").strip() == "origin/feature"
     assert _git(clone, "symbolic-ref", "--short", "HEAD").strip() == "feature"
+
+
+# ── deleting a branch on a remote that stalls ───────────────────────────────
+
+
+@pytest.fixture
+def clone_whose_remote_stalls_on_push(tmp_path):
+    """A clone of a bare remote with a ``feature`` branch, whose pre-receive
+    hook touches the returned marker file and then hangs, as a stalled
+    connection would."""
+    remote = tmp_path / "remote.git"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "master", str(remote))
+    src = tmp_path / "src"
+    _git(tmp_path, "clone", "-q", str(remote), str(src))
+    _git(src, "config", "user.email", "t@t")
+    _git(src, "config", "user.name", "t")
+    (src / "f.txt").write_text("hi\n")
+    _git(src, "add", ".")
+    _git(src, "commit", "-q", "-m", "init")
+    _git(src, "push", "-q", "origin", "HEAD:master", "HEAD:feature")
+    marker = tmp_path / "push-started"
+    hooks = tmp_path / "remote-hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-receive"
+    hook.write_text(f"#!/bin/sh\ntouch '{marker.as_posix()}'\nsleep 30\n", newline="\n")
+    hook.chmod(0o755)
+    _git(remote, "config", "core.hooksPath", hooks.as_posix())
+    return src, remote, marker
+
+
+def test_cancel_stops_a_remote_branch_delete_and_keeps_the_branch(
+    clone_whose_remote_stalls_on_push,
+):
+    clone, remote, marker = clone_whose_remote_stalls_on_push
+    impl = Pygit2Repository(str(clone))
+    outcome: dict = {}
+
+    def _delete() -> None:
+        try:
+            impl.delete_remote_branch("origin", "feature")
+        except Exception as e:  # whatever it raises is the outcome
+            outcome["exc"] = e
+
+    worker = threading.Thread(target=_delete, daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 15
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert marker.exists(), "the push never reached the remote"
+
+    impl.cancel_remote_op()
+    worker.join(timeout=10)
+
+    assert not worker.is_alive(), "Cancel did not stop the delete"
+    assert isinstance(outcome.get("exc"), RemoteOperationCancelled)
+    assert _git(remote, "branch", "--list", "feature").strip() == "feature"
