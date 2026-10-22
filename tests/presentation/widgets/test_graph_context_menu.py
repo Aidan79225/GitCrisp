@@ -1,7 +1,8 @@
-"""Tests for the merge/rebase section of GraphWidget._show_context_menu.
+"""Tests for the operation sections of GraphWidget._show_context_menu.
 
-We exercise _add_merge_rebase_section directly with a fake QueryBus to avoid
-needing a fully-initialised GraphWidget.
+We exercise _add_operation_sections (merge / rebase, then cherry-pick /
+revert / reset) directly with a fake QueryBus, and the branch entries
+through the whole menu.
 """
 
 from __future__ import annotations
@@ -88,7 +89,7 @@ def test_detached_head_disables_everything(qtbot):
     w = graph_widget(qtbot, queries)
     menu = QMenu()
     menu.setToolTipsVisible(True)
-    w._add_merge_rebase_section(menu, oid="bbbbbbbbbbbb", branches_on_commit=["feature"])
+    w._add_operation_sections(menu, oid="bbbbbbbbbbbb", branches_on_commit=["feature"])
 
     # 1 branch + 1 commit = 2 actions each → submenus
     info = _find_action(menu, "feature into HEAD")
@@ -105,7 +106,7 @@ def test_merging_state_disables_everything(qtbot):
     w = graph_widget(qtbot, queries)
     menu = QMenu()
     menu.setToolTipsVisible(True)
-    w._add_merge_rebase_section(menu, oid="bbbbbbbbbbbb", branches_on_commit=["feature"])
+    w._add_operation_sections(menu, oid="bbbbbbbbbbbb", branches_on_commit=["feature"])
 
     info = _find_action(menu, "feature into main")
     assert info is not None
@@ -120,7 +121,7 @@ def test_head_commit_with_no_other_branches_hides_section(qtbot):
     )
     w = graph_widget(qtbot, queries)
     menu = QMenu()
-    w._add_merge_rebase_section(menu, oid="aaaaaaaaaaaa", branches_on_commit=[])
+    w._add_operation_sections(menu, oid="aaaaaaaaaaaa", branches_on_commit=[])
 
     assert _labels(menu) == []  # nothing added
 
@@ -134,7 +135,7 @@ def test_ancestor_branch_merge_disabled_with_already_up_to_date(qtbot):
     w = graph_widget(qtbot, queries)
     menu = QMenu()
     menu.setToolTipsVisible(True)
-    w._add_merge_rebase_section(menu, oid="anc12345678", branches_on_commit=["old-branch"])
+    w._add_operation_sections(menu, oid="anc12345678", branches_on_commit=["old-branch"])
 
     # Only 1 merge action (branch, no commit merge since ancestor) → top-level
     merge_info = _find_action(menu, "Merge old-branch into main")
@@ -166,7 +167,7 @@ def test_normal_commit_emits_signals(qtbot):
     w.rebase_onto_commit_requested.connect(received_commit_rebase.append)
 
     menu = QMenu()
-    w._add_merge_rebase_section(menu, oid="newcommit12", branches_on_commit=["feature"])
+    w._add_operation_sections(menu, oid="newcommit12", branches_on_commit=["feature"])
 
     # 2 merge + 2 rebase → submenus
     assert "Merge" in _submenu_titles(menu)
@@ -196,7 +197,7 @@ def test_multiple_branches_use_submenus(qtbot):
     )
     w = graph_widget(qtbot, queries)
     menu = QMenu()
-    w._add_merge_rebase_section(menu, oid="other123456", branches_on_commit=["a", "b"])
+    w._add_operation_sections(menu, oid="other123456", branches_on_commit=["a", "b"])
 
     # 3 merge + 3 rebase → submenus
     assert "Merge" in _submenu_titles(menu)
@@ -219,7 +220,7 @@ def test_single_action_stays_top_level(qtbot):
     w = graph_widget(qtbot, queries)
     menu = QMenu()
     # oid == head_oid → no commit merge/rebase, only branch actions
-    w._add_merge_rebase_section(menu, oid="aaaaaaaaaaaa", branches_on_commit=["feature"])
+    w._add_operation_sections(menu, oid="aaaaaaaaaaaa", branches_on_commit=["feature"])
 
     assert _submenu_titles(menu) == []  # no submenus
     top_labels = [a.text() for a in menu.actions() if a.text()]
@@ -239,7 +240,7 @@ def _menu_with_new_section(
     )
     w = graph_widget(qtbot, queries)
     menu = QMenu()
-    w._add_merge_rebase_section(menu, target_oid, branches_on_commit=[])
+    w._add_operation_sections(menu, target_oid, branches_on_commit=[])
     return menu
 
 

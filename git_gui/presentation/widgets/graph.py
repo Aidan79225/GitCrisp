@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
@@ -180,6 +182,54 @@ def _add_one_or_submenu(
     sub = menu.addMenu(title)
     sub.setToolTipsVisible(True)
     return [sub.addAction(label) for label in labels]
+
+
+@dataclass(frozen=True)
+class _OperationTarget:
+    """The commit a menu's merge, rebase and commit operations act on, and the repo around it."""
+
+    oid: str
+    head_oid: str | None
+    head_label: str  # the checked-out branch, or "HEAD" when detached
+    branches: list[str]  # the commit's branches other than the checked-out one
+    disabled_because: str | None  # set when the repo's state forbids every operation
+    reaches_head: bool  # a strict ancestor of HEAD; HEAD itself is not one
+
+    @property
+    def short_oid(self) -> str:
+        return self.oid[:7]
+
+    @property
+    def is_not_head(self) -> bool:
+        """A HEAD exists and the commit is another one: what an entry naming it needs."""
+        return bool(self.head_oid) and self.oid != self.head_oid
+
+
+# label, why it is off (None when on), what choosing it emits
+_MenuEntry = tuple[str, str | None, Callable[[], None]]
+
+_RESET_MODES = (
+    (ResetMode.SOFT, "Soft (keep index + working tree)"),
+    (ResetMode.MIXED, "Mixed (keep working tree, reset index)"),
+    (ResetMode.HARD, "Hard (discard everything)"),
+)
+
+
+def _reason_state_forbids_operations(state: RepoState) -> str | None:
+    if state is RepoState.DETACHED_HEAD:
+        return "HEAD is detached — checkout a branch first"
+    if state is not RepoState.CLEAN:
+        return f"Repository is in {state.name} — resolve or abort first"
+    return None
+
+
+def _enable_or_explain(action: QAction, off_because: str | None, emit: Callable[[], None]) -> None:
+    """Connect `action` to `emit`, or turn it off with the reason as its tooltip."""
+    if off_because:
+        action.setEnabled(False)
+        action.setToolTip(off_because)
+    else:
+        action.triggered.connect(lambda _checked=False: emit())
 
 
 def _add_branch_actions(
@@ -1132,7 +1182,7 @@ class GraphWidget(QWidget):
         )
         self._add_remote_delete_actions(menu, remote_branches)
 
-        self._add_merge_rebase_section(menu, oid, real_branches)
+        self._add_operation_sections(menu, oid, real_branches)
 
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
@@ -1177,190 +1227,110 @@ class GraphWidget(QWidget):
             logger.warning("Listing remotes failed: %s", e)
             return None
 
-    def _add_merge_rebase_section(
-        self, menu: QMenu, oid: str, branches_on_commit: list[str]
-    ) -> None:
-        """Append the Merge / Rebase section to a context menu, applying disable rules."""
+    def _add_operation_sections(self, menu: QMenu, oid: str, branches_on_commit: list[str]) -> None:
+        """Append the Merge / Rebase section, then Cherry-pick / Revert / Reset."""
+        target = self._operation_target(oid, branches_on_commit)
+        if target is None:
+            return
+        self._add_merge_rebase_section(menu, target)
+        if target.is_not_head:
+            self._add_commit_operations_section(menu, target)
+
+    def _operation_target(self, oid: str, branches_on_commit: list[str]) -> _OperationTarget | None:
         try:
             state_info = self._queries.get_repo_state.execute()
         except Exception:
-            return
-
-        head_branch = state_info.head_branch
-        state = state_info.state
-
-        # Determine global disable reason (applies to every action)
-        global_disable_reason: str | None = None
-        if state is RepoState.DETACHED_HEAD:
-            global_disable_reason = "HEAD is detached — checkout a branch first"
-        elif state is not RepoState.CLEAN:
-            global_disable_reason = f"Repository is in {state.name} — resolve or abort first"
-
-        branch_targets = [b for b in branches_on_commit if b != head_branch]
-
+            return None
         try:
             head_oid = self._queries.get_head_oid.execute()
         except Exception:
             head_oid = None
+        return _OperationTarget(
+            oid=oid,
+            head_oid=head_oid,
+            head_label=state_info.head_branch or "HEAD",
+            branches=[b for b in branches_on_commit if b != state_info.head_branch],
+            disabled_because=_reason_state_forbids_operations(state_info.state),
+            reaches_head=bool(head_oid) and self._is_ancestor(oid, head_oid),
+        )
 
-        show_commit_merge = bool(head_oid) and oid != head_oid
-        show_commit_rebase = bool(head_oid) and oid != head_oid
+    def _is_ancestor(self, oid: str, head_oid: str) -> bool:
+        try:
+            return self._queries.is_ancestor.execute(oid, head_oid)
+        except Exception:
+            return False
 
-        is_ancestor_of_head = False
-        if show_commit_merge and head_oid:
-            try:
-                is_ancestor_of_head = self._queries.is_ancestor.execute(oid, head_oid)
-            except Exception:
-                is_ancestor_of_head = False
-
-        if show_commit_merge and is_ancestor_of_head:
-            show_commit_merge = False
-
-        # If nothing to show, bail before adding the separator
-        if not branch_targets and not show_commit_merge and not show_commit_rebase:
+    def _add_merge_rebase_section(self, menu: QMenu, target: _OperationTarget) -> None:
+        """Append Merge, Rebase and Interactive Rebase for the commit and its branches."""
+        if not target.branches and not target.is_not_head:
             return
-
         menu.addSeparator()
-
-        short_oid = oid[:7]
-        head_label = head_branch or "HEAD"
-
-        def _configure(action: QAction, tooltip: str | None, signal_emit) -> None:
-            if global_disable_reason:
-                action.setEnabled(False)
-                action.setToolTip(global_disable_reason)
-            elif tooltip:
-                action.setEnabled(False)
-                action.setToolTip(tooltip)
-            else:
-                action.triggered.connect(signal_emit)
-
-        # Collect merge actions
-        merge_actions: list[tuple[str, str | None, object]] = []
-        for b in branch_targets:
-            ancestor_tooltip = None
-            try:
-                if head_oid and self._queries.is_ancestor.execute(oid, head_oid):
-                    ancestor_tooltip = "Already up to date"
-            except Exception:
-                pass
-            merge_actions.append(
-                (
-                    f"{b} into {head_label}",
-                    ancestor_tooltip,
-                    lambda _checked=False, n=b: self.merge_branch_requested.emit(n),
-                )
-            )
-        if show_commit_merge:
-            merge_actions.append(
-                (
-                    f"commit {short_oid} into {head_label}",
-                    None,
-                    lambda _checked=False, o=oid: self.merge_commit_requested.emit(o),
-                )
-            )
-
-        # Collect rebase actions
-        rebase_actions: list[tuple[str, str | None, object]] = []
-        for b in branch_targets:
-            rebase_actions.append(
-                (
-                    f"{head_label} onto {b}",
-                    None,
-                    lambda _checked=False, n=b: self.rebase_onto_branch_requested.emit(n),
-                )
-            )
-        if show_commit_rebase:
-            rebase_actions.append(
-                (
-                    f"{head_label} onto commit {short_oid}",
-                    None,
-                    lambda _checked=False, o=oid: self.rebase_onto_commit_requested.emit(o),
-                )
-            )
-
-        # Collect interactive rebase actions
-        irebase_actions: list[tuple[str, str | None, object]] = []
-        for b in branch_targets:
-            irebase_actions.append(
-                (
-                    f"Interactive rebase onto {b}",
-                    None,
-                    lambda _checked=False, n=b: self.interactive_rebase_branch_requested.emit(n),
-                )
-            )
-        if show_commit_rebase:
-            irebase_actions.append(
-                (
-                    f"Interactive rebase onto commit {short_oid}",
-                    None,
-                    lambda _checked=False, o=oid: self.interactive_rebase_commit_requested.emit(o),
-                )
-            )
-
         for title, single_label, entries in (
-            ("Merge", lambda label: f"Merge {label}", merge_actions),
-            ("Rebase", lambda label: f"Rebase {label}", rebase_actions),
-            ("Interactive Rebase", lambda label: label, irebase_actions),
+            ("Merge", lambda label: f"Merge {label}", self._merge_entries(target)),
+            ("Rebase", lambda label: f"Rebase {label}", self._rebase_entries(target)),
+            ("Interactive Rebase", lambda label: label, self._interactive_rebase_entries(target)),
         ):
-            labels = [label for label, _tooltip, _emit in entries]
+            labels = [label for label, _reason, _emit in entries]
             actions = _add_one_or_submenu(menu, title, labels, single_label)
-            for action, (_label, tooltip, emit) in zip(actions, entries, strict=True):
-                _configure(action, tooltip, emit)
+            for action, (_label, reason, emit) in zip(actions, entries, strict=True):
+                _enable_or_explain(action, target.disabled_because or reason, emit)
 
-        # ── Cherry-pick / Revert / Reset section ───────────────────────
-        # Only show when we have a HEAD and target != HEAD.
-        if head_oid and oid != head_oid:
-            menu.addSeparator()
+    def _merge_entries(self, t: _OperationTarget) -> list[_MenuEntry]:
+        # A commit HEAD already reaches has nothing to merge.
+        up_to_date = "Already up to date" if t.reaches_head else None
+        entries: list[_MenuEntry] = [
+            (f"{b} into {t.head_label}", up_to_date, partial(self.merge_branch_requested.emit, b))
+            for b in t.branches
+        ]
+        if t.is_not_head and not t.reaches_head:
+            label = f"commit {t.short_oid} into {t.head_label}"
+            entries.append((label, None, partial(self.merge_commit_requested.emit, t.oid)))
+        return entries
 
-            # Cherry-pick
-            cp_action = menu.addAction(f"Cherry-pick commit {short_oid}")
-            if global_disable_reason:
-                cp_action.setEnabled(False)
-                cp_action.setToolTip(global_disable_reason)
-            else:
-                cp_action.triggered.connect(
-                    lambda _checked=False, o=oid: self.cherry_pick_requested.emit(o)
-                )
+    def _rebase_entries(self, t: _OperationTarget) -> list[_MenuEntry]:
+        entries: list[_MenuEntry] = [
+            (f"{t.head_label} onto {b}", None, partial(self.rebase_onto_branch_requested.emit, b))
+            for b in t.branches
+        ]
+        if t.is_not_head:
+            label = f"{t.head_label} onto commit {t.short_oid}"
+            entries.append((label, None, partial(self.rebase_onto_commit_requested.emit, t.oid)))
+        return entries
 
-            # Revert
-            rv_action = menu.addAction(f"Revert commit {short_oid}")
-            if global_disable_reason:
-                rv_action.setEnabled(False)
-                rv_action.setToolTip(global_disable_reason)
-            else:
-                rv_action.triggered.connect(
-                    lambda _checked=False, o=oid: self.revert_commit_requested.emit(o)
-                )
+    def _interactive_rebase_entries(self, t: _OperationTarget) -> list[_MenuEntry]:
+        emit_branch = self.interactive_rebase_branch_requested.emit
+        entries: list[_MenuEntry] = [
+            (f"Interactive rebase onto {b}", None, partial(emit_branch, b)) for b in t.branches
+        ]
+        if t.is_not_head:
+            label = f"Interactive rebase onto commit {t.short_oid}"
+            emit_commit = self.interactive_rebase_commit_requested.emit
+            entries.append((label, None, partial(emit_commit, t.oid)))
+        return entries
 
-            # Reset — only enabled when target is an ancestor of HEAD.
-            can_reset = False
-            try:
-                can_reset = self._queries.is_ancestor.execute(oid, head_oid)
-            except Exception:
-                can_reset = False
-
-            reset_sub = menu.addMenu(f"Reset {head_label} to {short_oid}")
-            reset_sub.setToolTipsVisible(True)
-            modes = [
-                (ResetMode.SOFT, "Soft (keep index + working tree)"),
-                (ResetMode.MIXED, "Mixed (keep working tree, reset index)"),
-                (ResetMode.HARD, "Hard (discard everything)"),
-            ]
-            for mode, label in modes:
-                a = reset_sub.addAction(label)
-                if global_disable_reason:
-                    a.setEnabled(False)
-                    a.setToolTip(global_disable_reason)
-                elif not can_reset:
-                    a.setEnabled(False)
-                    a.setToolTip("Target is not an ancestor of HEAD")
-                else:
-                    a.triggered.connect(
-                        lambda _checked=False, o=oid, m=mode: self.reset_to_commit_requested.emit(
-                            o, m
-                        )
-                    )
+    def _add_commit_operations_section(self, menu: QMenu, t: _OperationTarget) -> None:
+        """Append Cherry-pick, Revert and a Reset submenu for a commit other than HEAD."""
+        menu.addSeparator()
+        _enable_or_explain(
+            menu.addAction(f"Cherry-pick commit {t.short_oid}"),
+            t.disabled_because,
+            partial(self.cherry_pick_requested.emit, t.oid),
+        )
+        _enable_or_explain(
+            menu.addAction(f"Revert commit {t.short_oid}"),
+            t.disabled_because,
+            partial(self.revert_commit_requested.emit, t.oid),
+        )
+        reset_sub = menu.addMenu(f"Reset {t.head_label} to {t.short_oid}")
+        reset_sub.setToolTipsVisible(True)
+        # Reset moves the branch back along its own history, never sideways.
+        not_behind = None if t.reaches_head else "Target is not an ancestor of HEAD"
+        for mode, label in _RESET_MODES:
+            _enable_or_explain(
+                reset_sub.addAction(label),
+                t.disabled_because or not_behind,
+                partial(self.reset_to_commit_requested.emit, t.oid, mode),
+            )
 
     def scroll_to_oid(self, oid: str, select: bool = False) -> None:
         """Scroll so the row with the given oid is the first visible item."""
