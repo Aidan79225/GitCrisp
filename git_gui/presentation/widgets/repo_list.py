@@ -383,6 +383,12 @@ class RepoListWidget(QWidget):
         """
         return self._worktree_owner
 
+    def owner_of(self, path: str | None) -> str | None:
+        """The open repo whose loaded worktree group lists *path*, if any."""
+        if any(str(wt.path) == path for wt in self._active_worktrees):
+            return self._worktree_owner
+        return None
+
     def reload(self) -> None:
         self._model.clear()
         active = self._store.get_active()

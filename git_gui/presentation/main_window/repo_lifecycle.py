@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -36,6 +37,12 @@ class _RepoRequest:
     path: str
     reason: _SwitchReason = _SwitchReason.SWITCH
     after: str | None = None  # the open repo an OPEN is listed after; None lists it first
+
+
+def _same_path_text(a: str, b: str) -> bool:
+    """Whether two paths are written the same, up to separators and, where the
+    file system ignores it, letter case. Touches no disk."""
+    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
 
 
 class _WorktreeOpSignals(QObject):
@@ -341,12 +348,20 @@ class RepoLifecycleMixin:
         While a linked worktree is active, that is the open repo it belongs to:
         the worktree has no open row of its own, so without one it is nowhere
         in the list. A relaunch opens straight onto it with no owner recorded.
+
+        The open repos' paths are compared as written, never resolved: this
+        runs on the GUI thread, and resolving a path on a share that is down
+        waits out its network timeout. An owner written another way, through
+        a link say, is still known on a switch in from its own group.
         """
         open_repos = self._repo_store.get_open_repos()
         if self._repo_path in open_repos:
             return self._repo_path
-        main = next((Path(wt.path).resolve() for wt in worktrees if wt.is_main), None)
-        return next((p for p in open_repos if Path(p).resolve() == main), None)
+        main = next((wt.path for wt in worktrees if wt.is_main), None)
+        owner = next((p for p in open_repos if main and _same_path_text(p, main)), None)
+        if owner is None:
+            owner = self._repo_list.owner_of(self._repo_path)
+        return owner if owner in open_repos else None
 
     def _report_worktree_error(self, message: str) -> None:
         # The log starts collapsed, and a line added to it unopened is never
