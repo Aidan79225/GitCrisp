@@ -126,9 +126,7 @@ def test_add_hunk_block_passes_syntax_formats_and_filename(widget):
     to the hunk builder, otherwise hunks render with no syntax highlighting."""
     hunk = Hunk(header="@@ -1,1 +1,1 @@", lines=[("+", "def foo(): pass\n")])
     with patch("git_gui.presentation.widgets.hunk_diff.add_hunk_view") as add_widget:
-        widget._add_hunk_block(
-            hunk, is_staged=False, is_untracked=False, path="foo.py", parent_layout=widget._layout
-        )
+        widget._add_hunk_block(hunk, is_staged=False, path="foo.py", parent_layout=widget._layout)
     kwargs = add_widget.call_args.kwargs
     assert kwargs["syntax_formats"] is widget._syntax_formats
     assert kwargs["filename"] == "foo.py"

@@ -58,11 +58,18 @@ MAX_AGGREGATE_FILE_BLOCKS = 200
 _DISCARD_BUTTON_NAME = "discard_hunk"
 
 
-def _is_untracked(staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]) -> bool:
-    """Whether a file's hunks are the one whole-file hunk an untracked file shows."""
-    return (
-        not staged_hunks and bool(unstaged_hunks) and unstaged_hunks[0].header.startswith("@@ -0,0")
-    )
+def _adds_whole_file(hunk_header: str) -> bool:
+    """Whether the hunk's old side is empty: the file is new, or untracked.
+
+    Such a hunk is always its file's only one, the one git shows for an
+    empty old side and the one synthesised for an untracked file.
+    """
+    return hunk_header.startswith("@@ -0,0")
+
+
+def _removes_whole_file(hunk_header: str) -> bool:
+    """Whether the hunk's new side is empty: the file was deleted."""
+    return "+0,0 @@" in hunk_header
 
 
 def _read_file_hunks(queries: QueryBus, path: str) -> tuple[list[Hunk], list[Hunk]]:
@@ -354,15 +361,10 @@ class HunkDiffWidget(QWidget):
         unstaged_hunks: list[Hunk],
     ) -> None:
         """Add a file's staged hunks to its block, then its unstaged ones."""
-        is_untracked = _is_untracked(staged_hunks, unstaged_hunks)
         for hunk in staged_hunks:
-            self._add_hunk_block(
-                hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
-            )
+            self._add_hunk_block(hunk, is_staged=True, path=path, parent_layout=inner)
         for hunk in unstaged_hunks:
-            self._add_hunk_block(
-                hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
-            )
+            self._add_hunk_block(hunk, is_staged=False, path=path, parent_layout=inner)
 
     def _redraw_after_command(self) -> None:
         """Redraw from the index after a stage, unstage or discard.
@@ -396,7 +398,6 @@ class HunkDiffWidget(QWidget):
         self,
         hunk: Hunk,
         is_staged: bool,
-        is_untracked: bool,
         path: str,
         parent_layout: QVBoxLayout,
     ) -> None:
@@ -406,9 +407,7 @@ class HunkDiffWidget(QWidget):
         checkbox.setAccessibleName(f"Stage hunk {header}")
         checkbox.setChecked(is_staged)
         checkbox.toggled.connect(
-            lambda checked, p=path, h=header, u=is_untracked: self._on_hunk_toggled(
-                p, h, checked, u
-            )
+            lambda checked, p=path, h=header: self._on_hunk_toggled(p, h, checked)
         )
 
         extra_right: list = []
@@ -417,7 +416,7 @@ class HunkDiffWidget(QWidget):
             # is best handled by discard_file (full reset), since `git apply
             # --reverse` only touches the working tree and leaves the index
             # in a confusing state.
-            is_whole_file = header.startswith("@@ -0,0") or "+0,0 @@" in header
+            is_whole_file = _adds_whole_file(header) or _removes_whole_file(header)
             x_btn = QToolButton()
             x_btn.setObjectName(_DISCARD_BUTTON_NAME)
             x_btn.setIcon(QIcon(_CLOSE_ICON_PATH))
@@ -449,24 +448,19 @@ class HunkDiffWidget(QWidget):
             filename=path,
         )
 
-    def _on_hunk_toggled(
-        self, path: str, hunk_header: str, checked: bool, is_untracked: bool = False
-    ) -> None:
+    def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool) -> None:
         verb = "Stage" if checked else "Unstage"
         self._run_command(
-            f"{verb} {path}",
-            lambda: self._stage_or_unstage(path, hunk_header, checked, is_untracked),
+            f"{verb} {path}", lambda: self._stage_or_unstage(path, hunk_header, checked)
         )
         self._redraw_after_command()
         self.hunk_toggled.emit()
 
-    def _stage_or_unstage(
-        self, path: str, hunk_header: str, checked: bool, is_untracked: bool = False
-    ) -> None:
+    def _stage_or_unstage(self, path: str, hunk_header: str, checked: bool) -> None:
         # Whole-file add (untracked → stage, or staged-add → unstage):
         # the synthesised "@@ -0,0 +1,N @@" hunk can't be processed by
         # `git apply [--cached] [--reverse]`, so route to stage/unstage_files.
-        if is_untracked or hunk_header.startswith("@@ -0,0"):
+        if _adds_whole_file(hunk_header):
             if checked:
                 self._commands.stage_files.execute([path])
             else:

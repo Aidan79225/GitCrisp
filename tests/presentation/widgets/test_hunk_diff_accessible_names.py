@@ -28,8 +28,6 @@ def test_a_hunks_stage_checkbox_is_named_by_its_hunk(qtbot):
     host = QWidget()
     qtbot.addWidget(host)
 
-    widget._add_hunk_block(
-        HUNK, is_staged=False, is_untracked=False, path="a.txt", parent_layout=QVBoxLayout(host)
-    )
+    widget._add_hunk_block(HUNK, is_staged=False, path="a.txt", parent_layout=QVBoxLayout(host))
 
     assert _spoken_name(host.findChild(QCheckBox)) == "Stage hunk @@ -8,6 +8,7 @@"

@@ -55,9 +55,7 @@ def test_discard_icon_resolves_outside_the_project_root(widget, elsewhere, qtbot
     qtbot.addWidget(host)
     layout = QVBoxLayout(host)
 
-    widget._add_hunk_block(
-        UNSTAGED_HUNK, is_staged=False, is_untracked=False, path="a.txt", parent_layout=layout
-    )
+    widget._add_hunk_block(UNSTAGED_HUNK, is_staged=False, path="a.txt", parent_layout=layout)
 
     assert not _discard_button(host).icon().isNull()
 
@@ -75,9 +73,7 @@ def test_building_an_unstaged_hunk_emits_no_qt_warning(widget, elsewhere, qtbot)
         host = QWidget()
         qtbot.addWidget(host)
         layout = QVBoxLayout(host)
-        widget._add_hunk_block(
-            UNSTAGED_HUNK, is_staged=False, is_untracked=False, path="a.txt", parent_layout=layout
-        )
+        widget._add_hunk_block(UNSTAGED_HUNK, is_staged=False, path="a.txt", parent_layout=layout)
     finally:
         qInstallMessageHandler(previous)
 
