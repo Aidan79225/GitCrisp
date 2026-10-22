@@ -6,12 +6,12 @@ import pygit2
 
 from git_gui.domain.entities import Remote, RemoteBranchDeleteResult
 from git_gui.domain.ports import RemoteOperationCancelled
-from git_gui.infrastructure.git_process import git_popen_kwargs, kill_git_tree, run_git
-
-
-def _raise_if_git_failed(returncode: int, stdout: str, stderr: str) -> None:
-    if returncode != 0:
-        raise RuntimeError(stderr.strip() or stdout.strip() or f"exit code {returncode}")
+from git_gui.infrastructure.git_process import (
+    git_failure_message,
+    git_popen_kwargs,
+    kill_git_tree,
+    run_git,
+)
 
 
 def _parse_porcelain_delete(
@@ -103,16 +103,6 @@ class RemoteOps:
             ]
         return _parse_porcelain_delete(remote, result.stdout, branches)
 
-    def _run_git(self, *args: str) -> None:
-        """Run a local git command, such as a merge or rebase, to completion.
-
-        It stays out of the remote-op slot: started while a fetch is in flight,
-        it would otherwise take that fetch's place, and Cancel would stop the
-        wrong process or none.
-        """
-        result = run_git(["git", *args], cwd=self._repo.workdir, env=self._git_env)
-        _raise_if_git_failed(result.returncode, result.stdout, result.stderr)
-
     def _run_cancellable_remote_git(self, *args: str) -> None:
         """Run a push, pull or fetch as the one remote op `cancel_remote_op` can stop."""
         # Popen (not subprocess.run) so cancel_remote_op can terminate the
@@ -144,7 +134,9 @@ class RemoteOps:
                 self._remote_cancel_requested = False
         if cancelled:
             raise RemoteOperationCancelled("Operation cancelled")
-        _raise_if_git_failed(proc.returncode, stdout, stderr)
+        result = subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+        if result.returncode != 0:
+            raise RuntimeError(git_failure_message(result))
 
     def cancel_remote_op(self) -> None:
         """Terminate the in-flight git push/pull/fetch subprocess, if any.

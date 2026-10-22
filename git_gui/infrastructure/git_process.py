@@ -108,6 +108,15 @@ def run_git(
     )
 
 
+def git_failure_message(result: subprocess.CompletedProcess[str]) -> str:
+    """git's own explanation of a failed run: stderr, else stdout, else the exit code."""
+    return (
+        (result.stderr or "").strip()
+        or (result.stdout or "").strip()
+        or f"exit code {result.returncode}"
+    )
+
+
 def git_run_dir(*, work_tree: str | None, git_dir: str | None) -> str:
     """The directory to start git in: the working tree, or a bare repository's gitdir."""
     run_dir = work_tree or git_dir
