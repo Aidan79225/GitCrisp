@@ -4,6 +4,10 @@ from pathlib import Path
 import pytest
 
 from git_gui.presentation.theme.loader import load_builtin
+
+# Bound at import, while it is still the real function: collection imports
+# every test module before conftest's session fixture swaps it for a temp dir.
+from git_gui.presentation.theme.qss_template import _icon_dir as _real_icon_dir
 from git_gui.presentation.theme.qss_template import render
 
 _PLACEHOLDER_RE = re.compile(r"%\([a-z_]+\)[sd]")
@@ -39,14 +43,15 @@ def _check_icon_in(qss: str) -> Path:
     return Path(match.group(1))
 
 
-def test_check_icon_is_written_to_this_users_own_cache(_isolated_check_icon_dir):
+def test_check_icons_are_kept_in_this_users_cache_dir(_isolated_check_icon_dir):
     """On Linux the temp directory is the shared /tmp: a directory another
     user created there made the write fail at launch, and a symlink they
     planted in it redirected the write into this user's files."""
     from PySide6.QtCore import QStandardPaths
 
     cache = Path(QStandardPaths.writableLocation(QStandardPaths.CacheLocation))
-    assert _isolated_check_icon_dir() == cache
+    assert _real_icon_dir() == cache
+    assert _check_icon_in(render(load_builtin("light"))).parent == _isolated_check_icon_dir
 
 
 def test_a_check_icon_that_cannot_be_written_still_leaves_a_tick(tmp_path, monkeypatch):
