@@ -114,7 +114,8 @@ def test_adding_while_the_dialog_is_open_lists_the_new_worktree(qtbot):
                 "create_new": False,
                 "base_ref": None,
                 "switch_after": False,
-            }
+            },
+            win._commands,
         )
         qtbot.waitUntil(lambda: added in _paths(dialog), timeout=2000)
 

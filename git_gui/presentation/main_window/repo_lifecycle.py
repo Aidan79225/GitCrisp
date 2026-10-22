@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Signal
 
 from git_gui.domain.entities import Worktree
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 from git_gui.presentation.menus.git_menu import install_git_menu
 from git_gui.presentation.services.repo_change_detector import RepoChangeDetector
 
@@ -75,7 +76,7 @@ class _WorktreeOpSignals(QObject):
     failed = Signal(object)  # the exception it raised
 
 
-class RepoLifecycleMixin:
+class RepoLifecycleMixin(AskedRepoGuardMixin):
     """Repo lifecycle — switching, opening, closing, empty-state, recents.
 
     Mixin — not instantiable on its own. Relies on composite-provided
@@ -445,7 +446,12 @@ class RepoLifecycleMixin:
             default_create_new=default_create,
             parent=self,
         )
-        dlg.add_requested.connect(self._on_add_worktree_requested)
+        # The dialog is modal: a switch already on its way can land while the
+        # user fills it in.
+        asked_in = self._commands
+        dlg.add_requested.connect(
+            lambda payload: self._on_add_worktree_requested(payload, asked_in)
+        )
         dlg.switch_to_existing_requested.connect(self._switch_repo)
         dlg.exec()
 
@@ -521,7 +527,9 @@ class RepoLifecycleMixin:
         signals.failed.connect(signals.deleteLater)
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_add_worktree_requested(self, payload: dict) -> None:
+    def _on_add_worktree_requested(self, payload: dict, asked_in: CommandBus | None) -> None:
+        if self._repo_switched_while_asking(asked_in, f"Add worktree {payload['branch']}"):
+            return
         self._run_worktree_op(
             "Add",
             lambda commands: commands.add_worktree.execute(

@@ -53,7 +53,8 @@ def _add(window) -> None:
             "create_new": True,
             "base_ref": "master",
             "switch_after": False,
-        }
+        },
+        window._commands,
     )
 
 
