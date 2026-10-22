@@ -18,13 +18,13 @@ def test_cancel_when_idle_is_noop(repo_impl):
     repo_impl.cancel_remote_op()  # no active process → no-op
 
 
-def test_run_git_success(repo_impl):
-    """A normal git invocation still completes cleanly."""
+def test_the_local_git_runner_completes_a_command(repo_impl):
+    """The runner a merge or rebase uses, which no cancel can stop."""
     repo_impl._run_git("--version")
 
 
-def test_run_git_failure_raises_runtimeerror(repo_impl):
-    """A failing remote op raises RuntimeError (not RemoteOperationCancelled)."""
+def test_a_failed_fetch_raises_runtime_error_not_cancelled(repo_impl):
+    """A remote op that fails on its own is not reported as cancelled."""
     with pytest.raises(RuntimeError) as exc:
         repo_impl.fetch("definitely-not-a-remote")
     assert not isinstance(exc.value, RemoteOperationCancelled)
