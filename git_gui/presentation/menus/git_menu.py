@@ -46,15 +46,22 @@ def install_git_menu(
 
     branches_action = QAction("&Branches...", git_menu)
 
+    # The Branches dialog lists this install's repo, and a switch can land
+    # while it is up: a branch picked there must not go to the repo that opened.
+    def _checkout(branch: str) -> None:
+        if not window._repo_switched_while_asking(commands, f"Checkout {branch}"):
+            on_checkout_branch(branch)
+
+    def _checkout_in_new_worktree(branch: str) -> None:
+        op_name = f"Checkout {branch} in a new worktree"
+        if not window._repo_switched_while_asking(commands, op_name):
+            window._open_add_worktree_dialog(preselect_branch=branch, default_create=False)
+
     def _open_branches() -> None:
         dlg = BranchesDialog(queries, commands, window)
         dlg.set_worktree_paths(window._worktree_paths_by_branch)
-        dlg.checkout_requested.connect(on_checkout_branch)
-        dlg.checkout_in_new_worktree_requested.connect(
-            lambda branch: window._open_add_worktree_dialog(
-                preselect_branch=branch, default_create=False
-            )
-        )
+        dlg.checkout_requested.connect(_checkout)
+        dlg.checkout_in_new_worktree_requested.connect(_checkout_in_new_worktree)
         _run_and_discard(dlg)
 
     branches_action.triggered.connect(_open_branches)

@@ -16,7 +16,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
-from git_gui.domain.entities import Branch, ResetMode, Worktree
+from git_gui.domain.entities import Branch, LocalBranchInfo, ResetMode, Worktree
+from git_gui.presentation.dialogs.branches_dialog import BranchesDialog
 from git_gui.presentation.main_window import MainWindow
 
 
@@ -280,3 +281,47 @@ def test_a_branch_picked_as_another_repo_opens_is_not_checked_out(qtbot, win):
         win._on_commit_double_clicked("a" * 40)
     asked_in.checkout.execute.assert_not_called()
     win._commands.checkout.execute.assert_not_called()
+
+
+def _picking_the_first_row_as_another_repo_opens(qtbot, win: MainWindow, click):
+    """A BranchesDialog.exec() that lets the switch land, then *click*s on row 0."""
+
+    def _exec(dialog: BranchesDialog) -> int:
+        _open_another_repo(qtbot, win)
+        dialog._table.selectRow(0)
+        click(dialog)
+        return 0
+
+    return _exec
+
+
+@pytest.mark.parametrize(
+    ("click", "op_name"),
+    [
+        (lambda dialog: dialog._on_checkout(), "Checkout feature"),
+        (
+            lambda dialog: dialog._on_checkout_in_new_worktree(),
+            "Checkout feature in a new worktree",
+        ),
+    ],
+    ids=["checkout", "checkout-in-new-worktree"],
+)
+def test_a_branch_picked_in_the_branches_dialog_as_another_repo_opens_is_not_checked_out(
+    qtbot, win, click, op_name
+):
+    win._queries.list_local_branches_with_upstream.execute.return_value = [
+        LocalBranchInfo("feature", None, "abc1234567", "work")
+    ]
+    win._install_git_menu()
+    asked_in = win._commands
+    picking = _picking_the_first_row_as_another_repo_opens(qtbot, win, click)
+    with (
+        patch.object(BranchesDialog, "exec", picking),
+        patch.object(win, "_open_add_worktree_dialog") as add_worktree,
+    ):
+        win._git_branches_action.trigger()
+    for bus in (asked_in, win._commands):
+        bus.checkout.execute.assert_not_called()
+        bus.checkout_remote_branch.execute.assert_not_called()
+    add_worktree.assert_not_called()
+    assert f"{op_name} — skipped: another repo opened" in _log_text(win)
