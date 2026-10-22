@@ -344,7 +344,6 @@ class RepoListWidget(QWidget):
         # column as a stray block on click. Disable it; click-to-switch and the
         # context menu work without it, and _RepoTree starts drags itself.
         self._tree.setSelectionMode(QAbstractItemView.NoSelection)
-        self._tree.setMouseTracking(True)
         self._tree.setAcceptDrops(True)
         self._tree.setDropIndicatorShown(True)
         self._tree.viewport().setAttribute(Qt.WA_Hover, True)
