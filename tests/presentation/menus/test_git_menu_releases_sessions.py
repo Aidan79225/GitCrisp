@@ -32,6 +32,8 @@ def _install(window: QMainWindow, session) -> None:
         on_open_worktrees_dialog=lambda: None,
         on_open_reflog=lambda: None,
         on_checkout_branch=lambda _b: None,
+        on_checkout_in_new_worktree=lambda _b: None,
+        worktree_paths=dict,
     )
 
 
