@@ -48,6 +48,28 @@ def _same_path_text(a: str, b: str) -> bool:
     return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
 
 
+def _branches_in_use(worktrees: list[Worktree]) -> dict[str, str]:
+    """Branch -> the worktree it is checked out in.
+
+    The main worktree counts too: git refuses a branch checked out in any
+    worktree, not only in a linked one.
+    """
+    return {wt.branch: str(wt.path) for wt in worktrees if wt.branch}
+
+
+def _worktree_root(path: str, worktrees: list[Worktree]) -> str:
+    """The worktree *path* is in, as *worktrees* name it.
+
+    Open Repository accepts any folder inside a repository, and the window
+    keeps the one it was given. The deepest worktree wins: a linked worktree
+    can sit inside the main one's folder. *path* is the open repo's, so
+    resolving it reaches no share that may be down.
+    """
+    opened = Path(path).resolve()
+    roots = [Path(wt.path) for wt in worktrees if opened.is_relative_to(wt.path)]
+    return str(max(roots, key=lambda root: len(root.parts), default=path))
+
+
 class _WorktreeOpSignals(QObject):
     done = Signal(object)  # what the command returned
     failed = Signal(object)  # the exception it raised
@@ -411,14 +433,14 @@ class RepoLifecycleMixin:
         # already checked out as free, or offer nothing at all.
         try:
             branches = [b.name for b in self._queries.get_branches.execute() if not b.is_remote]
-            in_use = self._branches_in_use()
+            worktrees = self._queries.list_worktrees.execute()
         except Exception as e:
             self._report_worktree_error(f"Cannot add a worktree: {e}")
             return
         dlg = AddWorktreeDialog(
-            repo_path=self._repo_path,
+            repo_path=_worktree_root(self._repo_path, worktrees),
             branches=branches,
-            branches_in_use=in_use,
+            branches_in_use=_branches_in_use(worktrees),
             preselect_branch=preselect_branch,
             default_create_new=default_create,
             parent=self,
@@ -426,15 +448,6 @@ class RepoLifecycleMixin:
         dlg.add_requested.connect(self._on_add_worktree_requested)
         dlg.switch_to_existing_requested.connect(self._switch_repo)
         dlg.exec()
-
-    def _branches_in_use(self) -> dict[str, str]:
-        """Branch -> the worktree it is checked out in.
-
-        The main worktree counts too: git refuses a branch checked out in any
-        worktree, not only in a linked one.
-        """
-        worktrees = self._queries.list_worktrees.execute()
-        return {wt.branch: str(wt.path) for wt in worktrees if wt.branch}
 
     def _open_worktrees_dialog(self) -> None:
         if self._queries is None or self._commands is None:
