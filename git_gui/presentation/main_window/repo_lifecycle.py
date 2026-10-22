@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -13,6 +12,7 @@ from git_gui.domain.entities import Worktree
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 from git_gui.presentation.menus.git_menu import install_git_menu
+from git_gui.presentation.paths import same_path_text
 from git_gui.presentation.services.repo_change_detector import RepoChangeDetector
 
 
@@ -46,12 +46,6 @@ class _RepoRequest:
 
 def _replaces_a_closed_repo(request: _RepoRequest) -> bool:
     return request.reason is _SwitchReason.REPLACE or request.fallback is not None
-
-
-def _same_path_text(a: str, b: str) -> bool:
-    """Whether two paths are written the same, up to separators and, where the
-    file system ignores it, letter case. Touches no disk."""
-    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
 
 
 def _branches_in_use(worktrees: list[Worktree]) -> dict[str, str]:
@@ -416,7 +410,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if self._repo_path in open_repos:
             return self._repo_path
         main = next((wt.path for wt in worktrees if wt.is_main), None)
-        owner = next((p for p in open_repos if main and _same_path_text(p, main)), None)
+        owner = next((p for p in open_repos if main and same_path_text(p, main)), None)
         if owner is None:
             owner = self._repo_list.owner_of(self._repo_path)
         return owner if owner in open_repos else None
@@ -697,10 +691,10 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             *self._worktree_paths_by_branch.values(),
         ]
         for candidate in group:
-            if candidate and not _same_path_text(candidate, removed) and Path(candidate).is_dir():
+            if candidate and not same_path_text(candidate, removed) and Path(candidate).is_dir():
                 return candidate
         others = self._repo_store.get_open_repos()
-        return next((p for p in others if not _same_path_text(p, removed)), None)
+        return next((p for p in others if not same_path_text(p, removed)), None)
 
     def _on_remove_dirty(self, path: str, refused_in: CommandBus, *, override_lock: bool) -> None:
         from PySide6.QtWidgets import QMessageBox
