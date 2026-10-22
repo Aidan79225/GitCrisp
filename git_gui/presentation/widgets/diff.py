@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from typing import NamedTuple
 
 from PySide6.QtCore import QEvent, Qt, Signal, SignalInstance
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -457,18 +459,25 @@ class DiffWidget(QWidget):
         elif chosen is blame_action:
             self._request_blame(path)
 
-    def _build_file_block(self, path: str, hunks):
-        """Build and return a bordered QFrame containing a file header and per-hunk widgets."""
-        is_submodule = path in self._submodule_paths
-        on_click = (lambda p=path: self.submodule_open_requested.emit(p)) if is_submodule else None
+    def _submodule_opener(self, path: str) -> Callable[[], None] | None:
+        """What a click on one of *path*'s headers does: open it, if it is a submodule."""
+        if path not in self._submodule_paths:
+            return None
+        return lambda: self.submodule_open_requested.emit(path)
+
+    def _make_block(self, path: str) -> tuple[QFrame, QVBoxLayout]:
+        """An empty bordered block for *path*: its header and the layout its hunks go into."""
         frame, inner = make_file_block(
             path,
-            on_header_clicked=on_click,
-            on_header_context_menu=lambda pos, p=path: self._show_file_header_menu(pos, p),
-            on_state_changed=lambda _expanded: self._hscroll_sync.refresh_later(),
+            on_header_clicked=self._submodule_opener(path),
+            on_header_context_menu=lambda pos: self._show_file_header_menu(pos, path),
+            on_state_changed=self._on_block_toggled,
         )
         frame.setProperty("file_path", path)
+        return frame, inner
 
+    def _add_hunks(self, inner: QVBoxLayout, path: str, hunks) -> None:
+        on_click = self._submodule_opener(path)
         for hunk in hunks:
             add_hunk_view(
                 inner,
@@ -479,19 +488,15 @@ class DiffWidget(QWidget):
                 filename=path,
             )
 
+    def _build_file_block(self, path: str, hunks) -> QFrame:
+        """Build and return a bordered QFrame containing a file header and per-hunk widgets."""
+        frame, inner = self._make_block(path)
+        self._add_hunks(inner, path, hunks)
         return frame
 
     def _build_skeleton_block(self, path: str):
         """Build a file block with a skeleton placeholder. Returns (frame, inner, skeleton)."""
-        is_submodule = path in self._submodule_paths
-        on_click = (lambda p=path: self.submodule_open_requested.emit(p)) if is_submodule else None
-        frame, inner = make_file_block(
-            path,
-            on_header_clicked=on_click,
-            on_header_context_menu=lambda pos, p=path: self._show_file_header_menu(pos, p),
-            on_state_changed=self._on_block_toggled,
-        )
-        frame.setProperty("file_path", path)
+        frame, inner = self._make_block(path)
         skeleton = make_skeleton_container()
         inner.addWidget(skeleton)
         return frame, inner, skeleton
@@ -507,17 +512,7 @@ class DiffWidget(QWidget):
         if skeleton is not None:
             inner.removeWidget(skeleton)
             skeleton.deleteLater()
-        is_submodule = path in self._submodule_paths
-        on_click = (lambda p=path: self.submodule_open_requested.emit(p)) if is_submodule else None
-        for hunk in hunks:
-            add_hunk_view(
-                inner,
-                hunk,
-                self._formats,
-                on_header_clicked=on_click,
-                syntax_formats=self._syntax_formats,
-                filename=path,
-            )
+        self._add_hunks(inner, path, hunks)
         hide_hunks_if_collapsed(inner)
         self._hscroll_sync.refresh_later()
 

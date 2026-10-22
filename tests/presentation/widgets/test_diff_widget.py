@@ -386,6 +386,29 @@ def test_a_failed_submodule_listing_is_logged(diff_widget, qtbot, caplog):
     assert ".gitmodules is unreadable" in caplog.text
 
 
+def test_a_submodules_file_and_hunk_headers_both_open_it(diff_widget, qtbot):
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import Qt
+
+    from git_gui.domain.entities import Hunk, LineKind
+    from git_gui.presentation.widgets.diff_block import _ClickableLabel
+
+    widget, queries = diff_widget
+    queries.list_submodules.execute.return_value = [SimpleNamespace(path="libs/core")]
+    hunk = Hunk(header="@@ -1 +1 @@", lines=[(LineKind.ADDED, "Subproject commit 1234\n")])
+    widget._render_single_file("libs/core", [hunk])
+    opened: list[str] = []
+    widget.submodule_open_requested.connect(opened.append)
+
+    headers = widget._diff_container.findChildren(_ClickableLabel)
+    for header in headers:
+        qtbot.mouseClick(header, Qt.LeftButton)
+
+    assert len(headers) == 2
+    assert opened == ["libs/core", "libs/core"]
+
+
 def test_deselecting_a_file_redraws_the_commit_once(multi_file_diff_widget, qtbot):
     """Clearing the selection also clears the current row, and both signals
     redrew every file block and fetched the commit's diffs again."""
