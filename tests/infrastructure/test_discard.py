@@ -38,6 +38,20 @@ def test_discard_untracked_file_unlinks(repo_path):
     assert not (repo_path / "new.txt").exists()
 
 
+def test_discard_of_an_untracked_file_leaves_an_index_another_program_holds_alone(repo_path):
+    # An editor's own `git status` holds index.lock now and then. An untracked
+    # file is not in the index, so its discard has nothing to write there.
+    impl = _seed(repo_path)
+    (repo_path / "new.txt").write_text("hello\n")
+    index_lock = repo_path / ".git" / "index.lock"
+    index_lock.touch()
+
+    impl.discard_file("new.txt")
+
+    assert not (repo_path / "new.txt").exists()
+    assert index_lock.exists()
+
+
 def test_discard_staged_add_unstages_and_unlinks(repo_path):
     impl = _seed(repo_path)
     (repo_path / "added.txt").write_text("staged add\n")
