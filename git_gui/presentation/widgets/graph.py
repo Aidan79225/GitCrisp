@@ -738,18 +738,42 @@ class GraphWidget(QWidget):
         """Select `oid` in the file history, paging further in to find it.
 
         File history lists only HEAD's commits that touched the file, so a
-        branch tip may never be among them. Only once the history has run out
-        without it does the click go to the full graph, which can load it:
-        leaving earlier threw away the file view for a commit on a later page.
+        branch tip may never be among them. One that cannot be goes to the
+        full graph, which can load it, at once. Any other goes there only
+        once the history has run out without it: leaving earlier threw away
+        the file view for a commit on a later page.
         """
         if self._row_of(oid) is not None:
             self.scroll_to_oid(oid, select=True)
-        elif self._has_more:
+        elif self._has_more and self._may_be_in_file_history(oid):
             self._pending_scroll_oid = oid
             self._pending_merge_base = None
             self.reload(extra_tips=tips)
         else:
             self._show_in_full_graph(oid, tips)
+
+    def _may_be_in_file_history(self, oid: str) -> bool:
+        """Whether `oid` is a commit HEAD reaches that changed the filtered file.
+
+        No other commit is in the file history, and paging in to find that
+        out walked the file's whole history, the list jumping to its top at
+        each step. A commit from before a followed rename changed the file
+        under its old name, so it is shown in the full graph as well. When
+        the answer cannot be read, the history is paged in as before.
+        """
+        queries = self._queries
+        try:
+            head_oid = queries.get_head_oid.execute()
+            if not head_oid:
+                return False  # an unborn branch has no history
+            # is_ancestor is False for HEAD itself, where the history starts.
+            if oid != head_oid and not queries.is_ancestor.execute(oid, head_oid):
+                return False
+            changed = queries.get_commit_files.execute(oid)
+        except Exception as e:
+            logger.warning("Could not tell whether %s is in the file history: %s", oid[:8], e)
+            return True
+        return any(f.path == self._path_filter for f in changed)
 
     def _show_in_full_graph(self, oid: str, tips: list[str]) -> None:
         self._leave_path_filter()
