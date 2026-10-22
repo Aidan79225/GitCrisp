@@ -348,13 +348,13 @@ def render_in_chunks(
     render_range(0, min(CHUNK_SIZE, total))
 
     def render_from(start: int) -> None:
-        try:
-            end = min(start + CHUNK_SIZE, total)
-            render_range(start, end)
-            if end < total:
-                QTimer.singleShot(0, document, lambda: render_from(end))
-        except RuntimeError:
-            pass
+        # No guard for a deleted document: the timer's context already drops
+        # the slice then. A guard here only hid real rendering failures,
+        # leaving a half-drawn hunk with nothing in the log.
+        end = min(start + CHUNK_SIZE, total)
+        render_range(start, end)
+        if end < total:
+            QTimer.singleShot(0, document, lambda: render_from(end))
 
     if total > CHUNK_SIZE:
         QTimer.singleShot(0, document, lambda: render_from(CHUNK_SIZE))
