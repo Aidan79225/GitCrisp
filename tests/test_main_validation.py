@@ -318,3 +318,73 @@ class TestPruningWhenTheRepoListCannotBeSaved:
 
         assert store.get_open_repos() == [str(valid)]
         assert len(unsaved) == 1
+
+
+def _while_probing(path, monkeypatch, meanwhile) -> None:
+    """Run *meanwhile* as the pruning probes *path*: what the user does while
+    that probe waits out a network timeout on an unreachable share."""
+    import main
+
+    probe = main._stored_repo_state
+
+    def probe_meanwhile(probed: str):
+        if probed == str(path):
+            meanwhile()
+        return probe(probed)
+
+    monkeypatch.setattr(main, "_stored_repo_state", probe_meanwhile)
+
+
+class TestPruningKeepsWhatIsBackBeforeItEnds:
+    """The pruning reports once every stored path is probed, minutes after
+    launch with a share out of reach, so a path it found gone at the start may
+    be a repo again by then: cloned back, or re-added as a worktree, and
+    opened."""
+
+    @staticmethod
+    def _store(tmp_path, reborn, offline) -> JsonRepoStore:
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        dead = tmp_path / "deleted_worktree"
+        # Probed in this order: reborn before the share that holds the probe.
+        return _store_of(tmp_path, open_paths=[valid, dead], recent_paths=[offline, reborn])
+
+    def test_a_repo_opened_meanwhile_stays_open(self, tmp_path, qtbot, monkeypatch):
+        reborn = tmp_path / "recloned"
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = self._store(tmp_path, reborn, offline)
+
+        def reopen():
+            TestFindValidRepoKeepsUnreachablePaths._repo(reborn)
+            store.add_open(str(reborn))
+
+        _while_probing(offline, monkeypatch, reopen)
+
+        _prune_in_background(store, qtbot)
+
+        assert store.get_open_repos() == [str(reborn), str(tmp_path / "valid")]
+        assert store.get_active() == str(reborn)
+
+    def test_a_repo_cloned_back_meanwhile_stays_listed(self, tmp_path, qtbot, monkeypatch):
+        reborn = tmp_path / "recloned"
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = self._store(tmp_path, reborn, offline)
+        _while_probing(
+            offline, monkeypatch, lambda: TestFindValidRepoKeepsUnreachablePaths._repo(reborn)
+        )
+
+        _prune_in_background(store, qtbot)
+
+        assert store.get_recent_repos() == [str(reborn), str(offline)]
+
+    def test_the_repo_on_screen_is_kept_until_the_next_launch(self, tmp_path, qtbot):
+        """Forgetting it would drop it from the list while its panes are up."""
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        on_screen = tmp_path / "deleted_since_it_opened"
+        dead = tmp_path / "deleted_worktree"
+        store = _store_of(tmp_path, open_paths=[on_screen, valid, dead])
+        store.set_active(str(on_screen))
+
+        _prune_in_background(store, qtbot)
+
+        assert store.get_open_repos() == [str(on_screen), str(valid)]
+        assert store.get_active() == str(on_screen)

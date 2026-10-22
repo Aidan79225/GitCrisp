@@ -132,9 +132,19 @@ class _GoneRepoPruner(QObject):
 
     def start(self) -> None:
         paths = _stored_paths(self._repo_store)
-        threading.Thread(target=lambda: self._found_gone.emit(_gone(paths)), daemon=True).start()
+        # Each path found gone is probed again once the rest are done: a share
+        # out of reach can hold this for minutes, by which time the path may be
+        # a repo again, cloned back or re-added as a worktree.
+        threading.Thread(
+            target=lambda: self._found_gone.emit(_gone(_gone(paths))), daemon=True
+        ).start()
 
     def _forget(self, gone: list[str]) -> None:
+        # The repo on screen is kept whatever its probe found: forgetting it
+        # would drop its row while its panes are still up. If it is still gone
+        # at the next launch, the startup forgets it.
+        active = self._repo_store.get_active()
+        gone = [path for path in gone if path != active]
         if not gone:
             return
         for path in gone:
