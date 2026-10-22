@@ -4,6 +4,7 @@ import logging
 
 from PySide6.QtWidgets import QDialog, QMessageBox
 
+from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
 
@@ -11,15 +12,6 @@ logger = logging.getLogger(__name__)
 
 # The new tag already exists, so creating it again is not the way to retry.
 _PUSH_FROM_SIDEBAR_LATER = "Push it from the sidebar's tag menu once it finishes."
-
-
-def _is_cancellation(error: Exception) -> bool:
-    """Whether *error* is the user cancelling the running remote op.
-
-    Matched by class name, as RemoteOpQueueMixin does, because presentation
-    may not import the infrastructure class that raises it.
-    """
-    return type(error).__name__ == "RemoteOperationCancelled"
 
 
 class TagFlowsMixin(AskedRepoGuardMixin):
@@ -147,9 +139,9 @@ class TagFlowsMixin(AskedRepoGuardMixin):
             for remote in remotes:
                 try:
                     commands.delete_remote_tag.execute(remote, name)
+                except RemoteOperationCancelled:
+                    raise
                 except Exception as e:
-                    if _is_cancellation(e):
-                        raise
                     # The local tag is already gone, and the sidebar lists
                     # only local tags: a remote skipped now could not be
                     # retried from the UI.

@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
 from git_gui.domain.entities import split_remote_branch
+from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.presentation.bus import CommandBus, QueryBus
 
 logger = logging.getLogger(__name__)
@@ -100,13 +101,10 @@ class RemoteOpQueueMixin:
             try:
                 fn()
                 signals.finished.emit(name)
+            except RemoteOperationCancelled:
+                signals.cancelled.emit(name)
             except Exception as e:
-                # Dispatch by class name to keep this layer infra-free (the
-                # architecture guard forbids importing the concrete errors).
-                if type(e).__name__ == "RemoteOperationCancelled":
-                    signals.cancelled.emit(name)
-                else:
-                    signals.failed.emit(name, str(e))
+                signals.failed.emit(name, str(e))
 
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
