@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QRect, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
 from git_gui.domain.entities import Commit
@@ -13,11 +13,11 @@ from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
 from git_gui.presentation.widgets.ref_badge_delegate import (
     BADGE_GAP,
     BADGE_H_PAD,
-    BADGE_RADIUS,
     BADGE_V_PAD,
     _badge_color,
     _badge_copy_text,
     _badge_display_name,
+    paint_badge,
 )
 
 
@@ -198,11 +198,7 @@ class CommitDetailWidget(QWidget):
 
     def _paint_badge(self, painter: QPainter, badge: _Badge) -> None:
         fill = _badge_color(badge.ref, self._head_branch, self._remote_branches)
-        painter.setBrush(QBrush(fill))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(badge.rect, BADGE_RADIUS, BADGE_RADIUS)
-        painter.setPen(_colour(ColorRole.ON_BADGE))
-        painter.drawText(badge.rect, Qt.AlignCenter, badge.label)
+        paint_badge(painter, badge.rect, fill, badge.label)
 
     def _paint_parents(self, painter: QPainter, layout: _DetailLayout, parents: list[str]) -> None:
         baseline = layout.parents_top + painter.fontMetrics().ascent()
