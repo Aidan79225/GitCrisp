@@ -477,34 +477,45 @@ class HunkDiffWidget(QWidget):
             self.operation_failed.emit(f"{action} failed: {e}")
 
     def _on_discard_file_clicked(self, path: str) -> None:
-        commands = self._commands
-        action = f"Discard {path}"
-        reply = QMessageBox.question(
-            self,
-            "Discard file",
-            f"Discard all changes to {path}? This cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+        self._confirm_and_discard(
+            ("Discard file", f"Discard all changes to {path}? This cannot be undone."),
+            f"Discard {path}",
+            lambda commands: commands.discard_file.execute(path),
+            path,
+            "",
         )
-        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, action):
-            return
-        self._run_command(action, lambda: commands.discard_file.execute(path))
-        self._redraw_after_command()
-        self.discard_hunk_requested.emit(path, "")
 
     def _on_discard_hunk_clicked(self, path: str, hunk_header: str) -> None:
-        commands = self._commands
-        action = f"Discard hunk in {path}"
-        reply = QMessageBox.question(
-            self,
-            "Discard hunk",
-            "Discard this hunk? This cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+        self._confirm_and_discard(
+            ("Discard hunk", "Discard this hunk? This cannot be undone."),
+            f"Discard hunk in {path}",
+            lambda commands: commands.discard_hunk.execute(path, hunk_header),
+            path,
+            hunk_header,
         )
-        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, action):
+
+    def _confirm_and_discard(
+        self,
+        prompt: tuple[str, str],
+        op_name: str,
+        discard: Callable[[CommandBus], None],
+        path: str,
+        hunk_header: str,
+    ) -> None:
+        """Ask with *prompt* (title, question), then discard in the repo the user was asked in.
+
+        Both discards go through here. Written twice, the copies drifted: only
+        one redrew, and the other left a checkbox naming a hunk the index no
+        longer had. *hunk_header* is empty for a whole file.
+        """
+        commands = self._commands
+        title, question = prompt
+        reply = QMessageBox.question(
+            self, title, question, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, op_name):
             return
-        self._run_command(action, lambda: commands.discard_hunk.execute(path, hunk_header))
+        self._run_command(op_name, lambda: discard(commands))
         self._redraw_after_command()
         self.discard_hunk_requested.emit(path, hunk_header)
 
