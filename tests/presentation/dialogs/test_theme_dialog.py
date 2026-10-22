@@ -314,6 +314,9 @@ def test_apply_tells_the_user_when_the_settings_cannot_be_saved(
 
     from git_gui.presentation.theme import settings as s
 
+    # On Dark before the path breaks: set_mode saves on a change, and
+    # reset_theme's set_mode("dark") runs before monkeypatch is undone, so it
+    # must find nothing to change. Apply is then the one save that fails.
     get_theme_manager().set_mode("dark")
     not_a_directory = tmp_path / "file"
     not_a_directory.write_text("", encoding="utf-8")
