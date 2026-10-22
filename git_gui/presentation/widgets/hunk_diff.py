@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from git_gui.domain.entities import WORKING_TREE_OID, Hunk, StagingState
+from git_gui.presentation.asked_repo import skipped_after_repo_switch
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import connect_widget
 from git_gui.presentation.widgets.diff_block import (
@@ -55,14 +56,6 @@ MAX_AGGREGATE_FILE_BLOCKS = 200
 
 # Names each hunk's discard button, so a stage or discard can find them all.
 _DISCARD_BUTTON_NAME = "discard_hunk"
-
-
-def skipped_after_repo_switch(op_name: str) -> str:
-    """What the log says when another repo opened while the user was asked about *op_name*.
-
-    Worded as MainWindow words its own skipped confirmations, so every one reads alike.
-    """
-    return f"{op_name} — skipped: another repo opened while you were deciding. Nothing was changed."
 
 
 def _is_untracked(staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]) -> bool:
@@ -527,8 +520,8 @@ class HunkDiffWidget(QWidget):
         self._redraw_after_command()
         self.discard_hunk_requested.emit(path, hunk_header)
 
-    def _repo_switched_while_asking(self, asked_in: CommandBus | None, action: str) -> bool:
-        """Whether the open repo is no longer *asked_in*'s, reporting *action* as skipped if so.
+    def _repo_switched_while_asking(self, asked_in: CommandBus | None, op_name: str) -> bool:
+        """Whether the open repo is no longer *asked_in*'s, reporting *op_name* as skipped if so.
 
         The confirmation runs a nested event loop, and a repo switch already
         on its way lands inside it and hands this pane the new repo's buses;
@@ -536,7 +529,7 @@ class HunkDiffWidget(QWidget):
         """
         if self._commands is asked_in:
             return False
-        self.operation_failed.emit(skipped_after_repo_switch(action))
+        self.operation_failed.emit(skipped_after_repo_switch(op_name))
         return True
 
     def _clear_layout(self) -> None:

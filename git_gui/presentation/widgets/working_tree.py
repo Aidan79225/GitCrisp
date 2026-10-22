@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from git_gui.domain.entities import FileStatus, RepoState, StagingState
+from git_gui.presentation.asked_repo import skipped_after_repo_switch
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
@@ -33,7 +34,7 @@ from git_gui.presentation.widgets.file_list_view import (
     badge_kind,
 )
 from git_gui.presentation.widgets.file_list_view import FileListView as _FileListView
-from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget, skipped_after_repo_switch
+from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
 from git_gui.presentation.widgets.working_tree_model import WorkingTreeModel
 
 logger = logging.getLogger(__name__)
