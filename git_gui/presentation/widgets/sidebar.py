@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QStandardItem, QStandardItemModel
@@ -32,6 +33,7 @@ def _tag_sort_key(name: str) -> tuple[bool, list[int] | str]:
 
 
 _ROW_HEIGHT = 28
+_KIND_ROLE = Qt.UserRole + 1
 _IS_HEAD_ROLE = Qt.UserRole + 2
 _TARGET_OID_ROLE = Qt.UserRole + 3
 # Tip of the branch's upstream, when it has one and it sits elsewhere than the
@@ -39,6 +41,24 @@ _TARGET_OID_ROLE = Qt.UserRole + 3
 # that is behind still shows what its remote is holding ahead of it.
 _UPSTREAM_OID_ROLE = Qt.UserRole + 4
 _EPOCH = datetime.fromtimestamp(0, tz=UTC)
+
+
+class _EntryKind(StrEnum):
+    """What a row is, under _KIND_ROLE: it decides the row's menu and what
+    clicking the row does.
+
+    A StrEnum because the model stores it as a plain string and hands that
+    back, which still compares equal to the member.
+    """
+
+    HEADER = "header"
+    BRANCH = "branch"
+    REMOTE_BRANCH = "remote_branch"
+    STASH = "stash"
+    TAG = "tag"
+
+
+_BRANCH_KINDS = (_EntryKind.BRANCH, _EntryKind.REMOTE_BRANCH)
 
 
 def _get_cloud_icon() -> QIcon:
@@ -60,12 +80,12 @@ def _get_cloud_icon() -> QIcon:
     return QIcon(tinted)
 
 
-def _row(label: str, value: str, kind: str, oid: str | None) -> QStandardItem:
+def _row(label: str, value: str, kind: _EntryKind, oid: str | None) -> QStandardItem:
     """A sidebar entry: its menu acts on *value*; a click shows commit *oid*."""
     row = QStandardItem(label)
     row.setEditable(False)
     row.setData(value, Qt.UserRole)
-    row.setData(kind, Qt.UserRole + 1)
+    row.setData(kind, _KIND_ROLE)
     if oid:
         row.setData(oid, _TARGET_OID_ROLE)
     row.setSizeHint(QSize(0, _ROW_HEIGHT))
@@ -232,7 +252,7 @@ class SidebarWidget(QWidget):
         self._add_local_branches(local, remote, upstreams)
         self._add_section(
             "REMOTE BRANCHES",
-            [_row(b.name, b.name, "remote_branch", b.target_oid) for b in remote],
+            [_row(b.name, b.name, _EntryKind.REMOTE_BRANCH, b.target_oid) for b in remote],
         )
         self._add_stashes(stashes)
         self._add_tags(tags, remote_tag_names)
@@ -245,7 +265,7 @@ class SidebarWidget(QWidget):
         remote_oids = {b.name: b.target_oid for b in remote}
         rows = []
         for b in local:
-            row = _row(b.name, b.name, "branch", b.target_oid)
+            row = _row(b.name, b.name, _EntryKind.BRANCH, b.target_oid)
             upstream_oid = remote_oids.get(upstreams.get(b.name, ""))
             if upstream_oid and upstream_oid != b.target_oid:
                 row.setData(upstream_oid, _UPSTREAM_OID_ROLE)
@@ -258,14 +278,15 @@ class SidebarWidget(QWidget):
         # A stash without a timestamp falls to the end.
         newest_first = sorted(stashes, key=lambda s: s.timestamp or _EPOCH, reverse=True)
         self._add_section(
-            "STASHES", [_row(s.message, str(s.index), "stash", s.oid) for s in newest_first]
+            "STASHES",
+            [_row(s.message, str(s.index), _EntryKind.STASH, s.oid) for s in newest_first],
         )
 
     def _add_tags(self, tags: list[Tag], remote_tag_names: set[str]) -> None:
         cloud_icon = _get_cloud_icon()
         rows = []
         for t in sorted(tags, key=lambda t: _tag_sort_key(t.name), reverse=True):
-            row = _row(t.name, t.name, "tag", t.target_oid)
+            row = _row(t.name, t.name, _EntryKind.TAG, t.target_oid)
             if t.name in remote_tag_names:
                 row.setIcon(cloud_icon)
             rows.append(row)
@@ -274,37 +295,37 @@ class SidebarWidget(QWidget):
     def _add_section(self, title: str, rows: list[QStandardItem]) -> None:
         header = QStandardItem(title)
         header.setEditable(False)
-        header.setData("header", Qt.UserRole + 1)
+        header.setData(_EntryKind.HEADER, _KIND_ROLE)
         header.setSizeHint(QSize(0, _ROW_HEIGHT))
         for row in rows:
             header.appendRow(row)
         self._model.appendRow(header)
 
     def _on_click(self, index) -> None:
-        kind = index.data(Qt.UserRole + 1)
+        kind = index.data(_KIND_ROLE)
         oid = index.data(_TARGET_OID_ROLE)
-        if kind == "stash" and oid:
+        if kind == _EntryKind.STASH and oid:
             self.stash_clicked.emit(oid)
-        elif kind == "tag" and oid:
+        elif kind == _EntryKind.TAG and oid:
             self.tag_clicked.emit(oid)
         elif oid:
             upstream_oid = index.data(_UPSTREAM_OID_ROLE)
             self.branch_clicked.emit(oid, [upstream_oid] if upstream_oid else [])
 
     def _on_double_click(self, index) -> None:
-        kind = index.data(Qt.UserRole + 1)
+        kind = index.data(_KIND_ROLE)
         value = index.data(Qt.UserRole)
-        if kind in ("branch", "remote_branch") and value:
+        if kind in _BRANCH_KINDS and value:
             self.checkout_branch_requested.emit(value)
 
     def _show_context_menu(self, pos) -> None:
         index = self._tree.indexAt(pos)
-        kind = index.data(Qt.UserRole + 1)
+        kind = index.data(_KIND_ROLE)
         value = index.data(Qt.UserRole)
-        if kind not in ("branch", "remote_branch", "stash", "tag"):
+        if kind not in (*_BRANCH_KINDS, _EntryKind.STASH, _EntryKind.TAG):
             return
         menu = QMenu(self)
-        if kind == "branch":
+        if kind == _EntryKind.BRANCH:
             for entry in self.build_branch_context_actions(value):
                 a = menu.addAction(entry["label"])
                 a.triggered.connect(
@@ -315,15 +336,15 @@ class SidebarWidget(QWidget):
                 # Add separators between groups (matches the pre-existing menu shape).
                 if entry["action"] in ("rebase", "push"):
                     menu.addSeparator()
-        elif kind == "remote_branch":
+        elif kind == _EntryKind.REMOTE_BRANCH:
             self._add_remote_branch_actions(menu, value)
-        elif kind == "stash":
+        elif kind == _EntryKind.STASH:
             idx = int(value)
             menu.addAction("Pop").triggered.connect(lambda: self.stash_pop_requested.emit(idx))
             menu.addAction("Apply").triggered.connect(lambda: self.stash_apply_requested.emit(idx))
             menu.addSeparator()
             menu.addAction("Drop").triggered.connect(lambda: self.stash_drop_requested.emit(idx))
-        elif kind == "tag":
+        elif kind == _EntryKind.TAG:
             menu.addAction("Push").triggered.connect(lambda: self.tag_push_requested.emit(value))
             menu.addSeparator()
             menu.addAction("Delete").triggered.connect(
