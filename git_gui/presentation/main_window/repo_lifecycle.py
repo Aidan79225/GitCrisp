@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum, auto
 from pathlib import Path
 
@@ -37,6 +37,9 @@ class _RepoRequest:
     path: str
     reason: _SwitchReason = _SwitchReason.SWITCH
     after: str | None = None  # the open repo an OPEN is listed after; None lists it first
+    # Set once a closed repo hands over to this request: the open repo to go
+    # to instead if it fails, as closing would have without it.
+    fallback: str | None = None
 
 
 def _same_path_text(a: str, b: str) -> bool:
@@ -214,7 +217,13 @@ class RepoLifecycleMixin:
         self._log_panel.expand()
         self._log_panel.log_error(f"Cannot open {path}: {error}")
         request = self._request_for(path)
-        if request is not None and request.reason is _SwitchReason.REPLACE:
+        if request is None:
+            return  # superseded: the user has asked for something else since
+        if request.fallback in self._repo_store.get_open_repos():
+            # It was taking over from a repo closed while it opened: go where
+            # that close would have gone without it.
+            self._request_repo(_RepoRequest(request.fallback, _SwitchReason.REPLACE))
+        elif request.reason is _SwitchReason.REPLACE or request.fallback is not None:
             # The repo on screen is already closed. Staying on it would leave
             # Ctrl+W retrying this one forever.
             self._enter_empty_state()
@@ -263,8 +272,10 @@ class RepoLifecycleMixin:
         self._drop_pending_request_for(path)
         if not on_screen:
             self._repo_list.reload()  # some other row: stay where you are
-        elif self._pending_request() is not None:
-            self._clear_window()  # the repo already on its way takes over
+        elif (pending := self._pending_request()) is not None:
+            # The repo already on its way takes over.
+            self._repo_request = replace(pending, fallback=successor)
+            self._clear_window()
         elif successor is None:
             self._enter_empty_state()
         else:
