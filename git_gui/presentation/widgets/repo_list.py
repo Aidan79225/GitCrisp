@@ -44,6 +44,20 @@ def _display_path(path: str) -> str:
     return "~/" + rel.as_posix()
 
 
+def _counts_as_a_repo(path: str) -> bool:
+    """Whether Open Repository should try *path*.
+
+    A .git file git cannot follow, left empty by an interrupted submodule
+    checkout or a sync-tool conflict, makes discover_repository raise rather
+    than answer. That folder counts, as it does at launch: opening it fails
+    with git's own error in the log, which says more than "not a repository".
+    """
+    try:
+        return pygit2.discover_repository(path) is not None
+    except pygit2.GitError:
+        return True
+
+
 _KIND_ROLE = Qt.UserRole + 1
 _IS_ACTIVE_ROLE = Qt.UserRole + 2
 
@@ -596,7 +610,7 @@ class RepoListWidget(QWidget):
             if not dirs:
                 return
             path = dirs[0]
-            if pygit2.discover_repository(path) is not None:
+            if _counts_as_a_repo(path):
                 self.repo_open_requested.emit(path)
                 return
             QMessageBox.warning(
