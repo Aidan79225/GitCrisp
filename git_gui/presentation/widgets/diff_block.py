@@ -24,6 +24,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from git_gui.domain.entities import NO_NEWLINE_MARKERS, Hunk, LineKind
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets import word_diff
+from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
+from git_gui.presentation.widgets.side_by_side import no_newline_note, parse_hunk_header
+from git_gui.presentation.widgets.syntax_highlighter import tokenize
+
 
 class _ElidedLabel(QLabel):
     """A one-line header that gives up width it cannot have, eliding its text.
@@ -79,13 +86,6 @@ class _ClickableLabel(_ElidedLabel):
             return
         super().mousePressEvent(ev)
 
-
-from git_gui.domain.entities import NO_NEWLINE_MARKERS, Hunk, LineKind
-from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
-from git_gui.presentation.widgets import word_diff
-from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
-from git_gui.presentation.widgets.side_by_side import no_newline_note, parse_hunk_header
-from git_gui.presentation.widgets.syntax_highlighter import tokenize
 
 # Style constants
 

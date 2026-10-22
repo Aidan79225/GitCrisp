@@ -27,6 +27,7 @@ from git_gui.presentation.widgets.diff_block import (
     make_diff_formats,
     make_file_block,
     make_overflow_notice,
+    make_skeleton_container,
     make_syntax_formats,
 )
 from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
@@ -184,8 +185,6 @@ class HunkDiffWidget(QWidget):
             return
 
         self._clear_for_redraw()
-
-        from git_gui.presentation.widgets.diff_block import make_skeleton_container
 
         shown = paths[:MAX_AGGREGATE_FILE_BLOCKS]
         hidden = len(paths) - len(shown)
