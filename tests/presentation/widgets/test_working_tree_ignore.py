@@ -11,12 +11,7 @@ from __future__ import annotations
 import pygit2
 import pytest
 
-from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 from tests.presentation.widgets.working_tree_helpers import working_tree_widget
-
-
-def _make_minimal(qtbot, repo_path: str | None) -> WorkingTreeWidget:
-    return working_tree_widget(qtbot, repo_path)
 
 
 def test_ignore_file_creates_gitignore_when_missing(qtbot, tmp_path):
@@ -25,7 +20,7 @@ def test_ignore_file_creates_gitignore_when_missing(qtbot, tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    w = _make_minimal(qtbot, str(repo))
+    w = working_tree_widget(qtbot, str(repo))
     w._ignore_file("build/output")
 
     assert (repo / ".gitignore").read_text() == "/build/output\n"
@@ -38,7 +33,7 @@ def test_ignore_file_appends_with_separator_when_existing_has_no_trailing_newlin
     repo.mkdir()
     (repo / ".gitignore").write_text("*.log")  # no trailing newline
 
-    w = _make_minimal(qtbot, str(repo))
+    w = working_tree_widget(qtbot, str(repo))
     w._ignore_file("build/output")
 
     assert (repo / ".gitignore").read_text() == "*.log\n/build/output\n"
@@ -50,7 +45,7 @@ def test_ignore_file_skips_when_path_already_present(qtbot, tmp_path):
     repo.mkdir()
     (repo / ".gitignore").write_text("/foo.py\n*.log\n")
 
-    w = _make_minimal(qtbot, str(repo))
+    w = working_tree_widget(qtbot, str(repo))
     w._ignore_file("foo.py")
 
     assert (repo / ".gitignore").read_text() == "/foo.py\n*.log\n"
@@ -59,7 +54,7 @@ def test_ignore_file_skips_when_path_already_present(qtbot, tmp_path):
 def test_ignore_file_noop_when_repo_path_is_none(qtbot):
     """Empty-state guard: no repo active means the helper does nothing
     (no exception, no filesystem write)."""
-    w = _make_minimal(qtbot, None)
+    w = working_tree_widget(qtbot, None)
     w._ignore_file("foo.py")  # must not raise
 
 
@@ -72,7 +67,7 @@ def test_set_repo_path_redirects_ignore_to_new_repo(qtbot, tmp_path):
     repo_a.mkdir()
     repo_b.mkdir()
 
-    w = _make_minimal(qtbot, str(repo_a))
+    w = working_tree_widget(qtbot, str(repo_a))
     w.set_repo_path(str(repo_b))
 
     w._ignore_file("foo.py")
@@ -89,7 +84,7 @@ def test_set_repo_path_to_none_disables_ignore(qtbot, tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    w = _make_minimal(qtbot, str(repo))
+    w = working_tree_widget(qtbot, str(repo))
     w.set_repo_path(None)
     w._ignore_file("foo.py")
 
@@ -102,7 +97,7 @@ def test_set_repo_path_to_none_disables_ignore(qtbot, tmp_path):
 def _ignored_after_choosing(qtbot, tmp_path, chosen: str, probe: str) -> bool:
     """Ignore *chosen* from the menu, then ask libgit2 whether *probe* is ignored."""
     repo = pygit2.init_repository(str(tmp_path))
-    w = _make_minimal(qtbot, str(tmp_path))
+    w = working_tree_widget(qtbot, str(tmp_path))
     w._ignore_file(chosen)
     return repo.path_is_ignored(probe)
 
@@ -132,7 +127,7 @@ def test_trailing_spaces_in_a_name_are_kept(qtbot, tmp_path):
 
 
 def test_a_second_click_on_an_escaped_name_adds_nothing(qtbot, tmp_path):
-    w = _make_minimal(qtbot, str(tmp_path))
+    w = working_tree_widget(qtbot, str(tmp_path))
     w._ignore_file("a[1].txt")
     w._ignore_file("a[1].txt")
     assert (tmp_path / ".gitignore").read_text() == "/a\\[1].txt\n"

@@ -10,12 +10,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 from tests.presentation.widgets.working_tree_helpers import working_tree_widget
-
-
-def _make_commit_widget(qtbot) -> WorkingTreeWidget:
-    return working_tree_widget(qtbot)
 
 
 def test_on_commit_emits_failed_when_create_commit_raises(qtbot, monkeypatch):
@@ -26,7 +21,7 @@ def test_on_commit_emits_failed_when_create_commit_raises(qtbot, monkeypatch):
     queries.get_identity.execute.return_value = ("Alice", "alice@example.com")
     commands.create_commit.execute.side_effect = RuntimeError("boom")
 
-    w = _make_commit_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w._queries = queries
     w._commands = commands
 
@@ -56,7 +51,7 @@ def _amend_widget(qtbot, *, head_message="original subject", remote_on_head=Fals
         if remote_on_head
         else []
     )
-    w = _make_commit_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w._queries = queries
     w._commands = commands
     return w, queries, commands
