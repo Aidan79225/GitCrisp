@@ -462,18 +462,22 @@ class WorkingTreeWidget(QWidget):
 
     def _apply_to_all(
         self,
-        select: Callable[[FileStatus], bool],
+        on_side: Callable[[FileStatus], bool],
         run: Callable[[list[str]], object],
         action: str,
     ) -> None:
-        """Run *run* on every selected file, plus every partly staged one,
-        which has changes on both sides of the index."""
+        """Run *run* on every path with a change on one side of the index.
+
+        *on_side* says which side an entry is on. The raw status is read, not
+        the file list: a partly staged file has an entry on each side, and the
+        list shows only one of them.
+        """
         # Closing the last repo can leave this panel on screen with no buses.
         if self._queries is None:
             return
         try:
-            files, partial = _deduplicate(self._queries.get_working_tree.execute())
-            paths = list({f.path for f in files if select(f)} | partial)
+            entries = self._queries.get_working_tree.execute()
+            paths = list({f.path for f in entries if on_side(f)})
             if not paths:
                 return
             run(paths)
