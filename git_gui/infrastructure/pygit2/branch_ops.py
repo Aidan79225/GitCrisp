@@ -202,6 +202,11 @@ class BranchOps:
         local.upstream = None
 
     def reset_branch_to_ref(self, branch: str, ref: str) -> None:
+        # The hard reset moves whatever HEAD is on. Callers check `branch` out
+        # and then ask the user; a HEAD moved meanwhile, from a terminal say,
+        # must not lose its own branch's commits and edits instead.
+        if self._repo.head_is_unborn or self._repo.head.name != f"refs/heads/{branch}":
+            raise RuntimeError(f"Cannot reset '{branch}': it is no longer checked out")
         # Peel to a commit rather than probing the object's shape: every pygit2
         # object has `.id`, so the old `hasattr(target, "id")` fallback was
         # unreachable, and for an annotated tag `.id` is the tag object's own
