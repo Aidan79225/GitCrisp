@@ -1110,15 +1110,11 @@ class GraphWidget(QWidget):
 
         # Filter out HEAD pseudo-ref and tag refs for branch operations
         real_branches = [n for n in branch_names if n != "HEAD" and not n.startswith("tag:")]
-        # Distinguish local vs remote branches via the actual branch metadata
-        # (the "/" heuristic is wrong: local branches like "feature/foo" exist).
-        try:
-            all_branches = self._queries.get_branches.execute()
-            local_set = {b.name for b in all_branches if not b.is_remote}
-        except Exception:
-            local_set = set()
-        local_branches = [n for n in real_branches if n in local_set]
-        remote_branches = [n for n in real_branches if n not in local_set]
+        # The row's own snapshot tells local from remote: the same load labelled
+        # it, and a '/' does not (local branches like "feature/foo" exist).
+        remote_set = info.remote_branches if info else frozenset()
+        local_branches = [n for n in real_branches if n not in remote_set]
+        remote_branches = [n for n in real_branches if n in remote_set]
 
         if real_branches:
             menu.addSeparator()

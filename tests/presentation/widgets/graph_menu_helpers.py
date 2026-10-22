@@ -43,7 +43,11 @@ def open_context_menu(
     """
     widget = graph_widget(qtbot, queries or queries_listing(branches))
     commit = Commit(ROW_OID, "subject", "T", datetime(2026, 1, 1), [])
-    widget._model.reload([commit], {ROW_OID: [b.name for b in branches]})
+    widget._model.reload(
+        [commit],
+        {ROW_OID: [b.name for b in branches]},
+        remote_branches=frozenset(b.name for b in branches if b.is_remote),
+    )
     widget._view.indexAt = MagicMock(return_value=widget._model.index(0, 0))
 
     built: list[QMenu] = []
