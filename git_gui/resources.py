@@ -24,39 +24,13 @@ def subprocess_kwargs() -> dict:
 
 _ACCEPT_NEW_SSH_COMMAND = "ssh -o StrictHostKeyChecking=accept-new"
 _USER_SSH_VARIABLES = ("GIT_SSH_COMMAND", "GIT_SSH")
-_USER_SSH_CONFIG_KEY = "core.sshCommand"
+SSH_COMMAND_CONFIG_KEY = "core.sshCommand"
 
 
 class GitConfig(Protocol):
     """The part of a git config `git_ssh_env` reads; pygit2's ``Config`` fits."""
 
     def __contains__(self, key: str, /) -> bool: ...
-
-
-class GitCliConfig:
-    """The config git itself reads for the repository at *git_dir*.
-
-    libgit2 does not evaluate ``includeIf "hasconfig:remote.*.url:..."``, the
-    usual way to use one account per remote, so a key set through such an
-    include is missing from pygit2's ``Config`` while the git commands we run
-    still apply it. Asking git also honours ``GIT_CONFIG_GLOBAL`` and the rest
-    of the environment those commands inherit.
-    """
-
-    def __init__(self, git_dir: str) -> None:
-        self._git_dir = git_dir
-
-    def __contains__(self, key: str) -> bool:
-        try:
-            completed = subprocess.run(
-                ["git", f"--git-dir={self._git_dir}", "config", "--get", key],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                **subprocess_kwargs(),
-            )
-        except OSError:
-            return False  # no git to ask; the command it would govern cannot run either
-        return completed.returncode == 0
 
 
 def git_ssh_env(
@@ -75,8 +49,7 @@ def git_ssh_env(
     It is set only when the user has chosen no SSH client of their own: git
     ranks ``GIT_SSH_COMMAND`` above both ``core.sshCommand`` and ``GIT_SSH``, so
     setting it would silently replace either. Pass the repository's ``config``
-    so a ``core.sshCommand`` there is seen; a `GitCliConfig` also sees one set
-    through a conditional include.
+    so a ``core.sshCommand`` there is seen.
 
     Git's own credential prompt is turned off for the same reason: started from
     a terminal, git would ask for a username there and wait while the GUI shows
@@ -96,4 +69,4 @@ def git_ssh_env(
 def _user_chose_ssh_client(env: dict[str, str], config: GitConfig | None) -> bool:
     if any(name in env for name in _USER_SSH_VARIABLES):
         return True
-    return config is not None and _USER_SSH_CONFIG_KEY in config
+    return config is not None and SSH_COMMAND_CONFIG_KEY in config

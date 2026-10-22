@@ -127,6 +127,8 @@ def clone_repo(
         # pipe would fill up and block git while we wait for stderr to close.
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
+        # git_ssh_env asks _CloneConfig, which probes dest with a throwaway
+        # repository, only when the environment names no ssh client.
         env=git_ssh_env(isolated_git_env(), config=_CloneConfig(url, dest)),
         **git_popen_kwargs(),
     )
