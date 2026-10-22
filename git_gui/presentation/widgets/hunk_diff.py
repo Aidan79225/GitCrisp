@@ -502,6 +502,7 @@ class HunkDiffWidget(QWidget):
         if reply != QMessageBox.Yes:
             return
         self._run_command(f"Discard {path}", lambda: self._commands.discard_file.execute(path))
+        self._redraw_after_command()
         self.discard_hunk_requested.emit(path, "")
 
     def _on_discard_hunk_clicked(self, path: str, hunk_header: str) -> None:
