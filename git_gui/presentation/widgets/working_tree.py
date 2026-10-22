@@ -5,8 +5,9 @@ import os
 import re
 import threading
 from collections.abc import Callable
+from typing import NamedTuple
 
-from PySide6.QtCore import QObject, QRect, Qt, Signal
+from PySide6.QtCore import QObject, QRect, Qt, Signal, SignalInstance
 from PySide6.QtGui import QBrush, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -48,11 +49,14 @@ _BADGE_LEFT_INSET = 30
 # Characters a .gitignore line reads as glob syntax or as an escape.
 _GITIGNORE_SPECIALS = re.compile(r"[\\*?\[]")
 
-# While one of these runs, Commit continues it rather than creating a commit.
-# A detached HEAD is not among them: committing there is an ordinary commit.
-_OPERATIONS_IN_PROGRESS = frozenset(
-    {RepoState.MERGING, RepoState.REBASING, RepoState.CHERRY_PICKING, RepoState.REVERTING}
-)
+
+class _Operation(NamedTuple):
+    """What the panel shows and does while a merge, rebase, cherry-pick or revert runs."""
+
+    banner: str
+    commit_label: str  # Commit continues the operation rather than creating a commit
+    abort: SignalInstance
+    resume: Callable[[str], None]  # given the commit message, which only some use
 
 
 class _FileDelegate(CheckIndicatorDelegate):
@@ -121,6 +125,8 @@ class WorkingTreeWidget(QWidget):
         # generation back with its result, so one that finishes after the
         # switch, or after a newer load, is recognised as stale and dropped.
         self._load_generation = 0
+        self._current_state = RepoState.CLEAN
+        self._operations = self._operations_in_progress()
 
         # ── Conflict banner (hidden by default) ─────────────────────────
         self._conflict_banner = QWidget()
@@ -221,6 +227,38 @@ class WorkingTreeWidget(QWidget):
         self._btn_abort.clicked.connect(self._on_abort_clicked)
 
         connect_widget(self, rebuild=self._restyle_banner)
+
+    def _operations_in_progress(self) -> dict[RepoState, _Operation]:
+        """The states in which Commit continues an operation instead of committing.
+
+        A detached HEAD is not among them: committing there is an ordinary commit.
+        """
+        return {
+            RepoState.MERGING: _Operation(
+                "Merge in progress",
+                "Finish Merge",
+                self.merge_abort_requested,
+                self.merge_continue_requested.emit,
+            ),
+            RepoState.REBASING: _Operation(
+                "Rebase in progress",
+                "Continue Rebase",
+                self.rebase_abort_requested,
+                self.rebase_continue_requested.emit,
+            ),
+            RepoState.CHERRY_PICKING: _Operation(
+                "Cherry-pick in progress",
+                "Continue Cherry-pick",
+                self.cherry_pick_abort_requested,
+                lambda _msg: self.cherry_pick_continue_requested.emit(),
+            ),
+            RepoState.REVERTING: _Operation(
+                "Revert in progress",
+                "Continue Revert",
+                self.revert_abort_requested,
+                lambda _msg: self.revert_continue_requested.emit(),
+            ),
+        }
 
     def _restyle_banner(self) -> None:
         # No selector: the label and the Abort button take the banner's
@@ -455,29 +493,19 @@ class WorkingTreeWidget(QWidget):
         # The repo this message and state belong to. A prompt on the way can
         # outlast it, and the commit must not follow the switch.
         commands = self._commands
-        state = getattr(self, "_current_state", "CLEAN")
+        operation = self._operations.get(self._current_state)
         msg = self._msg_edit.toPlainText().strip()
-        if state not in _OPERATIONS_IN_PROGRESS and not msg:
+        if operation is None and not msg:
             self.commit_failed.emit("Commit message is empty")
             return
 
         # Every path below creates a commit, so identity is required.
         if not self._ensure_identity(commands):
             return
-        if state in _OPERATIONS_IN_PROGRESS:
-            self._continue_operation(state, msg)
+        if operation is not None:
+            operation.resume(msg)
         elif self._create_or_amend(msg, commands):
             self._reset_after_commit(msg)
-
-    def _continue_operation(self, state: str, msg: str) -> None:
-        if state == RepoState.MERGING:
-            self.merge_continue_requested.emit(msg)
-        elif state == RepoState.REBASING:
-            self.rebase_continue_requested.emit(msg)
-        elif state == RepoState.CHERRY_PICKING:
-            self.cherry_pick_continue_requested.emit()
-        elif state == RepoState.REVERTING:
-            self.revert_continue_requested.emit()
 
     def _create_or_amend(self, msg: str, commands: CommandBus) -> bool:
         """Commit *msg*, amending HEAD when Amend is ticked; False if nothing was committed."""
@@ -608,35 +636,23 @@ class WorkingTreeWidget(QWidget):
     def _on_files_changed(self) -> None:
         self.reload()
 
-    def update_conflict_banner(self, state_name: str, merge_msg: str | None = None) -> None:
-        self._current_state = state_name
+    def update_conflict_banner(self, state: RepoState, merge_msg: str | None = None) -> None:
+        self._current_state = state
+        operation = self._operations.get(state)
+        self._conflict_banner.setVisible(operation is not None)
         # An in-progress merge/rebase/cherry-pick/revert has its own commit path.
         # Untick before labelling: unticking resets the label to "Commit".
-        amend_allowed = state_name not in _OPERATIONS_IN_PROGRESS
-        if not amend_allowed:
+        if operation is not None:
             self._untick_amend()
-        self._chk_amend.setEnabled(amend_allowed)
-        if state_name == "MERGING":
-            self._banner_label.setText("\u26a0 Merge in progress")
-            self._conflict_banner.setVisible(True)
-            self._btn_commit.setText("Finish Merge")
-            if merge_msg and not self._msg_edit.toPlainText().strip():
-                self._msg_edit.setPlainText(merge_msg.strip())
-        elif state_name == "REBASING":
-            self._banner_label.setText("\u26a0 Rebase in progress")
-            self._conflict_banner.setVisible(True)
-            self._btn_commit.setText("Continue Rebase")
-        elif state_name == "CHERRY_PICKING":
-            self._banner_label.setText("\u26a0 Cherry-pick in progress")
-            self._conflict_banner.setVisible(True)
-            self._btn_commit.setText("Continue Cherry-pick")
-        elif state_name == "REVERTING":
-            self._banner_label.setText("\u26a0 Revert in progress")
-            self._conflict_banner.setVisible(True)
-            self._btn_commit.setText("Continue Revert")
-        else:
-            self._conflict_banner.setVisible(False)
+        self._chk_amend.setEnabled(operation is None)
+        if operation is None:
             self._btn_commit.setText("Amend Commit" if self._chk_amend.isChecked() else "Commit")
+            return
+        self._banner_label.setText(f"\u26a0 {operation.banner}")
+        self._btn_commit.setText(operation.commit_label)
+        # Only a merge leaves a message behind, and a draft the user typed wins.
+        if state == RepoState.MERGING and merge_msg and not self._msg_edit.toPlainText().strip():
+            self._msg_edit.setPlainText(merge_msg.strip())
 
     def _untick_amend(self) -> None:
         """Untick Amend through its handler, so the editor gets the draft back
@@ -644,15 +660,9 @@ class WorkingTreeWidget(QWidget):
         self._chk_amend.setChecked(False)
 
     def _on_abort_clicked(self) -> None:
-        state = getattr(self, "_current_state", "CLEAN")
-        if state == "MERGING":
-            self.merge_abort_requested.emit()
-        elif state == "REBASING":
-            self.rebase_abort_requested.emit()
-        elif state == "CHERRY_PICKING":
-            self.cherry_pick_abort_requested.emit()
-        elif state == "REVERTING":
-            self.revert_abort_requested.emit()
+        operation = self._operations.get(self._current_state)
+        if operation is not None:
+            operation.abort.emit()
 
 
 def _append_to_gitignore(repo_path: str, path: str) -> None:

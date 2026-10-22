@@ -23,6 +23,12 @@ def _make_window(qtbot) -> MainWindow:
     return win
 
 
+def _state_given_to(banner: MagicMock) -> object:
+    """The state one banner update was given: the member itself, not its name."""
+    banner.assert_called_once()
+    return banner.call_args.args[0]
+
+
 def _merging_with_unreadable_message(win: MainWindow) -> None:
     win._queries.get_repo_state.execute.return_value = RepoStateInfo(RepoState.MERGING, "master")
     win._queries.get_merge_msg.execute.side_effect = UnicodeDecodeError(
@@ -36,9 +42,9 @@ def test_an_unreadable_merge_message_keeps_the_merge_banner(qtbot):
 
     win._refresh_state_banners()
 
-    win._working_tree.update_conflict_banner.assert_called_once_with("MERGING", None)
-    win._diff.update_state_banner.assert_called_once()
-    assert win._diff.update_state_banner.call_args.args[0] is RepoState.MERGING
+    win._working_tree.update_conflict_banner.assert_called_once_with(RepoState.MERGING, None)
+    assert _state_given_to(win._working_tree.update_conflict_banner) is RepoState.MERGING
+    assert _state_given_to(win._diff.update_state_banner) is RepoState.MERGING
 
 
 def test_an_unreadable_merge_message_is_logged(qtbot, caplog):
@@ -59,6 +65,6 @@ def test_an_unreadable_repo_state_is_logged_and_shown_as_clean(qtbot, caplog):
         win._refresh_state_banners()
 
     assert "HEAD is gone" in caplog.text
-    win._working_tree.update_conflict_banner.assert_called_once_with("CLEAN", None)
-    win._diff.update_state_banner.assert_called_once()
-    assert win._diff.update_state_banner.call_args.args[0] is RepoState.CLEAN
+    win._working_tree.update_conflict_banner.assert_called_once_with(RepoState.CLEAN, None)
+    assert _state_given_to(win._working_tree.update_conflict_banner) is RepoState.CLEAN
+    assert _state_given_to(win._diff.update_state_banner) is RepoState.CLEAN

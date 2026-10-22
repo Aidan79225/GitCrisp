@@ -36,8 +36,6 @@ def test_on_commit_emits_failed_when_create_commit_raises(qtbot, monkeypatch):
     w.reload_requested.connect(lambda: reload_called.append(True))
 
     w._msg_edit.setPlainText("test commit message")
-    # Simulate a clean repo state.
-    w._current_state = "CLEAN"
     w._on_commit()
 
     assert received == ["Commit failed: boom"]
@@ -61,7 +59,6 @@ def _amend_widget(qtbot, *, head_message="original subject", remote_on_head=Fals
     w = _make_commit_widget(qtbot)
     w._queries = queries
     w._commands = commands
-    w._current_state = "CLEAN"
     return w, queries, commands
 
 
