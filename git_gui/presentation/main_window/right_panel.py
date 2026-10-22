@@ -114,11 +114,19 @@ class RightPanelMixin:
     def _on_clone_requested(self) -> None:
         dialog = CloneDialog(self)
         dialog.clone_completed.connect(self._on_clone_completed)
+        dialog.cleanup_failed.connect(self._on_clone_cleanup_failed)
         dialog.exec()
 
     def _on_clone_completed(self, path: str) -> None:
         self._on_repo_open(path)
         self._log_panel.log(f"Cloned repository: {path}")
+
+    def _on_clone_cleanup_failed(self, path: str, reason: str) -> None:
+        self._log_panel.expand()
+        self._log_panel.log_error(
+            f"The cancelled clone could not remove what it wrote to {path}: {reason}. "
+            "Clear that folder before cloning into it again."
+        )
 
     def _on_submodule_open_requested(self, abs_path: str) -> None:
         """Open a submodule as a top-level repo (one-way switch).

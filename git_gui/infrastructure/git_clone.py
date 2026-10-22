@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -35,9 +36,22 @@ _KEPT_MESSAGE_LINES = 20
 # only how long the watcher outlives git; a cancel is acted on at once.
 _EXIT_POLL_SECONDS = 0.1
 
+# Windows refuses to delete a file while another process holds it open: a
+# helper the cancel has just killed, or a virus scanner reading a fresh pack.
+# Such a handle closes within moments, so a removal waits this long between tries.
+_IN_USE_RETRY_SECONDS = (0.1, 0.3, 1.0)
+
 
 class CloneCancelled(Exception):
-    """The clone was stopped on request and what it wrote was removed."""
+    """The clone was stopped on request and what it wrote was removed.
+
+    ``cleanup_error`` says why, when some of it could not be removed and is
+    still in the destination.
+    """
+
+    def __init__(self, message: str, cleanup_error: OSError | None = None) -> None:
+        super().__init__(message)
+        self.cleanup_error = cleanup_error
 
 
 class _CloneConfig:
@@ -143,8 +157,13 @@ def clone_repo(
 
     proc.wait()
     if cancelled.is_set():
-        destination.restore()
-        raise CloneCancelled(f"Clone of {url} was cancelled")
+        message = f"Clone of {url} was cancelled"
+        try:
+            destination.restore()
+        except OSError as error:
+            # Raised as the cancel it is: whoever cancelled is no longer waiting for a failure.
+            raise CloneCancelled(message, cleanup_error=error) from error
+        raise CloneCancelled(message)
     if proc.returncode != 0:
         destination.remove_created_parents()  # git removes only the destination itself.
         raise RuntimeError("\n".join(messages) or f"git clone exited with code {proc.returncode}")
@@ -243,6 +262,12 @@ def _make_writable_and_retry(
 ) -> None:
     # git writes its packs read-only, and Windows refuses to delete a read-only file.
     os.chmod(path, stat.S_IWRITE)
+    for delay in _IN_USE_RETRY_SECONDS:
+        try:
+            remove(path)
+            return
+        except PermissionError:
+            time.sleep(delay)
     remove(path)
 
 

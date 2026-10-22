@@ -241,3 +241,55 @@ def test_a_cancelled_clone_keeps_the_empty_folder_it_was_given(stalled_clone):
     dest.mkdir()
     _cancel(start(dest))
     assert dest.is_dir() and list(dest.iterdir()) == []
+
+
+def _in_use(path: Path) -> PermissionError:
+    return PermissionError(13, "in use by another process", str(path))
+
+
+def test_a_cancelled_clone_that_cannot_remove_what_it_wrote_says_why(stalled_clone, monkeypatch):
+    """The cleanup's error escaped in place of the cancel, so the dialog, closed
+    since, was the only one told, and the next clone there failed unexplained."""
+    start, work = stalled_clone
+    dest = work / "repo"
+    clone = start(dest)
+    error = _in_use(dest / ".git" / "config")
+
+    def fail(_path: Path) -> None:
+        raise error
+
+    monkeypatch.setattr(git_clone, "_remove", fail)
+
+    _cancel(clone)
+
+    assert isinstance(clone.error, CloneCancelled)
+    assert clone.error.cleanup_error is error
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="only Windows refuses to delete an open file")
+def test_a_cancelled_clone_reports_a_file_another_process_keeps_open(stalled_clone):
+    start, work = stalled_clone
+    dest = work / "repo"
+    clone = start(dest)
+    with open(dest / ".git" / "config", "rb"):
+        _cancel(clone)
+    assert isinstance(clone.error, CloneCancelled)
+    assert isinstance(clone.error.cleanup_error, PermissionError)
+
+
+def test_removing_a_file_waits_for_a_process_that_lets_go_of_it_soon(tmp_path):
+    """A helper just killed, or a scanner reading a fresh pack, holds a file for
+    a moment, and Windows refuses to delete it until that handle closes."""
+    held = tmp_path / "pack"
+    held.write_text("x")
+    attempts: list[str] = []
+
+    def remove(path: str) -> None:
+        attempts.append(path)
+        if len(attempts) < 3:
+            raise _in_use(Path(path))
+        os.remove(path)
+
+    git_clone._make_writable_and_retry(remove, str(held), _in_use(held))
+
+    assert not held.exists()

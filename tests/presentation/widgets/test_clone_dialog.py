@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -141,3 +142,31 @@ def test_a_cancelled_clone_is_not_reported_as_a_failure(qtbot, clone_until_cance
     qtbot.wait(200)
 
     assert dialog._error_label.text() == ""
+
+
+_IN_USE = "[WinError 32] The process cannot access the file: 'repo\\.git\\config'"
+
+
+@pytest.fixture
+def clone_that_cannot_clean_up():
+    """Make clone_repo run until it is cancelled, then fail to remove what it wrote."""
+
+    def clone(url, dest, on_progress=None, cancelled=None):
+        cancelled.wait(5)
+        raise CloneCancelled("cancelled", cleanup_error=PermissionError(_IN_USE))
+
+    with patch(_CLONE_REPO, side_effect=clone):
+        yield
+
+
+def test_a_cancelled_clone_that_left_files_behind_says_where_and_why(
+    qtbot, clone_that_cannot_clean_up
+):
+    """The dialog has closed by then, so it hands the report on rather than showing it."""
+    dialog = _dialog(qtbot)
+    dialog._on_clone()
+
+    with qtbot.waitSignal(dialog.cleanup_failed) as report:
+        dialog.reject()
+
+    assert report.args == [str(Path(dialog._folder_edit.text()) / "repo"), _IN_USE]
