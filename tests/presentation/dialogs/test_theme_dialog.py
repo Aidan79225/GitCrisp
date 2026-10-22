@@ -464,3 +464,30 @@ def test_swatch_borders_take_the_themes_outline_colour(app, reset_theme):
     outline = get_theme_manager().current.colors.outline
     assert f"border: 1px solid {outline}" in dlg._swatch_buttons["primary"].styleSheet()
     assert f"border: 1px solid {outline}" in dlg._lane_buttons[0].styleSheet()
+
+
+@pytest.mark.parametrize("mode", ["dark", "light"])
+def test_every_swatch_label_reads_on_its_own_colour(app, reset_theme, custom_theme_file, mode):
+    """The labels were picked by perceived brightness, which put white text
+    on Dark's error swatch at 3.35:1 and on Light's status_modified at
+    3.14:1, below the 4.5:1 AA minimum."""
+    import re
+
+    from PySide6.QtGui import QColor
+
+    from tests.presentation.theme.test_light_contrast import _ratio
+
+    get_theme_manager().set_mode(mode)
+    dlg = ThemeDialog()
+
+    def label_contrast(token: str) -> float:
+        style = dlg._swatch_buttons[token].styleSheet()
+        text = re.search(r"(?<![-\w])color: (#\w+)", style).group(1)
+        return _ratio(QColor(text).name(), dlg._working_colors[token])
+
+    # Overlay tokens are translucent, so their label sits on a blend.
+    opaque = [token for token, value in dlg._working_colors.items() if len(value) == 7]
+    ratios = {token: label_contrast(token) for token in opaque}
+    worst = min(ratios, key=ratios.__getitem__)
+
+    assert ratios[worst] >= 4.5, f"{mode}: the {worst} label is {ratios[worst]:.2f}:1"
