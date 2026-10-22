@@ -40,6 +40,11 @@ from git_gui.resources import get_resource_path
 PAGE_SIZE = 50
 MAX_RELOAD_LIMIT = 2000  # cap doubling retry to avoid unbounded loads
 
+_REMOTES_UNKNOWN = (
+    "The remotes did not load, so which one holds this branch is unknown. "
+    "Fix the remote configuration (git remote -v), then try again."
+)
+
 
 class _GraphTableView(QTableView):
     """QTableView with full-row hover highlight."""
@@ -1106,30 +1111,52 @@ class GraphWidget(QWidget):
         _add_branch_actions(
             menu, "Delete branch", local_branches, self.delete_branch_requested.emit
         )
-        _add_branch_actions(menu, "Delete remote branch", remote_branches, self._emit_remote_delete)
+        self._add_remote_delete_actions(menu, remote_branches)
 
         self._add_merge_rebase_section(menu, oid, real_branches)
 
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
-    def _emit_remote_delete(self, name: str) -> None:
-        remote, branch = split_remote_branch(name, self._remote_names())
+    def _add_remote_delete_actions(self, menu: QMenu, names: list[str]) -> None:
+        """Add 'Delete remote branch' for `names`, off for one whose remote is unknown.
+
+        A remote's name may hold a '/', so 'team/upstream/feature' is on
+        'team' or on 'team/upstream' depending on which remotes exist. While
+        they cannot be listed, only a name with a single '/' has one answer:
+        guessing for the others could delete another remote's branch, and
+        the confirmation, which joins the parts back together, cannot show it.
+        """
+        if not names:
+            return
+        remotes = self._remote_names()
+        actions = _add_one_or_submenu(
+            menu, "Delete remote branch", names, lambda name: f"Delete remote branch: {name}"
+        )
+        for action, name in zip(actions, names, strict=True):
+            if remotes is None and name.count("/") > 1:
+                action.setEnabled(False)
+                action.setToolTip(_REMOTES_UNKNOWN)
+                continue
+            action.triggered.connect(
+                lambda _checked=False, n=name, r=remotes or []: self._emit_remote_delete(n, r)
+            )
+
+    def _emit_remote_delete(self, name: str, remotes: list[str]) -> None:
+        remote, branch = split_remote_branch(name, remotes)
         if remote and branch:
             self.remote_branch_delete_requested.emit(remote, branch)
 
-    def _remote_names(self) -> list[str]:
-        """The repo's remotes, or none when they cannot be listed.
+    def _remote_names(self) -> list[str] | None:
+        """The repo's remotes, or None when they cannot be listed.
 
         One remote with an invalid name or refspec in .git/config fails the
-        whole listing. Raising from the menu action made the click do nothing
-        at all; with no remotes known the name splits at its first '/', and
-        the confirmation and git's own answer still reach the user.
+        whole listing. Raising from the menu left the right-click doing nothing.
         """
         try:
             return [r.name for r in self._queries.list_remotes.execute()]
         except Exception as e:
             logger.warning("Listing remotes failed: %s", e)
-            return []
+            return None
 
     def _add_merge_rebase_section(
         self, menu: QMenu, oid: str, branches_on_commit: list[str]

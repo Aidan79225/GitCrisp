@@ -9,7 +9,7 @@ from PySide6.QtCore import QPoint
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu
 
-from git_gui.domain.entities import Branch, Commit, RepoState, RepoStateInfo
+from git_gui.domain.entities import Branch, Commit, Remote, RepoState, RepoStateInfo
 from git_gui.presentation.widgets.graph import GraphWidget
 
 ROW_OID = "c" * 40
@@ -31,14 +31,17 @@ def graph_widget(qtbot, queries=None) -> GraphWidget:
     return widget
 
 
-def open_context_menu(qtbot, branches: list[Branch]) -> tuple[GraphWidget, QMenu]:
+def open_context_menu(
+    qtbot, branches: list[Branch], queries: MagicMock | None = None
+) -> tuple[GraphWidget, QMenu]:
     """Right-click a commit that `branches` point at; return the widget and its menu.
 
+    `queries` answers the menu's own reads; by default, queries_listing(branches).
     The menu is read instead of shown: patching QMenu.exec does not stop the
     C++ modal from opening, so graph's QMenu is swapped for a subclass whose
     exec returns at once (the same approach as test_sidebar_signals).
     """
-    widget = graph_widget(qtbot, _queries_listing(branches))
+    widget = graph_widget(qtbot, queries or queries_listing(branches))
     commit = Commit(ROW_OID, "subject", "T", datetime(2026, 1, 1), [])
     widget._model.reload([commit], {ROW_OID: [b.name for b in branches]})
     widget._view.indexAt = MagicMock(return_value=widget._model.index(0, 0))
@@ -66,9 +69,11 @@ def find_action(menu: QMenu, text: str, submenu: str | None = None) -> QAction:
     return next(a for a in actions if a.text() == text)
 
 
-def _queries_listing(branches: list[Branch]) -> MagicMock:
+def queries_listing(branches: list[Branch]) -> MagicMock:
+    """A query bus whose repo holds `branches` and the one remote 'origin'."""
     queries = MagicMock()
     queries.get_branches.execute.return_value = branches
+    queries.list_remotes.execute.return_value = [Remote("origin", "u", "u")]
     queries.get_repo_state.execute.return_value = RepoStateInfo(RepoState.CLEAN, "main")
     queries.get_head_oid.execute.return_value = ROW_OID
     queries.is_ancestor.execute.return_value = False

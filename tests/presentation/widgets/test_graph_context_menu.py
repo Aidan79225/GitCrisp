@@ -12,8 +12,14 @@ from unittest.mock import MagicMock
 
 from PySide6.QtWidgets import QMenu
 
-from git_gui.domain.entities import Remote, RepoState, RepoStateInfo
-from tests.presentation.widgets.graph_menu_helpers import graph_widget
+from git_gui.domain.entities import Branch, Remote, RepoState, RepoStateInfo
+from tests.presentation.widgets.graph_menu_helpers import (
+    ROW_OID,
+    find_action,
+    graph_widget,
+    open_context_menu,
+    queries_listing,
+)
 
 
 @dataclass
@@ -331,22 +337,14 @@ def test_entries_not_shown_when_target_is_head(qtbot):
 # ── Remote branch delete from context menu ─────────────────────────────
 
 
-def _bus_with_remotes(*names: str) -> MagicMock:
-    queries = MagicMock()
-    queries.list_remotes.execute.return_value = [Remote(n, "u", "u") for n in names]
-    return queries
-
-
 def test_emit_remote_delete_splits_remote_and_branch(qtbot):
     """`_emit_remote_delete` should split the qualified name into the
     remote and the branch on it, and emit (remote, branch)."""
     w = graph_widget(qtbot)
-
-    w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
     w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
 
-    w._emit_remote_delete("origin/main")
+    w._emit_remote_delete("origin/main", ["origin"])
 
     assert received == [("origin", "main")]
 
@@ -355,12 +353,10 @@ def test_emit_remote_delete_handles_slash_in_branch_name(qtbot):
     """Branch names can contain slashes (e.g. 'feature/foo'). The split
     must keep them in the branch."""
     w = graph_widget(qtbot)
-
-    w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
     w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
 
-    w._emit_remote_delete("origin/feature/foo")
+    w._emit_remote_delete("origin/feature/foo", ["origin"])
 
     assert received == [("origin", "feature/foo")]
 
@@ -368,12 +364,10 @@ def test_emit_remote_delete_handles_slash_in_branch_name(qtbot):
 def test_emit_remote_delete_bails_on_malformed_name(qtbot):
     """A name with no slash means the input is malformed; no signal."""
     w = graph_widget(qtbot)
-
-    w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
     w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
 
-    w._emit_remote_delete("no-slash")
+    w._emit_remote_delete("no-slash", ["origin"])
 
     assert received == []
 
@@ -381,12 +375,10 @@ def test_emit_remote_delete_bails_on_malformed_name(qtbot):
 def test_emit_remote_delete_bails_on_empty_remote(qtbot):
     """A leading slash means empty remote — bail."""
     w = graph_widget(qtbot)
-
-    w._queries = _bus_with_remotes("origin")
     received: list[tuple[str, str]] = []
     w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
 
-    w._emit_remote_delete("/main")
+    w._emit_remote_delete("/main", ["origin"])
 
     assert received == []
 
@@ -399,13 +391,6 @@ def test_local_delete_emits_local_name_when_remote_also_present(qtbot):
 
     The commit carries both refs whenever local and remote are in sync.
     """
-    from git_gui.domain.entities import Branch
-    from tests.presentation.widgets.graph_menu_helpers import (
-        ROW_OID,
-        find_action,
-        open_context_menu,
-    )
-
     w, menu = open_context_menu(
         qtbot,
         [Branch("main", False, True, ROW_OID), Branch("origin/main", True, False, ROW_OID)],
@@ -424,18 +409,13 @@ def test_local_delete_emits_local_name_when_remote_also_present(qtbot):
 def test_deleting_a_remote_branch_resolves_a_remote_whose_name_has_a_slash(qtbot):
     """With remotes 'team' and 'team/upstream', splitting at the first slash
     pushed the delete to 'team', deleting its branch 'upstream/feature'."""
-    from git_gui.domain.entities import Branch, Remote
-    from tests.presentation.widgets.graph_menu_helpers import (
-        ROW_OID,
-        find_action,
-        open_context_menu,
-    )
-
-    w, menu = open_context_menu(qtbot, [Branch("team/upstream/feature", True, False, ROW_OID)])
-    w._queries.list_remotes.execute.return_value = [
+    branches = [Branch("team/upstream/feature", True, False, ROW_OID)]
+    queries = queries_listing(branches)
+    queries.list_remotes.execute.return_value = [
         Remote("team", "u", "u"),
         Remote("team/upstream", "u", "u"),
     ]
+    w, menu = open_context_menu(qtbot, branches, queries)
     received: list[tuple[str, str]] = []
     w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
 
@@ -444,25 +424,44 @@ def test_deleting_a_remote_branch_resolves_a_remote_whose_name_has_a_slash(qtbot
     assert received == [("team/upstream", "feature")]
 
 
+def _remotes_unlistable(branches: list[Branch]) -> MagicMock:
+    """A query bus whose remote listing fails, as one invalid remote in .git/config makes it."""
+    queries = queries_listing(branches)
+    queries.list_remotes.execute.side_effect = RuntimeError(
+        "'bad..name' is not a valid remote name."
+    )
+    return queries
+
+
 def test_deleting_a_remote_branch_still_asks_when_the_remotes_cannot_be_listed(qtbot):
     """One remote with a refspec libgit2 rejects fails the whole listing. The
-    error escaped the menu action, so the click did nothing and said nothing."""
-    from git_gui.domain.entities import Branch
-    from tests.presentation.widgets.graph_menu_helpers import (
-        ROW_OID,
-        find_action,
-        open_context_menu,
-    )
-
-    w, menu = open_context_menu(qtbot, [Branch("origin/feature", True, False, ROW_OID)])
-    w._queries.list_remotes.execute.side_effect = RuntimeError(
-        "'+refs/heads/*:refs/remotes/**/bad' is not a valid refspec."
-    )
-    received: list[tuple[str, str]] = []
-    w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
-
+    error escaped the menu action, so the click did nothing and said nothing.
+    A name with a single '/' has one remote whatever the remotes are."""
+    branches = [Branch("origin/feature", True, False, ROW_OID)]
     with qtbot.capture_exceptions() as escaped:
+        w, menu = open_context_menu(qtbot, branches, _remotes_unlistable(branches))
+        received: list[tuple[str, str]] = []
+        w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
         find_action(menu, "Delete remote branch: origin/feature").trigger()
 
     assert escaped == []
     assert received == [("origin", "feature")]
+
+
+def test_a_remote_branch_is_not_deleted_from_a_guessed_remote(qtbot):
+    """With remotes 'team' and 'team/upstream' and an unlistable one beside
+    them, 'team/upstream/feature' split at its first '/' deleted branch
+    'upstream/feature' from 'team': another branch, and no undo. The
+    confirmation joins remote and branch back together, so it could not show
+    the wrong split. The action is off instead, saying how to turn it on."""
+    branches = [Branch("team/upstream/feature", True, False, ROW_OID)]
+    w, menu = open_context_menu(qtbot, branches, _remotes_unlistable(branches))
+    received: list[tuple[str, str]] = []
+    w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
+
+    action = find_action(menu, "Delete remote branch: team/upstream/feature")
+    action.trigger()
+
+    assert received == []
+    assert not action.isEnabled()
+    assert "git remote -v" in action.toolTip()
