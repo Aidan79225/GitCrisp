@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import pytest
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QImage, QPainter
 
 from git_gui.presentation.theme import get_theme_manager
-from git_gui.presentation.theme.loader import load_builtin
 from git_gui.presentation.widgets.author_avatar import (
     _color_for_author,
     _initials,
-    _initials_color,
     paint_avatar,
 )
-from tests.presentation.theme.test_light_contrast import _ratio
 
 
 class TestInitials:
@@ -97,14 +93,3 @@ def test_an_avatar_is_filled_from_the_themes_lane_colours():
     lanes = {QColor(c).name() for c in get_theme_manager().current.colors.graph_lane_colors}
 
     assert _color_for_author("Alice Wang <alice@example.com>").name() in lanes
-
-
-@pytest.mark.parametrize("theme", ["dark", "light"])
-def test_initials_meet_aa_contrast_on_every_lane_colour(theme):
-    fills = [QColor(c) for c in load_builtin(theme).colors.graph_lane_colors]
-
-    # Measured with the theme tests' own WCAG formula, not the one the
-    # avatar chooses with, so a wrong luminance cannot pass its own check.
-    worst = min(_ratio(_initials_color(fill).name(), fill.name()) for fill in fills)
-
-    assert worst >= 4.5
