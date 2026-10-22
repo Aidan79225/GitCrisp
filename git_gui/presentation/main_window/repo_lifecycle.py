@@ -44,6 +44,10 @@ class _RepoRequest:
     fallback: str | None = None
 
 
+def _replaces_a_closed_repo(request: _RepoRequest) -> bool:
+    return request.reason is _SwitchReason.REPLACE or request.fallback is not None
+
+
 def _same_path_text(a: str, b: str) -> bool:
     """Whether two paths are written the same, up to separators and, where the
     file system ignores it, letter case. Touches no disk."""
@@ -323,11 +327,15 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _closing_takes_what_is_on_screen(self, path: str) -> bool:
         """Whether *path* is the repo on screen, the repo on its way to replace
         it after it was closed, or the open repo whose linked worktree is on
-        screen — that worktree's only row hangs under it."""
+        screen — that worktree's only row hangs under it.
+
+        A repo a close handed over to replaces the closed one too, though the
+        user asked for it as a switch: it carries the fallback.
+        """
         if path == self._repo_path:
             return True
         pending = self._pending_request()
-        if pending is not None and pending.path == path and pending.reason is _SwitchReason.REPLACE:
+        if pending is not None and pending.path == path and _replaces_a_closed_repo(pending):
             return True
         in_owned_worktree = self._repo_path not in self._repo_store.get_open_repos()
         return in_owned_worktree and path == self._repo_list.worktree_owner()

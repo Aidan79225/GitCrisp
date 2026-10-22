@@ -119,6 +119,23 @@ def test_a_previous_repo_closed_meanwhile_is_not_reopened(qtbot, tmp_path, repos
     assert win._repo_store.get_open_repos() == [b]
 
 
+def test_closing_the_repo_ctrl_w_handed_over_to_lands_on_the_previous_repo(qtbot, tmp_path, repos):
+    """It was about to fill the empty window: closing it goes where closing it
+    on screen would."""
+    c, a, b = repos
+    win, factory = _window_on_a(qtbot, tmp_path, repos)
+    win._switch_repo(b)
+    win._close_current_repo()
+
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        win._on_repo_close(b)
+    with qtbot.waitSignal(win._repo_ready_signals.failed, timeout=5000):
+        factory.release.set()
+
+    assert win._repo_path == c
+    assert win._repo_store.get_open_repos() == [c]
+
+
 def test_ctrl_w_after_a_switch_has_failed_lands_on_the_previous_repo(qtbot, tmp_path, repos):
     c, a, b = repos
     win, factory = _window_on_a(qtbot, tmp_path, repos)
