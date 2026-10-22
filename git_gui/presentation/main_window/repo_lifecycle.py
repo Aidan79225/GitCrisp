@@ -519,13 +519,14 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         label: str,
         op: Callable[[CommandBus], object],
         on_done: Callable[[object], None],
-        on_error: Callable[[Exception], bool] | None = None,
+        on_error: Callable[[Exception, CommandBus], bool] | None = None,
     ) -> None:
         """Run one worktree command off the GUI thread, on the repo open now.
 
         *on_done* gets the command's result back on the GUI thread. A failure
         *on_error* does not claim (by returning True) is reported as
-        "<label> worktree failed: ...".
+        "<label> worktree failed: ...". *on_error* also gets the bus the
+        command ran on: another repo may have opened since it started.
         """
         commands = self._commands
         if commands is None:
@@ -539,7 +540,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
                 signals.failed.emit(e)
 
         def _failed(error: Exception) -> None:
-            if on_error is None or not on_error(error):
+            if on_error is None or not on_error(error, commands):
                 self._report_worktree_error(f"{label} worktree failed: {error}")
 
         signals.done.connect(on_done)
@@ -577,8 +578,11 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _run_lock_worktree(self, path: str) -> None:
         from PySide6.QtWidgets import QInputDialog
 
+        # The prompt is modal: a switch already on its way can land while it
+        # is up, and that repo's git does not know this worktree.
+        asked_in = self._commands
         text, ok = QInputDialog.getText(self, "Lock Worktree", "Reason (optional):")
-        if not ok:
+        if not ok or self._repo_switched_while_asking(asked_in, f"Lock worktree {path}"):
             return
         self._run_lock_worktree_with_reason(path, text.strip())
 
@@ -592,12 +596,19 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _begin_remove_worktree(self, path: str) -> None:
         from PySide6.QtWidgets import QMessageBox
 
-        if (
-            QMessageBox.question(self, "Remove worktree", f"Remove worktree at {path}?")
-            != QMessageBox.Yes
-        ):
+        asked_in = self._commands
+        answer = QMessageBox.question(self, "Remove worktree", f"Remove worktree at {path}?")
+        if answer != QMessageBox.Yes:
             return
-        self._run_remove_worktree(path, force=False)
+        self._remove_worktree_unless_switched(path, asked_in, force=False, override_lock=False)
+
+    def _remove_worktree_unless_switched(
+        self, path: str, asked_in: CommandBus | None, *, force: bool, override_lock: bool
+    ) -> None:
+        """Remove *path* as the user agreed, unless another repo opened while
+        they were asked about it in *asked_in*: its git does not know *path*."""
+        if not self._repo_switched_while_asking(asked_in, f"Remove worktree {path}"):
+            self._run_remove_worktree(path, force=force, override_lock=override_lock)
 
     def _run_remove_worktree(self, path: str, *, force: bool, override_lock: bool = False) -> None:
         self._run_worktree_op(
@@ -606,13 +617,19 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
                 path, force=force, override_lock=override_lock
             ),
             lambda _: self._on_worktree_removed(path),
-            lambda error: self._offer_force_remove(
-                path, error, force=force, override_lock=override_lock
+            lambda error, commands: self._offer_force_remove(
+                path, error, commands, force=force, override_lock=override_lock
             ),
         )
 
     def _offer_force_remove(
-        self, path: str, error: Exception, *, force: bool, override_lock: bool
+        self,
+        path: str,
+        error: Exception,
+        refused_in: CommandBus,
+        *,
+        force: bool,
+        override_lock: bool,
     ) -> bool:
         """Offer to override what git refused the removal for; False for any
         other failure, and for one the user has already overridden.
@@ -626,9 +643,9 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         # architecture guard forbids importing the concrete error types here).
         name = type(error).__name__
         if name == "WorktreeDirtyError" and not force:
-            self._on_remove_dirty(path, override_lock=override_lock)
+            self._on_remove_dirty(path, refused_in, override_lock=override_lock)
         elif name == "WorktreeLockedError" and not override_lock:
-            self._on_remove_locked(path, str(error), force=force)
+            self._on_remove_locked(path, str(error), refused_in, force=force)
         else:
             return False
         return True
@@ -676,7 +693,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
                 return candidate
         return None
 
-    def _on_remove_dirty(self, path: str, *, override_lock: bool) -> None:
+    def _on_remove_dirty(self, path: str, refused_in: CommandBus, *, override_lock: bool) -> None:
         from PySide6.QtWidgets import QMessageBox
 
         msg = QMessageBox(self)
@@ -686,9 +703,13 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         msg.addButton("Cancel", QMessageBox.RejectRole)
         msg.exec()
         if msg.clickedButton() is force:
-            self._run_remove_worktree(path, force=True, override_lock=override_lock)
+            self._remove_worktree_unless_switched(
+                path, refused_in, force=True, override_lock=override_lock
+            )
 
-    def _on_remove_locked(self, path: str, reason: str, *, force: bool) -> None:
+    def _on_remove_locked(
+        self, path: str, reason: str, refused_in: CommandBus, *, force: bool
+    ) -> None:
         from PySide6.QtWidgets import QMessageBox
 
         msg = QMessageBox(self)
@@ -700,4 +721,4 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if msg.clickedButton() is override:
             # Lifting the lock alone: uncommitted changes still get their
             # own prompt.
-            self._run_remove_worktree(path, force=force, override_lock=True)
+            self._remove_worktree_unless_switched(path, refused_in, force=force, override_lock=True)
