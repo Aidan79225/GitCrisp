@@ -297,9 +297,11 @@ def test_back_does_nothing_with_an_empty_history(qtbot):
 
 def test_a_long_author_widens_the_gutter_no_further_than_the_cap(qtbot):
     """The gutter grows with the widest author shown, up to AUTHOR_CHARS of them."""
+    short, _ = _pane(qtbot, lines=[replace(LINES[0], author="Al")])
     at_cap, _ = _pane(qtbot, lines=[replace(LINES[0], author="W" * AUTHOR_CHARS)])
     past_cap, _ = _pane(qtbot, lines=[replace(LINES[0], author="W" * (AUTHOR_CHARS * 3))])
 
+    assert short._editor.gutter_width() < at_cap._editor.gutter_width()
     assert past_cap._editor.gutter_width() <= at_cap._editor.gutter_width()
 
 
