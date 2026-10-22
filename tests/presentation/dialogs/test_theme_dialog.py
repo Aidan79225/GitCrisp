@@ -421,6 +421,67 @@ def test_switching_radios_from_a_custom_theme_with_fewer_lanes_keeps_working(
     assert dlg._working_colors["surface"] == dark.colors.surface
 
 
+def _write_custom_theme_with_lanes(custom_path: Path, lanes: int) -> None:
+    import dataclasses
+    import json
+
+    from git_gui.presentation.dialogs.theme_dialog import _theme_to_json
+    from git_gui.presentation.theme.loader import load_builtin
+
+    dark = load_builtin("dark")
+    lane_colors = [f"#1234{i:02x}" for i in range(lanes)]
+    theme = dataclasses.replace(
+        dark, colors=dataclasses.replace(dark.colors, graph_lane_colors=lane_colors)
+    )
+    custom_path.write_text(json.dumps(_theme_to_json(theme)), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("saved_lanes", "active_mode", "radios_clicked"),
+    [(1, "dark", ["custom"]), (10, "custom", ["light", "custom"])],
+    ids=["fewer-lanes-than-the-active-theme", "more-lanes-than-the-builtin-picked"],
+)
+def test_the_lane_swatches_shown_are_the_lanes_apply_saves(
+    app, reset_theme, qtbot, tmp_path, monkeypatch, saved_lanes, active_mode, radios_clicked
+):
+    """The lane buttons were made once, for the theme active on open: a
+    working theme with fewer lanes left stale swatches whose click raised
+    IndexError, and one with more lanes had swatches missing."""
+    import json
+
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QColorDialog, QPushButton
+
+    from git_gui.presentation.theme import settings as s
+
+    custom_path = tmp_path / "custom_theme.json"
+    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+    _write_custom_theme_with_lanes(custom_path, saved_lanes)
+    get_theme_manager().set_mode(active_mode)
+    dlg = ThemeDialog()
+    qtbot.addWidget(dlg)
+    for mode in radios_clicked:
+        _radios(dlg)[mode].setChecked(True)
+
+    def lane_swatches() -> list[QPushButton]:
+        return [
+            b for b in dlg.findChildren(QPushButton) if b.accessibleName().startswith("Graph lane")
+        ]
+
+    assert [b.accessibleName() for b in lane_swatches()] == [
+        f"Graph lane {i} colour {hex_value}" for i, hex_value in enumerate(dlg._working_lane_colors)
+    ]
+    monkeypatch.setattr(QColorDialog, "getColor", lambda *args, **kwargs: QColor("#abcdef"))
+    with qtbot.capture_exceptions() as raised:
+        for swatch in lane_swatches():
+            swatch.click()
+    assert raised == []
+    dlg._on_apply()
+    saved = json.loads(custom_path.read_text(encoding="utf-8"))["colors"]["graph_lane_colors"]
+    assert saved == ["#abcdef"] * len(lane_swatches())
+
+
 def test_swatch_borders_take_the_themes_outline_colour(app, reset_theme):
     get_theme_manager().set_mode("light")
     dlg = ThemeDialog()

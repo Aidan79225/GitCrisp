@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPushButton,
     QRadioButton,
     QVBoxLayout,
     QWidget,
@@ -214,7 +215,7 @@ class ThemeDialog(QDialog):
         self._show_working_colors()
 
     def _build_custom_panel(self) -> QGroupBox:
-        from PySide6.QtWidgets import QGridLayout, QPushButton, QSlider, QToolBox
+        from PySide6.QtWidgets import QGridLayout, QSlider, QToolBox
 
         panel = QGroupBox("Custom")
         outer = QVBoxLayout(panel)
@@ -275,17 +276,10 @@ class ThemeDialog(QDialog):
         lanes_page = QWidget()
         lanes_layout = QVBoxLayout(lanes_page)
         lanes_layout.addWidget(QLabel("Graph lane colours (left = lane 0)"))
-        lanes_row = QHBoxLayout()
-        for i, hex_value in enumerate(self._working_lane_colors):
-            btn = QPushButton()
-            btn.setFixedSize(40, 22)
-            btn.setFlat(True)
-            btn.clicked.connect(lambda _checked=False, idx=i: self._open_lane_picker(idx))
-            self._lane_buttons.append(btn)
-            self._apply_lane_swatch_color(i, hex_value)
-            lanes_row.addWidget(btn)
-        lanes_row.addStretch()
-        lanes_layout.addLayout(lanes_row)
+        self._lanes_row = QHBoxLayout()
+        self._lanes_row.addStretch()
+        self._show_lane_colors()
+        lanes_layout.addLayout(self._lanes_row)
         lanes_layout.addStretch()
         self._toolbox.addItem(lanes_page, _GRAPH_LANE_PAGE_TITLE)
 
@@ -306,10 +300,28 @@ class ThemeDialog(QDialog):
     def _show_working_colors(self) -> None:
         for token, hex_value in self._working_colors.items():
             self._apply_swatch_color(token, hex_value)
-        # A saved theme may list more lanes than the dialog has buttons for;
-        # those extra lanes are kept as they are and saved back unchanged.
-        for i, hex_value in enumerate(self._working_lane_colors[: len(self._lane_buttons)]):
+        self._show_lane_colors()
+
+    def _show_lane_colors(self) -> None:
+        # One button per working lane: a saved theme may list more or fewer
+        # lanes than the builtins, and Apply saves every lane it lists.
+        while len(self._lane_buttons) < len(self._working_lane_colors):
+            self._add_lane_button()
+        while len(self._lane_buttons) > len(self._working_lane_colors):
+            stale = self._lane_buttons.pop()
+            stale.setParent(None)  # leaves the row and the screen at once
+            stale.deleteLater()
+        for i, hex_value in enumerate(self._working_lane_colors):
             self._apply_lane_swatch_color(i, hex_value)
+
+    def _add_lane_button(self) -> None:
+        idx = len(self._lane_buttons)
+        btn = QPushButton()
+        btn.setFixedSize(40, 22)
+        btn.setFlat(True)
+        btn.clicked.connect(lambda _checked=False: self._open_lane_picker(idx))
+        self._lane_buttons.append(btn)
+        self._lanes_row.insertWidget(idx, btn)  # ahead of the trailing stretch
 
     def _apply_swatch_color(self, token: str, hex_value: str) -> None:
         btn = self._swatch_buttons[token]
