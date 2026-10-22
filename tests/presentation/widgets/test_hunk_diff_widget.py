@@ -15,9 +15,16 @@ class FakeQueryBus:
     """Minimal stand-in that satisfies HunkDiffWidget.__init__ and load methods."""
 
     def __init__(self):
+        # Real return types, not mocks: the pane's workers emit these through
+        # typed Qt signals, and a MagicMock in a list-typed signal argument
+        # cannot be converted, which crashes the interpreter once the queued
+        # delivery runs, often in a later test.
         self.get_working_tree_diff_map = MagicMock()
+        self.get_working_tree_diff_map.execute.return_value = {}
         self.get_staged_diff = MagicMock()
+        self.get_staged_diff.execute.return_value = []
         self.get_file_diff = MagicMock()
+        self.get_file_diff.execute.return_value = []
         self.list_submodules = MagicMock()
         self.list_submodules.execute.return_value = []
 
