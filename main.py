@@ -20,8 +20,6 @@ from git_gui.presentation.app_settings import get_send_crash_reports
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window import MainWindow
 from git_gui.presentation.theme import ThemeManager, set_theme_manager
-from git_gui.presentation.widgets.log_panel import LogPanel
-from git_gui.presentation.widgets.repo_list import RepoListWidget
 from git_gui.resources import get_resource_path
 
 
@@ -131,14 +129,14 @@ class _GoneRepoPruner(QObject):
     def __init__(
         self,
         repo_store: JsonRepoStore,
+        save: Callable[[], None],
         on_pruned: Callable[[], None],
-        on_save_failed: Callable[[str], None],
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._repo_store = repo_store
+        self._save = save
         self._on_pruned = on_pruned
-        self._on_save_failed = on_save_failed
         self._found_gone.connect(self._forget)
 
     def start(self) -> None:
@@ -160,7 +158,7 @@ class _GoneRepoPruner(QObject):
             return
         for path in gone:
             self._repo_store.forget(path)
-        _save_repo_store(self._repo_store, self._on_save_failed)
+        self._save()
         self._on_pruned()
 
 
@@ -254,18 +252,19 @@ def main() -> None:
     repo_store.load()
     window = _open_window(repo_store, JsonRemoteTagCache())
     window.show()
-    _GoneRepoPruner(
-        repo_store,
-        on_pruned=lambda: _reload_repo_list(window),
-        on_save_failed=lambda reason: _report_unsaved_repo_list(window, reason),
-        parent=window,
-    ).start()
+    _prune_gone_repos(window, repo_store)
     sys.exit(app.exec())
 
 
-def _reload_repo_list(window: MainWindow) -> None:
-    # The list on screen was drawn from the store before the pruning finished.
-    window.findChild(RepoListWidget).reload()
+def _prune_gone_repos(window: MainWindow, repo_store: JsonRepoStore) -> None:
+    """Forget the stored repos that are gone, and take them off the list
+    *window* drew from *repo_store* before the pruning finished."""
+    _GoneRepoPruner(
+        repo_store,
+        save=window.save_repo_list,
+        on_pruned=window.reload_repo_list,
+        parent=window,
+    ).start()
 
 
 def _open_window(repo_store: JsonRepoStore, remote_tag_cache: JsonRemoteTagCache) -> MainWindow:
@@ -279,30 +278,11 @@ def _open_window(repo_store: JsonRepoStore, remote_tag_cache: JsonRemoteTagCache
         repo_path,
         session_factory=_open_session,
     )
-    _save_repo_store(repo_store, on_failed=lambda reason: _report_unsaved_repo_list(window, reason))
+    # Records what the launch settled on. save() also raises on every call
+    # after load() could not read repos.json; the window reports that in its
+    # log rather than letting it stop the launch.
+    window.save_repo_list()
     return window
-
-
-def _save_repo_store(repo_store: JsonRepoStore, on_failed: Callable[[str], None]) -> None:
-    """Write the repo list out, handing a failed write to *on_failed* rather than raising.
-
-    save() raises when repos.json cannot be written (read-only, locked by a
-    sync client, a full disk) and on every call after load() could not read
-    it. At launch that error left main() before the window showed, so GitCrisp
-    would not start until the file was fixed by hand. The in-memory store is
-    right either way, and the next save tries again.
-    """
-    try:
-        repo_store.save()
-    except OSError as e:
-        on_failed(str(e))
-
-
-def _report_unsaved_repo_list(window: MainWindow, reason: str) -> None:
-    # Worded as the window reports its own failed saves of the list.
-    log_panel = window.findChild(LogPanel)
-    log_panel.expand()
-    log_panel.log_error(f"Could not save the repo list: {reason}")
 
 
 if __name__ == "__main__":

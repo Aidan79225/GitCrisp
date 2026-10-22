@@ -202,7 +202,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._working_tree.set_repo_path(path)
         self._working_tree.set_buses(self._queries, self._commands)
         self._record_in_store(request)
-        self._save_repo_store()
+        self.save_repo_list()
         self._repo_list.reload()
         self.setWindowTitle(f"GitCrisp — {path}")
         # Re-install the Git menu so its actions bind to the new repo.
@@ -215,18 +215,24 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._load_worktrees_for_active_repo()
         self._refresh_state_banners()
 
-    def _save_repo_store(self) -> None:
+    def save_repo_list(self) -> None:
         """Write the repo list out, reporting a failed write rather than raising.
 
         The in-memory store is already right. An OSError escaping a slot — a
         file briefly locked by antivirus or a sync client, a full disk — would
         abandon a switch or a close halfway, with the panes on one repo and the
-        title, Git menu and change detector still on the other.
+        title, Git menu and change detector still on the other. Escaping the
+        launch, it stopped GitCrisp before the window showed.
         """
         try:
             self._repo_store.save()
         except OSError as e:
             self._report_unsaved_repo_list(str(e))
+
+    def reload_repo_list(self) -> None:
+        """Redraw the repo list from the store, which something other than the
+        window has changed since the list was drawn."""
+        self._repo_list.reload()
 
     def _report_unsaved_repo_list(self, reason: str) -> None:
         self._log_panel.expand()
@@ -305,7 +311,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             # lands next records itself; if nothing does, the next launch
             # must not open onto a worktree whose repo is closed.
             self._repo_store.clear_active()
-        self._save_repo_store()
+        self.save_repo_list()
         self._drop_pending_request_for(path)
         if not on_screen:
             self._repo_list.reload()  # some other row: stay where you are
@@ -373,7 +379,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
     def _on_repo_remove_recent(self, path: str) -> None:
         self._repo_store.remove_recent(path)
-        self._save_repo_store()
+        self.save_repo_list()
         self._repo_list.reload()
 
     # ── Worktree orchestration ────────────────────────────────────────────
@@ -654,7 +660,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         another repo themselves.
         """
         self._repo_store.forget(path)
-        self._save_repo_store()
+        self.save_repo_list()
 
         if path != self._repo_path:
             self._load_worktrees_for_active_repo()

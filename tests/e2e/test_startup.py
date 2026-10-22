@@ -129,23 +129,48 @@ def test_an_active_repo_that_will_not_open_can_still_be_clicked(make_repo, start
     assert switch.args == [str(broken)]
 
 
-def test_repos_pruned_after_launch_leave_the_repo_list(make_repo, tmp_path, start_window):
-    """The pruning finishes after the window has drawn the list from the store."""
-    good = make_repo("good")
-    deleted = make_repo("deleted")
-    window = start_window(open_paths=[good, deleted], active=good)
-    window._repo_store.forget(str(deleted))
-
-    app_main._reload_repo_list(window)
-
+def _listed(window) -> set[str]:
     model = window._repo_list._model
     sections = [model.item(row) for row in range(model.rowCount())]
-    listed = {s.child(row).data(Qt.UserRole) for s in sections for row in range(s.rowCount())}
-    assert listed == {str(good)}
+    return {s.child(row).data(Qt.UserRole) for s in sections for row in range(s.rowCount())}
 
 
 def _log_text(window) -> str:
     return window._log_panel._body.toPlainText()
+
+
+def test_repos_pruned_after_launch_leave_the_repo_list(make_repo, tmp_path, start_window, qtbot):
+    """The pruning finishes after the window has drawn the list from the store."""
+    good = make_repo("good")
+    deleted = tmp_path / "deleted"  # since the last session; the launch opened good first
+    window = start_window(open_paths=[good, deleted], active=good)
+    assert _listed(window) == {str(good), str(deleted)}
+
+    app_main._prune_gone_repos(window, window._repo_store)
+
+    qtbot.waitUntil(lambda: _listed(window) == {str(good)}, timeout=5000)
+
+
+def test_repos_pruned_when_the_list_cannot_be_saved_still_leave_it(
+    make_repo, tmp_path, window_over, qtbot
+):
+    """save() raises for a read-only or locked repos.json or a full disk, and
+    the pruning saves from a queued slot once the window is up."""
+    good = make_repo("good")
+    deleted = tmp_path / "deleted"
+    not_a_folder = tmp_path / "not-a-folder"
+    not_a_folder.write_text("", encoding="utf-8")  # fails every write, as a read-only file does
+    store = JsonRepoStore(not_a_folder / "repos.json")
+    store.load()
+    store.add_open(str(deleted))
+    store.add_open(str(good))
+    window = window_over(store)
+
+    app_main._prune_gone_repos(window, store)
+
+    qtbot.waitUntil(lambda: _listed(window) == {str(good)}, timeout=5000)
+    # Once at launch, and once more for the pruning.
+    assert _log_text(window).count("Could not save the repo list") == 2
 
 
 def test_the_repo_launched_on_is_saved_for_the_next_launch(make_repo, tmp_path, launch):
