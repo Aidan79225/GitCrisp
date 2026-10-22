@@ -59,7 +59,7 @@ def test_git_pinned_to_a_repository_reads_nothing_the_shell_points_elsewhere(mon
     for name in _ELSEWHERE_VARIABLES:
         monkeypatch.setenv(name, "elsewhere")
 
-    env = pinned_git_env("repo/.git", "repo")
+    env = pinned_git_env(git_dir="repo/.git", work_tree="repo")
 
     assert [name for name in _ELSEWHERE_VARIABLES if name in env] == []
     assert (env["GIT_DIR"], env["GIT_WORK_TREE"]) == ("repo/.git", "repo")

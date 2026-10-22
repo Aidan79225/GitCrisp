@@ -6,7 +6,7 @@ from typing import NamedTuple
 import pygit2
 
 from git_gui.domain.entities import RepoState, RepoStateInfo
-from git_gui.infrastructure.git_process import pinned_git_env, run_git
+from git_gui.infrastructure.git_process import git_run_dir, pinned_git_env, run_git
 from git_gui.resources import SSH_COMMAND_CONFIG_KEY, GitConfig, git_ssh_env
 
 
@@ -67,8 +67,12 @@ class RepoStateOps:
         fail on first-time SSH host-key verification, unless this repo's
         config, which includes the user's global one, names an ssh command.
         """
-        env = pinned_git_env(self._repo.path, self._repo.workdir)
+        env = pinned_git_env(git_dir=self._repo.path, work_tree=self._repo.workdir)
         return git_ssh_env(env, config=self._ssh_config(env))
+
+    @property
+    def _run_dir(self) -> str:
+        return git_run_dir(work_tree=self._repo.workdir, git_dir=self._repo.path)
 
     def _ssh_config(self, env: dict[str, str]) -> GitConfig:
         """The config that says whether the user named an ssh command.
@@ -104,9 +108,7 @@ class RepoStateOps:
         )
 
     def _git_resolves(self, key: str, env: dict[str, str]) -> bool:
-        result = run_git(
-            ["git", "config", "--get", key], cwd=self._repo.workdir or self._repo.path, env=env
-        )
+        result = run_git(["git", "config", "--get", key], cwd=self._run_dir, env=env)
         return result.returncode == 0
 
     def get_head_oid(self) -> str | None:
@@ -181,7 +183,7 @@ class RepoStateOps:
         for key, value in (("user.name", name), ("user.email", email)):
             result = run_git(
                 ["git", "config", scope, key, value],
-                cwd=self._repo.workdir or self._repo.path,
+                cwd=self._run_dir,
                 env=self._git_env,
             )
             if result.returncode != 0:

@@ -108,7 +108,7 @@ def run_git(
     )
 
 
-def git_run_dir(work_tree: str | None, git_dir: str | None) -> str:
+def git_run_dir(*, work_tree: str | None, git_dir: str | None) -> str:
     """The directory to start git in: the working tree, or a bare repository's gitdir."""
     run_dir = work_tree or git_dir
     if run_dir is None:
@@ -116,7 +116,7 @@ def git_run_dir(work_tree: str | None, git_dir: str | None) -> str:
     return run_dir
 
 
-def pinned_git_env(git_dir: str | None, work_tree: str | None) -> dict[str, str]:
+def pinned_git_env(*, git_dir: str | None, work_tree: str | None) -> dict[str, str]:
     """This process's environment with git pinned to `git_dir`, when one is given.
 
     Left to discover the repository from its working directory, git walks up

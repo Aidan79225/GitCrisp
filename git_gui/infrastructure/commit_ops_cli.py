@@ -26,7 +26,7 @@ class CommitOpsCli:
     def __init__(
         self, repo_workdir: str | None, git_executable: str = "git", *, git_dir: str | None = None
     ) -> None:
-        self._cwd = git_run_dir(repo_workdir, git_dir)
+        self._cwd = git_run_dir(work_tree=repo_workdir, git_dir=git_dir)
         self._work_tree = repo_workdir
         self._git = git_executable
         self._git_dir = git_dir
@@ -81,7 +81,7 @@ class CommitOpsCli:
         raise CommitOpsCommandError(stderr)
 
     def _env(self, overrides: dict[str, str] | None) -> dict[str, str]:
-        env = pinned_git_env(self._git_dir, self._work_tree)
+        env = pinned_git_env(git_dir=self._git_dir, work_tree=self._work_tree)
         env.update(overrides or {})
         return env
 
