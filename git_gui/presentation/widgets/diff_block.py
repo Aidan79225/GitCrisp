@@ -763,6 +763,16 @@ def add_hunk_widget(
     parent_layout.addWidget(editor)
 
 
+# Cap on how many file blocks either pane's all-files view builds at once. Each
+# block is a full QFrame subtree registered with the theme manager, so building
+# one per changed file freezes the UI on a commit or working tree with
+# thousands of them. Above this cap only the first N files get a diff block;
+# the rest stay reachable by selecting them in the file list (single-file mode
+# is cheap). Chosen well above a typical review size but low enough that block
+# construction stays imperceptible.
+MAX_AGGREGATE_FILE_BLOCKS = 200
+
+
 def make_overflow_notice(hidden: int) -> QLabel:
     """A muted one-line notice standing in for files beyond the block cap."""
     label = QLabel(

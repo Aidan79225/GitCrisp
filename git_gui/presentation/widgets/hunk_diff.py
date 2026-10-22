@@ -24,6 +24,7 @@ from git_gui.presentation.asked_repo import skipped_after_repo_switch
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import connect_widget
 from git_gui.presentation.widgets.diff_block import (
+    MAX_AGGREGATE_FILE_BLOCKS,
     make_diff_formats,
     make_file_block,
     make_overflow_notice,
@@ -49,15 +50,6 @@ logger = logging.getLogger(__name__)
 # build that handler had no stderr to write to, so the warning came back as an
 # exception that aborted the diff render.
 _CLOSE_ICON_PATH = str(get_resource_path("arts") / "ic_close.svg")
-
-# Cap on how many file blocks the aggregate ("all files") diff view builds at
-# once. Each block is a full QFrame subtree registered with the theme manager,
-# so building one per changed file freezes the UI when the working tree holds
-# thousands of changes. Above this cap only the first N files get a diff block;
-# the rest stay reachable by selecting them in the file list (single-file mode
-# is cheap). Chosen well above a typical review size but low enough that block
-# construction stays imperceptible.
-MAX_AGGREGATE_FILE_BLOCKS = 200
 
 # Names each hunk's discard button, so a stage or discard can find them all.
 _DISCARD_BUTTON_NAME = "discard_hunk"

@@ -432,7 +432,7 @@ def test_a_huge_commit_builds_blocks_only_up_to_the_cap(diff_widget, qtbot):
     diff was fetched. The working-tree view already stopped at the cap."""
     from PySide6.QtWidgets import QLabel
 
-    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+    from git_gui.presentation.widgets.diff_block import MAX_AGGREGATE_FILE_BLOCKS
 
     widget, queries = diff_widget
     paths = [f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 50)]

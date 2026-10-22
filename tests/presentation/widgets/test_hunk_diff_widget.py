@@ -82,7 +82,7 @@ def test_load_file_switches_to_single_mode(widget):
 
 def test_load_all_files_caps_number_of_blocks(widget):
     """A huge working tree only builds up to MAX_AGGREGATE_FILE_BLOCKS blocks."""
-    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+    from git_gui.presentation.widgets.diff_block import MAX_AGGREGATE_FILE_BLOCKS
 
     paths = [f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 50)]
     widget.load_all_files(paths)
@@ -97,7 +97,7 @@ def test_load_all_files_caps_number_of_blocks(widget):
 
 def test_load_all_files_only_fetches_shown_paths(widget):
     """The diff-map query is asked only for the paths actually rendered."""
-    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+    from git_gui.presentation.widgets.diff_block import MAX_AGGREGATE_FILE_BLOCKS
 
     paths = [f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 10)]
     widget.load_all_files(paths)
@@ -145,8 +145,10 @@ def test_files_beyond_the_cap_get_the_commit_views_notice(widget):
     """Both panes cap their blocks; one notice keeps their wording in step."""
     from PySide6.QtWidgets import QLabel
 
-    from git_gui.presentation.widgets.diff_block import make_overflow_notice
-    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+    from git_gui.presentation.widgets.diff_block import (
+        MAX_AGGREGATE_FILE_BLOCKS,
+        make_overflow_notice,
+    )
 
     widget.load_all_files([f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 3)])
 

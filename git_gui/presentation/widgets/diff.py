@@ -27,6 +27,7 @@ from git_gui.presentation.theme import connect_widget, get_theme_manager
 from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
 from git_gui.presentation.widgets.commit_detail import CommitDetailWidget
 from git_gui.presentation.widgets.diff_block import (
+    MAX_AGGREGATE_FILE_BLOCKS,
     laid_out_text_height,
     make_diff_formats,
     make_file_block,
@@ -36,7 +37,6 @@ from git_gui.presentation.widgets.diff_block import (
     use_code_font,
 )
 from git_gui.presentation.widgets.file_navigator import FileNavigatorWidget
-from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
 from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
 from git_gui.presentation.widgets.viewport_block_loader import (
