@@ -165,6 +165,16 @@ class TestJsonRepoStoreSetActive:
         store.set_active("/repo/a")
         assert store.get_active() == "/repo/a"
 
+    def test_clear_active_keeps_the_lists(self, store):
+        store.load()
+        store.add_open("/repo/a")
+        store.set_active("/repo/a-worktree")
+
+        store.clear_active()
+
+        assert store.get_active() is None
+        assert store.get_open_repos() == ["/repo/a"]
+
 
 class TestJsonRepoStoreSettings:
     def test_get_returns_default_when_missing(self, store):

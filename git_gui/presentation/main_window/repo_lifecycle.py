@@ -247,6 +247,11 @@ class RepoLifecycleMixin:
         on_screen = self._closing_takes_what_is_on_screen(path)
         successor = self._repo_after_closing(path)
         self._repo_store.close_repo(path)
+        if on_screen and self._repo_store.get_active() == self._repo_path:
+            # The linked worktree of *path* on screen goes with it. Whatever
+            # lands next records itself; if nothing does, the next launch
+            # must not open onto a worktree whose repo is closed.
+            self._repo_store.clear_active()
         self._save_repo_store()
         self._drop_pending_request_for(path)
         if not on_screen:
