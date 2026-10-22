@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -23,6 +28,8 @@ from git_gui.presentation.theme import settings as _settings
 from git_gui.presentation.theme.loader import load_builtin
 from git_gui.presentation.theme.tokens import Theme
 from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
+
+_log = logging.getLogger(__name__)
 
 _GROUPS: list[tuple[str, list[str]]] = [
     (
@@ -367,11 +374,16 @@ class ThemeDialog(QDialog):
 
     def _save_and_apply(self) -> None:
         mode = self._selected_mode()
-        # The custom file goes first, so a failure there leaves the saved
-        # scale and mode as they were, matching what is still on screen.
+        scale = self._typo_slider.value() / 100.0
         if mode is ThemeMode.CUSTOM:
-            self._write_custom_theme()
-        self._mgr.set_appearance(mode, self._typo_slider.value() / 100.0)
+            # The custom file goes first, so a failure there leaves the saved
+            # scale and mode as they were, matching what is still on screen;
+            # a failure saving those puts the previous custom file back.
+            with _restored_on_failure(_settings.custom_theme_path()):
+                self._write_custom_theme()
+                self._mgr.set_appearance(mode, scale)
+        else:
+            self._mgr.set_appearance(mode, scale)
         self._save_avatar_setting()
 
     def _save_avatar_setting(self) -> None:
@@ -452,3 +464,20 @@ def _theme_to_json(theme) -> dict:
         "shape": dataclasses.asdict(theme.shape),
         "spacing": dataclasses.asdict(theme.spacing),
     }
+
+
+@contextmanager
+def _restored_on_failure(path: Path) -> Iterator[None]:
+    """Put the file at *path* back as it was if the block raises OSError."""
+    previous = path.read_bytes() if path.exists() else None
+    try:
+        yield
+    except OSError:
+        try:
+            if previous is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(previous)
+        except OSError as e:  # the error the user is shown is the first one
+            _log.warning("Could not restore %s: %s", path, e)
+        raise

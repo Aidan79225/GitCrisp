@@ -354,6 +354,45 @@ def test_a_custom_theme_that_cannot_be_saved_leaves_the_settings_as_they_were(
     assert s.load_settings() == before
 
 
+@pytest.mark.parametrize("saved_before", [True, False], ids=["custom-saved", "none-saved"])
+def test_settings_that_cannot_be_saved_leave_the_custom_theme_as_it_was(
+    app, reset_theme, tmp_path, monkeypatch, saved_before
+):
+    """The custom file was written before settings.json, so Apply reported a
+    failure and kept the old colours on screen, yet the next launch showed
+    the new ones."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from git_gui.presentation.theme import manager
+    from git_gui.presentation.theme import settings as s
+
+    custom_path = tmp_path / "custom_theme.json"
+    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+    if saved_before:
+        first = ThemeDialog()
+        _radios(first)["custom"].setChecked(True)
+        first._working_colors["primary"] = "#1f3e61"
+        first._on_apply()
+    before = custom_path.read_bytes() if saved_before else None
+    dlg = ThemeDialog()
+    _radios(dlg)["custom"].setChecked(True)
+    dlg._working_colors["primary"] = "#ff0000"
+
+    def settings_held_open(_data) -> None:
+        raise PermissionError(13, "Permission denied", "settings.json")
+
+    warnings: list[tuple] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(args))
+
+    with monkeypatch.context() as held:
+        held.setattr(manager, "save_settings", settings_held_open)
+        dlg._on_apply()
+
+    assert warnings
+    assert (custom_path.read_bytes() if custom_path.exists() else None) == before
+
+
 def test_switching_radios_from_a_custom_theme_with_fewer_lanes_keeps_working(
     app, reset_theme, tmp_path, monkeypatch
 ):
