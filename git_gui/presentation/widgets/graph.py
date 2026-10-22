@@ -1113,10 +1113,23 @@ class GraphWidget(QWidget):
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
     def _emit_remote_delete(self, name: str) -> None:
-        remotes = (r.name for r in self._queries.list_remotes.execute())
-        remote, branch = split_remote_branch(name, remotes)
+        remote, branch = split_remote_branch(name, self._remote_names())
         if remote and branch:
             self.remote_branch_delete_requested.emit(remote, branch)
+
+    def _remote_names(self) -> list[str]:
+        """The repo's remotes, or none when they cannot be listed.
+
+        One remote with an invalid name or refspec in .git/config fails the
+        whole listing. Raising from the menu action made the click do nothing
+        at all; with no remotes known the name splits at its first '/', and
+        the confirmation and git's own answer still reach the user.
+        """
+        try:
+            return [r.name for r in self._queries.list_remotes.execute()]
+        except Exception as e:
+            logger.warning("Listing remotes failed: %s", e)
+            return []
 
     def _add_merge_rebase_section(
         self, menu: QMenu, oid: str, branches_on_commit: list[str]
