@@ -13,7 +13,7 @@ _SSH_COMMAND_KEY = "core.sshCommand"
 
 
 class _SshCommandAnswer(NamedTuple):
-    remote_urls: tuple[str, ...]
+    remote_urls: tuple[bytes | None, ...]
     is_set: bool
 
 
@@ -87,12 +87,26 @@ class RepoStateOps:
         """
         if _SSH_COMMAND_KEY in self._repo.config:
             return self._repo.config
-        remote_urls = tuple(remote.url or "" for remote in self._repo.remotes)
+        remote_urls = self._remote_urls()
         answer = self._ssh_command_answer
         if answer is None or answer.remote_urls != remote_urls:
             answer = _SshCommandAnswer(remote_urls, self._git_resolves(_SSH_COMMAND_KEY, env))
             self._ssh_command_answer = answer
         return frozenset({_SSH_COMMAND_KEY}) if answer.is_set else frozenset()
+
+    def _remote_urls(self) -> tuple[bytes | None, ...]:
+        """The remote.<name>.url values, read from the config as git does.
+
+        Not from ``self._repo.remotes``: listing them raises for a remote
+        libgit2 will not look up, such as ``[remote "bad name"]``, which git
+        runs with, and then no git command could start. Raw bytes, so a value
+        that is not UTF-8 cannot raise either.
+        """
+        return tuple(
+            entry.raw_value
+            for entry in self._repo.config
+            if entry.raw_name.startswith(b"remote.") and entry.raw_name.endswith(b".url")
+        )
 
     def _git_resolves(self, key: str, env: dict[str, str]) -> bool:
         result = run_git(
