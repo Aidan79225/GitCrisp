@@ -19,7 +19,12 @@ from git_gui.domain.entities import (
     StagingState,
 )
 from git_gui.infrastructure.file_history_cli import FileHistoryCli
-from git_gui.infrastructure.pygit2._helpers import _commit_to_entity, _diff_to_hunks
+from git_gui.infrastructure.pygit2._helpers import (
+    _commit_to_entity,
+    _diff_to_hunks,
+    _empty_tree,
+    _patch_path,
+)
 from git_gui.resources import subprocess_kwargs
 
 _COMMIT_DELTA_MAP = {
@@ -204,10 +209,10 @@ class CommitOps:
         diff = self._diff_against_parent(oid, pygit2.enums.DiffOption.INCLUDE_TYPECHANGE)
         files = []
         for patch in diff:
-            delta = patch.delta
-            path = delta.new_file.path or delta.old_file.path
-            delta_type = _COMMIT_DELTA_MAP.get(delta.status, FileDelta.UNKNOWN)
-            files.append(FileStatus(path=path, status=StagingState.STAGED, delta=delta_type))
+            delta_type = _COMMIT_DELTA_MAP.get(patch.delta.status, FileDelta.UNKNOWN)
+            files.append(
+                FileStatus(path=_patch_path(patch), status=StagingState.STAGED, delta=delta_type)
+            )
         return files
 
     def get_commit_diff_map(self, oid: str) -> dict[str, list[Hunk]]:
@@ -219,7 +224,7 @@ class CommitOps:
         """
         result: dict[str, list[Hunk]] = {}
         for patch in self._diff_against_parent(oid):
-            path = patch.delta.new_file.path or patch.delta.old_file.path
+            path = _patch_path(patch)
             if path:
                 result.setdefault(path, []).extend(_diff_to_hunks(patch))
         return result
@@ -367,10 +372,7 @@ class CommitOps:
         A root commit is diffed against the empty tree, so its files show as added.
         """
         commit = self._repo.get(oid)
-        if commit.parents:
-            base = commit.parents[0].tree
-        else:
-            base = self._repo.get(self._repo.TreeBuilder().write())
+        base = commit.parents[0].tree if commit.parents else _empty_tree(self._repo)
         return self._repo.diff(base, commit.tree, flags=flags)
 
     # ----------------------------------------------------------------- writes
