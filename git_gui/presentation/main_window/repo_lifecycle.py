@@ -673,25 +673,34 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._enter_empty_state()
             return
         self._log_panel.log(f"Removed worktree {path} — switched to {home}")
-        self._switch_repo(home)
+        # The repo on screen is gone: one that fails to open leaves nothing
+        # to show, not the deleted directory.
+        self._request_repo(_RepoRequest(home, _SwitchReason.REPLACE))
 
     def _home_after_removing(self, removed: str) -> str | None:
         """Where to land once the worktree under us is gone.
 
         The repo that owned it comes first: it is what the worktree was a view
         of, it is certain to still exist, and it is the same place every time —
-        picking an arbitrary sibling worktree would not be. Siblings and the
-        other open repos are the fallbacks for a session that was opened
-        straight into a worktree, where the owner was never recorded.
+        picking an arbitrary sibling worktree would not be. A worktree opened
+        on a row of its own is its own owner, and goes back to its main
+        worktree. Siblings and the other open repos are the fallbacks.
+
+        Only the removed worktree's own repository is looked for on disk: git
+        has just reached it. Another open repo can be on a share that is down,
+        and looking for it here, on the GUI thread, waits out the network
+        timeout; the switch's worker finds out instead.
         """
-        owner = self._repo_list.worktree_owner()
-        candidates = [owner] if owner else []
-        candidates += list(self._worktree_paths_by_branch.values())
-        candidates += list(self._repo_store.get_open_repos())
-        for candidate in candidates:
-            if candidate and candidate != removed and Path(candidate).is_dir():
+        group = [
+            self._repo_list.worktree_owner(),
+            self._repo_list.main_worktree(),
+            *self._worktree_paths_by_branch.values(),
+        ]
+        for candidate in group:
+            if candidate and not _same_path_text(candidate, removed) and Path(candidate).is_dir():
                 return candidate
-        return None
+        others = self._repo_store.get_open_repos()
+        return next((p for p in others if not _same_path_text(p, removed)), None)
 
     def _on_remove_dirty(self, path: str, refused_in: CommandBus, *, override_lock: bool) -> None:
         from PySide6.QtWidgets import QMessageBox

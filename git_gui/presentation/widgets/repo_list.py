@@ -386,6 +386,18 @@ class RepoListWidget(QWidget):
         """
         return self._worktree_owner
 
+    def main_worktree(self) -> str | None:
+        """The main worktree of the loaded group, as git lists it, if any.
+
+        Where a linked worktree opened on a row of its own goes back to when
+        it is deleted: it is its own owner, and the main worktree may not be
+        an open repo at all.
+        """
+        return next(
+            (str(wt.path) for wt in self._active_worktrees if wt.is_main and not wt.is_bare),
+            None,
+        )
+
     def show_open_repo_from(self, source: Callable[[], str | None]) -> None:
         """Draw the repo *source* names as the one on screen, and ignore clicks on it.
 
