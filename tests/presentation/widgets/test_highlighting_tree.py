@@ -20,7 +20,6 @@ def _shown_tree(qtbot) -> HighlightingTreeView:
         model.appendRow(item)
     tree = HighlightingTreeView(_FLAG_ROLE)
     tree.setModel(model)
-    tree.setMouseTracking(True)
     qtbot.addWidget(tree)
     tree.resize(200, 200)
     tree.show()
@@ -43,6 +42,16 @@ def _hover(tree: HighlightingTreeView, row: int) -> None:
 
 def _role_color(role: ColorRole):
     return get_theme_manager().current.colors.as_qcolor(role)
+
+
+def test_the_tree_turns_on_the_mouse_tracking_its_hover_needs(qtbot):
+    """Qt delivers a move with no button held only to a widget that tracks
+    the mouse, so without it no row is ever hovered. (The hover tests below
+    send their moves directly, which skips that check.)"""
+    tree = HighlightingTreeView(_FLAG_ROLE)
+    qtbot.addWidget(tree)
+
+    assert tree.viewport().hasMouseTracking()
 
 
 def test_the_flagged_row_is_filled_with_primary(qtbot):

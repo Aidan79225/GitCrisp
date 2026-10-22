@@ -161,7 +161,6 @@ class SidebarWidget(QWidget):
         self._tree = HighlightingTreeView(_IS_HEAD_ROLE)
         self._tree.setAccessibleName("Branches, tags and stashes")
         self._tree.setHeaderHidden(True)
-        self._tree.setMouseTracking(True)
         self._tree.viewport().setAttribute(Qt.WA_Hover, True)
         self._tree.setSelectionMode(QTreeView.NoSelection)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
