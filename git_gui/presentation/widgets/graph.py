@@ -71,11 +71,9 @@ class _GraphTableView(QTableView):
 
     def paintEvent(self, event):
         if self._hover_row >= 0:
-            from PySide6.QtGui import QPainter
-
             painter = QPainter(self.viewport())
             row_rect = self.visualRect(self.model().index(self._hover_row, 0))
-            # Extend to full row width
+            # visualRect covers column 0 only; the hover fills the whole row.
             row_rect.setLeft(0)
             row_rect.setRight(self.viewport().width())
             row_rect.setHeight(self.rowHeight(self._hover_row))
