@@ -436,6 +436,48 @@ def test_a_failed_load_is_announced_with_its_reason(graph, qtbot, inline_workers
     assert failed.args == ["cannot be peeled into a commit"]
 
 
+# ── Closing the last repo ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("n", [30, 3 * PAGE_SIZE], ids=["all-loaded", "more-pages"])
+def test_closing_a_repo_scrolled_to_its_end_asks_for_no_more_commits(qtbot, inline_workers, n):
+    """The emptied list scrolls back to the top, which reads as reaching
+    the bottom. It asked the closed repo for its next page, and the log
+    reported a failed load under the empty state."""
+    repo_store = MagicMock()
+    repo_store.get_repo_setting.return_value = False
+    queries = _queries(_chain(n))
+    graph = GraphWidget(queries, MagicMock(), repo_store=repo_store)
+    qtbot.addWidget(graph)
+    graph.resize(400, 300)
+    graph.show()
+    graph.reload()
+    scrollbar = graph._view.verticalScrollBar()
+    qtbot.waitUntil(lambda: scrollbar.maximum() > 0)
+    scrollbar.setValue(scrollbar.maximum())
+    loads = queries.get_commit_graph.execute.call_count
+    failures: list[str] = []
+    graph.load_failed.connect(failures.append)
+
+    graph.set_buses(None, None)
+    qtbot.waitUntil(lambda: scrollbar.maximum() == 0)
+    qtbot.wait(50)
+
+    assert failures == []
+    assert queries.get_commit_graph.execute.call_count == loads
+
+
+def test_searching_with_no_repo_open_reports_no_failed_load(graph, qtbot, inline_workers):
+    graph.set_buses(None, None)
+    failures: list[str] = []
+    graph.load_failed.connect(failures.append)
+
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    assert failures == []
+
+
 # ── Clicking a commit further down a file's history ──────────────────────────
 
 

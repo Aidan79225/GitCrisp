@@ -643,6 +643,8 @@ class GraphWidget(QWidget):
         # regress to PAGE_SIZE — losing the merge base from the loaded set
         # and reverting the diverged lane to a floating circle.
         # set_buses() explicitly clears state on repo switch.
+        if self._queries is None:
+            return  # no repo open: a load could only fail
         if extra_tips is not None:
             self._extra_tips = extra_tips
         if limit is not None:
@@ -964,6 +966,10 @@ class GraphWidget(QWidget):
             self._load_more()
 
     def _load_more(self) -> None:
+        # With no repo open, the emptied list scrolling back to the top reads
+        # as reaching the bottom; asking for a page would only report a failure.
+        if self._queries is None:
+            return
         self._loading = True
         queries = self._queries
         fp = self._first_parent
