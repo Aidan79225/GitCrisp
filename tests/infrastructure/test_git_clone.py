@@ -358,6 +358,23 @@ def test_a_cancelled_clone_reports_a_file_another_process_keeps_open(stalled_clo
     assert isinstance(clone.error.cleanup_error, PermissionError)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="only Windows refuses to delete an open file")
+def test_a_cancel_into_an_empty_folder_waits_for_a_checked_out_file_held_for_a_moment(tmp_path):
+    """A scanner reading a freshly checked-out file for a moment left it in the
+    folder, and the next clone there found the folder taken."""
+    dest = tmp_path / "repo"
+    dest.mkdir()
+    destination = git_clone._Destination(dest)
+    held = dest / "README.md"
+    held.write_text("x")
+    handle = open(held, "rb")
+    threading.Timer(0.3, handle.close).start()  # mid-removal, as a scanner lets go
+
+    destination.restore()
+
+    assert list(dest.iterdir()) == []
+
+
 def test_removing_a_file_waits_for_a_process_that_lets_go_of_it_soon(tmp_path):
     """A helper just killed, or a scanner reading a fresh pack, holds a file for
     a moment, and Windows refuses to delete it until that handle closes."""

@@ -229,7 +229,8 @@ def _remove(path: Path) -> None:
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path, onexc=_make_writable_and_retry)
     elif path.exists() or path.is_symlink():
-        path.unlink()
+        # No chmod here: it would follow a checked-out symlink out of the clone.
+        _retry_while_in_use(path.unlink)
 
 
 def _make_writable_and_retry(
@@ -237,13 +238,17 @@ def _make_writable_and_retry(
 ) -> None:
     # git writes its packs read-only, and Windows refuses to delete a read-only file.
     os.chmod(path, stat.S_IWRITE)
+    _retry_while_in_use(lambda: remove(path))
+
+
+def _retry_while_in_use(remove: Callable[[], object]) -> None:
     for delay in _IN_USE_RETRY_SECONDS:
         try:
-            remove(path)
+            remove()
             return
         except PermissionError:
             time.sleep(delay)
-    remove(path)
+    remove()
 
 
 def _stderr_lines(stream: IO[bytes]) -> Iterator[str]:
