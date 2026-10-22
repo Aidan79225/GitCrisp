@@ -1,57 +1,12 @@
 from __future__ import annotations
 
-import os
-import signal
 import subprocess
 
 import pygit2
 
 from git_gui.domain.entities import Remote, RemoteBranchDeleteResult
 from git_gui.domain.ports import RemoteOperationCancelled
-from git_gui.infrastructure.git_process import run_git
-from git_gui.resources import subprocess_kwargs
-
-
-def _popen_group_kwargs() -> dict:
-    """Popen kwargs that put the git process in its own group/session so the
-    whole tree (git plus its transport helpers) can be killed on cancel.
-
-    Without this, terminating only the top git process orphans its helper
-    children, which keep the stdout/stderr pipes open and leave the reader
-    thread blocked in ``communicate()``.
-    """
-    extra = dict(subprocess_kwargs())
-    if os.name == "posix":
-        extra["start_new_session"] = True
-    else:  # Windows — needed for CTRL_BREAK / tree kill via taskkill.
-        extra["creationflags"] = extra.get("creationflags", 0) | subprocess.CREATE_NEW_PROCESS_GROUP
-    return extra
-
-
-def _kill_process_tree(proc: subprocess.Popen) -> None:
-    """Terminate *proc* and every child it spawned. Best-effort and idempotent."""
-    if os.name == "posix":
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            return
-        except (ProcessLookupError, OSError):
-            pass  # Group already gone, or never got its own group — fall back.
-        try:
-            proc.terminate()
-        except (ProcessLookupError, OSError):
-            pass
-    else:  # Windows: /T kills the whole tree, /F forces it.
-        try:
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                capture_output=True,
-                **subprocess_kwargs(),
-            )
-        except Exception:
-            try:
-                proc.terminate()
-            except (ProcessLookupError, OSError):
-                pass
+from git_gui.infrastructure.git_process import git_popen_kwargs, kill_git_tree, run_git
 
 
 def _raise_if_git_failed(returncode: int, stdout: str, stderr: str) -> None:
@@ -176,7 +131,8 @@ class RemoteOps:
                 encoding="utf-8",
                 errors="replace",
                 env=self._git_env,
-                **_popen_group_kwargs(),
+                # Its own session, so a cancel reaches the helpers holding the pipes.
+                **git_popen_kwargs(),
             )
             self._active_remote_proc = proc
         try:
@@ -204,7 +160,7 @@ class RemoteOps:
             self._remote_cancel_requested = True
         # Kill outside the lock — a syscall shouldn't block the worker thread's
         # teardown path, which also needs the lock.
-        _kill_process_tree(proc)
+        kill_git_tree(proc)
 
     # ----- Remotes -----
 

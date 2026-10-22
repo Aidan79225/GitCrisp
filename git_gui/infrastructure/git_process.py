@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
 import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -47,6 +50,36 @@ def git_popen_kwargs() -> dict[str, Any]:
     if os.name == "posix":
         kwargs["start_new_session"] = True
     return kwargs
+
+
+def kill_git_tree(proc: subprocess.Popen[Any], *, force: bool = False) -> None:
+    """Stop git, started with git_popen_kwargs, and the helpers it runs.
+
+    The helpers (ssh, git-remote-https, index-pack) hold git's output pipes
+    open, so stopping git alone would leave its reader waiting on them. On
+    Windows the ``git`` on PATH is often a launcher, which makes even git
+    proper a child, and taskkill can only force a windowless tree. On POSIX
+    git's session is its process group; SIGTERM lets git remove the lock
+    files it holds in the user's repository, and ``force`` sends SIGKILL for
+    a git whose output is deleted anyway.
+    """
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                **subprocess_kwargs(),
+            )
+        else:
+            os.killpg(proc.pid, signal.SIGKILL if force else signal.SIGTERM)
+    except ProcessLookupError:
+        pass  # git ended by itself in the meantime.
+    except OSError:
+        # No taskkill to run, or the group is out of reach: stop git itself at least.
+        stop = proc.kill if force else proc.terminate
+        with contextlib.suppress(OSError):
+            stop()
 
 
 def run_git(

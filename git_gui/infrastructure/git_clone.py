@@ -4,10 +4,8 @@ import itertools
 import os
 import re
 import shutil
-import signal
 import stat
 import subprocess
-import sys
 import threading
 import time
 from collections import deque
@@ -16,8 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
-from git_gui.infrastructure.git_process import git_popen_kwargs, isolated_git_env, run_git
-from git_gui.resources import git_ssh_env, subprocess_kwargs
+from git_gui.infrastructure.git_process import (
+    git_popen_kwargs,
+    isolated_git_env,
+    kill_git_tree,
+    run_git,
+)
+from git_gui.resources import git_ssh_env
 
 
 @dataclass
@@ -162,32 +165,11 @@ def _stop_when_cancelled(proc: subprocess.Popen[bytes], cancelled: threading.Eve
     def watch() -> None:
         while proc.poll() is None:
             if cancelled.wait(_EXIT_POLL_SECONDS):
-                _kill_process_tree(proc)
+                # Forced: what the clone wrote is removed next, locks and all.
+                kill_git_tree(proc, force=True)
                 return
 
     threading.Thread(target=watch, name="clone-cancel-watcher", daemon=True).start()
-
-
-def _kill_process_tree(proc: subprocess.Popen[bytes]) -> None:
-    """Stop git and the helpers it runs (ssh, git-remote-https, index-pack).
-
-    The helpers hold git's stderr open, so stopping git alone would leave the
-    clone reading from them until they gave up by themselves. On Windows the
-    ``git`` on PATH is often a launcher, which makes even git proper a child.
-    """
-    if sys.platform == "win32":
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            **subprocess_kwargs(),
-        )
-    else:
-        try:
-            # git_popen_kwargs gives git a session, so its group is git and its helpers.
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass  # git ended by itself in the meantime.
 
 
 class _Destination:
