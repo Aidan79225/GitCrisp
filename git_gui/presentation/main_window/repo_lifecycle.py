@@ -253,6 +253,14 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             # The repo on screen is already closed. Staying on it would leave
             # Ctrl+W retrying this one forever.
             self._enter_empty_state()
+        else:
+            # The window stays where it was. Left pending, the failed request
+            # would be what Ctrl+W hands over to, and it never lands.
+            self._stop_waiting_for_request()
+
+    def _stop_waiting_for_request(self) -> None:
+        """Count nothing as on its way: the repo on screen is the latest request."""
+        self._repo_request = _RepoRequest(self._repo_path) if self._repo_path else None
 
     def _enter_empty_state(self) -> None:
         self._repo_request = None
@@ -328,7 +336,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         # Landing later would make a repo the user has just closed active again.
         pending = self._pending_request()
         if pending is not None and pending.path == path:
-            self._repo_request = _RepoRequest(self._repo_path) if self._repo_path else None
+            self._stop_waiting_for_request()
 
     def _repo_after_closing(self, path: str) -> str | None:
         """The open repo listed just before *path*, or after it when it is first."""
