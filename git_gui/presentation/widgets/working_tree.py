@@ -366,6 +366,7 @@ class WorkingTreeWidget(QWidget):
             self._ignore_file(fs.path)
 
     def _discard_file(self, path: str) -> None:
+        commands = self._commands
         reply = QMessageBox.question(
             self,
             "Discard changes",
@@ -373,10 +374,12 @@ class WorkingTreeWidget(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(
+            commands, f"Discard {path}"
+        ):
             return
         try:
-            self._commands.discard_file.execute(path)
+            commands.discard_file.execute(path)
         except Exception as e:
             self.commit_failed.emit(f"Discard failed for {path}: {e}")
         # Refreshed either way: a discard can fail half-way through.
