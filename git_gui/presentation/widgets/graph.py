@@ -777,6 +777,12 @@ class GraphWidget(QWidget):
         each step. A commit from before a followed rename changed the file
         under its old name, so it is shown in the full graph as well. When
         the answer cannot be read, the history is paged in as before.
+
+        A followed history lists no merge at all, while a merge's changed
+        files come from its first parent alone: one that brought in a side
+        branch's change to the file names it. Without follow, git does list
+        a merge whose file differs from every parent; the first-parent diff
+        cannot tell that one from the rest, so there a merge is paged in for.
         """
         queries = self._queries
         try:
@@ -786,11 +792,16 @@ class GraphWidget(QWidget):
             # is_ancestor is False for HEAD itself, where the history starts.
             if oid != head_oid and not queries.is_ancestor.execute(oid, head_oid):
                 return False
+            if self._path_filter_bar.follow() and self._is_merge(oid):
+                return False
             changed = queries.get_commit_files.execute(oid)
         except Exception as e:
             logger.warning("Could not tell whether %s is in the file history: %s", oid[:8], e)
             return True
         return any(f.path == self._path_filter for f in changed)
+
+    def _is_merge(self, oid: str) -> bool:
+        return len(self._queries.get_commit_detail.execute(oid).parents) > 1
 
     def _show_in_full_graph(self, oid: str, tips: list[str]) -> None:
         self._leave_path_filter()
