@@ -5,6 +5,7 @@ from __future__ import annotations
 import faulthandler
 import logging
 import logging.handlers
+import os
 import sys
 import threading
 from pathlib import Path
@@ -273,4 +274,61 @@ def test_a_rollover_moves_the_log_to_the_first_backup_and_drops_the_oldest(tmp_p
 
     assert [backup(1)[:4], backup(2), backup(3)] == ["FULL", "BACKUP-1", "BACKUP-2"]
     assert not Path(f"{log_file}.4").exists()
+    assert not Path(f"{log_file}.rolling").exists()
+
+
+def test_a_rollover_that_cannot_shift_the_backups_loses_no_record(tmp_path, monkeypatch):
+    """A viewer or virus scan holding gitcrisp.log.1 stopped the shift after
+    the log had been moved aside; the record was dropped, and the next
+    rollover deleted the moved-aside log as if a crash had left it."""
+    log_file = _point_log_dir_at(tmp_path, monkeypatch)
+    monkeypatch.setattr(logging_setup, "_MAX_BYTES", 2000)
+    monkeypatch.setattr(logging, "raiseExceptions", False)
+    log_file.parent.mkdir(parents=True)
+    for n in (1, 2):
+        Path(f"{log_file}.{n}").write_text(f"BACKUP-{n}\n", encoding="utf-8")
+    real_replace = os.replace
+    held = {"times": 1}
+
+    def replace_unless_held(source, dest) -> None:
+        if str(source).endswith("gitcrisp.log.1") and held["times"]:
+            held["times"] -= 1
+            raise PermissionError(32, "The file is in use by another process", source)
+        real_replace(source, dest)
+
+    monkeypatch.setattr(logging_setup.os, "replace", replace_unless_held)
+    logging_setup.setup_logging()
+    logger = logging.getLogger("test.held_backup")
+
+    for i in range(100):
+        logger.warning("record-%03d", i)
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    written = "".join(
+        path.read_text(encoding="utf-8") for path in log_file.parent.glob("gitcrisp.log*")
+    )
+    assert held["times"] == 0
+    assert [i for i in range(100) if f"record-{i:03d}" not in written] == []
+    assert not Path(f"{log_file}.rolling").exists()
+
+
+def test_a_log_left_aside_by_a_crash_becomes_the_newest_backup(tmp_path, monkeypatch):
+    """A rollover cut short leaves the log in gitcrisp.log.rolling; it holds
+    the records just before the crash, so it is kept, not deleted."""
+    log_file = _point_log_dir_at(tmp_path, monkeypatch)
+    monkeypatch.setattr(logging_setup, "_MAX_BYTES", 2000)
+    log_file.parent.mkdir(parents=True)
+    for n in (1, 2, 3):
+        Path(f"{log_file}.{n}").write_text(f"BACKUP-{n}", encoding="utf-8")
+    Path(f"{log_file}.rolling").write_text("CRASHED", encoding="utf-8")
+    log_file.write_text("FULL" + "x" * 3000, encoding="utf-8")
+    logging_setup.setup_logging()
+
+    logging.getLogger("test.rollover").warning("first record of the new log")
+
+    def backup(n: int) -> str:
+        return Path(f"{log_file}.{n}").read_text(encoding="utf-8")
+
+    assert [backup(1)[:4], backup(2), backup(3)] == ["FULL", "CRASHED", "BACKUP-1"]
     assert not Path(f"{log_file}.rolling").exists()

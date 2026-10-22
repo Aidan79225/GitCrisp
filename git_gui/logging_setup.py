@@ -47,7 +47,11 @@ class _SharedRotatingFileHandler(logging.handlers.RotatingFileHandler):
 
     The log is moved aside before the backups are touched. The stock handler
     shifts and deletes them first and fails only at the last rename, so every
-    record past the limit would push the logs of earlier sessions out.
+    record past the limit would push the logs of earlier sessions out. When a
+    backup cannot be shifted, because a viewer or a virus scan holds it, the
+    log is moved back and the record appended to it. A log that a crash left
+    aside holds the records just before the crash, so the next rollover files
+    it as the newest backup instead of deleting it.
     """
 
     def doRollover(self) -> None:
@@ -55,18 +59,27 @@ class _SharedRotatingFileHandler(logging.handlers.RotatingFileHandler):
             self.stream.close()
             self.stream = None
         aside = f"{self.baseFilename}.rolling"
-        if self._moved(self.baseFilename, aside):
-            self._shift_backups()
-            self.rotate(aside, self._backup_name(1))
+        if self._backed_up(aside) and self._moved(self.baseFilename, aside):
+            if not self._backed_up(aside):
+                self._moved(aside, self.baseFilename)
         if not self.delay:
             self.stream = self._open()
 
     def _moved(self, source: str, dest: str) -> bool:
         """Move *source* to *dest*, or say it is held open and cannot move."""
         try:
-            if os.path.exists(dest):
-                os.remove(dest)  # left by a rollover that a crash cut short
             self.rotate(source, dest)
+        except OSError:
+            return False
+        return True
+
+    def _backed_up(self, aside: str) -> bool:
+        """Make the log moved *aside*, if any, the first backup, or say it cannot be."""
+        if not os.path.exists(aside):
+            return True
+        try:
+            self._shift_backups()
+            self.rotate(aside, self._backup_name(1))
         except OSError:
             return False
         return True
