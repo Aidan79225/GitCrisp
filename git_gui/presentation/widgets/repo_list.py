@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
 
@@ -274,6 +275,8 @@ class RepoListWidget(QWidget):
     def __init__(self, repo_store: IRepoStore, parent=None) -> None:
         super().__init__(parent)
         self._store = repo_store
+        # The repo drawn as the one on screen; see show_open_repo_from.
+        self._open_repo: Callable[[], str | None] = repo_store.get_active
         self._active_worktrees: list[Worktree] = []
         # The open repo whose worktree group is currently loaded. Tracked
         # separately from the active path so that switching into a worktree
@@ -383,6 +386,16 @@ class RepoListWidget(QWidget):
         """
         return self._worktree_owner
 
+    def show_open_repo_from(self, source: Callable[[], str | None]) -> None:
+        """Draw the repo *source* names as the one on screen, and ignore clicks on it.
+
+        Without a window to ask, that is the store's active repo. But the store
+        keeps a repo that would not open at launch as active, to try it first
+        next time: drawn as open, with nothing on screen, it could not be
+        clicked to retry it or to see why it failed.
+        """
+        self._open_repo = source
+
     def owner_of(self, path: str | None) -> str | None:
         """The open repo whose loaded worktree group lists *path*, if any."""
         if any(str(wt.path) == path for wt in self._active_worktrees):
@@ -391,7 +404,7 @@ class RepoListWidget(QWidget):
 
     def reload(self) -> None:
         self._model.clear()
-        active = self._store.get_active()
+        active = self._open_repo()
 
         # The worktree group is rendered under its owning open repo. While a
         # child worktree is the active path (active not in open_repos), the
@@ -523,7 +536,7 @@ class RepoListWidget(QWidget):
         index = self._tree.indexAt(pos)
         kind = index.data(_KIND_ROLE)
         path = index.data(Qt.UserRole)
-        active = self._store.get_active()
+        active = self._open_repo()
 
         menu = QMenu(self)
         if kind is _RowKind.OPEN and path:

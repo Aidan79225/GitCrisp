@@ -62,6 +62,9 @@ class RepoLifecycleMixin:
     """
 
     def _wire_repo_lifecycle_signals(self) -> None:
+        # Not the store's active repo: one that would not open at launch is
+        # kept active there, with nothing on screen.
+        self._repo_list.show_open_repo_from(lambda: self._repo_path)
         self._repo_list.repo_switch_requested.connect(self._switch_repo)
         self._repo_list.repo_open_requested.connect(self._on_repo_open)
         self._repo_list.repo_close_requested.connect(self._on_repo_close)
