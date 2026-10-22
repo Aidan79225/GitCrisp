@@ -628,9 +628,7 @@ class GraphWidget(QWidget):
         self._first_parent = checked
         if self._repo_path is not None:
             self._remember_first_parent(self._repo_path, checked)
-        # No-op if queries aren't wired up yet (empty state).
-        if self._queries is not None:
-            self.reload()
+        self.reload()
 
     def _remember_first_parent(self, path: str, checked: bool) -> None:
         """Persist the choice, reporting a failed write rather than raising.
@@ -710,8 +708,9 @@ class GraphWidget(QWidget):
         # regress to PAGE_SIZE — losing the merge base from the loaded set
         # and reverting the diverged lane to a floating circle.
         # set_buses() explicitly clears state on repo switch.
+        # The one no-repo check for every reload trigger: a load could only fail.
         if self._queries is None:
-            return  # no repo open: a load could only fail
+            return
         if extra_tips is not None:
             self._extra_tips = extra_tips
         if limit is not None:
@@ -1374,8 +1373,7 @@ class GraphWidget(QWidget):
             return
         self._reload_limit = max(self._limit_before_search, self._commits_in_view())
         self._limit_before_search = None
-        if self._queries is not None:
-            self.reload()
+        self.reload()
 
     def _commits_in_view(self) -> int:
         """How many commits a reload needs to keep every row on screen and the selected one."""
