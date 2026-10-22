@@ -51,11 +51,7 @@ class TagFlowsMixin(AskedRepoGuardMixin):
 
     def _has_origin(self) -> bool:
         """Whether the Create Tag dialog can offer to push to origin."""
-        try:
-            return any(r.name == "origin" for r in self._queries.list_remotes.execute())
-        except Exception as e:
-            logger.warning("Listing remotes failed for %s: %s", self._repo_path, e)
-            return False
+        return "origin" in self._remote_names()
 
     def _on_delete_tag(self, name: str) -> None:
         commands = self._commands
