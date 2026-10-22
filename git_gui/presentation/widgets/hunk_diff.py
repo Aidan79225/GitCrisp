@@ -31,7 +31,11 @@ from git_gui.presentation.widgets.diff_block import (
 )
 from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
-from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
+from git_gui.presentation.widgets.viewport_block_loader import (
+    BlockRef,
+    DiffMapSignals,
+    ViewportBlockLoader,
+)
 from git_gui.resources import get_resource_path
 
 logger = logging.getLogger(__name__)
@@ -96,10 +100,6 @@ def _read_file_hunks(queries: QueryBus, path: str) -> tuple[list[Hunk], list[Hun
 
 class _LoadSignals(QObject):
     done = Signal(str, list, list)  # path, staged_hunks, unstaged_hunks
-
-
-class _DiffMapSignals(QObject):
-    done = Signal(object, int)  # dict[str, dict[str, list[Hunk]]], blocks generation
 
 
 class HunkDiffWidget(QWidget):
@@ -190,7 +190,7 @@ class HunkDiffWidget(QWidget):
         shown = paths[:MAX_AGGREGATE_FILE_BLOCKS]
         hidden = len(paths) - len(shown)
 
-        block_refs = []
+        block_refs: list[BlockRef] = []
         for path in shown:
             frame, inner = self._make_file_block(path)
             # A skeleton is far shorter than the block it stands for. Holding
@@ -214,7 +214,7 @@ class HunkDiffWidget(QWidget):
 
         queries = self._queries
         generation = self._blocks_generation
-        signals = _DiffMapSignals()
+        signals = DiffMapSignals()
         signals.done.connect(self._on_diff_map_loaded)
         self._load_all_signals = signals  # prevent GC
 

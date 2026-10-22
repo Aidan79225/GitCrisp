@@ -435,6 +435,7 @@ class DiffWidget(QWidget):
         try:
             self._submodule_paths = {s.path for s in self._queries.list_submodules.execute()}
         except Exception:
+            logger.warning("Failed to list the submodules", exc_info=True)
             self._submodule_paths = set()
 
     def _request_blame(self, path: str) -> None:
