@@ -26,14 +26,21 @@ def _startup_repo(store: JsonRepoStore) -> str | None:
     return started.path if started else None
 
 
-def _prune_in_background(store: JsonRepoStore, qtbot) -> None:
-    """Run the pruning main.py starts once the window is up, and wait for it."""
+def _prune_in_background(store: JsonRepoStore, qtbot) -> list[str]:
+    """Run the pruning main.py starts once the window is up, and wait for it.
+
+    Returns why each save it made failed.
+    """
     from main import _GoneRepoPruner
 
     pruned: list[bool] = []
-    pruner = _GoneRepoPruner(store, on_pruned=lambda: pruned.append(True))
+    unsaved: list[str] = []
+    pruner = _GoneRepoPruner(
+        store, on_pruned=lambda: pruned.append(True), on_save_failed=unsaved.append
+    )
     pruner.start()
     qtbot.waitUntil(lambda: pruned == [True], timeout=5000)
+    return unsaved
 
 
 class TestFindValidRepoPruning:
@@ -291,3 +298,23 @@ class TestStartupProbesOnlyWhatItOpens:
 
         assert store.get_open_repos() == [str(valid), str(offline_open)]
         assert store.get_recent_repos() == [str(offline_recent)]
+
+
+class TestPruningWhenTheRepoListCannotBeSaved:
+    """save() raises for a read-only or locked repos.json or a full disk, and
+    the pruning saves from a queued slot once the window is up."""
+
+    def test_the_list_is_still_redrawn_and_the_failure_reported(self, tmp_path, qtbot):
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        dead = tmp_path / "deleted_worktree"
+        not_a_folder = tmp_path / "not-a-folder"
+        not_a_folder.write_text("", encoding="utf-8")  # fails every write, as a read-only file does
+        store = JsonRepoStore(not_a_folder / "repos.json")
+        store.load()
+        store.add_open(str(dead))
+        store.add_open(str(valid))
+
+        unsaved = _prune_in_background(store, qtbot)
+
+        assert store.get_open_repos() == [str(valid)]
+        assert len(unsaved) == 1

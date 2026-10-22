@@ -121,11 +121,13 @@ class _GoneRepoPruner(QObject):
         self,
         repo_store: JsonRepoStore,
         on_pruned: Callable[[], None],
+        on_save_failed: Callable[[str], None],
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._repo_store = repo_store
         self._on_pruned = on_pruned
+        self._on_save_failed = on_save_failed
         self._found_gone.connect(self._forget)
 
     def start(self) -> None:
@@ -137,7 +139,7 @@ class _GoneRepoPruner(QObject):
             return
         for path in gone:
             self._repo_store.forget(path)
-        self._repo_store.save()
+        _save_repo_store(self._repo_store, self._on_save_failed)
         self._on_pruned()
 
 
@@ -231,7 +233,12 @@ def main() -> None:
     repo_store.load()
     window = _open_window(repo_store, JsonRemoteTagCache())
     window.show()
-    _GoneRepoPruner(repo_store, on_pruned=lambda: _reload_repo_list(window), parent=window).start()
+    _GoneRepoPruner(
+        repo_store,
+        on_pruned=lambda: _reload_repo_list(window),
+        on_save_failed=lambda reason: _report_unsaved_repo_list(window, reason),
+        parent=window,
+    ).start()
     sys.exit(app.exec())
 
 
