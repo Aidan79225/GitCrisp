@@ -52,9 +52,19 @@ def _header_height(fm: QFontMetrics) -> int:
     return fm.height() + HEADER_V_PAD
 
 
+def _headers_height(fm: QFontMetrics, badge_lines: int) -> int:
+    """The author line and the badge lines: how far below the row's top the message starts."""
+    return _header_height(fm) * (1 + badge_lines)
+
+
 def _row_height(fm: QFontMetrics, badge_lines: int) -> int:
     """The author line, the badge lines and the message lines, then the bottom pad."""
-    return _header_height(fm) * (1 + badge_lines) + fm.height() * MESSAGE_LINES + ROW_BOTTOM_PAD
+    return _headers_height(fm, badge_lines) + fm.height() * MESSAGE_LINES + ROW_BOTTOM_PAD
+
+
+def _info_width(row_width: int, indent: int) -> int:
+    """The commit info's width: right of the row's lanes, inside its padding."""
+    return max(row_width - indent - CELL_PAD * 2, 1)
 
 
 def _message_line_spans(painter: QPainter, message: str, width: int) -> list[tuple[int, int]]:
@@ -133,6 +143,16 @@ def _layout_badges(
     return placed
 
 
+def _place_badges(fm: QFontMetrics, info: CommitInfo, info_width: int) -> list[_PlacedBadge]:
+    """The row's badges, the first line sharing its width with the sha at its right.
+
+    sizeHint counts the lines this takes and paint draws them, so both must
+    place the badges the same way or the last message line is cut off.
+    """
+    first_line_width = info_width - _hash_width(fm, info.short_oid)
+    return _layout_badges(fm, info.branch_names, first_line_width, info_width)
+
+
 def _badge_line_count(placed: list[_PlacedBadge]) -> int:
     return placed[-1].line + 1 if placed else 1
 
@@ -146,9 +166,7 @@ class CommitRowDelegate(QStyledItemDelegate):
 
         indent = row_graph_width(index.data(LANE_ROLE))
         row_w = option.rect.width() if option.rect.width() > 0 else indent + FALLBACK_ROW_WIDTH
-        cell_w = max(row_w - indent - CELL_PAD * 2, 1)
-        first_line_w = cell_w - _hash_width(fm, info.short_oid)
-        badge_lines = _badge_line_count(_layout_badges(fm, info.branch_names, first_line_w, cell_w))
+        badge_lines = _badge_line_count(_place_badges(fm, info, _info_width(row_w, indent)))
         return QSize(option.rect.width(), _row_height(fm, badge_lines))
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
@@ -174,32 +192,26 @@ class CommitRowDelegate(QStyledItemDelegate):
             graph_rect = QRect(row_rect.left(), row_rect.top(), indent, row_rect.height())
             paint_lanes(painter, graph_rect, lane_data, selected=selected)
 
-        rect = QRect(
-            row_rect.left() + indent,
-            row_rect.top(),
-            max(row_rect.width() - indent, 1),
-            row_rect.height(),
-        )
         if info is None:
             self._paint_divider(painter, row_rect)
             painter.restore()
             return
 
         fm = painter.fontMetrics()
-        line_h = fm.height()
         header_h = _header_height(fm)
+        left = row_rect.left() + indent + CELL_PAD
+        cell_w = _info_width(row_rect.width(), indent)
 
         # ── Sub-row 1: author (left) + datetime (right) ──────────────────────
-        cell_w = rect.width() - CELL_PAD * 2
-        header = QRect(rect.left() + CELL_PAD, rect.top(), cell_w, header_h)
+        header = QRect(left, row_rect.top(), cell_w, header_h)
         self._paint_author_and_date(painter, info, header)
 
         # ── Sub-row 2+: branch badges (left, multi-line) + hash (right, first line) ─
-        first_ref_line = QRect(rect.left() + CELL_PAD, rect.top() + header_h, cell_w, header_h)
+        first_ref_line = QRect(left, row_rect.top() + header_h, cell_w, header_h)
         badge_lines = self._paint_refs(painter, info, first_ref_line)
 
-        msg_top = rect.top() + header_h * (1 + badge_lines)
-        first_message_line = QRect(rect.left() + CELL_PAD, msg_top, cell_w, line_h)
+        msg_top = row_rect.top() + _headers_height(fm, badge_lines)
+        first_message_line = QRect(left, msg_top, cell_w, fm.height())
         self._paint_message(painter, info.message, first_message_line)
 
         self._paint_divider(painter, row_rect)
@@ -222,8 +234,7 @@ class CommitRowDelegate(QStyledItemDelegate):
     def _paint_refs(painter: QPainter, info: CommitInfo, first_line: QRect) -> int:
         """Paint the badges and the sha, and return how many lines the badges took."""
         fm = painter.fontMetrics()
-        first_line_w = first_line.width() - _hash_width(fm, info.short_oid)
-        placed = _layout_badges(fm, info.branch_names, first_line_w, first_line.width())
+        placed = _place_badges(fm, info, first_line.width())
         badge_h = fm.height() + BADGE_V_PAD * 2
         for badge in placed:
             if not badge.label:

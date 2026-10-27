@@ -15,7 +15,7 @@ from PySide6.QtCore import QModelIndex
 from git_gui.domain.entities import Commit
 from git_gui.presentation.models.graph_model import GraphModel
 from git_gui.presentation.widgets.graph import GraphWidget
-from tests.presentation.widgets.graph_menu_helpers import graph_widget
+from tests.presentation.widgets.graph_helpers import graph_widget
 
 
 def _make_commit(oid: str, msg: str = "m") -> Commit:

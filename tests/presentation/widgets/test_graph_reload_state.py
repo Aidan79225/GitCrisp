@@ -532,8 +532,14 @@ def test_filtering_to_a_file_while_a_search_loads_searches_its_whole_history(gra
 
 def _paged_file_history(graph: GraphWidget, n: int, step: int = 1) -> None:
     """README.md's history: `n` commits, every `step`th of the chain, paged
-    like the real walk. Each of them, and no other commit, changed the file."""
+    like the real walk. Each of them, and no other commit, changed the file.
+    HEAD reaches every commit unless the test says otherwise, and none is a
+    merge: the two checks that decide whether a commit can be in the history."""
     history = _chain(n * step)[::step]
+    graph._queries.is_ancestor.execute.return_value = True
+    graph._queries.get_commit_detail.execute.side_effect = lambda oid: Commit(
+        oid=oid, message="", author="A", timestamp=datetime(2026, 1, 1), parents=["parent"]
+    )
     graph._queries.get_file_history.execute.side_effect = lambda path, limit, skip=0, **_: history[
         skip : skip + limit
     ]
@@ -568,7 +574,7 @@ def test_a_commit_clicked_before_the_file_history_loads_is_selected_there(graph,
     assert _current_oid(graph) == "c80"
 
 
-def test_a_branch_past_the_whole_paged_file_history_is_shown_in_the_full_graph(
+def test_a_commit_whose_ancestry_cannot_be_read_is_looked_for_through_the_whole_file_history(
     graph, inline_workers
 ):
     """When it cannot be told whether HEAD reaches the branch, the file
@@ -577,9 +583,12 @@ def test_a_branch_past_the_whole_paged_file_history_is_shown_in_the_full_graph(
     graph._queries.is_ancestor.execute.side_effect = RuntimeError("object not found")
     _paged_file_history(graph, 120)
     graph.set_path_filter("README.md")
+    walks = graph._queries.get_file_history.execute
+    walks.reset_mock()
 
     graph.reload_with_extra_tip("side")
 
+    assert walks.call_args.kwargs["limit"] >= 120  # the walk reached the end of the history
     assert graph._path_filter is None
     assert _current_oid(graph) == "side"
 

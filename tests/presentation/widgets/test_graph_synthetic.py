@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt
 from git_gui.domain.entities import WORKING_TREE_OID, Commit, RepoState, RepoStateInfo
 from git_gui.presentation.models.graph_model import INFO_ROLE
 from git_gui.presentation.widgets.graph import GraphWidget
-from tests.presentation.widgets.graph_menu_helpers import graph_widget
+from tests.presentation.widgets.graph_helpers import graph_widget
 
 
 def _make_commit(oid: str = "aaa", msg: str = "hello", parents: list[str] | None = None) -> Commit:

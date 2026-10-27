@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QEvent, QRect, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtCore import QEvent, QRect, Qt, Signal, SignalInstance
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
 from git_gui.domain.entities import Commit
@@ -13,11 +13,11 @@ from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
 from git_gui.presentation.widgets.ref_badge_delegate import (
     BADGE_GAP,
     BADGE_H_PAD,
-    BADGE_RADIUS,
     BADGE_V_PAD,
     _badge_color,
     _badge_copy_text,
     _badge_display_name,
+    paint_badge,
 )
 
 
@@ -198,11 +198,7 @@ class CommitDetailWidget(QWidget):
 
     def _paint_badge(self, painter: QPainter, badge: _Badge) -> None:
         fill = _badge_color(badge.ref, self._head_branch, self._remote_branches)
-        painter.setBrush(QBrush(fill))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(badge.rect, BADGE_RADIUS, BADGE_RADIUS)
-        painter.setPen(_colour(ColorRole.ON_BADGE))
-        painter.drawText(badge.rect, Qt.AlignCenter, badge.label)
+        paint_badge(painter, badge.rect, fill, badge.label)
 
     def _paint_parents(self, painter: QPainter, layout: _DetailLayout, parents: list[str]) -> None:
         baseline = layout.parents_top + painter.fontMetrics().ascent()
@@ -235,21 +231,23 @@ class CommitDetailWidget(QWidget):
         cut = self._layout(self._commit, self.fontMetrics()).cut_author
         return self._commit.author if cut is not None and cut.contains(pos) else ""
 
-    def _copyable_at(self, pos) -> str | None:
-        """Return the text to copy if a clickable element is under `pos`."""
+    def _hit_at(self, pos) -> tuple[SignalInstance, str] | None:
+        """The copy request a click at `pos` makes, and the text it copies, if any.
+
+        The cursor and the click both ask here, so the pointing hand shows
+        exactly where a click copies something.
+        """
         if self._commit is None:
             return None
         layout = self._layout(self._commit, self.fontMetrics())
         if layout.oid.contains(pos):
-            return self._commit.oid
-        return next((badge.copy_text for badge in layout.badges if badge.rect.contains(pos)), None)
+            return self.commit_oid_copy_requested, self._commit.oid
+        badge = next((b for b in layout.badges if b.rect.contains(pos)), None)
+        return (self.ref_copy_requested, badge.copy_text) if badge is not None else None
 
     def mouseMoveEvent(self, event) -> None:
-        pos = event.position().toPoint()
-        if self._copyable_at(pos) is not None:
-            self.setCursor(Qt.PointingHandCursor)
-        else:
-            self.setCursor(Qt.ArrowCursor)
+        hit = self._hit_at(event.position().toPoint())
+        self.setCursor(Qt.PointingHandCursor if hit is not None else Qt.ArrowCursor)
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:
@@ -257,16 +255,10 @@ class CommitDetailWidget(QWidget):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event) -> None:
-        pos = event.position().toPoint()
-        if event.button() == Qt.LeftButton and self._commit is not None:
-            layout = self._layout(self._commit, self.fontMetrics())
-            if layout.oid.contains(pos):
-                self.commit_oid_copy_requested.emit(self._commit.oid)
-                event.accept()
-                return
-            for badge in layout.badges:
-                if badge.rect.contains(pos):
-                    self.ref_copy_requested.emit(badge.copy_text)
-                    event.accept()
-                    return
+        hit = self._hit_at(event.position().toPoint())
+        if event.button() == Qt.LeftButton and hit is not None:
+            copy_requested, text = hit
+            copy_requested.emit(text)
+            event.accept()
+            return
         super().mousePressEvent(event)
