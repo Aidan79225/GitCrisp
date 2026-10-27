@@ -146,6 +146,15 @@ def test_clicking_another_open_repo_switches_to_it(qtbot):
     assert _switches_after_clicking(w, _open_row_index(w, "C:/a/two")) == ["C:/a/two"]
 
 
+def test_the_stored_active_repo_is_clickable_while_the_window_shows_none(qtbot):
+    """A repo that would not open at launch stays active in the store."""
+    w = _shown_list(qtbot, _FakeStore(open_=_OPEN, active="C:/a/one"))
+    w.show_open_repo_from(lambda: None)
+    w.reload()
+
+    assert _switches_after_clicking(w, _open_row_index(w, "C:/a/one")) == ["C:/a/one"]
+
+
 def test_clicking_the_active_worktree_does_not_reopen_it(qtbot):
     w = _shown_list(qtbot, _FakeStore(open_=["C:/a/one"], active="C:/wt/review"))
     row = _worktree_row(w, "C:/wt/review", "feature/login")

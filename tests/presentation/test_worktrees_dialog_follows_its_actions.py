@@ -41,7 +41,7 @@ class _Worktrees:
     def lock(self, path: str, reason: str | None = None) -> None:
         self.items = [_worktree(_MAIN, is_main=True), _worktree(path, lock_reason=reason)]
 
-    def remove(self, path: str, force: bool = False) -> None:
+    def remove(self, path: str, **_flags) -> None:
         self.items = [wt for wt in self.items if wt.path != path]
 
     def add(self, path: str, branch: str, **_kwargs) -> Worktree:
@@ -114,7 +114,8 @@ def test_adding_while_the_dialog_is_open_lists_the_new_worktree(qtbot):
                 "create_new": False,
                 "base_ref": None,
                 "switch_after": False,
-            }
+            },
+            win._commands,
         )
         qtbot.waitUntil(lambda: added in _paths(dialog), timeout=2000)
 

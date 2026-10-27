@@ -11,6 +11,15 @@ from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixi
 
 logger = logging.getLogger(__name__)
 
+# Why git refused to remove a worktree, when the user can override it: the
+# remove_worktree flag that does, and what the prompt says. Keyed by class name
+# to keep this layer infra-free (the architecture guard forbids importing the
+# concrete errors).
+_REMOVE_OVERRIDES = {
+    "WorktreeDirtyError": ("force", "has uncommitted changes"),
+    "WorktreeLockedError": ("override_lock", "is locked"),
+}
+
 
 class BranchFlowsMixin(AskedRepoGuardMixin):
     """Branch operations — checkout, create, delete, and commit checkout.
@@ -90,26 +99,24 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, op_name):
             return False
 
-        force = False
+        # Each prompt grants one override and keeps the others: git checks the
+        # lock before the changes, so a locked worktree with changes is refused
+        # twice before it goes.
+        overrides = dict.fromkeys(("force", "override_lock"), False)
         while True:
             try:
-                commands.remove_worktree.execute(wt.path, force=force)
+                commands.remove_worktree.execute(wt.path, **overrides)
                 self._log_panel.log(f"Removed worktree: {wt.path}")
                 self._load_worktrees_for_active_repo()
                 return True
             except Exception as e:
-                # Dispatch by class name to keep this layer infra-free (the
-                # architecture guard forbids importing the concrete errors).
-                name = type(e).__name__
-                if not force and name in ("WorktreeDirtyError", "WorktreeLockedError"):
-                    detail = (
-                        "has uncommitted changes" if name == "WorktreeDirtyError" else "is locked"
-                    )
+                flag, detail = _REMOVE_OVERRIDES.get(type(e).__name__, (None, ""))
+                if flag is not None and not overrides[flag]:
                     if not self._ask_force_remove_worktree(wt.path, detail):
                         return False
                     if self._repo_switched_while_asking(commands, op_name):
                         return False
-                    force = True
+                    overrides[flag] = True
                     continue
                 self._log_panel.expand()
                 self._log_panel.log_error(f"{op_name} — ERROR: {e}")

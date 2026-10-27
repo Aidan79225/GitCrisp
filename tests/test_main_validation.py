@@ -26,14 +26,21 @@ def _startup_repo(store: JsonRepoStore) -> str | None:
     return started.path if started else None
 
 
-def _prune_in_background(store: JsonRepoStore, qtbot) -> None:
-    """Run the pruning main.py starts once the window is up, and wait for it."""
+def _prune_in_background(store: JsonRepoStore, qtbot) -> list[str]:
+    """Run the pruning main.py starts once the window is up, and wait for it.
+
+    Returns why each save it made failed.
+    """
     from main import _GoneRepoPruner
 
     pruned: list[bool] = []
-    pruner = _GoneRepoPruner(store, on_pruned=lambda: pruned.append(True))
+    unsaved: list[str] = []
+    pruner = _GoneRepoPruner(
+        store, on_pruned=lambda: pruned.append(True), on_save_failed=unsaved.append
+    )
     pruner.start()
     qtbot.waitUntil(lambda: pruned == [True], timeout=5000)
+    return unsaved
 
 
 class TestFindValidRepoPruning:
@@ -291,3 +298,125 @@ class TestStartupProbesOnlyWhatItOpens:
 
         assert store.get_open_repos() == [str(valid), str(offline_open)]
         assert store.get_recent_repos() == [str(offline_recent)]
+
+
+class TestPruningWhenTheRepoListCannotBeSaved:
+    """save() raises for a read-only or locked repos.json or a full disk, and
+    the pruning saves from a queued slot once the window is up."""
+
+    def test_the_list_is_still_redrawn_and_the_failure_reported(self, tmp_path, qtbot):
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        dead = tmp_path / "deleted_worktree"
+        not_a_folder = tmp_path / "not-a-folder"
+        not_a_folder.write_text("", encoding="utf-8")  # fails every write, as a read-only file does
+        store = JsonRepoStore(not_a_folder / "repos.json")
+        store.load()
+        store.add_open(str(dead))
+        store.add_open(str(valid))
+
+        unsaved = _prune_in_background(store, qtbot)
+
+        assert store.get_open_repos() == [str(valid)]
+        assert len(unsaved) == 1
+
+
+def _while_probing(path, monkeypatch, meanwhile) -> None:
+    """Run *meanwhile* as the pruning probes *path*: what the user does while
+    that probe waits out a network timeout on an unreachable share."""
+    import main
+
+    probe = main._stored_repo_state
+
+    def probe_meanwhile(probed: str):
+        if probed == str(path):
+            meanwhile()
+        return probe(probed)
+
+    monkeypatch.setattr(main, "_stored_repo_state", probe_meanwhile)
+
+
+class TestPruningKeepsWhatIsBackBeforeItEnds:
+    """The pruning reports once every stored path is probed, minutes after
+    launch with a share out of reach, so a path it found gone at the start may
+    be a repo again by then: cloned back, or re-added as a worktree, and
+    opened."""
+
+    @staticmethod
+    def _store(tmp_path, reborn, offline) -> JsonRepoStore:
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        dead = tmp_path / "deleted_worktree"
+        # Probed in this order: reborn before the share that holds the probe.
+        return _store_of(tmp_path, open_paths=[valid, dead], recent_paths=[offline, reborn])
+
+    def test_a_repo_opened_meanwhile_stays_open(self, tmp_path, qtbot, monkeypatch):
+        reborn = tmp_path / "recloned"
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = self._store(tmp_path, reborn, offline)
+
+        def reopen():
+            TestFindValidRepoKeepsUnreachablePaths._repo(reborn)
+            store.add_open(str(reborn))
+
+        _while_probing(offline, monkeypatch, reopen)
+
+        _prune_in_background(store, qtbot)
+
+        assert store.get_open_repos() == [str(reborn), str(tmp_path / "valid")]
+        assert store.get_active() == str(reborn)
+
+    def test_a_repo_cloned_back_meanwhile_stays_listed(self, tmp_path, qtbot, monkeypatch):
+        reborn = tmp_path / "recloned"
+        offline = tmp_path / "unmounted" / "work" / "project"
+        store = self._store(tmp_path, reborn, offline)
+        _while_probing(
+            offline, monkeypatch, lambda: TestFindValidRepoKeepsUnreachablePaths._repo(reborn)
+        )
+
+        _prune_in_background(store, qtbot)
+
+        assert store.get_recent_repos() == [str(reborn), str(offline)]
+
+    def test_the_repo_on_screen_is_kept_until_the_next_launch(self, tmp_path, qtbot):
+        """Forgetting it would drop it from the list while its panes are up."""
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        on_screen = tmp_path / "deleted_since_it_opened"
+        dead = tmp_path / "deleted_worktree"
+        store = _store_of(tmp_path, open_paths=[on_screen, valid, dead])
+        store.set_active(str(on_screen))
+
+        _prune_in_background(store, qtbot)
+
+        assert store.get_open_repos() == [str(on_screen), str(valid)]
+        assert store.get_active() == str(on_screen)
+
+
+class TestAGitFileThatCannotBeFollowed:
+    """An interrupted submodule checkout or a sync-tool conflict can leave a
+    .git file empty, and discover_repository raises on it rather than
+    answering. The folder is still a repo to keep, like one that will not
+    open, not a reason to stop the launch or the pruning."""
+
+    @staticmethod
+    def _malformed(path):
+        path.mkdir()
+        (path / ".git").write_bytes(b"")
+        return path
+
+    def test_the_pruning_keeps_it_and_forgets_what_is_gone(self, tmp_path, qtbot):
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        malformed = self._malformed(tmp_path / "malformed")
+        dead = tmp_path / "deleted_worktree"
+        store = _store_of(tmp_path, open_paths=[valid], recent_paths=[dead, malformed])
+
+        _prune_in_background(store, qtbot)
+
+        assert store.get_recent_repos() == [str(malformed)]
+
+    def test_the_launch_passes_over_it_to_the_next_open_repo(self, tmp_path):
+        valid = TestFindValidRepoKeepsUnreachablePaths._repo(tmp_path / "valid")
+        malformed = self._malformed(tmp_path / "malformed")
+        store = _store_of(tmp_path, open_paths=[malformed, valid])
+        store.set_active(str(malformed))
+
+        assert _startup_repo(store) == str(valid)
+        assert store.get_open_repos() == [str(malformed), str(valid)]
