@@ -92,6 +92,15 @@ def test_dialog_offers_push_only_when_origin_exists(host):
     assert factory.call_args.kwargs["can_push"] is False
 
 
+def test_remotes_that_cannot_be_listed_turn_push_off_and_say_why(host):
+    host._queries.list_remotes.execute.side_effect = RuntimeError("'bad name' is not valid")
+
+    factory = _run(host, push=False)
+
+    assert factory.call_args.kwargs["can_push"] is False
+    assert "'bad name' is not valid" in host._log_panel.log_error.call_args.args[0]
+
+
 def test_cancel_creates_nothing(host):
     _run(host, push=True, accepted=False)
     host._commands.create_tag.execute.assert_not_called()

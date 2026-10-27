@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from git_gui.presentation.bus import CommandBus
 from git_gui.presentation.dialogs.identity_dialog import ensure_identity
 from git_gui.presentation.dialogs.interactive_rebase_dialog import InteractiveRebaseDialog
 from git_gui.presentation.dialogs.merge_dialog import MergeDialog, MergeRequest
@@ -38,7 +39,7 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
             branch,
             f"Merge branch '{branch}'",
             resolve_target=lambda: self._tip_of_branch(branch),
-            run=lambda req: self._commands.merge.execute(
+            run=lambda commands, req: commands.merge.execute(
                 branch, strategy=req.strategy, message=req.message
             ),
         )
@@ -49,7 +50,7 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
             label,
             f"Merge {label}",
             resolve_target=lambda: oid,
-            run=lambda req: self._commands.merge_commit.execute(
+            run=lambda commands, req: commands.merge_commit.execute(
                 oid, strategy=req.strategy, message=req.message
             ),
         )
@@ -60,18 +61,19 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
         default_message: str,
         *,
         resolve_target: Callable[[], str | None],
-        run: Callable[[MergeRequest], object],
+        run: Callable[[CommandBus, MergeRequest], object],
     ) -> None:
         """Merge the commit *resolve_target* finds into HEAD once the user
-        confirms it in the merge dialog. *label* names the target in the log."""
+        confirms it in the merge dialog. *label* names the target in the log;
+        *run* merges on the bus of the repo the dialog was opened in."""
         queries, commands = self._queries, self._commands
         op_name = f"Merge {label}"
         try:
             target_oid = resolve_target()
             if target_oid is None:
                 return
-            analysis = self._queries.get_merge_analysis.execute(target_oid)
-            head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
+            analysis = queries.get_merge_analysis.execute(target_oid)
+            head_branch = queries.get_repo_state.execute().head_branch or "HEAD"
             if analysis.is_up_to_date:
                 self._log_panel.log(f"Merge {label}: already up to date")
                 return
@@ -84,7 +86,7 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
             if self._repo_switched_while_asking(commands, op_name):
                 return
             head_before = self.head_before_operation()
-            run(req)
+            run(commands, req)
             self._log_undoable(f"Merge: {label} into {head_branch}", head_before)
         except Exception as e:
             self._log_panel.expand()

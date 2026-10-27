@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
+from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.presentation.main_window.remote_op_queue import RemoteOpQueueMixin
 from git_gui.presentation.main_window.tag_flows import TagFlowsMixin
 
@@ -131,8 +132,6 @@ def test_only_the_remotes_it_left_keep_the_tag_in_the_cache(host):
 
 
 def test_a_cancel_stops_the_delete_before_the_remaining_remotes(host):
-    from git_gui.infrastructure.pygit2.remote_ops import RemoteOperationCancelled
-
     def _cancel_on_origin(remote: str, _name: str) -> None:
         if remote == "origin":
             raise RemoteOperationCancelled("Operation cancelled")

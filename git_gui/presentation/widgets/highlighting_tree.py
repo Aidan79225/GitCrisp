@@ -20,6 +20,9 @@ class HighlightingTreeView(QTreeView):
         super().__init__(parent)
         self._highlight_role = highlight_role
         self._hover_idx = QPersistentModelIndex()
+        # Hover follows moves with no button held, which Qt only delivers
+        # to a widget that tracks the mouse.
+        self.setMouseTracking(True)
 
     def mouseMoveEvent(self, event) -> None:
         self._track_hover(event.position().toPoint())

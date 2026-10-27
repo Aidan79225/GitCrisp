@@ -250,6 +250,31 @@ def test_pull_keeps_to_the_upstream_when_the_repos_remotes_cannot_be_listed(
     win._commands.pull.execute.assert_called_once_with(*pulled)
 
 
+@pytest.mark.parametrize("remotes_listable", [True, False], ids=["remotes-listed", "unlistable"])
+@pytest.mark.parametrize("upstream", ["feature/login", "main"])
+def test_pull_takes_a_local_upstream_from_this_repo_not_from_a_remote(
+    qtbot, upstream, remotes_listable
+):
+    # `git checkout -b topic --track feature/login` stacks topic on a local
+    # branch (branch.topic.remote = '.'): no remote is named "feature".
+    win = _make_window(qtbot)
+    win._queries = _queries_on_branch("topic", others=[upstream])
+    win._queries.list_local_branches_with_upstream.execute.return_value = [
+        LocalBranchInfo("topic", upstream, "0123456789", "Stack it")
+    ]
+    win._queries.list_remotes.execute.return_value = [
+        Remote("origin", "https://example.com/o.git", "https://example.com/o.git")
+    ]
+    if not remotes_listable:
+        win._queries.list_remotes.execute.side_effect = RuntimeError("'bad name' is not valid")
+    with patch.object(win, "_reload"):
+        win._on_pull()
+        _wait_until_idle(qtbot, win)
+
+    win._commands.pull.execute.assert_called_once_with(".", upstream)
+    assert f"Pull {upstream} — done" in win._log_panel._body.toPlainText()
+
+
 def test_the_log_says_why_the_remotes_could_not_be_listed(qtbot):
     win = _pull_with_unlistable_remotes(qtbot, "main", "upstream/main")
 
