@@ -525,7 +525,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         dlg = WorktreesDialog(worktrees=wts, parent=self)
         dlg.open_requested.connect(self._switch_repo)
         dlg.remove_requested.connect(self._begin_remove_worktree)
-        dlg.lock_requested.connect(self._run_lock_worktree_with_reason)
+        dlg.lock_requested.connect(self._run_lock_worktree)
         dlg.unlock_requested.connect(self._run_unlock_worktree)
         dlg.add_requested.connect(
             lambda: self._open_add_worktree_dialog(preselect_branch=None, default_create=False)

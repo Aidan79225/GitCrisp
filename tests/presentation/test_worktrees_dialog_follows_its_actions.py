@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from git_gui.domain.entities import Worktree
 from git_gui.presentation.dialogs.worktrees_dialog import WorktreesDialog
@@ -85,7 +85,8 @@ def test_locking_from_the_dialog_shows_the_lock_in_it(qtbot):
     win = _make_window(qtbot, _Worktrees())
 
     def _lock(dialog: WorktreesDialog) -> None:
-        dialog.lock_requested.emit(_LINKED, "on a USB drive")
+        with patch.object(QInputDialog, "getText", return_value=("on a USB drive", True)):
+            dialog.lock_requested.emit(_LINKED)
         qtbot.waitUntil(lambda: dialog.row_locked_text(1) == "on a USB drive", timeout=2000)
 
     assert _run_dialog(win, _lock)

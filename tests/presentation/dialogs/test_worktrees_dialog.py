@@ -61,11 +61,11 @@ def test_remove_button_emits_remove_requested(qtbot):
 
 def test_lock_button_emits_lock_requested_for_unlocked_row(qtbot):
     dlg = _open(qtbot, [_wt("feat", "/tmp/wt-feat", locked=False)])
-    received: list = []
-    dlg.lock_requested.connect(lambda p, r: received.append((p, r)))
+    received: list[str] = []
+    dlg.lock_requested.connect(received.append)
     dlg.select_row(0)
-    dlg.click_lock(reason_for_test="overnight")
-    assert received == [("/tmp/wt-feat", "overnight")]
+    dlg.click_lock()
+    assert received == ["/tmp/wt-feat"]
 
 
 def test_unlock_button_emits_unlock_requested_for_locked_row(qtbot):
