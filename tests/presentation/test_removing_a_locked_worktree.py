@@ -19,9 +19,18 @@ from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 from git_gui.infrastructure.repo_store import JsonRepoStore
 from git_gui.presentation.main_window import MainWindow
 
-_LOCKED = "Worktree is locked"
-_DIRTY = "Worktree is dirty"
-_BRANCH_FORCE = "Force remove worktree?"
+# Each force prompt, told apart by its text: macOS draws message boxes
+# without a window title, and Qt reports an empty one there.
+_LOCKED = "the worktree list's lock prompt"
+_DIRTY = "the worktree list's changes prompt"
+_BRANCH_FORCE = "the branch delete's force prompt"
+
+
+def _prompt_of(box: QMessageBox) -> str:
+    text = box.text()
+    if not text.startswith("The worktree at "):
+        return _BRANCH_FORCE
+    return _LOCKED if " is locked." in text else _DIRTY
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -71,7 +80,7 @@ def window(qtbot, tmp_path, repo) -> MainWindow:
 
 
 class _Prompts:
-    """Answers each force prompt by its title, the first time it is asked.
+    """Answers each force prompt the first time it is asked.
 
     Asked again, it is cancelled, so a prompt that keeps coming back shows up
     as a second entry in `asked` rather than as a test that never ends.
@@ -83,9 +92,9 @@ class _Prompts:
         monkeypatch.setattr(QMessageBox, "exec", lambda box: self._answer(box))
 
     def _answer(self, box: QMessageBox) -> int:
-        title = box.windowTitle()
-        agree = title in self._agree_to and title not in self.asked
-        self.asked.append(title)
+        prompt = _prompt_of(box)
+        agree = prompt in self._agree_to and prompt not in self.asked
+        self.asked.append(prompt)
         role = QMessageBox.DestructiveRole if agree else QMessageBox.RejectRole
         next(b for b in box.buttons() if box.buttonRole(b) == role).click()
         return 0
