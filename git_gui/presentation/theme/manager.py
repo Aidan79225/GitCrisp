@@ -57,9 +57,11 @@ class ThemeManager(QObject):
     def mode(self) -> ThemeMode:
         return self._mode
 
-    def set_mode(self, mode: ThemeMode, force: bool = False) -> None:
+    def set_mode(self, mode: ThemeMode) -> None:
+        # ThemeMode() here and below raises on a misspelt string: nothing
+        # type-checks presentation, so the annotation alone would not.
         mode = ThemeMode(mode)
-        if mode is self._mode and not force:
+        if mode is self._mode:
             return
         self._save_and_adopt(mode, {})
 

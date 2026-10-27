@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QImage, QPainter
 
 from git_gui.presentation.theme import get_theme_manager
-from git_gui.presentation.theme.loader import load_builtin
 from git_gui.presentation.widgets.author_avatar import (
     _color_for_author,
     _initials,
-    _initials_color,
-    _relative_luminance,
     paint_avatar,
 )
 
@@ -93,21 +89,7 @@ class TestPaintAvatar:
 # ── Theme ───────────────────────────────────────────────────────────────────
 
 
-def _contrast(a: QColor, b: QColor) -> float:
-    light, dark = sorted((_relative_luminance(a), _relative_luminance(b)), reverse=True)
-    return (light + 0.05) / (dark + 0.05)
-
-
 def test_an_avatar_is_filled_from_the_themes_lane_colours():
     lanes = {QColor(c).name() for c in get_theme_manager().current.colors.graph_lane_colors}
 
     assert _color_for_author("Alice Wang <alice@example.com>").name() in lanes
-
-
-@pytest.mark.parametrize("theme", ["dark", "light"])
-def test_initials_meet_aa_contrast_on_every_lane_colour(theme):
-    fills = [QColor(c) for c in load_builtin(theme).colors.graph_lane_colors]
-
-    worst = min(_contrast(_initials_color(fill), fill) for fill in fills)
-
-    assert worst >= 4.5

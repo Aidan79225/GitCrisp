@@ -26,7 +26,8 @@ from PySide6.QtWidgets import (
 
 from git_gui.presentation.theme import ThemeMode, get_theme_manager
 from git_gui.presentation.theme import settings as _settings
-from git_gui.presentation.theme.loader import load_builtin
+from git_gui.presentation.theme.contrast import readable_text_on
+from git_gui.presentation.theme.loader import ThemeValidationError, load_builtin, load_theme
 from git_gui.presentation.theme.tokens import Theme
 from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
 
@@ -114,23 +115,6 @@ def _hex_for_token(token: str, qcolor: QColor) -> str:
 
 def _qcolor_for_hex(hex_str: str) -> QColor:
     return QColor(hex_str)
-
-
-def _readable_fg_for(hex_value: str) -> str:
-    """Return #000 or #fff depending on which contrasts better with hex_value.
-    For overlay (#AARRGGBB) tokens, ignore alpha and judge by RGB."""
-    s = hex_value.lstrip("#")
-    if len(s) == 8:
-        s = s[2:]
-    try:
-        r = int(s[0:2], 16)
-        g = int(s[2:4], 16)
-        b = int(s[4:6], 16)
-    except ValueError:
-        return "#000"
-    # Perceived luminance
-    lum = 0.299 * r + 0.587 * g + 0.114 * b
-    return "#000" if lum > 140 else "#fff"
 
 
 class ThemeDialog(QDialog):
@@ -328,7 +312,8 @@ class ThemeDialog(QDialog):
         btn.setText(hex_value)
         # The label beside it names the token for sighted users only.
         btn.setAccessibleName(f"{token} colour {hex_value}")
-        btn.setStyleSheet(self._swatch_style(hex_value, _readable_fg_for(hex_value)))
+        label = readable_text_on(QColor(hex_value)).name()
+        btn.setStyleSheet(self._swatch_style(hex_value, label))
 
     def _apply_lane_swatch_color(self, idx: int, hex_value: str) -> None:
         btn = self._lane_buttons[idx]
@@ -420,7 +405,6 @@ class ThemeDialog(QDialog):
         import dataclasses
         import json
 
-        from git_gui.presentation.theme import settings as _settings
         from git_gui.presentation.theme.tokens import Colors
 
         # Tokens without a swatch come from the theme the swatches were
@@ -447,9 +431,6 @@ class ThemeDialog(QDialog):
         path.write_text(json.dumps(_theme_to_json(custom_theme), indent=2))
 
     def _maybe_load_existing_custom_theme(self) -> None:
-        from git_gui.presentation.theme import settings as _settings
-        from git_gui.presentation.theme.loader import ThemeValidationError, load_theme
-
         path = _settings.custom_theme_path()
         if not path.exists():
             return

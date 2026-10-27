@@ -440,7 +440,7 @@ class ReflogPane(QWidget):
         """Put `reading` back on top when the reload moved it to another row.
 
         The reload keeps the scroll offset, but the movements it adds above
-        slide every row below them down, out of a pane about eight rows tall.
+        slide every row below them down and out of view.
         """
         row = self._model.row_of(reading) if reading is not None else None
         if row is None or row == was_at:

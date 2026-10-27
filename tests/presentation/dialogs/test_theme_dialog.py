@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QRadioButton
 
 from git_gui.presentation.dialogs.theme_dialog import ThemeDialog
 from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme.tokens import Theme
 
 
 @pytest.fixture
@@ -20,6 +21,31 @@ def app():
 def reset_theme():
     yield
     get_theme_manager().set_mode("dark")
+
+
+@pytest.fixture
+def custom_theme_file(tmp_path, monkeypatch) -> Path:
+    """Point settings.json and custom_theme.json into this test's own empty
+    directory, and return where the custom theme goes (not yet written).
+
+    The suite-wide redirect shares one settings.json across the session, so a
+    test that saves or reads the theme files needs a fresh pair of its own.
+    """
+    from git_gui.presentation.theme import settings as s
+
+    custom_path = tmp_path / "custom_theme.json"
+    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
+    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+    return custom_path
+
+
+def _write_custom_theme(path: Path, theme: Theme) -> None:
+    """Save *theme* to *path* the way Apply would."""
+    import json
+
+    from git_gui.presentation.dialogs.theme_dialog import _theme_to_json
+
+    path.write_text(json.dumps(_theme_to_json(theme)), encoding="utf-8")
 
 
 def _radios(dialog: ThemeDialog) -> dict[str, QRadioButton]:
@@ -80,22 +106,18 @@ def test_custom_panel_enables_when_custom_radio_clicked(app, reset_theme):
     assert dlg._custom_panel.isEnabled()
 
 
-def test_apply_custom_writes_file_and_sets_mode(app, reset_theme, tmp_path, monkeypatch):
-    from git_gui.presentation.theme import settings as s
-
-    monkeypatch.setattr(s, "custom_theme_path", lambda: tmp_path / "custom_theme.json")
-
+def test_apply_custom_writes_file_and_sets_mode(app, reset_theme, custom_theme_file):
     dlg = ThemeDialog()
     _radios(dlg)["custom"].setChecked(True)
     dlg._working_colors["primary"] = "#abcdef"
     dlg._on_apply()
 
-    assert (tmp_path / "custom_theme.json").exists()
+    assert custom_theme_file.exists()
     assert get_theme_manager().mode == "custom"
 
     import json
 
-    payload = json.loads((tmp_path / "custom_theme.json").read_text())
+    payload = json.loads(custom_theme_file.read_text())
     assert payload["colors"]["primary"] == "#abcdef"
 
 
@@ -126,14 +148,11 @@ def test_custom_panel_prefills_from_active_theme(app, reset_theme):
     assert dlg._working_colors["on_surface_variant"] == light_colors.on_surface_variant
 
 
-def test_typography_scale_persists_to_settings(app, reset_theme, tmp_path, monkeypatch):
+def test_typography_scale_persists_to_settings(app, reset_theme, custom_theme_file):
     """The slider value is saved to settings.typography_scale on Apply.
     The custom_theme.json keeps Dark's un-scaled typography — the runtime
     scale is the single source of truth across all modes."""
     from git_gui.presentation.theme import settings as s
-
-    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
-    monkeypatch.setattr(s, "custom_theme_path", lambda: tmp_path / "custom_theme.json")
 
     dlg = ThemeDialog()
     _radios(dlg)["custom"].setChecked(True)
@@ -144,19 +163,14 @@ def test_typography_scale_persists_to_settings(app, reset_theme, tmp_path, monke
 
     import json
 
-    payload = json.loads((tmp_path / "custom_theme.json").read_text())
+    payload = json.loads(custom_theme_file.read_text())
     from git_gui.presentation.theme.loader import load_builtin
 
     dark_body = load_builtin("dark").typography.body_medium.size
     assert payload["typography"]["body_medium"]["size"] == dark_body
 
 
-def test_reopen_dialog_prefills_from_saved_file(app, reset_theme, tmp_path, monkeypatch):
-    from git_gui.presentation.theme import settings as s
-
-    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
-    monkeypatch.setattr(s, "custom_theme_path", lambda: tmp_path / "custom_theme.json")
-
+def test_reopen_dialog_prefills_from_saved_file(app, reset_theme, custom_theme_file):
     dlg1 = ThemeDialog()
     _radios(dlg1)["custom"].setChecked(True)
     dlg1._working_colors["primary"] = "#123456"
@@ -169,20 +183,15 @@ def test_reopen_dialog_prefills_from_saved_file(app, reset_theme, tmp_path, monk
 
 
 def test_resaving_a_custom_theme_with_baked_in_sizes_writes_unscaled_typography(
-    app, reset_theme, tmp_path, monkeypatch
+    app, reset_theme, custom_theme_file
 ):
     """Files saved before typography_scale existed hold scaled sizes, and
     the runtime scale would otherwise be applied on top of them."""
     import dataclasses
     import json
 
-    from git_gui.presentation.dialogs.theme_dialog import _theme_to_json
-    from git_gui.presentation.theme import settings as s
     from git_gui.presentation.theme.loader import load_builtin
 
-    custom_path = tmp_path / "custom_theme.json"
-    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
-    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
     dark = load_builtin("dark")
     body = dark.typography.body_medium
     baked = dataclasses.replace(
@@ -191,13 +200,13 @@ def test_resaving_a_custom_theme_with_baked_in_sizes_writes_unscaled_typography(
             dark.typography, body_medium=dataclasses.replace(body, size=body.size * 2)
         ),
     )
-    custom_path.write_text(json.dumps(_theme_to_json(baked)), encoding="utf-8")
+    _write_custom_theme(custom_theme_file, baked)
     dlg = ThemeDialog()
     _radios(dlg)["custom"].setChecked(True)
 
     dlg._on_apply()
 
-    payload = json.loads(custom_path.read_text(encoding="utf-8"))
+    payload = json.loads(custom_theme_file.read_text(encoding="utf-8"))
     assert payload["typography"]["body_medium"]["size"] == body.size
 
 
@@ -238,38 +247,25 @@ def test_custom_panel_remains_navigable_outside_custom_mode(app, reset_theme):
     assert dlg._working_colors["primary"] == original
 
 
-def test_dialog_opens_when_the_saved_custom_theme_is_malformed(
-    app, reset_theme, tmp_path, monkeypatch
-):
+def test_dialog_opens_when_the_saved_custom_theme_is_malformed(app, reset_theme, custom_theme_file):
     """Outside Custom mode the app still launches, but the dialog read the
     broken file on open and raised, so View > Appearance did nothing."""
-    from git_gui.presentation.theme import settings as s
-
-    custom_path = tmp_path / "custom_theme.json"
-    custom_path.write_text("{", encoding="utf-8")
-    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
-    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+    custom_theme_file.write_text("{", encoding="utf-8")
     get_theme_manager().set_mode("dark")
 
     assert isinstance(ThemeDialog(), QDialog)
 
 
-def _save_light_based_custom_theme_then_switch_to_dark(tmp_path, monkeypatch) -> Path:
-    from git_gui.presentation.theme import settings as s
-
-    custom_path = tmp_path / "custom_theme.json"
-    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
-    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
+def _save_light_based_custom_theme_then_switch_to_dark() -> None:
     get_theme_manager().set_mode("light")
     dlg = ThemeDialog()
     _radios(dlg)["custom"].setChecked(True)
     dlg._on_apply()
     get_theme_manager().set_mode("dark")
-    return custom_path
 
 
 def test_reapplying_a_saved_custom_theme_keeps_the_tokens_it_has_no_swatch_for(
-    app, reset_theme, tmp_path, monkeypatch
+    app, reset_theme, custom_theme_file
 ):
     """The swatches showed the saved file, but syntax colours and is_dark
     were saved from the active builtin: Light surfaces under Dark's pale
@@ -278,30 +274,30 @@ def test_reapplying_a_saved_custom_theme_keeps_the_tokens_it_has_no_swatch_for(
 
     from git_gui.presentation.theme.loader import load_builtin
 
-    custom_path = _save_light_based_custom_theme_then_switch_to_dark(tmp_path, monkeypatch)
+    _save_light_based_custom_theme_then_switch_to_dark()
     dlg = ThemeDialog()
     _radios(dlg)["custom"].setChecked(True)
     dlg._on_apply()
 
-    payload = json.loads(custom_path.read_text(encoding="utf-8"))
+    payload = json.loads(custom_theme_file.read_text(encoding="utf-8"))
     assert payload["colors"]["syntax_string"] == load_builtin("light").colors.syntax_string
     assert payload["is_dark"] is False
 
 
 def test_reset_takes_the_unswatched_tokens_back_to_the_active_theme_too(
-    app, reset_theme, tmp_path, monkeypatch
+    app, reset_theme, custom_theme_file
 ):
     import json
 
     from git_gui.presentation.theme.loader import load_builtin
 
-    custom_path = _save_light_based_custom_theme_then_switch_to_dark(tmp_path, monkeypatch)
+    _save_light_based_custom_theme_then_switch_to_dark()
     dlg = ThemeDialog()
     _radios(dlg)["custom"].setChecked(True)
     dlg._on_reset()
     dlg._on_apply()
 
-    payload = json.loads(custom_path.read_text(encoding="utf-8"))
+    payload = json.loads(custom_theme_file.read_text(encoding="utf-8"))
     assert payload["colors"]["syntax_string"] == load_builtin("dark").colors.syntax_string
 
 
@@ -314,6 +310,9 @@ def test_apply_tells_the_user_when_the_settings_cannot_be_saved(
 
     from git_gui.presentation.theme import settings as s
 
+    # On Dark before the path breaks: set_mode saves on a change, and
+    # reset_theme's set_mode("dark") runs before monkeypatch is undone, so it
+    # must find nothing to change. Apply is then the one save that fails.
     get_theme_manager().set_mode("dark")
     not_a_directory = tmp_path / "file"
     not_a_directory.write_text("", encoding="utf-8")
@@ -356,7 +355,7 @@ def test_a_custom_theme_that_cannot_be_saved_leaves_the_settings_as_they_were(
 
 @pytest.mark.parametrize("saved_before", [True, False], ids=["custom-saved", "none-saved"])
 def test_settings_that_cannot_be_saved_leave_the_custom_theme_as_it_was(
-    app, reset_theme, tmp_path, monkeypatch, saved_before
+    app, reset_theme, custom_theme_file, monkeypatch, saved_before
 ):
     """The custom file was written before settings.json, so Apply reported a
     failure and kept the old colours on screen, yet the next launch showed
@@ -364,17 +363,13 @@ def test_settings_that_cannot_be_saved_leave_the_custom_theme_as_it_was(
     from PySide6.QtWidgets import QMessageBox
 
     from git_gui.presentation.theme import manager
-    from git_gui.presentation.theme import settings as s
 
-    custom_path = tmp_path / "custom_theme.json"
-    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
-    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
     if saved_before:
         first = ThemeDialog()
         _radios(first)["custom"].setChecked(True)
         first._working_colors["primary"] = "#1f3e61"
         first._on_apply()
-    before = custom_path.read_bytes() if saved_before else None
+    before = custom_theme_file.read_bytes() if saved_before else None
     dlg = ThemeDialog()
     _radios(dlg)["custom"].setChecked(True)
     dlg._working_colors["primary"] = "#ff0000"
@@ -390,42 +385,12 @@ def test_settings_that_cannot_be_saved_leave_the_custom_theme_as_it_was(
         dlg._on_apply()
 
     assert warnings
-    assert (custom_path.read_bytes() if custom_path.exists() else None) == before
-
-
-def test_switching_radios_from_a_custom_theme_with_fewer_lanes_keeps_working(
-    app, reset_theme, tmp_path, monkeypatch
-):
-    """The lane buttons are made for the active theme's lanes, and Dark's
-    longer list was painted onto buttons that did not exist."""
-    import dataclasses
-    import json
-
-    from git_gui.presentation.dialogs.theme_dialog import _theme_to_json
-    from git_gui.presentation.theme import settings as s
-    from git_gui.presentation.theme.loader import load_builtin
-
-    custom_path = tmp_path / "custom_theme.json"
-    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
-    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
-    dark = load_builtin("dark")
-    one_lane = dataclasses.replace(
-        dark, colors=dataclasses.replace(dark.colors, graph_lane_colors=["#123456"])
-    )
-    custom_path.write_text(json.dumps(_theme_to_json(one_lane)), encoding="utf-8")
-    get_theme_manager().set_mode("custom")
-    dlg = ThemeDialog()
-
-    _radios(dlg)["dark"].setChecked(True)
-
-    assert dlg._working_colors["surface"] == dark.colors.surface
+    assert (custom_theme_file.read_bytes() if custom_theme_file.exists() else None) == before
 
 
 def _write_custom_theme_with_lanes(custom_path: Path, lanes: int) -> None:
     import dataclasses
-    import json
 
-    from git_gui.presentation.dialogs.theme_dialog import _theme_to_json
     from git_gui.presentation.theme.loader import load_builtin
 
     dark = load_builtin("dark")
@@ -433,16 +398,31 @@ def _write_custom_theme_with_lanes(custom_path: Path, lanes: int) -> None:
     theme = dataclasses.replace(
         dark, colors=dataclasses.replace(dark.colors, graph_lane_colors=lane_colors)
     )
-    custom_path.write_text(json.dumps(_theme_to_json(theme)), encoding="utf-8")
+    _write_custom_theme(custom_path, theme)
 
 
 @pytest.mark.parametrize(
     ("saved_lanes", "active_mode", "radios_clicked"),
-    [(1, "dark", ["custom"]), (10, "custom", ["light", "custom"])],
-    ids=["fewer-lanes-than-the-active-theme", "more-lanes-than-the-builtin-picked"],
+    [
+        (1, "dark", ["custom"]),
+        (10, "custom", ["light", "custom"]),
+        (1, "custom", ["dark", "custom"]),
+    ],
+    ids=[
+        "fewer-lanes-than-the-active-theme",
+        "more-lanes-than-the-builtin-picked",
+        "fewer-lanes-than-the-builtin-picked",
+    ],
 )
 def test_the_lane_swatches_shown_are_the_lanes_apply_saves(
-    app, reset_theme, qtbot, tmp_path, monkeypatch, saved_lanes, active_mode, radios_clicked
+    app,
+    reset_theme,
+    qtbot,
+    custom_theme_file,
+    monkeypatch,
+    saved_lanes,
+    active_mode,
+    radios_clicked,
 ):
     """The lane buttons were made once, for the theme active on open: a
     working theme with fewer lanes left stale swatches whose click raised
@@ -452,12 +432,7 @@ def test_the_lane_swatches_shown_are_the_lanes_apply_saves(
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import QColorDialog, QPushButton
 
-    from git_gui.presentation.theme import settings as s
-
-    custom_path = tmp_path / "custom_theme.json"
-    monkeypatch.setattr(s, "settings_path", lambda: tmp_path / "settings.json")
-    monkeypatch.setattr(s, "custom_theme_path", lambda: custom_path)
-    _write_custom_theme_with_lanes(custom_path, saved_lanes)
+    _write_custom_theme_with_lanes(custom_theme_file, saved_lanes)
     get_theme_manager().set_mode(active_mode)
     dlg = ThemeDialog()
     qtbot.addWidget(dlg)
@@ -478,7 +453,7 @@ def test_the_lane_swatches_shown_are_the_lanes_apply_saves(
             swatch.click()
     assert raised == []
     dlg._on_apply()
-    saved = json.loads(custom_path.read_text(encoding="utf-8"))["colors"]["graph_lane_colors"]
+    saved = json.loads(custom_theme_file.read_text(encoding="utf-8"))["colors"]["graph_lane_colors"]
     assert saved == ["#abcdef"] * len(lane_swatches())
 
 
@@ -489,3 +464,30 @@ def test_swatch_borders_take_the_themes_outline_colour(app, reset_theme):
     outline = get_theme_manager().current.colors.outline
     assert f"border: 1px solid {outline}" in dlg._swatch_buttons["primary"].styleSheet()
     assert f"border: 1px solid {outline}" in dlg._lane_buttons[0].styleSheet()
+
+
+@pytest.mark.parametrize("mode", ["dark", "light"])
+def test_every_swatch_label_reads_on_its_own_colour(app, reset_theme, custom_theme_file, mode):
+    """The labels were picked by perceived brightness, which put white text
+    on Dark's error swatch at 3.35:1 and on Light's status_modified at
+    3.14:1, below the 4.5:1 AA minimum."""
+    import re
+
+    from PySide6.QtGui import QColor
+
+    from tests.presentation.theme.test_light_contrast import _ratio
+
+    get_theme_manager().set_mode(mode)
+    dlg = ThemeDialog()
+
+    def label_contrast(token: str) -> float:
+        style = dlg._swatch_buttons[token].styleSheet()
+        text = re.search(r"(?<![-\w])color: (#\w+)", style).group(1)
+        return _ratio(QColor(text).name(), dlg._working_colors[token])
+
+    # Overlay tokens are translucent, so their label sits on a blend.
+    opaque = [token for token, value in dlg._working_colors.items() if len(value) == 7]
+    ratios = {token: label_contrast(token) for token in opaque}
+    worst = min(ratios, key=ratios.__getitem__)
+
+    assert ratios[worst] >= 4.5, f"{mode}: the {worst} label is {ratios[worst]:.2f}:1"

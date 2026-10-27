@@ -208,7 +208,7 @@ def test_a_theme_change_keeps_the_font_family_a_widget_chose(
     mono.setFont(font)
     _window = _shown_in_a_window(mono)
 
-    mgr.set_mode("light", force=True)
+    mgr.set_mode("light")
 
     assert mono.font().family() == "Courier New"
 
@@ -223,7 +223,7 @@ def test_a_theme_change_keeps_the_bold_a_widget_chose(app, isolated_settings, re
     title.setFont(font)
     _window = _shown_in_a_window(title)
 
-    mgr.set_mode("light", force=True)
+    mgr.set_mode("light")
 
     assert title.font().bold()
 
@@ -240,7 +240,7 @@ def test_a_widget_without_its_own_font_follows_the_typography_scale(
     _window = _shown_in_a_window(label)
     s.save_settings({"typography_scale": 2.0})
 
-    mgr.set_mode("light", force=True)
+    mgr.set_mode("light")
 
     assert label.font().pointSize() == app.font().pointSize()
 

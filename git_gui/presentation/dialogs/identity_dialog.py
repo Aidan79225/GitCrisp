@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -80,19 +79,13 @@ class IdentityDialog(QDialog):
         )
 
 
-def ensure_identity(
-    parent: QWidget,
-    queries: QueryBus,
-    commands: CommandBus,
-    report_failure: Callable[[str], None] | None = None,
-) -> bool:
+def ensure_identity(parent: QWidget, queries: QueryBus, commands: CommandBus) -> bool:
     """Prompt for git identity if not yet configured.
 
     Returns True if identity is already set, or the user successfully
     set it via the dialog. Returns False if the user cancelled or
-    saving failed; a failed save is reported here, because the bool
-    cannot tell the caller which of the two happened. It goes to
-    `report_failure` when given, otherwise to a message box.
+    saving failed; a failed save is reported to the user here, because
+    the bool cannot tell the caller which of the two happened.
     """
     name, email = queries.get_identity.execute()
     if name and email:
@@ -105,9 +98,6 @@ def ensure_identity(
         commands.set_identity.execute(new_name, new_email, global_)
     except Exception as e:
         logger.exception("Failed to save git identity")
-        if report_failure is None:
-            QMessageBox.warning(parent, "Save identity failed", str(e))
-        else:
-            report_failure(str(e))
+        QMessageBox.warning(parent, "Save identity failed", str(e))
         return False
     return True

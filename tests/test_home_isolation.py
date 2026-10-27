@@ -16,6 +16,7 @@ from pathlib import Path
 from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 from git_gui.infrastructure.repo_store import JsonRepoStore
 from git_gui.presentation.widgets.avatar_loader import AvatarLoader
+from tests.presentation.theme.test_qss_render import _check_icon_in
 
 
 def test_path_home_is_redirected(_isolated_gitcrisp_home):
@@ -62,13 +63,9 @@ def test_theme_settings_land_in_the_fake_home(_isolated_gitcrisp_home):
 def test_the_checkbox_tick_lands_in_the_fake_home(_isolated_gitcrisp_home):
     """Qt resolves CacheLocation by itself, and every ThemeManager writes the
     tinted tick there at startup, so each run left icons in the real cache."""
-    import re
-
     from git_gui.presentation.theme.loader import load_builtin
     from git_gui.presentation.theme.qss_template import render
 
-    qss = render(load_builtin("light"))
-    match = re.search(r'QCheckBox::indicator:checked \{[^}]*image: url\("([^"]+)"\)', qss)
+    tick = _check_icon_in(render(load_builtin("light")))
 
-    assert match
-    assert _isolated_gitcrisp_home in Path(match.group(1).strip("'\"")).parents
+    assert _isolated_gitcrisp_home in tick.parents

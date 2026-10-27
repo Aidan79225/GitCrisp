@@ -4,6 +4,7 @@ from PySide6.QtCore import QRect, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPixmap
 
 from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.theme.contrast import readable_text_on
 
 
 def _initials(author: str) -> str:
@@ -27,31 +28,6 @@ def _color_for_author(author: str) -> QColor:
     for ch in author:
         h = (h * 31 + ord(ch)) & 0xFFFFFFFF
     return QColor(colors[h % len(colors)])
-
-
-def _relative_luminance(color: QColor) -> float:
-    def linear(channel: float) -> float:
-        if channel <= 0.03928:
-            return channel / 12.92
-        return ((channel + 0.055) / 1.055) ** 2.4
-
-    return (
-        0.2126 * linear(color.redF())
-        + 0.7152 * linear(color.greenF())
-        + 0.0722 * linear(color.blueF())
-    )
-
-
-def _initials_color(fill: QColor) -> QColor:
-    """Black or white, whichever has the higher WCAG contrast on *fill*.
-
-    Lane colours run from pale yellow to deep blue, so no single text colour
-    reads on all of them.
-    """
-    lum = _relative_luminance(fill)
-    on_white = 1.05 / (lum + 0.05)
-    on_black = (lum + 0.05) / 0.05
-    return QColor(Qt.white) if on_white >= on_black else QColor(Qt.black)
 
 
 def paint_avatar(
@@ -94,7 +70,7 @@ def paint_avatar(
         fill = _color_for_author(author)
         painter.setBrush(fill)
         painter.drawEllipse(circle)
-        painter.setPen(_initials_color(fill))
+        painter.setPen(readable_text_on(fill))
         font = painter.font()
         font.setPixelSize(max(int(side * 0.45), 8))
         font.setBold(True)

@@ -313,6 +313,8 @@ def test_a_walk_superseded_by_a_new_range_is_not_shown(qtbot, window):
 
     current_walk()
     shown = dialog._last_render
+    # Rendered, or `is shown` below would compare None with None.
+    assert shown is not None and shown[-1] == len(_HISTORY)
     first_walk()
 
     assert dialog._last_render is shown

@@ -76,15 +76,14 @@ def _isolated_check_icon_dir(_isolated_gitcrisp_home):
 
     ``_icon_dir()`` comes from ``QStandardPaths.CacheLocation``, which Qt
     resolves itself, past the ``Path.home()`` redirect, and every
-    ThemeManager renders the stylesheet at startup. Yields the real
-    ``_icon_dir`` so a test can check where it points without writing there.
+    ThemeManager renders the stylesheet at startup.
     """
     from git_gui.presentation.theme import qss_template
 
-    real_icon_dir = qss_template._icon_dir
+    icon_dir = _isolated_gitcrisp_home / "cache"
     with pytest.MonkeyPatch.context() as patcher:
-        patcher.setattr(qss_template, "_icon_dir", lambda: _isolated_gitcrisp_home / "cache")
-        yield real_icon_dir
+        patcher.setattr(qss_template, "_icon_dir", lambda: icon_dir)
+        yield icon_dir
 
 
 @pytest.fixture(autouse=True, scope="session")
