@@ -24,6 +24,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from git_gui.domain.entities import NO_NEWLINE_MARKERS, Hunk, LineKind
+from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets import word_diff
+from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
+from git_gui.presentation.widgets.side_by_side import no_newline_note, parse_hunk_header
+from git_gui.presentation.widgets.syntax_highlighter import tokenize
+
 
 class _ElidedLabel(QLabel):
     """A one-line header that gives up width it cannot have, eliding its text.
@@ -79,13 +86,6 @@ class _ClickableLabel(_ElidedLabel):
             return
         super().mousePressEvent(ev)
 
-
-from git_gui.domain.entities import NO_NEWLINE_MARKERS, Hunk, LineKind
-from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
-from git_gui.presentation.widgets import word_diff
-from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
-from git_gui.presentation.widgets.side_by_side import no_newline_note, parse_hunk_header
-from git_gui.presentation.widgets.syntax_highlighter import tokenize
 
 # Style constants
 
@@ -348,13 +348,13 @@ def render_in_chunks(
     render_range(0, min(CHUNK_SIZE, total))
 
     def render_from(start: int) -> None:
-        try:
-            end = min(start + CHUNK_SIZE, total)
-            render_range(start, end)
-            if end < total:
-                QTimer.singleShot(0, document, lambda: render_from(end))
-        except RuntimeError:
-            pass
+        # No guard for a deleted document: the timer's context already drops
+        # the slice then. A guard here only hid real rendering failures,
+        # leaving a half-drawn hunk with nothing in the log.
+        end = min(start + CHUNK_SIZE, total)
+        render_range(start, end)
+        if end < total:
+            QTimer.singleShot(0, document, lambda: render_from(end))
 
     if total > CHUNK_SIZE:
         QTimer.singleShot(0, document, lambda: render_from(CHUNK_SIZE))
@@ -761,6 +761,16 @@ def add_hunk_widget(
 
     parent_layout.addWidget(header_row)
     parent_layout.addWidget(editor)
+
+
+# Cap on how many file blocks either pane's all-files view builds at once. Each
+# block is a full QFrame subtree registered with the theme manager, so building
+# one per changed file freezes the UI on a commit or working tree with
+# thousands of them. Above this cap only the first N files get a diff block;
+# the rest stay reachable by selecting them in the file list (single-file mode
+# is cheap). Chosen well above a typical review size but low enough that block
+# construction stays imperceptible.
+MAX_AGGREGATE_FILE_BLOCKS = 200
 
 
 def make_overflow_notice(hidden: int) -> QLabel:

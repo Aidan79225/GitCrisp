@@ -82,7 +82,7 @@ def test_load_file_switches_to_single_mode(widget):
 
 def test_load_all_files_caps_number_of_blocks(widget):
     """A huge working tree only builds up to MAX_AGGREGATE_FILE_BLOCKS blocks."""
-    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+    from git_gui.presentation.widgets.diff_block import MAX_AGGREGATE_FILE_BLOCKS
 
     paths = [f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 50)]
     widget.load_all_files(paths)
@@ -97,7 +97,7 @@ def test_load_all_files_caps_number_of_blocks(widget):
 
 def test_load_all_files_only_fetches_shown_paths(widget):
     """The diff-map query is asked only for the paths actually rendered."""
-    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+    from git_gui.presentation.widgets.diff_block import MAX_AGGREGATE_FILE_BLOCKS
 
     paths = [f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 10)]
     widget.load_all_files(paths)
@@ -126,9 +126,7 @@ def test_add_hunk_block_passes_syntax_formats_and_filename(widget):
     to the hunk builder, otherwise hunks render with no syntax highlighting."""
     hunk = Hunk(header="@@ -1,1 +1,1 @@", lines=[("+", "def foo(): pass\n")])
     with patch("git_gui.presentation.widgets.hunk_diff.add_hunk_view") as add_widget:
-        widget._add_hunk_block(
-            hunk, is_staged=False, is_untracked=False, path="foo.py", parent_layout=widget._layout
-        )
+        widget._add_hunk_block(hunk, is_staged=False, path="foo.py", parent_layout=widget._layout)
     kwargs = add_widget.call_args.kwargs
     assert kwargs["syntax_formats"] is widget._syntax_formats
     assert kwargs["filename"] == "foo.py"
@@ -147,11 +145,41 @@ def test_files_beyond_the_cap_get_the_commit_views_notice(widget):
     """Both panes cap their blocks; one notice keeps their wording in step."""
     from PySide6.QtWidgets import QLabel
 
-    from git_gui.presentation.widgets.diff_block import make_overflow_notice
-    from git_gui.presentation.widgets.hunk_diff import MAX_AGGREGATE_FILE_BLOCKS
+    from git_gui.presentation.widgets.diff_block import (
+        MAX_AGGREGATE_FILE_BLOCKS,
+        make_overflow_notice,
+    )
 
     widget.load_all_files([f"f{i}.txt" for i in range(MAX_AGGREGATE_FILE_BLOCKS + 3)])
 
     expected = make_overflow_notice(3).text()
     labels = widget._container.findChildren(QLabel)
     assert [label.text() for label in labels if label.text() == expected] == [expected]
+
+
+def test_a_submodules_file_and_hunk_headers_both_open_it(qtbot):
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import Qt
+
+    from git_gui.domain.entities import LineKind
+    from git_gui.presentation.widgets.diff_block import _ClickableLabel
+    from tests.presentation.widgets.hunk_diff_helpers import workers_joined_on_exit
+
+    queries = FakeQueryBus()
+    queries.list_submodules.execute.return_value = [SimpleNamespace(path="libs/core")]
+    queries.get_file_diff.execute.return_value = [
+        Hunk(header="@@ -1 +1 @@", lines=[(LineKind.ADDED, "Subproject commit 1234\n")])
+    ]
+    with workers_joined_on_exit():
+        widget = HunkDiffWidget(queries, MagicMock())
+        qtbot.addWidget(widget)
+        widget.load_file("libs/core")
+        qtbot.waitUntil(lambda: len(widget._container.findChildren(_ClickableLabel)) == 2)
+    opened: list[str] = []
+    widget.submodule_open_requested.connect(opened.append)
+
+    for header in widget._container.findChildren(_ClickableLabel):
+        qtbot.mouseClick(header, Qt.LeftButton)
+
+    assert opened == ["libs/core", "libs/core"]

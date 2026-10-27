@@ -10,19 +10,15 @@ from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
 from tests.presentation.widgets.working_tree_helpers import working_tree_widget
 
 
-def _make_widget(qtbot) -> WorkingTreeWidget:
-    return working_tree_widget(qtbot)
-
-
 def test_banner_hidden_when_clean(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("CLEAN")
     assert w._conflict_banner.isVisibleTo(w) is False
     assert w._btn_commit.text() == "Commit"
 
 
 def test_banner_visible_during_merge(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("MERGING")
     assert w._conflict_banner.isVisibleTo(w) is True
     assert "Merge" in w._banner_label.text()
@@ -30,7 +26,7 @@ def test_banner_visible_during_merge(qtbot):
 
 
 def test_banner_visible_during_rebase(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("REBASING")
     assert w._conflict_banner.isVisibleTo(w) is True
     assert "Rebase" in w._banner_label.text()
@@ -38,7 +34,7 @@ def test_banner_visible_during_rebase(qtbot):
 
 
 def test_abort_emits_merge_abort(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("MERGING")
     received = []
     w.merge_abort_requested.connect(lambda: received.append("merge_abort"))
@@ -47,7 +43,7 @@ def test_abort_emits_merge_abort(qtbot):
 
 
 def test_abort_emits_rebase_abort(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("REBASING")
     received = []
     w.rebase_abort_requested.connect(lambda: received.append("rebase_abort"))
@@ -56,7 +52,7 @@ def test_abort_emits_rebase_abort(qtbot):
 
 
 def test_commit_button_emits_merge_continue(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("MERGING")
     received = []
     w.merge_continue_requested.connect(lambda: received.append("merge_continue"))
@@ -65,7 +61,7 @@ def test_commit_button_emits_merge_continue(qtbot):
 
 
 def test_commit_button_emits_rebase_continue(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("REBASING")
     received = []
     w.rebase_continue_requested.connect(lambda: received.append("rebase_continue"))
@@ -74,7 +70,7 @@ def test_commit_button_emits_rebase_continue(qtbot):
 
 
 def test_banner_visible_during_cherry_pick(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("CHERRY_PICKING")
     assert w._conflict_banner.isVisibleTo(w) is True
     assert "Cherry-pick" in w._banner_label.text()
@@ -82,7 +78,7 @@ def test_banner_visible_during_cherry_pick(qtbot):
 
 
 def test_banner_visible_during_revert(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("REVERTING")
     assert w._conflict_banner.isVisibleTo(w) is True
     assert "Revert" in w._banner_label.text()
@@ -90,7 +86,7 @@ def test_banner_visible_during_revert(qtbot):
 
 
 def test_abort_emits_cherry_pick_abort(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("CHERRY_PICKING")
     received = []
     w.cherry_pick_abort_requested.connect(lambda: received.append("cp_abort"))
@@ -99,7 +95,7 @@ def test_abort_emits_cherry_pick_abort(qtbot):
 
 
 def test_abort_emits_revert_abort(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("REVERTING")
     received = []
     w.revert_abort_requested.connect(lambda: received.append("rv_abort"))
@@ -108,7 +104,7 @@ def test_abort_emits_revert_abort(qtbot):
 
 
 def test_commit_emits_cherry_pick_continue(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("CHERRY_PICKING")
     received = []
     w.cherry_pick_continue_requested.connect(lambda: received.append("cp_cont"))
@@ -117,7 +113,7 @@ def test_commit_emits_cherry_pick_continue(qtbot):
 
 
 def test_commit_emits_revert_continue(qtbot):
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w.update_conflict_banner("REVERTING")
     received = []
     w.revert_continue_requested.connect(lambda: received.append("rv_cont"))
@@ -142,7 +138,7 @@ def test_commit_emits_revert_continue(qtbot):
 def test_continue_states_prompt_for_missing_identity(qtbot, monkeypatch, state, signal_name):
     """When identity is unset, _on_commit must open IdentityDialog before
     emitting the state-specific continue signal — for every state."""
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w._queries.get_identity.execute.return_value = ("", "")
     w.update_conflict_banner(state)
 
@@ -188,7 +184,7 @@ def test_continue_states_skip_when_identity_dialog_cancelled(
 ):
     """If the user cancels the identity dialog, the continue signal must
     NOT be emitted — no commit attempt."""
-    w = _make_widget(qtbot)
+    w = working_tree_widget(qtbot)
     w._queries.get_identity.execute.return_value = ("", "")
     w.update_conflict_banner(state)
 

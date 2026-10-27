@@ -20,17 +20,24 @@ from PySide6.QtWidgets import (
 )
 
 from git_gui.domain.entities import WORKING_TREE_OID, Hunk, StagingState
+from git_gui.presentation.asked_repo import skipped_after_repo_switch
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import connect_widget
 from git_gui.presentation.widgets.diff_block import (
+    MAX_AGGREGATE_FILE_BLOCKS,
     make_diff_formats,
     make_file_block,
     make_overflow_notice,
+    make_skeleton_container,
     make_syntax_formats,
 )
 from git_gui.presentation.widgets.hunk_view import add_hunk_view, hide_hunks_if_collapsed
 from git_gui.presentation.widgets.shared_hscroll import SharedHScroll
-from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
+from git_gui.presentation.widgets.viewport_block_loader import (
+    BlockRef,
+    DiffMapSignals,
+    ViewportBlockLoader,
+)
 from git_gui.resources import get_resource_path
 
 logger = logging.getLogger(__name__)
@@ -44,32 +51,22 @@ logger = logging.getLogger(__name__)
 # exception that aborted the diff render.
 _CLOSE_ICON_PATH = str(get_resource_path("arts") / "ic_close.svg")
 
-# Cap on how many file blocks the aggregate ("all files") diff view builds at
-# once. Each block is a full QFrame subtree registered with the theme manager,
-# so building one per changed file freezes the UI when the working tree holds
-# thousands of changes. Above this cap only the first N files get a diff block;
-# the rest stay reachable by selecting them in the file list (single-file mode
-# is cheap). Chosen well above a typical review size but low enough that block
-# construction stays imperceptible.
-MAX_AGGREGATE_FILE_BLOCKS = 200
-
 # Names each hunk's discard button, so a stage or discard can find them all.
 _DISCARD_BUTTON_NAME = "discard_hunk"
 
 
-def skipped_after_repo_switch(op_name: str) -> str:
-    """What the log says when another repo opened while the user was asked about *op_name*.
+def _adds_whole_file(hunk_header: str) -> bool:
+    """Whether the hunk's old side is empty: the file is new, or untracked.
 
-    Worded as MainWindow words its own skipped confirmations, so every one reads alike.
+    Such a hunk is always its file's only one, the one git shows for an
+    empty old side and the one synthesised for an untracked file.
     """
-    return f"{op_name} — skipped: another repo opened while you were deciding. Nothing was changed."
+    return hunk_header.startswith("@@ -0,0")
 
 
-def _is_untracked(staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]) -> bool:
-    """Whether a file's hunks are the one whole-file hunk an untracked file shows."""
-    return (
-        not staged_hunks and bool(unstaged_hunks) and unstaged_hunks[0].header.startswith("@@ -0,0")
-    )
+def _removes_whole_file(hunk_header: str) -> bool:
+    """Whether the hunk's new side is empty: the file was deleted."""
+    return "+0,0 @@" in hunk_header
 
 
 def _read_file_hunks(queries: QueryBus, path: str) -> tuple[list[Hunk], list[Hunk]]:
@@ -96,10 +93,6 @@ def _read_file_hunks(queries: QueryBus, path: str) -> tuple[list[Hunk], list[Hun
 
 class _LoadSignals(QObject):
     done = Signal(str, list, list)  # path, staged_hunks, unstaged_hunks
-
-
-class _DiffMapSignals(QObject):
-    done = Signal(object, int)  # dict[str, dict[str, list[Hunk]]], blocks generation
 
 
 class HunkDiffWidget(QWidget):
@@ -185,12 +178,10 @@ class HunkDiffWidget(QWidget):
 
         self._clear_for_redraw()
 
-        from git_gui.presentation.widgets.diff_block import make_skeleton_container
-
         shown = paths[:MAX_AGGREGATE_FILE_BLOCKS]
         hidden = len(paths) - len(shown)
 
-        block_refs = []
+        block_refs: list[BlockRef] = []
         for path in shown:
             frame, inner = self._make_file_block(path)
             # A skeleton is far shorter than the block it stands for. Holding
@@ -214,7 +205,7 @@ class HunkDiffWidget(QWidget):
 
         queries = self._queries
         generation = self._blocks_generation
-        signals = _DiffMapSignals()
+        signals = DiffMapSignals()
         signals.done.connect(self._on_diff_map_loaded)
         self._load_all_signals = signals  # prevent GC
 
@@ -291,15 +282,16 @@ class HunkDiffWidget(QWidget):
             logger.warning("Failed to list the submodules", exc_info=True)
             self._submodule_paths = set()
 
+    def _submodule_opener(self, path: str) -> Callable[[], None] | None:
+        """What a click on one of *path*'s headers does: open it, if it is a submodule."""
+        if path not in self._submodule_paths:
+            return None
+        return lambda: self.submodule_open_requested.emit(path)
+
     def _make_file_block(self, path: str):
-        on_click = (
-            (lambda p=path: self.submodule_open_requested.emit(p))
-            if path in self._submodule_paths
-            else None
-        )
         return make_file_block(
             path,
-            on_header_clicked=on_click,
+            on_header_clicked=self._submodule_opener(path),
             on_state_changed=self._on_block_toggled,
         )
 
@@ -361,15 +353,10 @@ class HunkDiffWidget(QWidget):
         unstaged_hunks: list[Hunk],
     ) -> None:
         """Add a file's staged hunks to its block, then its unstaged ones."""
-        is_untracked = _is_untracked(staged_hunks, unstaged_hunks)
         for hunk in staged_hunks:
-            self._add_hunk_block(
-                hunk, is_staged=True, is_untracked=False, path=path, parent_layout=inner
-            )
+            self._add_hunk_block(hunk, is_staged=True, path=path, parent_layout=inner)
         for hunk in unstaged_hunks:
-            self._add_hunk_block(
-                hunk, is_staged=False, is_untracked=is_untracked, path=path, parent_layout=inner
-            )
+            self._add_hunk_block(hunk, is_staged=False, path=path, parent_layout=inner)
 
     def _redraw_after_command(self) -> None:
         """Redraw from the index after a stage, unstage or discard.
@@ -403,77 +390,62 @@ class HunkDiffWidget(QWidget):
         self,
         hunk: Hunk,
         is_staged: bool,
-        is_untracked: bool,
         path: str,
         parent_layout: QVBoxLayout,
     ) -> None:
-        header = hunk.header
-
-        checkbox = QCheckBox()
-        checkbox.setAccessibleName(f"Stage hunk {header}")
-        checkbox.setChecked(is_staged)
-        checkbox.toggled.connect(
-            lambda checked, p=path, h=header, u=is_untracked: self._on_hunk_toggled(
-                p, h, checked, u
-            )
-        )
-
-        extra_right: list = []
-        if not is_staged:
-            # Whole-file add (`@@ -0,0 ...`) or whole-file delete (`+0,0 @@`)
-            # is best handled by discard_file (full reset), since `git apply
-            # --reverse` only touches the working tree and leaves the index
-            # in a confusing state.
-            is_whole_file = header.startswith("@@ -0,0") or "+0,0 @@" in header
-            x_btn = QToolButton()
-            x_btn.setObjectName(_DISCARD_BUTTON_NAME)
-            x_btn.setIcon(QIcon(_CLOSE_ICON_PATH))
-            x_btn.setIconSize(QSize(16, 16))
-            x_btn.setFixedSize(22, 22)
-            x_btn.setToolTip("Discard this file" if is_whole_file else "Discard this hunk")
-            x_btn.setAccessibleName(x_btn.toolTip())
-            x_btn.setAutoRaise(True)
-            x_btn.clicked.connect(
-                lambda _=False, p=path, h=header, w=is_whole_file: (
-                    self._on_discard_file_clicked(p) if w else self._on_discard_hunk_clicked(p, h)
-                )
-            )
-            extra_right = [x_btn]
-
-        on_click = (
-            (lambda p=path: self.submodule_open_requested.emit(p))
-            if path in self._submodule_paths
-            else None
-        )
+        """Add *hunk*'s view with its stage box and, while it is unstaged, a discard button."""
+        discard = [] if is_staged else [self._make_discard_button(path, hunk.header)]
         add_hunk_view(
             parent_layout,
             hunk,
             self._formats,
-            extra_left_widgets=[checkbox],
-            extra_right_widgets=extra_right,
-            on_header_clicked=on_click,
+            extra_left_widgets=[self._make_stage_checkbox(path, hunk.header, is_staged)],
+            extra_right_widgets=discard,
+            on_header_clicked=self._submodule_opener(path),
             syntax_formats=self._syntax_formats,
             filename=path,
         )
 
-    def _on_hunk_toggled(
-        self, path: str, hunk_header: str, checked: bool, is_untracked: bool = False
-    ) -> None:
+    def _make_stage_checkbox(self, path: str, header: str, is_staged: bool) -> QCheckBox:
+        checkbox = QCheckBox()
+        checkbox.setAccessibleName(f"Stage hunk {header}")
+        checkbox.setChecked(is_staged)
+        checkbox.toggled.connect(lambda checked: self._on_hunk_toggled(path, header, checked))
+        return checkbox
+
+    def _make_discard_button(self, path: str, header: str) -> QToolButton:
+        # Whole-file add (`@@ -0,0 ...`) or whole-file delete (`+0,0 @@`)
+        # is best handled by discard_file (full reset), since `git apply
+        # --reverse` only touches the working tree and leaves the index
+        # in a confusing state.
+        is_whole_file = _adds_whole_file(header) or _removes_whole_file(header)
+        button = QToolButton()
+        button.setObjectName(_DISCARD_BUTTON_NAME)
+        button.setIcon(QIcon(_CLOSE_ICON_PATH))
+        button.setIconSize(QSize(16, 16))
+        button.setFixedSize(22, 22)
+        button.setToolTip("Discard this file" if is_whole_file else "Discard this hunk")
+        button.setAccessibleName(button.toolTip())
+        button.setAutoRaise(True)
+        if is_whole_file:
+            button.clicked.connect(lambda: self._on_discard_file_clicked(path))
+        else:
+            button.clicked.connect(lambda: self._on_discard_hunk_clicked(path, header))
+        return button
+
+    def _on_hunk_toggled(self, path: str, hunk_header: str, checked: bool) -> None:
         verb = "Stage" if checked else "Unstage"
         self._run_command(
-            f"{verb} {path}",
-            lambda: self._stage_or_unstage(path, hunk_header, checked, is_untracked),
+            f"{verb} {path}", lambda: self._stage_or_unstage(path, hunk_header, checked)
         )
         self._redraw_after_command()
         self.hunk_toggled.emit()
 
-    def _stage_or_unstage(
-        self, path: str, hunk_header: str, checked: bool, is_untracked: bool = False
-    ) -> None:
+    def _stage_or_unstage(self, path: str, hunk_header: str, checked: bool) -> None:
         # Whole-file add (untracked → stage, or staged-add → unstage):
         # the synthesised "@@ -0,0 +1,N @@" hunk can't be processed by
         # `git apply [--cached] [--reverse]`, so route to stage/unstage_files.
-        if is_untracked or hunk_header.startswith("@@ -0,0"):
+        if _adds_whole_file(hunk_header):
             if checked:
                 self._commands.stage_files.execute([path])
             else:
@@ -496,39 +468,50 @@ class HunkDiffWidget(QWidget):
             self.operation_failed.emit(f"{action} failed: {e}")
 
     def _on_discard_file_clicked(self, path: str) -> None:
-        commands = self._commands
-        action = f"Discard {path}"
-        reply = QMessageBox.question(
-            self,
-            "Discard file",
-            f"Discard all changes to {path}? This cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+        self._confirm_and_discard(
+            ("Discard file", f"Discard all changes to {path}? This cannot be undone."),
+            f"Discard {path}",
+            lambda commands: commands.discard_file.execute(path),
+            path,
+            "",
         )
-        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, action):
-            return
-        self._run_command(action, lambda: commands.discard_file.execute(path))
-        self._redraw_after_command()
-        self.discard_hunk_requested.emit(path, "")
 
     def _on_discard_hunk_clicked(self, path: str, hunk_header: str) -> None:
-        commands = self._commands
-        action = f"Discard hunk in {path}"
-        reply = QMessageBox.question(
-            self,
-            "Discard hunk",
-            "Discard this hunk? This cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+        self._confirm_and_discard(
+            ("Discard hunk", "Discard this hunk? This cannot be undone."),
+            f"Discard hunk in {path}",
+            lambda commands: commands.discard_hunk.execute(path, hunk_header),
+            path,
+            hunk_header,
         )
-        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, action):
+
+    def _confirm_and_discard(
+        self,
+        prompt: tuple[str, str],
+        op_name: str,
+        discard: Callable[[CommandBus], None],
+        path: str,
+        hunk_header: str,
+    ) -> None:
+        """Ask with *prompt* (title, question), then discard in the repo the user was asked in.
+
+        Both discards go through here. Written twice, the copies drifted: only
+        one redrew, and the other left a checkbox naming a hunk the index no
+        longer had. *hunk_header* is empty for a whole file.
+        """
+        commands = self._commands
+        title, question = prompt
+        reply = QMessageBox.question(
+            self, title, question, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, op_name):
             return
-        self._run_command(action, lambda: commands.discard_hunk.execute(path, hunk_header))
+        self._run_command(op_name, lambda: discard(commands))
         self._redraw_after_command()
         self.discard_hunk_requested.emit(path, hunk_header)
 
-    def _repo_switched_while_asking(self, asked_in: CommandBus | None, action: str) -> bool:
-        """Whether the open repo is no longer *asked_in*'s, reporting *action* as skipped if so.
+    def _repo_switched_while_asking(self, asked_in: CommandBus | None, op_name: str) -> bool:
+        """Whether the open repo is no longer *asked_in*'s, reporting *op_name* as skipped if so.
 
         The confirmation runs a nested event loop, and a repo switch already
         on its way lands inside it and hands this pane the new repo's buses;
@@ -536,7 +519,7 @@ class HunkDiffWidget(QWidget):
         """
         if self._commands is asked_in:
             return False
-        self.operation_failed.emit(skipped_after_repo_switch(action))
+        self.operation_failed.emit(skipped_after_repo_switch(op_name))
         return True
 
     def _clear_layout(self) -> None:

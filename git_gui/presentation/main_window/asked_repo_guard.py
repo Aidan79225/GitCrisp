@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from git_gui.presentation.asked_repo import skipped_after_repo_switch
 from git_gui.presentation.bus import CommandBus
 
 
@@ -20,8 +21,5 @@ class AskedRepoGuardMixin:
         if self._commands is asked_in:
             return False
         self._log_panel.expand()
-        self._log_panel.log_error(
-            f"{op_name} — skipped: another repo opened while you were deciding. "
-            "Nothing was changed."
-        )
+        self._log_panel.log_error(skipped_after_repo_switch(op_name))
         return True
