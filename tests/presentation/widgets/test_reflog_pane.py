@@ -11,12 +11,13 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QFont, QFontMetrics
-from PySide6.QtWidgets import QStyleOptionViewItem
+from PySide6.QtWidgets import QAbstractItemView, QStyleOptionViewItem
 
 from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.reflog_pane import (
     _OPERATION_ROLES,
+    ORPHAN_STRIPE_W,
     SHA_CHARS,
     ReflogModel,
     ReflogPane,
@@ -359,6 +360,18 @@ def test_content_starts_at_the_same_x_marked_or_not(qtbot):
     assert summary_and_position_x(0) == summary_and_position_x(1)
 
 
+def test_the_stripe_never_overlaps_the_content(qtbot):
+    """The alignment test above holds wherever content starts, stripe or not;
+    an orphaned row's chip and text have to start clear of its stripe."""
+    pane, _ = _pane(qtbot, [_entry(0, "commit", "lost", orphaned=True)])
+
+    painted = _painted_row(
+        pane._view.itemDelegate(), _option_for(pane, 50), pane._model.index(0, 0)
+    )
+
+    assert min(x for x, _y, _w, _text in painted) >= ORPHAN_STRIPE_W
+
+
 # ── Folding the entries that changed nothing ─────────────────────────────────
 
 
@@ -693,4 +706,68 @@ def test_a_reload_keeps_the_user_where_they_scrolled_to(qtbot):
         pane.reload()
 
     assert scrollbar.value() == scrolled_to
+    assert pane.current_entry().summary == "thing 2"
+
+
+_HUNDRED_THINGS = [_entry(i, "commit", f"thing {i}") for i in range(100)]
+
+
+def _shown_pane_of_a_hundred_things(qtbot) -> tuple[ReflogPane, MagicMock]:
+    pane, queries = _pane(qtbot, _HUNDRED_THINGS)
+    pane.resize(500, 400)
+    pane.show()
+    qtbot.waitExposed(pane)
+    return pane, queries
+
+
+def _top_row_summary(pane) -> str | None:
+    entry = pane._model.entry_at(pane._view.rowAt(0))
+    return entry.summary if entry is not None else None
+
+
+def _reload_with_new_movements_on_top(qtbot, pane, queries, count: int) -> None:
+    """The reflog after `count` more movements, as a `git rebase -i` in a terminal leaves it."""
+    renumbered = [replace(e, index=e.index + count) for e in _HUNDRED_THINGS]
+    made = [_entry(i, "rebase", f"new movement {i}", oid_old="d" * 40) for i in range(count)]
+    queries.get_reflog.execute.return_value = [*made, *renumbered]
+    with qtbot.waitSignal(pane._model.modelReset):
+        pane.reload()
+
+
+def test_new_movements_do_not_push_the_rows_the_user_was_reading_down(qtbot):
+    """The reload kept the scroll offset, so the rows prepended above slid
+    the one the user was reading down and out of a pane about eight rows tall."""
+    pane, queries = _shown_pane_of_a_hundred_things(qtbot)
+    pane.select_row(2)
+    pane._view.scrollTo(pane._model.index(40, 0), QAbstractItemView.PositionAtTop)
+    qtbot.waitUntil(lambda: _top_row_summary(pane) == "thing 40")
+
+    _reload_with_new_movements_on_top(qtbot, pane, queries, 12)
+
+    qtbot.waitUntil(lambda: _top_row_summary(pane) == "thing 40")
+    assert pane.current_entry().summary == "thing 2"
+
+
+def test_new_movements_do_not_push_the_oldest_rows_out_of_view(qtbot):
+    """At the bottom, the row on top has to move past where the list used to end."""
+    pane, queries = _shown_pane_of_a_hundred_things(qtbot)
+    scrollbar = pane._view.verticalScrollBar()
+    pane._view.scrollToBottom()
+    qtbot.waitUntil(lambda: scrollbar.value() == scrollbar.maximum() > 0)
+    reading = _top_row_summary(pane)
+
+    _reload_with_new_movements_on_top(qtbot, pane, queries, 12)
+
+    qtbot.waitUntil(lambda: _top_row_summary(pane) == reading)
+
+
+def test_at_the_top_the_new_movements_come_into_view(qtbot):
+    """The list is most recent first: what the user just did belongs on top."""
+    pane, queries = _shown_pane_of_a_hundred_things(qtbot)
+    pane.select_row(2)
+    qtbot.waitUntil(lambda: _top_row_summary(pane) == "thing 0")
+
+    _reload_with_new_movements_on_top(qtbot, pane, queries, 12)
+
+    qtbot.waitUntil(lambda: _top_row_summary(pane) == "new movement 0")
     assert pane.current_entry().summary == "thing 2"

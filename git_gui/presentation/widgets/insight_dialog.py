@@ -264,12 +264,13 @@ def _make_card_container(title: str) -> tuple[QFrame, QVBoxLayout]:
     return frame, layout
 
 
-# Windows' localtime() rejects times before the epoch and after year 3000, and
-# astimezone() probes a day either side of the time it converts. The date
-# pickers offer 1752 to 9999, and a day outside this window would raise, so the
-# range is left open at that end instead.
-_FIRST_CONVERTIBLE_DAY = date(1970, 1, 3)
-_LAST_CONVERTIBLE_DAY = date(2999, 12, 30)
+# The days a custom range can start or end on. Windows' localtime() rejects
+# times before the epoch, and astimezone() probes a day either side of the time
+# it converts. git's date parser stops at 2099: it ignores a later --since and
+# matches nothing before a later --until. A day beyond either edge raised or
+# counted the wrong commits, so the pickers do not offer one.
+_FIRST_PICKABLE_DAY = QDate(1970, 1, 3)
+_LAST_PICKABLE_DAY = QDate(2099, 12, 30)
 
 
 def _local_midnight(day: date) -> datetime:
@@ -277,15 +278,8 @@ def _local_midnight(day: date) -> datetime:
     return datetime(day.year, day.month, day.day).astimezone()
 
 
-def _start_of(day: date) -> datetime | None:
-    """Local midnight opening *day*, or None (no lower bound) before the window."""
-    return _local_midnight(day) if day >= _FIRST_CONVERTIBLE_DAY else None
-
-
-def _end_of(day: date) -> datetime | None:
-    """The last local second of *day*, or None (no upper bound) past the window."""
-    if day > _LAST_CONVERTIBLE_DAY:
-        return None
+def _end_of(day: date) -> datetime:
+    """The last local second of *day*."""
     return _local_midnight(day + timedelta(days=1)) - timedelta(seconds=1)
 
 
@@ -353,9 +347,11 @@ class InsightDialog(QDialog):
         self._custom_bar = QHBoxLayout()
         self._start_date = QDateEdit()
         self._start_date.setCalendarPopup(True)
+        self._start_date.setDateRange(_FIRST_PICKABLE_DAY, _LAST_PICKABLE_DAY)
         self._start_date.setDate(QDate.currentDate().addMonths(-1))
         self._end_date = QDateEdit()
         self._end_date.setCalendarPopup(True)
+        self._end_date.setDateRange(_FIRST_PICKABLE_DAY, _LAST_PICKABLE_DAY)
         self._end_date.setDate(QDate.currentDate())
         self._start_date.dateChanged.connect(lambda _d: self._reload_if_custom())
         self._end_date.dateChanged.connect(lambda _d: self._reload_if_custom())
@@ -428,7 +424,7 @@ class InsightDialog(QDialog):
             case InsightRange.ALL:
                 return (None, None)
             case InsightRange.CUSTOM:
-                since = _start_of(_day_of(self._start_date.date()))
+                since = _local_midnight(_day_of(self._start_date.date()))
                 until = _end_of(_day_of(self._end_date.date()))
                 return (since, until)
 

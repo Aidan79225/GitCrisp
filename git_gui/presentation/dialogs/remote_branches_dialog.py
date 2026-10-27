@@ -21,6 +21,13 @@ from git_gui.presentation.widgets.check_indicator import CheckIndicatorDelegate
 
 _MAX_LISTED = 15
 
+# The dialog loads the remotes when it opens and again after a delete, which
+# needs them: while they are unknown, reopening it is the only way back.
+_REMOTES_UNKNOWN = (
+    "Deleting is off: the remotes did not load. "
+    "Fix the remote configuration (git remote -v), then reopen this dialog."
+)
+
 
 def _capped_listing(lines: list[str]) -> str:
     shown = "\n".join(lines[:_MAX_LISTED])
@@ -113,9 +120,7 @@ class RemoteBranchesDialog(QDialog):
             defaults = set(self._queries.remote_default_branches.execute().values())
             remotes = [r.name for r in self._queries.list_remotes.execute()]
         except Exception as e:
-            QMessageBox.warning(
-                self, "Load remotes failed", f"Deleting stays off until they load.\n\n{e}"
-            )
+            QMessageBox.warning(self, "Load remotes failed", f"{_REMOTES_UNKNOWN}\n\n{e}")
             return False
         self._defaults, self._remotes = defaults, remotes
         return True
@@ -184,6 +189,7 @@ class RemoteBranchesDialog(QDialog):
         n = len(self._collect_selected())
         self._delete_btn.setText(f"Delete Selected ({n})")
         self._delete_btn.setEnabled(n > 0 and self._remotes_known and not self._busy)
+        self._delete_btn.setToolTip("" if self._remotes_known else _REMOTES_UNKNOWN)
 
     @staticmethod
     def _grouped_by_remote(names: list[str], remotes: list[str]) -> dict[str, list[str]]:

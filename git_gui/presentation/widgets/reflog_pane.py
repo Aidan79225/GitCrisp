@@ -13,6 +13,7 @@ import threading
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QHBoxLayout,
     QHeaderView,
@@ -415,10 +416,39 @@ class ReflogPane(QWidget):
         if generation != self._load_generation:
             return
         picked = self.current_entry()
+        top_row = self._scrolled_top_row()
+        reading = self._model.entry_at(top_row) if top_row is not None else None
         self._branch = branch
         self._model.reload(entries)
         self._reselect(picked)
+        self._scroll_back_to(reading, top_row)
         self._update_status()
+
+    def _scrolled_top_row(self) -> int | None:
+        """The row at the top of the view, once the user has scrolled down.
+
+        At the very top there is none to keep: the list is most recent first,
+        and new movements belong in view there, since they are what the user
+        just did.
+        """
+        scrollbar = self._view.verticalScrollBar()
+        if scrollbar.value() == scrollbar.minimum():
+            return None
+        return self._view.rowAt(0)
+
+    def _scroll_back_to(self, reading: ReflogEntry | None, was_at: int | None) -> None:
+        """Put `reading` back on top when the reload moved it to another row.
+
+        The reload keeps the scroll offset, but the movements it adds above
+        slide every row below them down, out of a pane about eight rows tall.
+        """
+        row = self._model.row_of(reading) if reading is not None else None
+        if row is None or row == was_at:
+            return
+        # The reset leaves the scroll range stale until the next layout, and
+        # scrolling within it would stop short of a row that moved past it.
+        self._view.doItemsLayout()
+        self._view.scrollTo(self._model.index(row, 0), QAbstractItemView.PositionAtTop)
 
     def _reselect(self, picked: ReflogEntry | None) -> None:
         """Put the selection back on the movement picked before a reload.
