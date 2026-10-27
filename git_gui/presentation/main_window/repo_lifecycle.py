@@ -38,7 +38,10 @@ class _SwitchReason(Enum):
 class _RepoRequest:
     path: str
     reason: _SwitchReason = _SwitchReason.SWITCH
-    after: str | None = None  # the open repo an OPEN is listed after; None lists it first
+    after: str | None = None  # the open repo it is listed after; None lists it first
+    # A REPLACE onto a repo that has no row: it joins the open list once it
+    # has opened, as an OPEN does. Failing still leaves nothing to show.
+    listed_on_landing: bool = False
     # Set once a closed repo hands over to this request: the open repo to go
     # to instead if it fails, as closing would have without it. None when no
     # other repo is open.
@@ -280,7 +283,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._log_panel.log_error(f"Could not save the repo list: {reason}")
 
     def _record_in_store(self, request: _RepoRequest) -> None:
-        if request.reason is _SwitchReason.OPEN:
+        if request.reason is _SwitchReason.OPEN or request.listed_on_landing:
             self._repo_store.add_open(request.path, after=request.after)
         else:
             self._repo_store.set_active(request.path)
@@ -701,6 +704,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         that raised "head reference does not exist" until the user clicked
         another repo themselves.
         """
+        row_above = self._open_repo_above(path)  # forgetting takes its row away
         self._repo_store.forget(path)
         self.save_repo_list()
 
@@ -715,9 +719,31 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._enter_empty_state()
             return
         self._log_panel.log(f"Removed worktree {path} — switched to {home}")
-        # The repo on screen is gone: one that fails to open leaves nothing
-        # to show, not the deleted directory.
-        self._request_repo(_RepoRequest(home, _SwitchReason.REPLACE))
+        self._request_repo(self._request_to_replace_removed(home, row_above))
+
+    def _open_repo_above(self, path: str) -> str | None:
+        """The open repo listed just above *path*; None when *path* is first
+        or has no row."""
+        open_repos = self._repo_store.get_open_repos()
+        row = open_repos.index(path) if path in open_repos else 0
+        return open_repos[row - 1] if row else None
+
+    def _request_to_replace_removed(self, home: str, row_above: str | None) -> _RepoRequest:
+        """A REPLACE onto *home*: the repo on screen is gone, and one that
+        fails to open leaves nothing to show, not the deleted directory.
+
+        A worktree opened on a row of its own goes back to its main worktree,
+        which is seldom an open repo, and with the worktree's row gone no
+        group hangs under an open one either. Landed there unlisted, the
+        window was on a repo the list did not show, which Ctrl+1..9 could not
+        reach and the next click lost. Such a home takes the removed row's
+        place once it has opened.
+        """
+        open_repos = self._repo_store.get_open_repos()
+        has_row = any(same_path_text(p, home) for p in open_repos)
+        if has_row or self._repo_list.worktree_owner() in open_repos:
+            return _RepoRequest(home, _SwitchReason.REPLACE)
+        return _RepoRequest(home, _SwitchReason.REPLACE, after=row_above, listed_on_landing=True)
 
     def _home_after_removing(self, removed: str) -> str | None:
         """Where to land once the worktree under us is gone.
