@@ -13,11 +13,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from git_gui.domain.entities import Branch, Stash, Tag, split_remote_branch
+from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.background import BackgroundRunner, start_daemon_thread
 from git_gui.presentation.widgets.highlighting_tree import HighlightingTreeView
+from git_gui.presentation.widgets.remote_branch_split import (
+    REMOTES_UNKNOWN,
+    listed_remotes,
+    split_if_unambiguous,
+)
 from git_gui.resources import get_resource_path
 
 logger = logging.getLogger(__name__)
@@ -352,28 +357,27 @@ class SidebarWidget(QWidget):
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 
     def _add_remote_branch_actions(self, menu: QMenu, name: str) -> None:
-        remote, branch = split_remote_branch(name, self._remote_names())
+        """Add Checkout, Fetch and Delete for remote branch `name`.
+
+        Fetch and Delete are off when the remotes cannot be listed and `name`
+        could be on more than one of them, as in the commit list's menu.
+        """
         menu.addAction("Checkout").triggered.connect(
             lambda: self.checkout_branch_requested.emit(name)
         )
-        menu.addAction("Fetch").triggered.connect(lambda: self.fetch_requested.emit(remote))
+        fetch = menu.addAction("Fetch")
         menu.addSeparator()
-        menu.addAction("Delete").triggered.connect(
-            lambda: self.remote_branch_delete_requested.emit(remote, branch)
-        )
-
-    def _remote_names(self) -> list[str]:
-        """The repo's remotes, or none when they cannot be listed.
-
-        One remote with an invalid name in .git/config fails the whole
-        listing. The branch name then splits at its first '/', which is right
-        for every remote whose name holds none.
-        """
-        try:
-            return [r.name for r in self._queries.list_remotes.execute()]
-        except Exception as e:
-            logger.warning("Listing remotes failed: %s", e)
-            return []
+        delete = menu.addAction("Delete")
+        split = split_if_unambiguous(name, listed_remotes(self._queries))
+        if split is None:
+            menu.setToolTipsVisible(True)
+            for action in (fetch, delete):
+                action.setEnabled(False)
+                action.setToolTip(REMOTES_UNKNOWN)
+            return
+        remote, branch = split
+        fetch.triggered.connect(lambda: self.fetch_requested.emit(remote))
+        delete.triggered.connect(lambda: self.remote_branch_delete_requested.emit(remote, branch))
 
     # ── Worktree-awareness helpers ──────────────────────────────────────
 

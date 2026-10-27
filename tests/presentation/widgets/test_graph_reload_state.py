@@ -153,9 +153,10 @@ def test_clicking_a_branch_below_the_page_leaves_its_tip_on_screen(graph, inline
 # ── A reload asked for while another load is in flight ───────────────────────
 
 
-def _with_side_branch(graph: GraphWidget) -> None:
-    """`side` forks from c5. The walk reaches it only when it is pushed as a tip."""
-    main = _chain(10)
+def _with_side_branch(graph: GraphWidget, length: int = 10) -> None:
+    """`side` forks from c5 of a `length`-commit chain. The walk reaches it
+    only when it is pushed as a tip."""
+    main = _chain(length)
     side = [
         Commit(
             oid="side", message="side", author="A", timestamp=datetime(2026, 1, 2), parents=["c5"]
@@ -642,6 +643,56 @@ def test_head_clicked_before_the_file_history_loads_is_selected_there(graph, hel
 
     assert graph._path_filter == "README.md"
     assert _current_oid(graph) == "c0"
+
+
+# ── A search left open while a click leaves the file history ─────────────────
+
+
+def _searching_a_file_history_beside_a_side_branch(graph: GraphWidget) -> None:
+    """README.md's history is every 2nd commit of 200, so 'commit 12' matches
+    6 commits there and 11 in the full graph. `side` is not in the history."""
+    _with_side_branch(graph, length=200)
+    _paged_file_history(graph, 100, step=2)
+    graph._queries.is_ancestor.execute.side_effect = lambda ancestor, _head: ancestor != "side"
+    graph.set_path_filter("README.md")
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+
+def test_a_branch_clicked_out_of_a_file_history_still_loading_its_search_searches_the_full_graph(
+    graph, held_workers
+):
+    """Leaving the file history dropped the search waiting on its full load,
+    so the full graph showed no count and Enter did nothing."""
+    _searching_a_file_history_beside_a_side_branch(graph)
+
+    graph.reload_with_extra_tip("side")
+    _finish_all(held_workers)
+
+    assert graph._path_filter is None
+    assert _match_count(graph) == "0 / 11"  # c12 and c120…c129; the clicked branch is none
+    assert _current_oid(graph) == "side"
+    graph._on_search_navigate(1)
+    assert _current_oid(graph) == "c12"
+
+
+def test_a_branch_clicked_out_of_a_searched_file_history_searches_the_full_graph(
+    graph, inline_workers
+):
+    """The file history's '1 / 6' stayed over the full graph, most of its
+    matches out of reach and the other five full-graph matches never found.
+    Searching again must not move off the branch the click selected."""
+    _searching_a_file_history_beside_a_side_branch(graph)
+    assert _match_count(graph) == "1 / 6"
+
+    graph.reload_with_extra_tip("side")
+
+    assert graph._model.rowCount() == 201
+    assert _match_count(graph) == "0 / 11"
+    assert _current_oid(graph) == "side"
+    graph._on_search_navigate(-1)
+    assert _current_oid(graph) == "c129"
+    assert _match_count(graph) == "11 / 11"
 
 
 # ── Closing a search over the whole history ──────────────────────────────────

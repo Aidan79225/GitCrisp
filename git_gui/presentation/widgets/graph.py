@@ -30,22 +30,21 @@ from git_gui.domain.entities import (
     RepoState,
     ResetMode,
     Tag,
-    split_remote_branch,
 )
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE, GraphModel
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.commit_row_delegate import CommitRowDelegate
+from git_gui.presentation.widgets.remote_branch_split import (
+    REMOTES_UNKNOWN,
+    listed_remotes,
+    split_if_unambiguous,
+)
 from git_gui.resources import get_resource_path
 
 PAGE_SIZE = 50
 MAX_RELOAD_LIMIT = 2000  # cap doubling retry to avoid unbounded loads
-
-_REMOTES_UNKNOWN = (
-    "The remotes did not load, so which one holds this branch is unknown. "
-    "Fix the remote configuration (git remote -v), then try again."
-)
 
 
 class _GraphTableView(QTableView):
@@ -560,6 +559,9 @@ class GraphWidget(QWidget):
         self._search_matches: list[str] = []
         self._search_idx = -1  # current position in _search_matches
         self._pending_search: str | None = None  # search to re-run after full reload
+        # Whether that search selects its first match: not when a click on a
+        # branch, rather than typing, started it.
+        self._pending_search_jumps = True
         # The reload limit a search's full-history load replaced, put back
         # when the search closes; None while no search has widened it.
         self._limit_before_search: int | None = None
@@ -851,8 +853,16 @@ class GraphWidget(QWidget):
         return len(self._queries.get_commit_detail.execute(oid).parents) > 1
 
     def _show_in_full_graph(self, oid: str, tips: list[str]) -> None:
+        """Leave the file history for the full graph, landing on `oid`.
+
+        An open search runs again over the full graph, as on any other
+        change of listing, but leaves the selection on the clicked commit.
+        """
         self._leave_path_filter()
         self._load_tips_and_land(oid, tips)
+        needle = self._search_bar.text()
+        if needle.strip():
+            self._start_search(needle, jump=False)
 
     def _load_tips_and_land(self, oid: str, tips: list[str]) -> None:
         """Load the full graph with `tips` pushed, then scroll to and select `oid`."""
@@ -973,7 +983,7 @@ class GraphWidget(QWidget):
         if self._pending_search:
             needle = self._pending_search
             self._pending_search = None
-            self._run_search(needle)
+            self._run_search(needle, self._pending_search_jumps)
 
     def _reload_if_stale(self, first_parent: bool, path_filter: str | None) -> bool:
         """Load again if the result in hand no longer answers what is wanted.
@@ -1184,45 +1194,29 @@ class GraphWidget(QWidget):
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
     def _add_remote_delete_actions(self, menu: QMenu, names: list[str]) -> None:
-        """Add 'Delete remote branch' for `names`, off for one whose remote is unknown.
-
-        A remote's name may hold a '/', so 'team/upstream/feature' is on
-        'team' or on 'team/upstream' depending on which remotes exist. While
-        they cannot be listed, only a name with a single '/' has one answer:
-        guessing for the others could delete another remote's branch, and
-        the confirmation, which joins the parts back together, cannot show it.
-        """
+        """Add 'Delete remote branch' for `names`, off for one whose remote is unknown."""
         if not names:
             return
-        remotes = self._remote_names()
+        remotes = listed_remotes(self._queries)
         actions = _add_one_or_submenu(
             menu, "Delete remote branch", names, lambda name: f"Delete remote branch: {name}"
         )
         for action, name in zip(actions, names, strict=True):
-            if remotes is None and name.count("/") > 1:
+            if split_if_unambiguous(name, remotes) is None:
                 action.setEnabled(False)
-                action.setToolTip(_REMOTES_UNKNOWN)
+                action.setToolTip(REMOTES_UNKNOWN)
                 continue
             action.triggered.connect(
-                lambda _checked=False, n=name, r=remotes or []: self._emit_remote_delete(n, r)
+                lambda _checked=False, n=name, r=remotes: self._emit_remote_delete(n, r)
             )
 
-    def _emit_remote_delete(self, name: str, remotes: list[str]) -> None:
-        remote, branch = split_remote_branch(name, remotes)
+    def _emit_remote_delete(self, name: str, remotes: list[str] | None) -> None:
+        split = split_if_unambiguous(name, remotes)
+        if split is None:
+            return
+        remote, branch = split
         if remote and branch:
             self.remote_branch_delete_requested.emit(remote, branch)
-
-    def _remote_names(self) -> list[str] | None:
-        """The repo's remotes, or None when they cannot be listed.
-
-        One remote with an invalid name or refspec in .git/config fails the
-        whole listing. Raising from the menu left the right-click doing nothing.
-        """
-        try:
-            return [r.name for r in self._queries.list_remotes.execute()]
-        except Exception as e:
-            logger.warning("Listing remotes failed: %s", e)
-            return None
 
     def _add_operation_sections(self, menu: QMenu, oid: str, branches_on_commit: list[str]) -> None:
         """Append the Merge / Rebase section, then Cherry-pick / Revert / Reset."""
@@ -1385,6 +1379,13 @@ class GraphWidget(QWidget):
         return last_row + 1 - working_tree_rows
 
     def _on_search_text_changed(self, text: str) -> None:
+        self._start_search(text, jump=True)
+
+    def _start_search(self, text: str, jump: bool) -> None:
+        """Search the whole listing for `text`, loading all of it first if needed.
+
+        `jump` moves the selection to the first match once they are known.
+        """
         needle = text.strip().lower()
         self._search_matches.clear()
         self._search_idx = -1
@@ -1394,12 +1395,12 @@ class GraphWidget(QWidget):
             return
 
         if self._has_more:
-            self._search_after_full_load(needle)
+            self._search_after_full_load(needle, jump)
             return
 
-        self._run_search(needle)
+        self._run_search(needle, jump)
 
-    def _search_after_full_load(self, needle: str) -> None:
+    def _search_after_full_load(self, needle: str, jump: bool) -> None:
         """Load the whole history, then search it for `needle`.
 
         Later keystrokes only swap the needle: asking again would discard the
@@ -1407,35 +1408,51 @@ class GraphWidget(QWidget):
         """
         full_load_running = self._pending_search is not None
         self._pending_search = needle
+        self._pending_search_jumps = jump
         if full_load_running:
             return
         if self._limit_before_search is None:
             self._limit_before_search = self._reload_limit
         self.reload(limit=999_999)
 
-    def _run_search(self, needle: str) -> None:
-        self._search_matches.clear()
-        self._search_idx = -1
-        for row in range(self._model.rowCount()):
-            index = self._model.index(row, 0)
-            info = self._model.data(index, INFO_ROLE)
-            if info is None:
-                continue
-            haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
-            if needle in haystack:
-                self._search_matches.append(self._model.data(index, OID_ROLE))
-        if self._search_matches:
+    def _run_search(self, needle: str, jump: bool) -> None:
+        """Find the commits matching `needle`, and select the first if `jump`.
+
+        Without `jump` the selection stays where it is. The count shows it as
+        the current match when it is one, and 0 when it is not, so that Enter
+        goes to the first match and Shift+Enter to the last.
+        """
+        self._search_matches = [
+            self._oid_at(row)
+            for row in range(self._model.rowCount())
+            if self._row_matches(row, needle)
+        ]
+        if jump and self._search_matches:
             self._search_idx = 0
             self._jump_to_match()
+        else:
+            selected = self._oid_at(self._view.currentIndex().row())
+            in_matches = selected in self._search_matches
+            self._search_idx = self._search_matches.index(selected) if in_matches else -1
         self._search_bar.set_match_label(
             self._search_idx,
             len(self._search_matches),
         )
 
+    def _row_matches(self, row: int, needle: str) -> bool:
+        info = self._model.data(self._model.index(row, 0), INFO_ROLE)
+        if info is None:
+            return False
+        haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
+        return needle in haystack
+
     def _on_search_navigate(self, direction: int) -> None:
         if not self._search_matches:
             return
-        self._search_idx = (self._search_idx + direction) % len(self._search_matches)
+        if self._search_idx < 0:  # no match selected yet: start from either end
+            self._search_idx = 0 if direction > 0 else len(self._search_matches) - 1
+        else:
+            self._search_idx = (self._search_idx + direction) % len(self._search_matches)
         self._jump_to_match()
         self._search_bar.set_match_label(
             self._search_idx,

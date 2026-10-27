@@ -388,12 +388,41 @@ def test_remote_branch_actions_go_to_the_remote_whose_name_holds_a_slash(sidebar
 
 
 def test_remote_branch_actions_still_work_when_the_remotes_cannot_be_listed(sidebar):
+    # A name with a single '/' has one remote whatever the remotes are.
     _, queries, _ = sidebar
     queries.list_remotes.execute.side_effect = RuntimeError("'bad name' is not valid")
 
-    emitted = _remote_branch_actions_on(sidebar, "origin/feature/foo")
+    emitted = _remote_branch_actions_on(sidebar, "origin/foo")
 
-    assert emitted == [("fetch", "origin"), ("delete", "origin", "feature/foo")]
+    assert emitted == [("fetch", "origin"), ("delete", "origin", "foo")]
+
+
+def test_a_remote_branch_is_not_deleted_from_a_guessed_remote(sidebar):
+    """With remotes 'team' and 'team/upstream' and an unlistable one beside
+    them, 'team/upstream/feature' split at its first '/' deleted branch
+    'upstream/feature' from 'team': another branch, and no undo. The
+    confirmation joins remote and branch back together, so it could not show
+    the wrong split. Fetch and Delete are off instead, saying how to fix it."""
+    w, queries, _ = sidebar
+    queries.list_remotes.execute.side_effect = RuntimeError(
+        "'bad..name' is not a valid remote name."
+    )
+    item = _remote_branch_item("team/upstream/feature", "abc123")
+    _add_section(w, "REMOTE BRANCHES", [item])
+    emitted: list[tuple] = []
+    w.fetch_requested.connect(lambda remote: emitted.append(("fetch", remote)))
+    w.remote_branch_delete_requested.connect(lambda *args: emitted.append(("delete", *args)))
+
+    actions = _capture_menu_actions(w, item)
+    actions["Fetch"].trigger()
+    actions["Delete"].trigger()
+
+    assert emitted == []
+    for label in ("Fetch", "Delete"):
+        assert not actions[label].isEnabled()
+        assert "git remote -v" in actions[label].toolTip()
+    assert actions["Delete"].parent().toolTipsVisible()
+    assert actions["Checkout"].isEnabled()
 
 
 # -- 6. Bus detach clears model -------------------------------------------
