@@ -30,22 +30,21 @@ from git_gui.domain.entities import (
     RepoState,
     ResetMode,
     Tag,
-    split_remote_branch,
 )
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE, GraphModel
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.commit_row_delegate import CommitRowDelegate
+from git_gui.presentation.widgets.remote_branch_split import (
+    REMOTES_UNKNOWN,
+    listed_remotes,
+    split_if_unambiguous,
+)
 from git_gui.resources import get_resource_path
 
 PAGE_SIZE = 50
 MAX_RELOAD_LIMIT = 2000  # cap doubling retry to avoid unbounded loads
-
-_REMOTES_UNKNOWN = (
-    "The remotes did not load, so which one holds this branch is unknown. "
-    "Fix the remote configuration (git remote -v), then try again."
-)
 
 
 class _GraphTableView(QTableView):
@@ -1184,45 +1183,29 @@ class GraphWidget(QWidget):
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
     def _add_remote_delete_actions(self, menu: QMenu, names: list[str]) -> None:
-        """Add 'Delete remote branch' for `names`, off for one whose remote is unknown.
-
-        A remote's name may hold a '/', so 'team/upstream/feature' is on
-        'team' or on 'team/upstream' depending on which remotes exist. While
-        they cannot be listed, only a name with a single '/' has one answer:
-        guessing for the others could delete another remote's branch, and
-        the confirmation, which joins the parts back together, cannot show it.
-        """
+        """Add 'Delete remote branch' for `names`, off for one whose remote is unknown."""
         if not names:
             return
-        remotes = self._remote_names()
+        remotes = listed_remotes(self._queries)
         actions = _add_one_or_submenu(
             menu, "Delete remote branch", names, lambda name: f"Delete remote branch: {name}"
         )
         for action, name in zip(actions, names, strict=True):
-            if remotes is None and name.count("/") > 1:
+            if split_if_unambiguous(name, remotes) is None:
                 action.setEnabled(False)
-                action.setToolTip(_REMOTES_UNKNOWN)
+                action.setToolTip(REMOTES_UNKNOWN)
                 continue
             action.triggered.connect(
-                lambda _checked=False, n=name, r=remotes or []: self._emit_remote_delete(n, r)
+                lambda _checked=False, n=name, r=remotes: self._emit_remote_delete(n, r)
             )
 
-    def _emit_remote_delete(self, name: str, remotes: list[str]) -> None:
-        remote, branch = split_remote_branch(name, remotes)
+    def _emit_remote_delete(self, name: str, remotes: list[str] | None) -> None:
+        split = split_if_unambiguous(name, remotes)
+        if split is None:
+            return
+        remote, branch = split
         if remote and branch:
             self.remote_branch_delete_requested.emit(remote, branch)
-
-    def _remote_names(self) -> list[str] | None:
-        """The repo's remotes, or None when they cannot be listed.
-
-        One remote with an invalid name or refspec in .git/config fails the
-        whole listing. Raising from the menu left the right-click doing nothing.
-        """
-        try:
-            return [r.name for r in self._queries.list_remotes.execute()]
-        except Exception as e:
-            logger.warning("Listing remotes failed: %s", e)
-            return None
 
     def _add_operation_sections(self, menu: QMenu, oid: str, branches_on_commit: list[str]) -> None:
         """Append the Merge / Rebase section, then Cherry-pick / Revert / Reset."""
