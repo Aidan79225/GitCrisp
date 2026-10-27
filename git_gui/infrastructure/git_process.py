@@ -1,11 +1,41 @@
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
 import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from git_gui.resources import subprocess_kwargs
+
+# Variables that aim git at a repository other than the one it is pointed at;
+# GIT_CONFIG does the same for `git config`. The GIT_CONFIG_* variables that add
+# settings stay: the user set them for every git command.
+_OTHER_REPOSITORY_VARIABLES = frozenset(
+    {
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_CONFIG",
+    }
+)
+
+
+def isolated_git_env() -> dict[str, str]:
+    """This process's environment, minus what would aim git at another repository.
+
+    Started from a shell that exports them (a dotfiles setup, a git hook), git
+    ranks these variables above both ``-C`` and the folder it runs in: a clone
+    checks out into the GIT_WORK_TREE folder, or writes the index and objects
+    that GIT_INDEX_FILE and GIT_OBJECT_DIRECTORY name.
+    """
+    return {
+        name: value for name, value in os.environ.items() if name not in _OTHER_REPOSITORY_VARIABLES
+    }
 
 
 def git_popen_kwargs() -> dict[str, Any]:
@@ -20,6 +50,36 @@ def git_popen_kwargs() -> dict[str, Any]:
     if os.name == "posix":
         kwargs["start_new_session"] = True
     return kwargs
+
+
+def kill_git_tree(proc: subprocess.Popen[Any], *, force: bool = False) -> None:
+    """Stop git, started with git_popen_kwargs, and the helpers it runs.
+
+    The helpers (ssh, git-remote-https, index-pack) hold git's output pipes
+    open, so stopping git alone would leave its reader waiting on them. On
+    Windows the ``git`` on PATH is often a launcher, which makes even git
+    proper a child, and taskkill can only force a windowless tree. On POSIX
+    git's session is its process group; SIGTERM lets git remove the lock
+    files it holds in the user's repository, and ``force`` sends SIGKILL for
+    a git whose output is deleted anyway.
+    """
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                **subprocess_kwargs(),
+            )
+        else:
+            os.killpg(proc.pid, signal.SIGKILL if force else signal.SIGTERM)
+    except ProcessLookupError:
+        pass  # git ended by itself in the meantime.
+    except OSError:
+        # No taskkill to run, or the group is out of reach: stop git itself at least.
+        stop = proc.kill if force else proc.terminate
+        with contextlib.suppress(OSError):
+            stop()
 
 
 def run_git(
@@ -48,7 +108,16 @@ def run_git(
     )
 
 
-def git_run_dir(work_tree: str | None, git_dir: str | None) -> str:
+def git_failure_message(result: subprocess.CompletedProcess[str]) -> str:
+    """git's own explanation of a failed run: stderr, else stdout, else the exit code."""
+    return (
+        (result.stderr or "").strip()
+        or (result.stdout or "").strip()
+        or f"exit code {result.returncode}"
+    )
+
+
+def git_run_dir(*, work_tree: str | None, git_dir: str | None) -> str:
     """The directory to start git in: the working tree, or a bare repository's gitdir."""
     run_dir = work_tree or git_dir
     if run_dir is None:
@@ -56,14 +125,15 @@ def git_run_dir(work_tree: str | None, git_dir: str | None) -> str:
     return run_dir
 
 
-def pinned_git_env(git_dir: str | None, work_tree: str | None) -> dict[str, str]:
+def pinned_git_env(*, git_dir: str | None, work_tree: str | None) -> dict[str, str]:
     """This process's environment with git pinned to `git_dir`, when one is given.
 
     Left to discover the repository from its working directory, git walks up
     from a submodule whose `.git` link is missing and reads the parent instead.
     A bare repository has no working tree to name, so it gets GIT_DIR alone.
+    An inherited GIT_INDEX_FILE and its kind go: GIT_DIR does not reset them.
     """
-    env = os.environ.copy()
+    env = isolated_git_env()
     if git_dir is not None:
         env["GIT_DIR"] = git_dir
         if work_tree:

@@ -147,8 +147,10 @@ def probed_clone(repo_path, tmp_path_factory, monkeypatch):
     monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
     monkeypatch.delenv("GIT_SSH", raising=False)
 
-    def clone() -> None:
-        clone_repo(repo_path.as_uri(), str(tmp_path_factory.mktemp("clones") / "repo"))
+    def clone() -> Path:
+        dest = tmp_path_factory.mktemp("clones") / "repo"
+        clone_repo(repo_path.as_uri(), str(dest))
+        return dest
 
     return clone
 
@@ -178,6 +180,55 @@ def test_a_clone_leaves_the_file_an_inherited_git_config_names_alone(
     probed_clone()
 
     assert config.read_text() == "[user]\n\tname = Me\n"
+
+
+def test_a_clone_beside_an_exported_dotfiles_repository_checks_out_into_its_folder(
+    probed_clone, tmp_path_factory, monkeypatch
+):
+    """A dotfiles setup exports GIT_DIR and GIT_WORK_TREE=$HOME, and every
+    clone failed with "working tree '<home>' already exists"."""
+    home = tmp_path_factory.mktemp("home")
+    dotfiles = pygit2.init_repository(str(tmp_path_factory.mktemp("dotfiles")), bare=True)
+    monkeypatch.setenv("GIT_DIR", dotfiles.path)
+    monkeypatch.setenv("GIT_WORK_TREE", str(home))
+
+    dest = probed_clone()
+
+    assert (dest / "README.md").is_file()
+    assert list(home.iterdir()) == []
+
+
+def test_a_clone_writes_its_own_index_not_the_one_an_inherited_git_index_file_names(
+    probed_clone, tmp_path_factory, monkeypatch
+):
+    """Started from a commit hook, the app inherits GIT_INDEX_FILE: the clone
+    overwrote that repository's index and left its own without one."""
+    other = tmp_path_factory.mktemp("hooked")
+    (other / "o.txt").write_text("o")
+    repo = pygit2.init_repository(str(other))
+    repo.index.add("o.txt")
+    repo.index.write()
+    index = other / ".git" / "index"
+    before = index.read_bytes()
+    monkeypatch.setenv("GIT_INDEX_FILE", str(index))
+
+    dest = probed_clone()
+
+    assert index.read_bytes() == before
+    assert (dest / ".git" / "index").is_file()
+
+
+def test_a_clone_keeps_its_objects_in_its_own_repository(
+    probed_clone, tmp_path_factory, monkeypatch
+):
+    """An inherited GIT_OBJECT_DIRECTORY sent the clone's objects elsewhere."""
+    elsewhere = tmp_path_factory.mktemp("objects")
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(elsewhere))
+
+    dest = probed_clone()
+
+    assert list(elsewhere.iterdir()) == []
+    assert pygit2.Repository(str(dest)).head.peel(pygit2.Commit).message == "Initial commit"
 
 
 # The hook stands in for a remote that stops sending mid-clone. It runs a few
@@ -305,6 +356,23 @@ def test_a_cancelled_clone_reports_a_file_another_process_keeps_open(stalled_clo
         _cancel(clone)
     assert isinstance(clone.error, CloneCancelled)
     assert isinstance(clone.error.cleanup_error, PermissionError)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="only Windows refuses to delete an open file")
+def test_a_cancel_into_an_empty_folder_waits_for_a_checked_out_file_held_for_a_moment(tmp_path):
+    """A scanner reading a freshly checked-out file for a moment left it in the
+    folder, and the next clone there found the folder taken."""
+    dest = tmp_path / "repo"
+    dest.mkdir()
+    destination = git_clone._Destination(dest)
+    held = dest / "README.md"
+    held.write_text("x")
+    handle = open(held, "rb")
+    threading.Timer(0.3, handle.close).start()  # mid-removal, as a scanner lets go
+
+    destination.restore()
+
+    assert list(dest.iterdir()) == []
 
 
 def test_removing_a_file_waits_for_a_process_that_lets_go_of_it_soon(tmp_path):

@@ -6,10 +6,8 @@ from typing import NamedTuple
 import pygit2
 
 from git_gui.domain.entities import RepoState, RepoStateInfo
-from git_gui.infrastructure.git_process import run_git
-from git_gui.resources import GitConfig, git_ssh_env
-
-_SSH_COMMAND_KEY = "core.sshCommand"
+from git_gui.infrastructure.git_process import git_run_dir, pinned_git_env, run_git
+from git_gui.resources import SSH_COMMAND_CONFIG_KEY, GitConfig, git_ssh_env
 
 
 class _SshCommandAnswer(NamedTuple):
@@ -69,11 +67,12 @@ class RepoStateOps:
         fail on first-time SSH host-key verification, unless this repo's
         config, which includes the user's global one, names an ssh command.
         """
-        env = os.environ.copy()
-        env["GIT_DIR"] = self._repo.path
-        if self._repo.workdir:
-            env["GIT_WORK_TREE"] = self._repo.workdir
+        env = pinned_git_env(git_dir=self._repo.path, work_tree=self._repo.workdir)
         return git_ssh_env(env, config=self._ssh_config(env))
+
+    @property
+    def _run_dir(self) -> str:
+        return git_run_dir(work_tree=self._repo.workdir, git_dir=self._repo.path)
 
     def _ssh_config(self, env: dict[str, str]) -> GitConfig:
         """The config that says whether the user named an ssh command.
@@ -85,14 +84,14 @@ class RepoStateOps:
         check among them, so its answer is kept until the remote URLs that
         such an include matches on change.
         """
-        if _SSH_COMMAND_KEY in self._repo.config:
+        if SSH_COMMAND_CONFIG_KEY in self._repo.config:
             return self._repo.config
         remote_urls = self._remote_urls()
         answer = self._ssh_command_answer
         if answer is None or answer.remote_urls != remote_urls:
-            answer = _SshCommandAnswer(remote_urls, self._git_resolves(_SSH_COMMAND_KEY, env))
+            answer = _SshCommandAnswer(remote_urls, self._git_resolves(SSH_COMMAND_CONFIG_KEY, env))
             self._ssh_command_answer = answer
-        return frozenset({_SSH_COMMAND_KEY}) if answer.is_set else frozenset()
+        return frozenset({SSH_COMMAND_CONFIG_KEY}) if answer.is_set else frozenset()
 
     def _remote_urls(self) -> tuple[bytes | None, ...]:
         """The remote.<name>.url values, read from the config as git does.
@@ -109,9 +108,7 @@ class RepoStateOps:
         )
 
     def _git_resolves(self, key: str, env: dict[str, str]) -> bool:
-        result = run_git(
-            ["git", "config", "--get", key], cwd=self._repo.workdir or self._repo.path, env=env
-        )
+        result = run_git(["git", "config", "--get", key], cwd=self._run_dir, env=env)
         return result.returncode == 0
 
     def get_head_oid(self) -> str | None:
@@ -186,7 +183,7 @@ class RepoStateOps:
         for key, value in (("user.name", name), ("user.email", email)):
             result = run_git(
                 ["git", "config", scope, key, value],
-                cwd=self._repo.workdir or self._repo.path,
+                cwd=self._run_dir,
                 env=self._git_env,
             )
             if result.returncode != 0:

@@ -4,10 +4,8 @@ import itertools
 import os
 import re
 import shutil
-import signal
 import stat
 import subprocess
-import sys
 import threading
 import time
 from collections import deque
@@ -16,8 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
-from git_gui.infrastructure.git_process import git_popen_kwargs, run_git
-from git_gui.resources import git_ssh_env, subprocess_kwargs
+from git_gui.infrastructure.git_process import (
+    git_popen_kwargs,
+    isolated_git_env,
+    kill_git_tree,
+    run_git,
+)
+from git_gui.resources import git_ssh_env
 
 
 @dataclass
@@ -84,39 +87,13 @@ def _is_free_for_a_clone(dest: Path) -> bool:
 
 
 def _probe_has_config(dest: Path, url: str, key: str) -> bool:
-    env = _probe_env()
+    # An inherited GIT_DIR would get the clone's URL as that repository's origin.
+    env = isolated_git_env()
     if run_git(["git", "init", "--quiet", "--", str(dest)], cwd=".", env=env).returncode != 0:
         return False
     probe = f"--git-dir={dest / '.git'}"
     run_git(["git", probe, "config", "remote.origin.url", url], cwd=".", env=env)
     return run_git(["git", probe, "config", "--get", key], cwd=".", env=env).returncode == 0
-
-
-# Variables that aim git at a repository other than the one it is pointed at;
-# GIT_CONFIG does the same for `git config`. The GIT_CONFIG_* variables that add
-# settings stay, because the clone reads them too.
-_OTHER_REPOSITORY_VARIABLES = frozenset(
-    {
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_COMMON_DIR",
-        "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_CONFIG",
-    }
-)
-
-
-def _probe_env() -> dict[str, str]:
-    """This process's environment, minus what would point the probe at another repo.
-
-    Started with GIT_DIR set (a dotfiles setup, a git hook), git ranks it above
-    both ``-C`` and the folder it runs in: the probe would write the clone's URL
-    into that repository's origin and read that repository's config.
-    """
-    return {
-        name: value for name, value in os.environ.items() if name not in _OTHER_REPOSITORY_VARIABLES
-    }
 
 
 def _remove_probe(dest: Path, created: bool) -> None:
@@ -150,7 +127,9 @@ def clone_repo(
         # pipe would fill up and block git while we wait for stderr to close.
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
-        env=git_ssh_env(config=_CloneConfig(url, dest)),
+        # git_ssh_env asks _CloneConfig, which probes dest with a throwaway
+        # repository, only when the environment names no ssh client.
+        env=git_ssh_env(isolated_git_env(), config=_CloneConfig(url, dest)),
         **git_popen_kwargs(),
     )
     _stop_when_cancelled(proc, cancelled)
@@ -188,32 +167,11 @@ def _stop_when_cancelled(proc: subprocess.Popen[bytes], cancelled: threading.Eve
     def watch() -> None:
         while proc.poll() is None:
             if cancelled.wait(_EXIT_POLL_SECONDS):
-                _kill_process_tree(proc)
+                # Forced: what the clone wrote is removed next, locks and all.
+                kill_git_tree(proc, force=True)
                 return
 
     threading.Thread(target=watch, name="clone-cancel-watcher", daemon=True).start()
-
-
-def _kill_process_tree(proc: subprocess.Popen[bytes]) -> None:
-    """Stop git and the helpers it runs (ssh, git-remote-https, index-pack).
-
-    The helpers hold git's stderr open, so stopping git alone would leave the
-    clone reading from them until they gave up by themselves. On Windows the
-    ``git`` on PATH is often a launcher, which makes even git proper a child.
-    """
-    if sys.platform == "win32":
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            **subprocess_kwargs(),
-        )
-    else:
-        try:
-            # git_popen_kwargs gives git a session, so its group is git and its helpers.
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass  # git ended by itself in the meantime.
 
 
 class _Destination:
@@ -255,7 +213,8 @@ def _remove(path: Path) -> None:
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path, onexc=_make_writable_and_retry)
     elif path.exists() or path.is_symlink():
-        path.unlink()
+        # No chmod here: it would follow a checked-out symlink out of the clone.
+        _retry_while_in_use(path.unlink)
 
 
 def _make_writable_and_retry(
@@ -263,13 +222,17 @@ def _make_writable_and_retry(
 ) -> None:
     # git writes its packs read-only, and Windows refuses to delete a read-only file.
     os.chmod(path, stat.S_IWRITE)
+    _retry_while_in_use(lambda: remove(path))
+
+
+def _retry_while_in_use(remove: Callable[[], object]) -> None:
     for delay in _IN_USE_RETRY_SECONDS:
         try:
-            remove(path)
+            remove()
             return
         except PermissionError:
             time.sleep(delay)
-    remove(path)
+    remove()
 
 
 def _stderr_lines(stream: IO[bytes]) -> Iterator[str]:

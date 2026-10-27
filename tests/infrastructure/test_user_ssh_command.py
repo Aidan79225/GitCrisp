@@ -96,7 +96,7 @@ def test_a_remote_added_later_brings_in_the_ssh_command_its_url_includes(
     ssh_command_for_the_remote, repo_path
 ):
     repo = Pygit2Repository(str(repo_path))
-    repo.is_dirty()
+    repo.is_dirty()  # caches "no ssh command" while no remote matches the include
     pygit2.Repository(str(repo_path)).remotes.create("origin", _UNREACHABLE)
 
     with pytest.raises(RuntimeError, match=_MARKER):

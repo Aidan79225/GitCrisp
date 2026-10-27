@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import os
 import shlex
-import subprocess
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
 from pathlib import Path
 
 import pygit2
 
 from git_gui.domain.entities import MergeAnalysisResult, MergeStrategy, RebaseTodoEntry
-from git_gui.infrastructure.git_process import run_git
+from git_gui.infrastructure.git_process import git_failure_message, run_git
 from git_gui.infrastructure.pygit2.repo_state_ops import REBASE_STATES
 
 
@@ -42,10 +41,6 @@ def _file_holding(text: str) -> Iterator[str]:
     finally:
         with suppress(OSError):
             os.unlink(handle.name)
-
-
-def _failure_message(result: subprocess.CompletedProcess[str]) -> str:
-    return result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
 
 
 class MergeRebaseOps:
@@ -162,10 +157,7 @@ class MergeRebaseOps:
             self._continue_rebase(editor=_editor_copying(message_path))
 
     def _continue_rebase(self, editor: str) -> None:
-        env = {**self._git_env, "GIT_EDITOR": editor}
-        result = run_git(["git", "rebase", "--continue"], cwd=self._repo.workdir, env=env)
-        if result.returncode != 0:
-            raise RuntimeError(_failure_message(result))
+        self._run_git("rebase", "--continue", env_overrides={"GIT_EDITOR": editor})
 
     def interactive_rebase(self, target_oid: str, entries: list[RebaseTodoEntry]) -> None:
         """Run git rebase -i with *entries*, in replay order, as its todo list.
@@ -193,8 +185,20 @@ class MergeRebaseOps:
         # A stopped rebase is a conflict, not a failure — leave the repo as it
         # is and let the conflict banner drive it from here.
         if result.returncode != 0 and self._repo.state() not in REBASE_STATES:
-            raise RuntimeError(_failure_message(result))
+            raise RuntimeError(git_failure_message(result))
 
     def _rebase_onto(self, target_oid) -> None:
         target_hex = str(target_oid)
         self._run_git("rebase", target_hex)
+
+    def _run_git(self, *args: str, env_overrides: Mapping[str, str] | None = None) -> None:
+        """Run a local git command, such as a merge or rebase, to completion.
+
+        It stays out of the remote-op slot: started while a fetch is in flight,
+        it would otherwise take that fetch's place, and Cancel would stop the
+        wrong process or none.
+        """
+        env = {**self._git_env, **(env_overrides or {})}
+        result = run_git(["git", *args], cwd=self._repo.workdir, env=env)
+        if result.returncode != 0:
+            raise RuntimeError(git_failure_message(result))

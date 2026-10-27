@@ -5,15 +5,9 @@ import subprocess
 
 import pygit2
 
-from git_gui.domain.entities import LineKind
-from git_gui.infrastructure.pygit2._helpers import _patches_for_path, _staged_diff
+from git_gui.domain.entities import NO_NEWLINE_MARKERS
+from git_gui.infrastructure.pygit2._helpers import _head_tree, _patches_for_path, _staged_diff
 from git_gui.resources import subprocess_kwargs
-
-# Their content is already the whole "\ No newline at end of file" line, and a
-# patch writes that line with no origin character in front.
-_NO_NEWLINE_MARKERS = frozenset(
-    {LineKind.ADDED_EOFNL, LineKind.REMOVED_EOFNL, LineKind.CONTEXT_EOFNL}
-)
 
 # Diffed with this, a file <-> symlink change is one TYPECHANGE delta instead
 # of a deletion and an addition of the same path.
@@ -55,19 +49,14 @@ class StageOps:
         return True
 
     def unstage(self, paths: list[str]) -> None:
-        if self._repo.head_is_unborn:
-            for path in paths:
+        head_tree = _head_tree(self._repo)
+        for path in paths:
+            if path in head_tree:
+                entry = head_tree[path]
+                self._repo.index.add(pygit2.IndexEntry(path, entry.id, entry.filemode))
+            else:
                 self._repo.index.remove(path)
-            self._repo.index.write()
-        else:
-            head_commit = self._repo.head.peel(pygit2.Commit)
-            for path in paths:
-                if path in head_commit.tree:
-                    entry = head_commit.tree[path]
-                    self._repo.index.add(pygit2.IndexEntry(path, entry.id, entry.filemode))
-                else:
-                    self._repo.index.remove(path)
-            self._repo.index.write()
+        self._repo.index.write()
 
     def stage_hunk(self, path: str, hunk_header: str) -> None:
         diff = self._hunk_diff(staged=False)
@@ -177,7 +166,9 @@ def _single_hunk_patch(path: str, delta: pygit2.DiffDelta, hunk: pygit2.DiffHunk
     # or Big5 line rebuilt from it no longer matches the file.
     lines = [*_file_header(os.fsencode(path), delta), hunk.header.encode()]
     for line in hunk.lines:
-        origin = b"" if line.origin in _NO_NEWLINE_MARKERS else line.origin.encode()
+        # A marker's content is already the whole "\ No newline at end of file"
+        # line, and a patch writes that line with no origin character in front.
+        origin = b"" if line.origin in NO_NEWLINE_MARKERS else line.origin.encode()
         lines.append(origin + line.raw_content)
     if not lines[-1].endswith(b"\n"):
         lines[-1] += b"\n"

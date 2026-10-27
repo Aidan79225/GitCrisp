@@ -44,6 +44,22 @@ def test_stage_hunk_stages_only_one_hunk(multi_hunk_repo):
     assert "CHANGED line 18" in "".join(c for _, c in remaining[0].lines)
 
 
+def test_staging_a_hunk_writes_the_repositorys_own_index(
+    multi_hunk_repo, tmp_path_factory, monkeypatch
+):
+    """Started from a commit hook, the app inherits GIT_INDEX_FILE, and
+    `git apply --cached` patched that index instead: "does not exist in index"."""
+    impl, _path = multi_hunk_repo
+    other = pygit2.init_repository(str(tmp_path_factory.mktemp("hooked")))
+    other.index.write()
+    monkeypatch.setenv("GIT_INDEX_FILE", str(Path(other.path) / "index"))
+    hunks = impl.get_file_diff("WORKING_TREE", "multi.txt")
+
+    impl.stage_hunk("multi.txt", hunks[0].header)
+
+    assert len(impl.get_staged_diff("multi.txt")) == 1
+
+
 def test_unstage_hunk_unstages_only_one_hunk(multi_hunk_repo):
     impl, path = multi_hunk_repo
     # Stage the whole file first

@@ -9,7 +9,7 @@ def test_a_name_without_a_slash_has_no_remote():
     assert split_remote_branch("feature") == ("", "feature")
 
 
-def test_the_remote_is_the_part_before_the_first_slash():
+def test_a_known_remote_without_a_slash_owns_its_branches():
     assert split_remote_branch("origin/feature/x", ["origin"]) == ("origin", "feature/x")
 
 

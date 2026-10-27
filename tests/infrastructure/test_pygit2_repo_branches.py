@@ -103,3 +103,26 @@ def test_reset_moves_the_checked_out_branch_to_the_ref(repo):
     r.reset_branch_to_ref("side", "master")
 
     assert pygit2.Repository(str(p)).branches.local["side"].target == master_tip
+
+
+def test_resetting_a_branch_that_is_not_checked_out_changes_nothing(repo):
+    """The hard reset acts on HEAD. A HEAD that moved while the user read the
+    confirmation would otherwise lose its branch's commits and edits."""
+    r, p = repo
+    _run(str(p), "branch", "side")
+    (p / "g.txt").write_text("g")
+    _run(str(p), "add", ".")
+    _run(str(p), "commit", "-q", "-m", "second")
+    (p / "f.txt").write_text("edited")
+    tips = {name: b.target for name, b in _local_branches(p)}
+
+    with pytest.raises(RuntimeError, match="side"):
+        r.reset_branch_to_ref("side", "master~1")
+
+    assert {name: b.target for name, b in _local_branches(p)} == tips
+    assert (p / "f.txt").read_text() == "edited"
+
+
+def _local_branches(path: Path) -> list[tuple[str, pygit2.Branch]]:
+    branches = pygit2.Repository(str(path)).branches.local
+    return [(name, branches[name]) for name in branches]

@@ -29,6 +29,17 @@ def test_unstage_removes_file_from_index(writable_repo):
     assert raw.status_file("staged.txt") & pygit2.GIT_STATUS_WT_NEW
 
 
+def test_unstaging_before_the_first_commit_leaves_the_file_untracked(tmp_path):
+    pygit2.init_repository(str(tmp_path))
+    impl = Pygit2Repository(str(tmp_path))
+    (tmp_path / "first.txt").write_text("data\n")
+    impl.stage(["first.txt"])
+
+    impl.unstage(["first.txt"])
+
+    assert pygit2.Repository(str(tmp_path)).status() == {"first.txt": pygit2.GIT_STATUS_WT_NEW}
+
+
 def test_commit_creates_new_commit(writable_repo):
     impl, path = writable_repo
     (path / "c.txt").write_text("content\n")
