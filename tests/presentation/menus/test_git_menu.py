@@ -15,6 +15,8 @@ def test_install_git_menu_adds_two_actions(qtbot):
         on_open_worktrees_dialog=lambda: None,
         on_open_reflog=lambda: None,
         on_checkout_branch=lambda _b: None,
+        on_checkout_in_new_worktree=lambda _b: None,
+        worktree_paths=dict,
     )
     bar = window.menuBar()
     titles = [a.text() for a in bar.actions()]
@@ -47,6 +49,8 @@ def test_checkout_in_the_branches_dialog_reaches_the_windows_checkout(qtbot):
         on_open_worktrees_dialog=lambda: None,
         on_open_reflog=lambda: None,
         on_checkout_branch=checked_out.append,
+        on_checkout_in_new_worktree=lambda _b: None,
+        worktree_paths=dict,
     )
 
     def _check_out_first_row(dialog: BranchesDialog) -> int:
@@ -66,6 +70,8 @@ def _install(window: QMainWindow, *, session, repo_workdir: str | None, **callba
         "on_open_worktrees_dialog": lambda: None,
         "on_open_reflog": lambda: None,
         "on_checkout_branch": lambda _b: None,
+        "on_checkout_in_new_worktree": lambda _b: None,
+        "worktree_paths": dict,
     }
     install_git_menu(
         window,

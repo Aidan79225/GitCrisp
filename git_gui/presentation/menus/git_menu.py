@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QDialog, QMainWindow, QMenu
@@ -23,14 +23,18 @@ def install_git_menu(
     on_open_worktrees_dialog: Callable[[], None],
     on_open_reflog: Callable[[], None],
     on_checkout_branch: Callable[[str], None],
+    on_checkout_in_new_worktree: Callable[[str], None],
+    worktree_paths: Callable[[], Mapping[str, str]],
 ) -> None:
     """Add the `Git` menu, replacing the one an earlier call added. Its items
     are disabled while no repo is open.
 
     `on_open_submodule` is invoked with the absolute path of the submodule
     when the user clicks Open in the submodule dialog, and
-    `on_checkout_branch` with the branch the user checks out in the Branches
-    dialog.
+    `on_checkout_branch` / `on_checkout_in_new_worktree` with the branch the
+    user picks in the Branches dialog. `worktree_paths` is asked each time
+    the dialog opens, because the window reloads that map after a menu is
+    installed.
     """
     _remove_previous_git_menu(window)
     bar = window.menuBar()
@@ -46,22 +50,11 @@ def install_git_menu(
 
     branches_action = QAction("&Branches...", git_menu)
 
-    # The Branches dialog lists this install's repo, and a switch can land
-    # while it is up: a branch picked there must not go to the repo that opened.
-    def _checkout(branch: str) -> None:
-        if not window._repo_switched_while_asking(commands, f"Checkout {branch}"):
-            on_checkout_branch(branch)
-
-    def _checkout_in_new_worktree(branch: str) -> None:
-        op_name = f"Checkout {branch} in a new worktree"
-        if not window._repo_switched_while_asking(commands, op_name):
-            window._open_add_worktree_dialog(preselect_branch=branch, default_create=False)
-
     def _open_branches() -> None:
         dlg = BranchesDialog(queries, commands, window)
-        dlg.set_worktree_paths(window._worktree_paths_by_branch)
-        dlg.checkout_requested.connect(_checkout)
-        dlg.checkout_in_new_worktree_requested.connect(_checkout_in_new_worktree)
+        dlg.set_worktree_paths(dict(worktree_paths()))
+        dlg.checkout_requested.connect(on_checkout_branch)
+        dlg.checkout_in_new_worktree_requested.connect(on_checkout_in_new_worktree)
         _run_and_discard(dlg)
 
     branches_action.triggered.connect(_open_branches)

@@ -78,8 +78,11 @@ def split_remote_branch(name: str, remotes: Iterable[str] = ()) -> tuple[str, st
 
     Remote names may contain '/', so the longest known remote wins. A name no
     known remote owns splits at its first '/', since a branch name may hold
-    more; one with no '/' has no remote: ``("", name)``. The branch part is
-    also the name a local branch checked out from it gets.
+    more; one with no '/' has no remote: ``("", name)``.
+
+    The branch part is not always the name ``git checkout --track`` gives a
+    local branch: git takes everything after the first '/', so checking out
+    "gh/fork/topic" from remote "gh/fork" creates "fork/topic".
     """
     owner = max((r for r in remotes if name.startswith(f"{r}/")), key=len, default=None)
     if owner is not None:

@@ -119,6 +119,19 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         worktrees callback, so `Git → Worktrees…` did nothing until the user
         switched repos.
         """
+        # The Branches dialog lists this install's repo, and a switch can land
+        # while it is up: a branch picked there must not go to the repo that opened.
+        asked_in = self._commands
+
+        def _checkout(branch: str) -> None:
+            if not self._repo_switched_while_asking(asked_in, f"Checkout {branch}"):
+                self._on_checkout_branch(branch)
+
+        def _checkout_in_new_worktree(branch: str) -> None:
+            op_name = f"Checkout {branch} in a new worktree"
+            if not self._repo_switched_while_asking(asked_in, op_name):
+                self._open_add_worktree_dialog(preselect_branch=branch, default_create=False)
+
         install_git_menu(
             self,
             queries=self._queries,
@@ -127,7 +140,9 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             on_open_submodule=self._on_submodule_open_requested,
             on_open_worktrees_dialog=self._open_worktrees_dialog,
             on_open_reflog=self.open_reflog,
-            on_checkout_branch=self._on_checkout_branch,
+            on_checkout_branch=_checkout,
+            on_checkout_in_new_worktree=_checkout_in_new_worktree,
+            worktree_paths=lambda: self._worktree_paths_by_branch,
         )
 
     def _start_change_detector(self, path: str) -> None:
