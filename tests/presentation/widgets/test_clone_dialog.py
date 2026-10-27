@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -53,6 +54,21 @@ def test_cancel_stays_available_while_a_clone_runs(qtbot, clone_gate):
     assert dialog._cancel_btn.isEnabled()
 
 
+@pytest.mark.parametrize("key", [Qt.Key.Key_Return, Qt.Key.Key_Space], ids=["enter", "space"])
+def test_a_key_pressed_again_after_starting_a_clone_does_not_cancel_it(qtbot, clone_gate, key):
+    """Starting a clone disables every control but Cancel, so the focus moved
+    on to Cancel, and a second Enter or a Space stopped and deleted the clone."""
+    dialog = _dialog(qtbot)
+    dialog._url_edit.setFocus()
+    QTest.keyClick(dialog._url_edit, Qt.Key.Key_Return)
+    assert dialog._cloning
+
+    QTest.keyClick(dialog.focusWidget() or dialog, key)
+
+    assert dialog.isVisible()
+    assert not dialog._cancel_requested.is_set()
+
+
 def test_cancelling_mid_clone_closes_the_dialog(qtbot, clone_gate):
     dialog = _dialog(qtbot)
     dialog._on_clone()
@@ -88,6 +104,11 @@ def _fail_clone(qtbot, error: Exception) -> CloneDialog:
 def test_cancel_works_again_after_a_failed_clone(qtbot):
     dialog = _fail_clone(qtbot, RuntimeError("boom"))
     assert dialog._cancel_btn.isEnabled()
+
+
+def test_cancel_takes_the_keyboard_focus_again_after_a_failed_clone(qtbot):
+    dialog = _fail_clone(qtbot, RuntimeError("boom"))
+    assert dialog._cancel_btn.focusPolicy() == Qt.FocusPolicy.StrongFocus
 
 
 def test_a_failed_clone_shows_gits_reason(qtbot):
@@ -141,3 +162,31 @@ def test_a_cancelled_clone_is_not_reported_as_a_failure(qtbot, clone_until_cance
     qtbot.wait(200)
 
     assert dialog._error_label.text() == ""
+
+
+_IN_USE = "[WinError 32] The process cannot access the file: 'repo\\.git\\config'"
+
+
+@pytest.fixture
+def clone_that_cannot_clean_up():
+    """Make clone_repo run until it is cancelled, then fail to remove what it wrote."""
+
+    def clone(url, dest, on_progress=None, cancelled=None):
+        cancelled.wait(5)
+        raise CloneCancelled("cancelled", cleanup_error=PermissionError(_IN_USE))
+
+    with patch(_CLONE_REPO, side_effect=clone):
+        yield
+
+
+def test_a_cancelled_clone_that_left_files_behind_says_where_and_why(
+    qtbot, clone_that_cannot_clean_up
+):
+    """The dialog has closed by then, so it hands the report on rather than showing it."""
+    dialog = _dialog(qtbot)
+    dialog._on_clone()
+
+    with qtbot.waitSignal(dialog.cleanup_failed) as report:
+        dialog.reject()
+
+    assert report.args == [str(Path(dialog._folder_edit.text()) / "repo"), _IN_USE]

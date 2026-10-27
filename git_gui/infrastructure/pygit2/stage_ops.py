@@ -39,18 +39,20 @@ class StageOps:
                 self._stage_deletion(path)
         self._repo.index.write()
 
-    def _stage_deletion(self, path: str) -> None:
+    def _stage_deletion(self, path: str) -> bool:
+        """Drop *path* from the in-memory index; False if it was not there."""
         index = self._repo.index
         # remove() drops only the stage-0 entry, and a conflicted path has
         # none: deleting the file resolves a modify/delete conflict only once
         # its stage 1-3 entries go too.
         if index.conflicts is not None and path in index.conflicts:
             del index.conflicts[path]
-            return
+            return True
         try:
             index.remove(path)
         except (KeyError, OSError):
-            pass
+            return False
+        return True
 
     def unstage(self, paths: list[str]) -> None:
         if self._repo.head_is_unborn:
@@ -102,9 +104,11 @@ class StageOps:
         else:
             if os.path.lexists(full):
                 os.remove(full)
-            self._stage_deletion(path)
-            self._repo.index.write()
-            self._repo.index.read()
+            # An untracked file leaves the index as it was, and writing it
+            # anyway fails while another program holds index.lock.
+            if self._stage_deletion(path):
+                self._repo.index.write()
+                self._repo.index.read()
 
     def _restore_from_head(self, path: str, where: str) -> None:
         # git CLI, not a raw blob write: a restore applies eol/autocrlf and

@@ -128,3 +128,14 @@ def test_a_clone_uses_the_ssh_command_included_for_its_remote(tmp_path, monkeypa
 
     with pytest.raises(RuntimeError, match=_MARKER):
         clone_repo(_UNREACHABLE, str(tmp_path / "dest"))
+
+
+def test_a_remote_libgit2_rejects_leaves_the_included_ssh_command_in_use(
+    ssh_command_for_the_remote, repo_path
+):
+    pygit2.Repository(str(repo_path)).remotes.create("origin", _UNREACHABLE)
+    with open(repo_path / ".git" / "config", "a", encoding="utf-8") as config:
+        config.write('[remote "bad name"]\n\turl = https://example.invalid/x.git\n')
+
+    with pytest.raises(RuntimeError, match=_MARKER):
+        Pygit2Repository(str(repo_path)).fetch("origin")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -9,6 +10,7 @@ import threading
 import time
 from pathlib import Path
 
+import pygit2
 import pytest
 
 from git_gui.infrastructure import git_clone
@@ -102,6 +104,82 @@ def test_a_failed_clone_leaves_no_folder_behind(tmp_path):
     assert not dest.exists()
 
 
+def test_a_failed_clone_leaves_no_parent_folder_it_created_behind(tmp_path):
+    location = tmp_path / "new-location"
+    with pytest.raises(RuntimeError):
+        clone_repo(str(tmp_path / "no-such-repo"), str(location / "group" / "repo"))
+    assert not location.exists()
+
+
+def test_a_url_that_starts_like_an_option_is_never_read_as_one(
+    repo_path, tmp_path_factory, monkeypatch
+):
+    """A pasted '--upload-pack=<command>' ran that command in place of git's own."""
+    work = tmp_path_factory.mktemp("work")
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("GIT_SSH_COMMAND", "ssh")  # no probe of a destination that is a URL here
+    ran = work / "command-ran"
+    url = f"--upload-pack=: > '{ran.as_posix()}'; git-upload-pack"
+
+    with contextlib.suppress(RuntimeError):  # there is no repository of that name
+        clone_repo(url, repo_path.as_uri())
+
+    assert not ran.exists()
+
+
+def test_a_folder_that_starts_like_an_option_is_cloned_into(
+    repo_path, tmp_path_factory, monkeypatch
+):
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
+    work = tmp_path_factory.mktemp("work")
+    monkeypatch.chdir(work)
+
+    clone_repo(repo_path.as_uri(), "-repo")
+
+    assert (work / "-repo" / ".git").is_dir()
+
+
+@pytest.fixture
+def probed_clone(repo_path, tmp_path_factory, monkeypatch):
+    """Clone repo_path with no ssh command in the environment, so the clone
+    probes the destination's config for one first."""
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
+
+    def clone() -> None:
+        clone_repo(repo_path.as_uri(), str(tmp_path_factory.mktemp("clones") / "repo"))
+
+    return clone
+
+
+def test_a_clone_leaves_the_repository_an_inherited_git_dir_names_alone(
+    probed_clone, tmp_path_factory, monkeypatch
+):
+    """Started with GIT_DIR set (a dotfiles setup, a git hook), the probe wrote
+    the clone's URL into that repository's origin."""
+    other = tmp_path_factory.mktemp("dotfiles")
+    pygit2.init_repository(str(other)).remotes.create("origin", "https://example.com/mine.git")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+
+    probed_clone()
+
+    assert pygit2.Repository(str(other)).remotes["origin"].url == "https://example.com/mine.git"
+
+
+def test_a_clone_leaves_the_file_an_inherited_git_config_names_alone(
+    probed_clone, tmp_path_factory, monkeypatch
+):
+    """GIT_CONFIG sends every `git config` write to the file it names."""
+    config = tmp_path_factory.mktemp("elsewhere") / "config"
+    config.write_text("[user]\n\tname = Me\n")
+    monkeypatch.setenv("GIT_CONFIG", str(config))
+
+    probed_clone()
+
+    assert config.read_text() == "[user]\n\tname = Me\n"
+
+
 # The hook stands in for a remote that stops sending mid-clone. It runs a few
 # processes below git (upload-pack, pack-objects, sh), as a real clone runs
 # ssh or git-remote-https, and those keep git's stderr open while they live.
@@ -171,9 +249,77 @@ def test_a_cancelled_clone_removes_the_folder_it_created(stalled_clone):
     assert not dest.exists()
 
 
+def test_a_cancelled_clone_removes_the_parent_folders_it_created(stalled_clone):
+    start, work = stalled_clone
+    location = work / "new-location"
+    _cancel(start(location / "group" / "repo"))
+    assert not location.exists()
+
+
+def test_a_cancelled_clone_keeps_a_new_parent_folder_that_gained_other_files(stalled_clone):
+    start, work = stalled_clone
+    location = work / "new-location"
+    clone = start(location / "repo")
+    (location / "notes.txt").write_text("mine")
+    _cancel(clone)
+    assert (location / "notes.txt").exists()
+
+
 def test_a_cancelled_clone_keeps_the_empty_folder_it_was_given(stalled_clone):
     start, work = stalled_clone
     dest = work / "repo"
     dest.mkdir()
     _cancel(start(dest))
     assert dest.is_dir() and list(dest.iterdir()) == []
+
+
+def _in_use(path: Path) -> PermissionError:
+    return PermissionError(13, "in use by another process", str(path))
+
+
+def test_a_cancelled_clone_that_cannot_remove_what_it_wrote_says_why(stalled_clone, monkeypatch):
+    """The cleanup's error escaped in place of the cancel, so the dialog, closed
+    since, was the only one told, and the next clone there failed unexplained."""
+    start, work = stalled_clone
+    dest = work / "repo"
+    clone = start(dest)
+    error = _in_use(dest / ".git" / "config")
+
+    def fail(_path: Path) -> None:
+        raise error
+
+    monkeypatch.setattr(git_clone, "_remove", fail)
+
+    _cancel(clone)
+
+    assert isinstance(clone.error, CloneCancelled)
+    assert clone.error.cleanup_error is error
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="only Windows refuses to delete an open file")
+def test_a_cancelled_clone_reports_a_file_another_process_keeps_open(stalled_clone):
+    start, work = stalled_clone
+    dest = work / "repo"
+    clone = start(dest)
+    with open(dest / ".git" / "config", "rb"):
+        _cancel(clone)
+    assert isinstance(clone.error, CloneCancelled)
+    assert isinstance(clone.error.cleanup_error, PermissionError)
+
+
+def test_removing_a_file_waits_for_a_process_that_lets_go_of_it_soon(tmp_path):
+    """A helper just killed, or a scanner reading a fresh pack, holds a file for
+    a moment, and Windows refuses to delete it until that handle closes."""
+    held = tmp_path / "pack"
+    held.write_text("x")
+    attempts: list[str] = []
+
+    def remove(path: str) -> None:
+        attempts.append(path)
+        if len(attempts) < 3:
+            raise _in_use(Path(path))
+        os.remove(path)
+
+    git_clone._make_writable_and_retry(remove, str(held), _in_use(held))
+
+    assert not held.exists()

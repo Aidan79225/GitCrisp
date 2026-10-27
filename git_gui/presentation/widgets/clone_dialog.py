@@ -4,7 +4,7 @@ import re
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -33,10 +33,14 @@ class _CloneSignals(QObject):
     progress = Signal(str, int)  # phase, percent
     finished = Signal(str)  # dest path
     failed = Signal(str)  # error message
+    cleanup_failed = Signal(str, str)  # dest path, reason
 
 
 class CloneDialog(QDialog):
     clone_completed = Signal(str)  # dest path
+    # A cancelled clone left files in dest: the dialog has closed, so whoever
+    # opened it has to tell the user.
+    cleanup_failed = Signal(str, str)  # dest path, reason
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -154,6 +158,7 @@ class CloneDialog(QDialog):
         signals.progress.connect(self._on_progress)
         signals.finished.connect(self._on_finished)
         signals.failed.connect(self._on_failed)
+        signals.cleanup_failed.connect(self.cleanup_failed)
         self._clone_signals = signals  # prevent GC
 
         cancelled = self._cancel_requested
@@ -166,8 +171,10 @@ class CloneDialog(QDialog):
 
                 clone_repo(url, dest, on_progress=_report, cancelled=cancelled)
                 signals.finished.emit(dest)
-            except CloneCancelled:
-                pass  # The dialog closed when the user cancelled; there is nothing to show.
+            except CloneCancelled as e:
+                # The dialog closed when the user cancelled; only files left behind need telling.
+                if e.cleanup_error is not None:
+                    signals.cleanup_failed.emit(dest, str(e.cleanup_error))
             except Exception as e:
                 signals.failed.emit(str(e))
 
@@ -195,6 +202,12 @@ class CloneDialog(QDialog):
 
     def _set_cloning(self, cloning: bool) -> None:
         self._cloning = cloning
+        # Cancel is the one control left enabled, so the focus leaving the
+        # disabled ones would land on it, and a second Enter or a Space would
+        # throw the clone away. It stays a click or Esc away.
+        self._cancel_btn.setFocusPolicy(
+            Qt.FocusPolicy.NoFocus if cloning else Qt.FocusPolicy.StrongFocus
+        )
         for widget in (
             self._url_edit,
             self._folder_edit,

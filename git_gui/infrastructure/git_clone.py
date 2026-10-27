@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import os
 import re
 import shutil
@@ -8,6 +9,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -34,9 +36,22 @@ _KEPT_MESSAGE_LINES = 20
 # only how long the watcher outlives git; a cancel is acted on at once.
 _EXIT_POLL_SECONDS = 0.1
 
+# Windows refuses to delete a file while another process holds it open: a
+# helper the cancel has just killed, or a virus scanner reading a fresh pack.
+# Such a handle closes within moments, so a removal waits this long between tries.
+_IN_USE_RETRY_SECONDS = (0.1, 0.3, 1.0)
+
 
 class CloneCancelled(Exception):
-    """The clone was stopped on request and what it wrote was removed."""
+    """The clone was stopped on request and what it wrote was removed.
+
+    ``cleanup_error`` says why, when some of it could not be removed and is
+    still in the destination.
+    """
+
+    def __init__(self, message: str, cleanup_error: OSError | None = None) -> None:
+        super().__init__(message)
+        self.cleanup_error = cleanup_error
 
 
 class _CloneConfig:
@@ -69,10 +84,39 @@ def _is_free_for_a_clone(dest: Path) -> bool:
 
 
 def _probe_has_config(dest: Path, url: str, key: str) -> bool:
-    if run_git(["git", "init", "--quiet", str(dest)], cwd=".").returncode != 0:
+    env = _probe_env()
+    if run_git(["git", "init", "--quiet", "--", str(dest)], cwd=".", env=env).returncode != 0:
         return False
-    run_git(["git", "-C", str(dest), "config", "remote.origin.url", url], cwd=".")
-    return run_git(["git", "-C", str(dest), "config", "--get", key], cwd=".").returncode == 0
+    probe = f"--git-dir={dest / '.git'}"
+    run_git(["git", probe, "config", "remote.origin.url", url], cwd=".", env=env)
+    return run_git(["git", probe, "config", "--get", key], cwd=".", env=env).returncode == 0
+
+
+# Variables that aim git at a repository other than the one it is pointed at;
+# GIT_CONFIG does the same for `git config`. The GIT_CONFIG_* variables that add
+# settings stay, because the clone reads them too.
+_OTHER_REPOSITORY_VARIABLES = frozenset(
+    {
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_CONFIG",
+    }
+)
+
+
+def _probe_env() -> dict[str, str]:
+    """This process's environment, minus what would point the probe at another repo.
+
+    Started with GIT_DIR set (a dotfiles setup, a git hook), git ranks it above
+    both ``-C`` and the folder it runs in: the probe would write the clone's URL
+    into that repository's origin and read that repository's config.
+    """
+    return {
+        name: value for name, value in os.environ.items() if name not in _OTHER_REPOSITORY_VARIABLES
+    }
 
 
 def _remove_probe(dest: Path, created: bool) -> None:
@@ -100,7 +144,8 @@ def clone_repo(
         cancelled = threading.Event()
     destination = _Destination(Path(dest))
     proc = subprocess.Popen(
-        ["git", "clone", "--progress", "--recurse-submodules", url, dest],
+        # "--": a URL or folder that starts with "-" is still a URL or folder, not an option.
+        ["git", "clone", "--progress", "--recurse-submodules", "--", url, dest],
         # Nothing reads stdout, and git writes a line there per submodule: a
         # pipe would fill up and block git while we wait for stderr to close.
         stdout=subprocess.DEVNULL,
@@ -113,9 +158,15 @@ def clone_repo(
 
     proc.wait()
     if cancelled.is_set():
-        destination.restore()
-        raise CloneCancelled(f"Clone of {url} was cancelled")
+        message = f"Clone of {url} was cancelled"
+        try:
+            destination.restore()
+        except OSError as error:
+            # Raised as the cancel it is: whoever cancelled is no longer waiting for a failure.
+            raise CloneCancelled(message, cleanup_error=error) from error
+        raise CloneCancelled(message)
     if proc.returncode != 0:
+        destination.remove_created_parents()  # git removes only the destination itself.
         raise RuntimeError("\n".join(messages) or f"git clone exited with code {proc.returncode}")
 
 
@@ -172,15 +223,32 @@ class _Destination:
         self._path = path
         self._existed = path.exists()
         self._was_free = _is_free_for_a_clone(path)
+        # git creates the folders on the way to a destination that is not there yet.
+        self._new_parents = list(itertools.takewhile(lambda p: not p.exists(), path.parents))
 
     def restore(self) -> None:
         if not self._was_free:
             return  # git refuses a folder with files in it, so none of them are the clone's.
         if not self._existed:
             _remove(self._path)
+            self.remove_created_parents()
         elif self._path.is_dir():
             for entry in self._path.iterdir():
                 _remove(entry)
+
+    def remove_created_parents(self) -> None:
+        """Remove the folders git created on the way to the destination, nearest first.
+
+        Only empty ones go: a folder that holds anything else by now, such as a
+        clone git kept after its checkout failed, stays, and so do those above it.
+        """
+        for parent in self._new_parents:
+            try:
+                parent.rmdir()
+            except FileNotFoundError:
+                continue  # git stopped before it got this far down.
+            except OSError:
+                return
 
 
 def _remove(path: Path) -> None:
@@ -195,6 +263,12 @@ def _make_writable_and_retry(
 ) -> None:
     # git writes its packs read-only, and Windows refuses to delete a read-only file.
     os.chmod(path, stat.S_IWRITE)
+    for delay in _IN_USE_RETRY_SECONDS:
+        try:
+            remove(path)
+            return
+        except PermissionError:
+            time.sleep(delay)
     remove(path)
 
 

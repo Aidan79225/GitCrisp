@@ -183,8 +183,11 @@ class BranchOps:
         self._repo.branches.local[name].delete()
 
     def delete_remote_branch(self, remote: str, branch: str) -> None:
-        """Delete a branch on the remote via `git push <remote> --delete <branch>`."""
-        self._run_git("push", remote, "--delete", branch)
+        """Delete a branch on the remote via `git push <remote> --delete <branch>`.
+
+        A push like any other, so it runs as the remote op Cancel can stop.
+        """
+        self._run_cancellable_remote_git("push", remote, "--delete", branch)
 
     def rename_branch(self, old_name: str, new_name: str) -> None:
         self._repo.branches.local[old_name].rename(new_name)
