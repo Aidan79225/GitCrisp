@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from git_gui.domain.entities import ResetMode
 from git_gui.presentation.dialogs.reset_dialog import ResetDialog
+from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 from git_gui.presentation.widgets.reflog_pane import ReflogPane
 
 
-class ReflogFlowMixin:
+class ReflogFlowMixin(AskedRepoGuardMixin):
     def _wire_reflog_signals(self) -> None:
         self._log_panel.action_triggered.connect(self._on_log_action)
         # The toolbar is not only for what you press often; it is also where the
@@ -102,6 +103,7 @@ class ReflogFlowMixin:
         and the uncommitted work it can discard deserves the same warning.
         """
         short = oid[:7]
+        commands = self._commands
         try:
             commit = self._queries.get_commit_detail.execute(oid)
             head_branch = self._queries.get_repo_state.execute().head_branch or "HEAD"
@@ -117,8 +119,10 @@ class ReflogFlowMixin:
             )
             if dlg.exec() != ResetDialog.Accepted:
                 return
+            if self._repo_switched_while_asking(commands, f"Restore to {short}"):
+                return
             mode = dlg.result_mode()
-            self._commands.reset_branch.execute(oid, mode)
+            commands.reset_branch.execute(oid, mode)
             self._log_panel.log(
                 f"Restore {head_branch} --{mode.value.lower()} to {short} (before {entry_label})"
             )

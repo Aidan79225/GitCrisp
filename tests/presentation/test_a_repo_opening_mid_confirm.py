@@ -16,7 +16,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
-from git_gui.domain.entities import Branch, ResetMode, Worktree
+from git_gui.domain.entities import Branch, LocalBranchInfo, ResetMode, Worktree
+from git_gui.presentation.dialogs.branches_dialog import BranchesDialog
 from git_gui.presentation.main_window import MainWindow
 
 
@@ -197,6 +198,27 @@ def test_a_reset_to_commit_confirmed_as_another_repo_opens_resets_nothing(qtbot,
     win._commands.reset_branch.execute.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "restore",
+    [
+        lambda win, oid: win._on_reflog_restore_requested(oid, "HEAD@{1}"),
+        lambda win, oid: win._on_log_action(oid),
+    ],
+    ids=["reflog-restore", "undo-link"],
+)
+def test_a_restore_confirmed_as_another_repo_opens_resets_nothing(qtbot, win, restore):
+    oid = "c" * 40
+    win._undoable[oid] = "Merge: topic into main"
+    asked_in = win._commands
+    with patch("git_gui.presentation.main_window.reflog_flow.ResetDialog") as dialog_cls:
+        _accepted_as_another_repo_opens(qtbot, win, dialog_cls)
+        dialog_cls.return_value.result_mode.return_value = ResetMode.HARD
+        restore(win, oid)
+    asked_in.reset_branch.execute.assert_not_called()
+    win._commands.reset_branch.execute.assert_not_called()
+    assert "Restore to ccccccc — skipped: another repo opened" in _log_text(win)
+
+
 def test_a_merge_confirmed_as_another_repo_opens_merges_nothing(qtbot, win):
     win._queries.get_merge_analysis.execute.return_value = MagicMock(is_up_to_date=False)
     asked_in = win._commands
@@ -209,6 +231,20 @@ def test_a_merge_confirmed_as_another_repo_opens_merges_nothing(qtbot, win):
         win._on_merge_commit("c" * 40)
     asked_in.merge_commit.execute.assert_not_called()
     win._commands.merge_commit.execute.assert_not_called()
+
+
+def test_a_merge_confirmed_as_another_repo_opens_asks_for_no_identity(qtbot, win):
+    # The repo that opened may have none, and saving one there for a merge
+    # that is then skipped changes a repo the user never asked about.
+    win._queries.get_merge_analysis.execute.return_value = MagicMock(is_up_to_date=False)
+    flows = "git_gui.presentation.main_window.merge_rebase_flows"
+    with (
+        patch(f"{flows}.MergeDialog") as dialog_cls,
+        patch(f"{flows}.ensure_identity", return_value=True) as ensure_identity,
+    ):
+        _accepted_as_another_repo_opens(qtbot, win, dialog_cls)
+        win._on_merge_commit("c" * 40)
+    ensure_identity.assert_not_called()
 
 
 def test_a_tag_created_as_another_repo_opens_is_not_created_or_pushed(qtbot, win):
@@ -241,6 +277,17 @@ def test_a_stash_confirmed_as_another_repo_opens_stashes_nothing(qtbot, win):
     win._commands.stash.execute.assert_not_called()
 
 
+def test_a_stash_confirmed_as_another_repo_opens_asks_for_no_identity(qtbot, win):
+    with (
+        patch.object(QMessageBox, "question", side_effect=_answering(qtbot, win, QMessageBox.Yes)),
+        patch(
+            "git_gui.presentation.main_window.stash_flows.ensure_identity", return_value=True
+        ) as ensure_identity,
+    ):
+        win._on_stash_requested()
+    ensure_identity.assert_not_called()
+
+
 def test_a_branch_created_as_another_repo_opens_is_not_created(qtbot, win):
     asked_in = win._commands
     with patch.object(QInputDialog, "getText", side_effect=_answering(qtbot, win, ("topic", True))):
@@ -259,3 +306,47 @@ def test_a_branch_picked_as_another_repo_opens_is_not_checked_out(qtbot, win):
         win._on_commit_double_clicked("a" * 40)
     asked_in.checkout.execute.assert_not_called()
     win._commands.checkout.execute.assert_not_called()
+
+
+def _picking_the_first_row_as_another_repo_opens(qtbot, win: MainWindow, click):
+    """A BranchesDialog.exec() that lets the switch land, then *click*s on row 0."""
+
+    def _exec(dialog: BranchesDialog) -> int:
+        _open_another_repo(qtbot, win)
+        dialog._table.selectRow(0)
+        click(dialog)
+        return 0
+
+    return _exec
+
+
+@pytest.mark.parametrize(
+    ("click", "op_name"),
+    [
+        (lambda dialog: dialog._on_checkout(), "Checkout feature"),
+        (
+            lambda dialog: dialog._on_checkout_in_new_worktree(),
+            "Checkout feature in a new worktree",
+        ),
+    ],
+    ids=["checkout", "checkout-in-new-worktree"],
+)
+def test_a_branch_picked_in_the_branches_dialog_as_another_repo_opens_is_not_checked_out(
+    qtbot, win, click, op_name
+):
+    win._queries.list_local_branches_with_upstream.execute.return_value = [
+        LocalBranchInfo("feature", None, "abc1234567", "work")
+    ]
+    win._install_git_menu()
+    asked_in = win._commands
+    picking = _picking_the_first_row_as_another_repo_opens(qtbot, win, click)
+    with (
+        patch.object(BranchesDialog, "exec", picking),
+        patch.object(win, "_open_add_worktree_dialog") as add_worktree,
+    ):
+        win._git_branches_action.trigger()
+    for bus in (asked_in, win._commands):
+        bus.checkout.execute.assert_not_called()
+        bus.checkout_remote_branch.execute.assert_not_called()
+    add_worktree.assert_not_called()
+    assert f"{op_name} — skipped: another repo opened" in _log_text(win)

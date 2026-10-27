@@ -8,6 +8,7 @@ from typing import NamedTuple
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
+from git_gui.domain.entities import split_remote_branch
 from git_gui.presentation.bus import CommandBus, QueryBus
 
 logger = logging.getLogger(__name__)
@@ -214,22 +215,28 @@ class RemoteOpQueueMixin:
 
     def _pull_source(self, branch: str) -> tuple[str, str]:
         """The remote and branch `git pull` takes *branch* from: its upstream
-        when that is on a remote, else the same-named branch on origin."""
+        when that is on a remote, else the same-named branch on origin.
+
+        Without the list of remotes the upstream still splits, at its first
+        '/', so a branch that tracks another remote or a branch of another
+        name keeps pulling what it tracks rather than origin's namesake.
+        """
         upstream = self._upstream_for(branch)
         if upstream:
-            # Longest first, because a remote's name may itself contain a slash.
-            for remote in sorted(self._remote_names(), key=len, reverse=True):
-                if upstream.startswith(f"{remote}/"):
-                    return remote, upstream[len(remote) + 1 :]
+            remote, source = split_remote_branch(upstream, self._remote_names())
+            if remote:
+                return remote, source
         return "origin", branch
 
     def _remote_names(self) -> list[str]:
-        """The repo's remotes, or none when they cannot be listed: a single
-        remote with an invalid name in .git/config fails the whole listing."""
+        """The repo's remotes, or none (reported) when they cannot be listed:
+        a single remote with an invalid name in .git/config fails the whole
+        listing."""
         try:
             return [r.name for r in self._queries.list_remotes.execute()]
         except Exception as e:
             logger.warning("Listing remotes failed for %s: %s", self._repo_path, e)
+            self._log_panel.log_error(f"Listing remotes failed: {e}")
             return []
 
     def _branch_to_sync(self, op: str) -> str | None:

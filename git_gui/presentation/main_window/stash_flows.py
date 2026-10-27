@@ -59,17 +59,18 @@ class StashFlowsMixin(AskedRepoGuardMixin):
         self._reload()
 
     def _on_stash_requested(self) -> None:
-        commands = self._commands
+        queries, commands = self._queries, self._commands
         result = QMessageBox.question(
             self,
             "Stash Changes",
             "Would you like to stash all uncommitted changes?\n\n"
             "This will save your modifications and revert the working directory to a clean state.",
         )
-        if result != QMessageBox.Yes:
+        if result != QMessageBox.Yes or self._repo_switched_while_asking(commands, "Stash"):
             return
-        if not ensure_identity(self, self._queries, self._commands):
+        if not ensure_identity(self, queries, commands):
             return
+        # The identity prompt is a dialog too, so a switch can land in it as well.
         if self._repo_switched_while_asking(commands, "Stash"):
             return
         branch = self._get_current_branch() or "unknown"

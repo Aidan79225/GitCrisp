@@ -26,23 +26,22 @@ def test_install_git_menu_adds_two_actions(qtbot):
 
 
 def test_checkout_in_the_branches_dialog_reaches_the_windows_checkout(qtbot):
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     from git_gui.domain.entities import LocalBranchInfo
     from git_gui.presentation.dialogs.branches_dialog import BranchesDialog
+    from tests.presentation.window_helpers import wired_window
 
-    window = QMainWindow()
-    window._worktree_paths_by_branch = {}
-    qtbot.addWidget(window)
-    queries = MagicMock()
-    queries.list_local_branches_with_upstream.execute.return_value = [
+    # The window's own buses: a checkout runs only in the repo the dialog lists.
+    window = wired_window(qtbot)
+    window._queries.list_local_branches_with_upstream.execute.return_value = [
         LocalBranchInfo("feat", None, "abc1234567", "work"),
     ]
     checked_out: list[str] = []
     install_git_menu(
         window,
-        queries=queries,
-        commands=MagicMock(),
+        queries=window._queries,
+        commands=window._commands,
         repo_workdir=None,
         on_open_submodule=lambda p: None,
         on_open_worktrees_dialog=lambda: None,
