@@ -11,9 +11,9 @@ class HighlightingTreeView(QTreeView):
     """A tree that fills one flagged row and the hovered row edge to edge.
 
     A row whose *highlight_role* data is truthy (the HEAD branch, the open
-    repo) is filled with PRIMARY; the row under the mouse with
-    SURFACE_CONTAINER_HIGH. The branch (indent) column is filled too, which
-    the delegate alone cannot reach.
+    repo) is filled with PRIMARY; the row under the mouse is overlaid with
+    HOVER_OVERLAY, as the commit list's is. The branch (indent) column is
+    filled too, which the delegate alone cannot reach.
     """
 
     def __init__(self, highlight_role: int, parent=None) -> None:
@@ -43,12 +43,18 @@ class HighlightingTreeView(QTreeView):
         if index.data(self._highlight_role):
             return colors.as_qcolor(ColorRole.PRIMARY)
         if self._hover_idx.isValid() and index == self._hover_idx:
-            return colors.as_qcolor(ColorRole.SURFACE_CONTAINER_HIGH)
+            return colors.as_qcolor(ColorRole.HOVER_OVERLAY)
         return None
 
     def drawBranches(self, painter, rect, index) -> None:
         fill = self._row_fill(index)
         if fill is not None:
+            # drawRow's fill already lies in this column, and on Windows so
+            # does a hover block the native style draws over it. Starting
+            # again from the background lays a translucent fill here once,
+            # as across the rest of the row.
+            viewport = self.viewport()
+            painter.fillRect(rect, viewport.palette().brush(viewport.backgroundRole()))
             painter.fillRect(rect, fill)
         super().drawBranches(painter, rect, index)
 

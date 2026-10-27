@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -13,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPushButton,
     QRadioButton,
     QVBoxLayout,
     QWidget,
@@ -23,6 +29,8 @@ from git_gui.presentation.theme import settings as _settings
 from git_gui.presentation.theme.loader import load_builtin
 from git_gui.presentation.theme.tokens import Theme
 from git_gui.presentation.widgets.avatar_loader import get_avatar_loader
+
+_log = logging.getLogger(__name__)
 
 _GROUPS: list[tuple[str, list[str]]] = [
     (
@@ -207,7 +215,7 @@ class ThemeDialog(QDialog):
         self._show_working_colors()
 
     def _build_custom_panel(self) -> QGroupBox:
-        from PySide6.QtWidgets import QGridLayout, QPushButton, QSlider, QToolBox
+        from PySide6.QtWidgets import QGridLayout, QSlider, QToolBox
 
         panel = QGroupBox("Custom")
         outer = QVBoxLayout(panel)
@@ -268,17 +276,10 @@ class ThemeDialog(QDialog):
         lanes_page = QWidget()
         lanes_layout = QVBoxLayout(lanes_page)
         lanes_layout.addWidget(QLabel("Graph lane colours (left = lane 0)"))
-        lanes_row = QHBoxLayout()
-        for i, hex_value in enumerate(self._working_lane_colors):
-            btn = QPushButton()
-            btn.setFixedSize(40, 22)
-            btn.setFlat(True)
-            btn.clicked.connect(lambda _checked=False, idx=i: self._open_lane_picker(idx))
-            self._lane_buttons.append(btn)
-            self._apply_lane_swatch_color(i, hex_value)
-            lanes_row.addWidget(btn)
-        lanes_row.addStretch()
-        lanes_layout.addLayout(lanes_row)
+        self._lanes_row = QHBoxLayout()
+        self._lanes_row.addStretch()
+        self._show_lane_colors()
+        lanes_layout.addLayout(self._lanes_row)
         lanes_layout.addStretch()
         self._toolbox.addItem(lanes_page, _GRAPH_LANE_PAGE_TITLE)
 
@@ -299,10 +300,28 @@ class ThemeDialog(QDialog):
     def _show_working_colors(self) -> None:
         for token, hex_value in self._working_colors.items():
             self._apply_swatch_color(token, hex_value)
-        # A saved theme may list more lanes than the dialog has buttons for;
-        # those extra lanes are kept as they are and saved back unchanged.
-        for i, hex_value in enumerate(self._working_lane_colors[: len(self._lane_buttons)]):
+        self._show_lane_colors()
+
+    def _show_lane_colors(self) -> None:
+        # One button per working lane: a saved theme may list more or fewer
+        # lanes than the builtins, and Apply saves every lane it lists.
+        while len(self._lane_buttons) < len(self._working_lane_colors):
+            self._add_lane_button()
+        while len(self._lane_buttons) > len(self._working_lane_colors):
+            stale = self._lane_buttons.pop()
+            stale.setParent(None)  # leaves the row and the screen at once
+            stale.deleteLater()
+        for i, hex_value in enumerate(self._working_lane_colors):
             self._apply_lane_swatch_color(i, hex_value)
+
+    def _add_lane_button(self) -> None:
+        idx = len(self._lane_buttons)
+        btn = QPushButton()
+        btn.setFixedSize(40, 22)
+        btn.setFlat(True)
+        btn.clicked.connect(lambda _checked=False: self._open_lane_picker(idx))
+        self._lane_buttons.append(btn)
+        self._lanes_row.insertWidget(idx, btn)  # ahead of the trailing stretch
 
     def _apply_swatch_color(self, token: str, hex_value: str) -> None:
         btn = self._swatch_buttons[token]
@@ -367,11 +386,16 @@ class ThemeDialog(QDialog):
 
     def _save_and_apply(self) -> None:
         mode = self._selected_mode()
-        # The custom file goes first, so a failure there leaves the saved
-        # scale and mode as they were, matching what is still on screen.
+        scale = self._typo_slider.value() / 100.0
         if mode is ThemeMode.CUSTOM:
-            self._write_custom_theme()
-        self._mgr.set_appearance(mode, self._typo_slider.value() / 100.0)
+            # The custom file goes first, so a failure there leaves the saved
+            # scale and mode as they were, matching what is still on screen;
+            # a failure saving those puts the previous custom file back.
+            with _restored_on_failure(_settings.custom_theme_path()):
+                self._write_custom_theme()
+                self._mgr.set_appearance(mode, scale)
+        else:
+            self._mgr.set_appearance(mode, scale)
         self._save_avatar_setting()
 
     def _save_avatar_setting(self) -> None:
@@ -452,3 +476,20 @@ def _theme_to_json(theme) -> dict:
         "shape": dataclasses.asdict(theme.shape),
         "spacing": dataclasses.asdict(theme.spacing),
     }
+
+
+@contextmanager
+def _restored_on_failure(path: Path) -> Iterator[None]:
+    """Put the file at *path* back as it was if the block raises OSError."""
+    previous = path.read_bytes() if path.exists() else None
+    try:
+        yield
+    except OSError:
+        try:
+            if previous is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(previous)
+        except OSError as e:  # the error the user is shown is the first one
+            _log.warning("Could not restore %s: %s", path, e)
+        raise

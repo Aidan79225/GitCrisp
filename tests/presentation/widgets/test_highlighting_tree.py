@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QMouseEvent, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QApplication
 
 from git_gui.presentation.theme import ColorRole, get_theme_manager
@@ -51,12 +51,41 @@ def test_the_flagged_row_is_filled_with_primary(qtbot):
     assert tree._row_fill(tree.model().index(0, 0)) == _role_color(ColorRole.PRIMARY)
 
 
-def test_the_hovered_row_is_filled_with_the_hover_surface(qtbot):
+def test_the_hovered_row_is_filled_with_the_hover_overlay(qtbot):
+    """The commit list hovers with HOVER_OVERLAY, and so the Appearance
+    dialog's hover_overlay swatch must reach these trees too."""
     tree = _shown_tree(qtbot)
 
     _hover(tree, 1)
 
-    assert tree._row_fill(tree.model().index(1, 0)) == _role_color(ColorRole.SURFACE_CONTAINER_HIGH)
+    assert tree._row_fill(tree.model().index(1, 0)) == _role_color(ColorRole.HOVER_OVERLAY)
+
+
+def _laid_over(overlay: QColor, base: QColor, image_format: QImage.Format) -> QColor:
+    pixel = QImage(1, 1, image_format)
+    pixel.fill(base)
+    painter = QPainter(pixel)
+    painter.fillRect(0, 0, 1, 1, overlay)
+    painter.end()
+    return pixel.pixelColor(0, 0)
+
+
+def test_the_hover_overlay_is_laid_once_over_the_whole_row(qtbot):
+    """The overlay is translucent: filling the branch column and then the
+    row would lay it there twice, a stronger block beside the name."""
+    tree = _shown_tree(qtbot)
+    _hover(tree, 1)
+
+    image = tree.viewport().grab().toImage()
+
+    def pixel(x: int, row: int) -> QColor:
+        y = tree.visualRect(tree.model().index(row, 0)).center().y()
+        ratio = image.devicePixelRatio()
+        return image.pixelColor(round(x * ratio), round(y * ratio))
+
+    overlay = _role_color(ColorRole.HOVER_OVERLAY)
+    for x in (2, tree.viewport().width() - 3):  # the branch column, then past the name
+        assert pixel(x, 1) == _laid_over(overlay, pixel(x, 2), image.format())
 
 
 def test_a_row_neither_flagged_nor_hovered_is_left_unfilled(qtbot):
