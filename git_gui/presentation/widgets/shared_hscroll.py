@@ -57,8 +57,8 @@ class SharedHScroll(QObject):
                 editor.horizontalScrollBar().valueChanged.connect(self._on_editor_moved)
                 editor.destroyed.connect(self._on_editor_destroyed)
 
-        # Hidden editors count here: expanding a collapsed block does not
-        # re-measure, so its lines would be out of reach until something did.
+        # Hidden editors count here, so a collapsed block's lines are already
+        # in reach when it is expanded, before the re-measure that follows.
         reach = max((e.horizontalScrollBar().maximum() for e in editors), default=0)
         self._bar.setRange(0, reach)
         self._bar.setPageStep(self._page_width(editors))

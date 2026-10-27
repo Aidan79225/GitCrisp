@@ -472,6 +472,7 @@ class DiffWidget(QWidget):
             path,
             on_header_clicked=on_click,
             on_header_context_menu=lambda pos, p=path: self._show_file_header_menu(pos, p),
+            on_state_changed=lambda _expanded: self._sync_hscroll(),
         )
         frame.setProperty("file_path", path)
 
@@ -495,12 +496,18 @@ class DiffWidget(QWidget):
             path,
             on_header_clicked=on_click,
             on_header_context_menu=lambda pos, p=path: self._show_file_header_menu(pos, p),
-            on_state_changed=lambda _expanded: self._loader.check_viewport(),
+            on_state_changed=self._on_block_toggled,
         )
         frame.setProperty("file_path", path)
         skeleton = make_skeleton_container()
         inner.addWidget(skeleton)
         return frame, inner, skeleton
+
+    def _on_block_toggled(self, _expanded: bool) -> None:
+        """A block collapsed or expanded: the blocks below it moved, and the
+        editors the shared bar measures were hidden or shown."""
+        self._loader.check_viewport()
+        self._sync_hscroll()
 
     def _realize_block(self, path: str, inner, skeleton, hunks) -> None:
         """Callback for ViewportBlockLoader — replace skeleton with hunk widgets."""

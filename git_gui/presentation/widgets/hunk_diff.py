@@ -57,6 +57,14 @@ MAX_AGGREGATE_FILE_BLOCKS = 200
 _DISCARD_BUTTON_NAME = "discard_hunk"
 
 
+def skipped_after_repo_switch(op_name: str) -> str:
+    """What the log says when another repo opened while the user was asked about *op_name*.
+
+    Worded as MainWindow words its own skipped confirmations, so every one reads alike.
+    """
+    return f"{op_name} — skipped: another repo opened while you were deciding. Nothing was changed."
+
+
 def _is_untracked(staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]) -> bool:
     """Whether a file's hunks are the one whole-file hunk an untracked file shows."""
     return (
@@ -292,8 +300,14 @@ class HunkDiffWidget(QWidget):
         return make_file_block(
             path,
             on_header_clicked=on_click,
-            on_state_changed=lambda _expanded: self._loader.check_viewport(),
+            on_state_changed=self._on_block_toggled,
         )
+
+    def _on_block_toggled(self, _expanded: bool) -> None:
+        """A block collapsed or expanded: the blocks below it moved, and the
+        editors the shared bar measures were hidden or shown."""
+        self._loader.check_viewport()
+        self._sync_hscroll()
 
     def _on_load_done(
         self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]
@@ -484,6 +498,8 @@ class HunkDiffWidget(QWidget):
             self.operation_failed.emit(f"{action} failed: {e}")
 
     def _on_discard_file_clicked(self, path: str) -> None:
+        commands = self._commands
+        action = f"Discard {path}"
         reply = QMessageBox.question(
             self,
             "Discard file",
@@ -491,12 +507,15 @@ class HunkDiffWidget(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, action):
             return
-        self._run_command(f"Discard {path}", lambda: self._commands.discard_file.execute(path))
+        self._run_command(action, lambda: commands.discard_file.execute(path))
+        self._redraw_after_command()
         self.discard_hunk_requested.emit(path, "")
 
     def _on_discard_hunk_clicked(self, path: str, hunk_header: str) -> None:
+        commands = self._commands
+        action = f"Discard hunk in {path}"
         reply = QMessageBox.question(
             self,
             "Discard hunk",
@@ -504,14 +523,23 @@ class HunkDiffWidget(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.Yes or self._repo_switched_while_asking(commands, action):
             return
-        self._run_command(
-            f"Discard hunk in {path}",
-            lambda: self._commands.discard_hunk.execute(path, hunk_header),
-        )
+        self._run_command(action, lambda: commands.discard_hunk.execute(path, hunk_header))
         self._redraw_after_command()
         self.discard_hunk_requested.emit(path, hunk_header)
+
+    def _repo_switched_while_asking(self, asked_in: CommandBus | None, action: str) -> bool:
+        """Whether the open repo is no longer *asked_in*'s, reporting *action* as skipped if so.
+
+        The confirmation runs a nested event loop, and a repo switch already
+        on its way lands inside it and hands this pane the new repo's buses;
+        what the user answered was about the file on screen when they were asked.
+        """
+        if self._commands is asked_in:
+            return False
+        self.operation_failed.emit(skipped_after_repo_switch(action))
+        return True
 
     def _clear_layout(self) -> None:
         self._aggregate_blocks = {}
