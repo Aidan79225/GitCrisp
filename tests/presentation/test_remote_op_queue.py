@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
-from git_gui.domain.entities import Branch, LocalBranchInfo, Remote
+from git_gui.domain.entities import Branch, LocalBranchInfo, TrackedBranch
 from git_gui.presentation.main_window import MainWindow
 from tests.presentation.window_helpers import blank_window
 
@@ -174,110 +174,116 @@ def test_push_or_pull_with_no_branch_checked_out_says_why_nothing_ran(qtbot, slo
     assert "check out a branch" in win._log_panel.log_error.call_args.args[0].lower()
 
 
-def _pull_with_upstream(qtbot, upstream: str | None) -> MainWindow:
+def _window_on(qtbot, info: LocalBranchInfo, others: tuple[str, ...] = ()) -> MainWindow:
+    """A window with *info*'s branch checked out beside the local *others*."""
     win = _make_window(qtbot)
-    win._queries = _queries_on_branch("fix")
-    win._queries.list_local_branches_with_upstream.execute.return_value = [
-        LocalBranchInfo("fix", upstream, "0123456789", "Fix it")
-    ]
-    win._queries.list_remotes.execute.return_value = [
-        Remote(name, f"https://example.com/{name}.git", f"https://example.com/{name}.git")
-        for name in ("origin", "upstream")
-    ]
-    with patch.object(win, "_reload"):
-        win._on_pull()
-        _wait_until_idle(qtbot, win)
+    win._queries = _queries_on_branch(info.name, others=others)
+    win._queries.list_local_branches_with_upstream.execute.return_value = [info]
     return win
 
 
-def test_pull_takes_the_branch_its_upstream_names_on_that_remote(qtbot):
-    win = _pull_with_upstream(qtbot, "upstream/main")
+def _pull(qtbot, win: MainWindow) -> str:
+    """Pull on *win*; returns the log."""
+    with patch.object(win, "_reload"):
+        win._on_pull()
+        _wait_until_idle(qtbot, win)
+    return win._log_panel._body.toPlainText()
 
-    win._commands.pull.execute.assert_called_once_with("upstream", "main")
+
+def _info(name: str, upstream: str | None, tracks: TrackedBranch | None) -> LocalBranchInfo:
+    return LocalBranchInfo(name, upstream, "0123456789", "Fix it", tracks)
+
+
+@pytest.mark.parametrize(
+    ("info", "label"),
+    [
+        # A fork: origin is the user's own copy, main tracks the canonical repo.
+        (
+            _info("main", "upstream/main", TrackedBranch("upstream", "refs/heads/main")),
+            "upstream/main",
+        ),
+        (
+            _info("rel", "origin/release/1.x", TrackedBranch("origin", "refs/heads/release/1.x")),
+            "origin/release/1.x",
+        ),
+        (
+            _info("topic", "gh/fork/topic", TrackedBranch("gh/fork", "refs/heads/topic")),
+            "gh/fork/topic",
+        ),
+    ],
+    ids=["upstream-on-another-remote", "upstream-under-another-name", "remote-with-a-slash"],
+)
+def test_pull_takes_the_ref_the_branch_tracks_from_that_remote(qtbot, info, label):
+    win = _window_on(qtbot, info)
+
+    log = _pull(qtbot, win)
+
+    win._commands.pull.execute.assert_called_once_with(info.tracks.remote, info.tracks.ref)
+    assert f"Pull {label} — done" in log
 
 
 def test_pull_with_no_upstream_takes_the_same_named_branch_from_origin(qtbot):
-    win = _pull_with_upstream(qtbot, None)
+    win = _window_on(qtbot, _info("fix", None, None))
 
-    win._commands.pull.execute.assert_called_once_with("origin", "fix")
+    _pull(qtbot, win)
+
+    win._commands.pull.execute.assert_called_once_with("origin", "refs/heads/fix")
 
 
 def test_pull_still_runs_when_the_repos_remotes_cannot_be_listed(qtbot):
     # One remote with an invalid name in .git/config makes pygit2 fail the
     # whole listing, while `git pull` itself works fine.
-    win = _make_window(qtbot)
-    win._queries = _queries_on_branch("main")
-    win._queries.list_local_branches_with_upstream.execute.return_value = [
-        LocalBranchInfo("main", "origin/main", "0123456789", "Fix it")
-    ]
-    win._queries.list_remotes.execute.side_effect = RuntimeError("'bad name' is not valid")
-    with patch.object(win, "_reload"):
-        win._on_pull()
-        _wait_until_idle(qtbot, win)
-
-    win._commands.pull.execute.assert_called_once_with("origin", "main")
-
-
-def _pull_with_unlistable_remotes(qtbot, local: str, upstream: str) -> MainWindow:
-    win = _make_window(qtbot)
-    win._queries = _queries_on_branch(local)
-    win._queries.list_local_branches_with_upstream.execute.return_value = [
-        LocalBranchInfo(local, upstream, "0123456789", "Fix it")
-    ]
-    win._queries.list_remotes.execute.side_effect = RuntimeError(
-        "'bad name' is not a valid remote name"
+    win = _window_on(
+        qtbot, _info("main", "upstream/main", TrackedBranch("upstream", "refs/heads/main"))
     )
-    with patch.object(win, "_reload"):
-        win._on_pull()
-        _wait_until_idle(qtbot, win)
-    return win
+    win._queries.list_remotes.execute.side_effect = RuntimeError("'bad name' is not valid")
+
+    _pull(qtbot, win)
+
+    win._commands.pull.execute.assert_called_once_with("upstream", "refs/heads/main")
+
+
+@pytest.mark.parametrize("upstream", ["feature/login", "main"])
+def test_pull_takes_a_local_upstream_from_this_repo_not_from_a_remote(qtbot, upstream):
+    # `git checkout -b topic --track feature/login` stacks topic on a local
+    # branch (branch.topic.remote = '.'): no remote is named "feature".
+    tracks = TrackedBranch(".", f"refs/heads/{upstream}")
+    win = _window_on(qtbot, _info("topic", upstream, tracks), others=(upstream,))
+
+    log = _pull(qtbot, win)
+
+    win._commands.pull.execute.assert_called_once_with(".", f"refs/heads/{upstream}")
+    assert f"Pull {upstream} — done" in log
 
 
 @pytest.mark.parametrize(
-    ("local", "upstream", "pulled"),
+    ("local", "tracks"),
     [
-        # A fork: origin is the user's own copy, main tracks the canonical repo.
-        ("main", "upstream/main", ("upstream", "main")),
-        ("rel", "origin/release/1.x", ("origin", "release/1.x")),
+        ("main", TrackedBranch("origin", "refs/heads/main")),
+        ("topic", TrackedBranch(".", "refs/heads/origin/main")),
     ],
-    ids=["upstream-on-another-remote", "upstream-under-another-name"],
+    ids=["tracks-origins-main", "tracks-the-local-branch"],
 )
-def test_pull_keeps_to_the_upstream_when_the_repos_remotes_cannot_be_listed(
-    qtbot, local, upstream, pulled
+def test_pull_takes_what_the_branch_tracks_when_a_local_branch_shares_the_upstreams_name(
+    qtbot, local, tracks
 ):
-    win = _pull_with_unlistable_remotes(qtbot, local, upstream)
+    # Beside a local branch named "origin/main", the upstream shorthand
+    # "origin/main" names either that branch or origin's main.
+    win = _window_on(qtbot, _info(local, "origin/main", tracks), others=("origin/main",))
 
-    win._commands.pull.execute.assert_called_once_with(*pulled)
+    log = _pull(qtbot, win)
 
-
-@pytest.mark.parametrize("remotes_listable", [True, False], ids=["remotes-listed", "unlistable"])
-@pytest.mark.parametrize("upstream", ["feature/login", "main"])
-def test_pull_takes_a_local_upstream_from_this_repo_not_from_a_remote(
-    qtbot, upstream, remotes_listable
-):
-    # `git checkout -b topic --track feature/login` stacks topic on a local
-    # branch (branch.topic.remote = '.'): no remote is named "feature".
-    win = _make_window(qtbot)
-    win._queries = _queries_on_branch("topic", others=[upstream])
-    win._queries.list_local_branches_with_upstream.execute.return_value = [
-        LocalBranchInfo("topic", upstream, "0123456789", "Stack it")
-    ]
-    win._queries.list_remotes.execute.return_value = [
-        Remote("origin", "https://example.com/o.git", "https://example.com/o.git")
-    ]
-    if not remotes_listable:
-        win._queries.list_remotes.execute.side_effect = RuntimeError("'bad name' is not valid")
-    with patch.object(win, "_reload"):
-        win._on_pull()
-        _wait_until_idle(qtbot, win)
-
-    win._commands.pull.execute.assert_called_once_with(".", upstream)
-    assert f"Pull {upstream} — done" in win._log_panel._body.toPlainText()
+    win._commands.pull.execute.assert_called_once_with(tracks.remote, tracks.ref)
+    assert "Pull origin/main — done" in log
 
 
 def test_the_log_says_why_the_remotes_could_not_be_listed(qtbot):
-    win = _pull_with_unlistable_remotes(qtbot, "main", "upstream/main")
+    win = _make_window(qtbot)
+    win._queries.list_remotes.execute.side_effect = RuntimeError(
+        "'bad name' is not a valid remote name"
+    )
 
+    assert win._remote_names() == []
     assert "'bad name' is not a valid remote name" in win._log_panel._body.toPlainText()
 
 

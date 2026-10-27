@@ -4,9 +4,23 @@ import logging
 
 import pygit2
 
-from git_gui.domain.entities import Branch, LocalBranchInfo, split_remote_branch
+from git_gui.domain.entities import Branch, LocalBranchInfo, TrackedBranch, split_remote_branch
 
 logger = logging.getLogger(__name__)
+
+
+def _tracked_by(config: pygit2.Config, branch: str) -> TrackedBranch | None:
+    """What *branch* tracks, read from the config as `git pull` reads it, or
+    None unless both branch.<name>.remote and .merge are set."""
+    try:
+        remote = config[f"branch.{branch}.remote"]
+        ref = config[f"branch.{branch}.merge"]
+    except KeyError:
+        return None
+    except Exception as e:
+        logger.warning("Failed to read what branch %r tracks: %s", branch, e)
+        return None
+    return TrackedBranch(remote, ref) if remote and ref else None
 
 
 class BranchOps:
@@ -94,6 +108,7 @@ class BranchOps:
 
     def list_local_branches_with_upstream(self) -> list[LocalBranchInfo]:
         result: list[LocalBranchInfo] = []
+        config = self._repo.config
         for name in self._repo.branches.local:
             br = self._repo.branches.local[name]
             try:
@@ -110,6 +125,7 @@ class BranchOps:
                     upstream=upstream,
                     last_commit_sha=sha,
                     last_commit_message=msg,
+                    tracks=_tracked_by(config, name),
                 )
             )
         return result

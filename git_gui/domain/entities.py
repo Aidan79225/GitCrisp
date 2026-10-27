@@ -198,12 +198,35 @@ class Submodule:
     head_sha: str | None
 
 
+@dataclass(frozen=True)
+class TrackedBranch:
+    """What a local branch tracks, as branch.<name>.remote and .merge hold it
+    and as `git pull` reads it.
+
+    The upstream's shorthand cannot say this: a local branch named
+    "origin/main" and origin's main both read "origin/main".
+    """
+
+    remote: str  # a remote's name, or "." for this repository
+    ref: str  # the full ref on that remote, e.g. "refs/heads/main"
+
+    @property
+    def is_local(self) -> bool:
+        return self.remote == "."
+
+    @property
+    def branch(self) -> str:
+        """The ref's branch name, or the whole ref when it names no branch."""
+        return self.ref.removeprefix("refs/heads/")
+
+
 @dataclass
 class LocalBranchInfo:
     name: str
     upstream: str | None
     last_commit_sha: str
     last_commit_message: str
+    tracks: TrackedBranch | None = None
 
 
 class RepoState(StrEnum):
