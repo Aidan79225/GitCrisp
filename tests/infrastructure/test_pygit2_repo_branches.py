@@ -4,6 +4,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
+from git_gui.domain.entities import TrackedBranch
 from git_gui.infrastructure.pygit2 import Pygit2Repository
 
 
@@ -36,6 +37,7 @@ def test_a_branch_without_upstream_lists_its_tip_and_subject(repo):
     info = infos[0]
     assert info.name == "master"
     assert info.upstream is None
+    assert info.tracks is None
     assert len(info.last_commit_sha) >= 7
     assert tip.startswith(info.last_commit_sha)
     assert info.last_commit_message == "init"
@@ -46,6 +48,24 @@ def test_a_set_upstream_is_listed_with_its_branch(repo):
     r.set_branch_upstream("master", "origin/master")
     infos = r.list_local_branches_with_upstream()
     assert infos[0].upstream == "origin/master"
+    assert infos[0].tracks == TrackedBranch("origin", "refs/heads/master")
+
+
+def test_what_a_branch_tracks_tells_apart_two_upstreams_of_one_shorthand(repo):
+    # A local branch named "origin/master" and origin's master both read
+    # "origin/master"; only the remote each branch tracks says which it is.
+    r, p = repo
+    r.set_branch_upstream("master", "origin/master")
+    _run(str(p), "branch", "origin/master")
+    _run(str(p), "branch", "topic")
+    _run(str(p), "config", "branch.topic.remote", ".")
+    _run(str(p), "config", "branch.topic.merge", "refs/heads/origin/master")
+
+    infos = {i.name: i for i in r.list_local_branches_with_upstream()}
+
+    assert infos["master"].upstream == infos["topic"].upstream == "origin/master"
+    assert infos["master"].tracks == TrackedBranch("origin", "refs/heads/master")
+    assert infos["topic"].tracks == TrackedBranch(".", "refs/heads/origin/master")
 
 
 def test_an_unset_upstream_leaves_the_branch_without_one(repo):

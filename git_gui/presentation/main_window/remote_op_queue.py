@@ -8,15 +8,13 @@ from typing import NamedTuple
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
-from git_gui.domain.entities import split_remote_branch
+from git_gui.domain.entities import TrackedBranch
 from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.presentation.bus import CommandBus, QueryBus
 
 logger = logging.getLogger(__name__)
 
 _RETRY_WHEN_FREE = "Try again once it finishes."
-# The remote `git pull` reads as this repository, to pull a local branch.
-_THIS_REPO = "."
 
 
 class _RemoteSignals(QObject):
@@ -206,36 +204,34 @@ class RemoteOpQueueMixin:
         if branch is None:
             return
         commands = self._commands
-        remote, source = self._pull_source(branch)
-        label = source if remote == _THIS_REPO else f"{remote}/{source}"
+        source = self._pull_source(branch)
+        label = source.branch if source.is_local else f"{source.remote}/{source.branch}"
         self._run_remote_op(
             f"Pull {label}",
-            lambda: commands.pull.execute(remote, source),
+            lambda: commands.pull.execute(source.remote, source.ref),
             commands=commands,
         )
 
-    def _pull_source(self, branch: str) -> tuple[str, str]:
-        """The remote and branch `git pull` takes *branch* from: its upstream,
-        else the same-named branch on origin.
+    def _pull_source(self, branch: str) -> TrackedBranch:
+        """What `git pull` takes *branch* from: what the branch tracks, else
+        the same-named branch on origin.
 
-        An upstream that is a local branch (one branch stacked on another) is
-        pulled from this repo. Its shorthand cannot tell it from a
-        remote-tracking branch of the same name; the local one wins, as it
-        does when git itself resolves such a name. Any other upstream is on a
-        remote, and without the list of remotes it still splits, at its first
-        '/', so a branch that tracks another remote or a branch of another
-        name keeps pulling what it tracks rather than origin's namesake.
+        Only what it tracks can say whether that is a local branch (one
+        branch stacked on another, pulled from this repo) or a remote's:
+        the upstream's shorthand reads "origin/main" for both a local branch
+        of that name and origin's main. The full ref goes to git so that it
+        need not guess between them either.
         """
-        upstream = self._upstream_for(branch)
-        if not upstream:
-            return "origin", branch
-        if self._is_local_branch(upstream):
-            return _THIS_REPO, upstream
-        remote, source = split_remote_branch(upstream, self._remote_names())
-        return (remote, source) if remote else ("origin", branch)
+        tracked = self._tracked_by(branch)
+        return tracked if tracked is not None else TrackedBranch("origin", f"refs/heads/{branch}")
 
-    def _is_local_branch(self, name: str) -> bool:
-        return any(not b.is_remote and b.name == name for b in self._queries.get_branches.execute())
+    def _tracked_by(self, branch: str) -> TrackedBranch | None:
+        try:
+            infos = self._queries.list_local_branches_with_upstream.execute()
+        except Exception as e:
+            logger.warning("Reading what %r tracks failed: %s", branch, e)
+            return None
+        return next((info.tracks for info in infos if info.name == branch), None)
 
     def _remote_names(self) -> list[str]:
         """The repo's remotes, or none (reported) when they cannot be listed:
