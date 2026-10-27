@@ -442,3 +442,27 @@ def test_deleting_a_remote_branch_resolves_a_remote_whose_name_has_a_slash(qtbot
     find_action(menu, "Delete remote branch: team/upstream/feature").trigger()
 
     assert received == [("team/upstream", "feature")]
+
+
+def test_deleting_a_remote_branch_still_asks_when_the_remotes_cannot_be_listed(qtbot):
+    """One remote with a refspec libgit2 rejects fails the whole listing. The
+    error escaped the menu action, so the click did nothing and said nothing."""
+    from git_gui.domain.entities import Branch
+    from tests.presentation.widgets.graph_menu_helpers import (
+        ROW_OID,
+        find_action,
+        open_context_menu,
+    )
+
+    w, menu = open_context_menu(qtbot, [Branch("origin/feature", True, False, ROW_OID)])
+    w._queries.list_remotes.execute.side_effect = RuntimeError(
+        "'+refs/heads/*:refs/remotes/**/bad' is not a valid refspec."
+    )
+    received: list[tuple[str, str]] = []
+    w.remote_branch_delete_requested.connect(lambda r, b: received.append((r, b)))
+
+    with qtbot.capture_exceptions() as escaped:
+        find_action(menu, "Delete remote branch: origin/feature").trigger()
+
+    assert escaped == []
+    assert received == [("origin", "feature")]

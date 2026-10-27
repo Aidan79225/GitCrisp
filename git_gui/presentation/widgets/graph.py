@@ -643,6 +643,8 @@ class GraphWidget(QWidget):
         # regress to PAGE_SIZE — losing the merge base from the loaded set
         # and reverting the diverged lane to a floating circle.
         # set_buses() explicitly clears state on repo switch.
+        if self._queries is None:
+            return  # no repo open: a load could only fail
         if extra_tips is not None:
             self._extra_tips = extra_tips
         if limit is not None:
@@ -736,18 +738,42 @@ class GraphWidget(QWidget):
         """Select `oid` in the file history, paging further in to find it.
 
         File history lists only HEAD's commits that touched the file, so a
-        branch tip may never be among them. Only once the history has run out
-        without it does the click go to the full graph, which can load it:
-        leaving earlier threw away the file view for a commit on a later page.
+        branch tip may never be among them. One that cannot be goes to the
+        full graph, which can load it, at once. Any other goes there only
+        once the history has run out without it: leaving earlier threw away
+        the file view for a commit on a later page.
         """
         if self._row_of(oid) is not None:
             self.scroll_to_oid(oid, select=True)
-        elif self._has_more:
+        elif self._has_more and self._may_be_in_file_history(oid):
             self._pending_scroll_oid = oid
             self._pending_merge_base = None
             self.reload(extra_tips=tips)
         else:
             self._show_in_full_graph(oid, tips)
+
+    def _may_be_in_file_history(self, oid: str) -> bool:
+        """Whether `oid` is a commit HEAD reaches that changed the filtered file.
+
+        No other commit is in the file history, and paging in to find that
+        out walked the file's whole history, the list jumping to its top at
+        each step. A commit from before a followed rename changed the file
+        under its old name, so it is shown in the full graph as well. When
+        the answer cannot be read, the history is paged in as before.
+        """
+        queries = self._queries
+        try:
+            head_oid = queries.get_head_oid.execute()
+            if not head_oid:
+                return False  # an unborn branch has no history
+            # is_ancestor is False for HEAD itself, where the history starts.
+            if oid != head_oid and not queries.is_ancestor.execute(oid, head_oid):
+                return False
+            changed = queries.get_commit_files.execute(oid)
+        except Exception as e:
+            logger.warning("Could not tell whether %s is in the file history: %s", oid[:8], e)
+            return True
+        return any(f.path == self._path_filter for f in changed)
 
     def _show_in_full_graph(self, oid: str, tips: list[str]) -> None:
         self._leave_path_filter()
@@ -964,6 +990,10 @@ class GraphWidget(QWidget):
             self._load_more()
 
     def _load_more(self) -> None:
+        # With no repo open, the emptied list scrolling back to the top reads
+        # as reaching the bottom; asking for a page would only report a failure.
+        if self._queries is None:
+            return
         self._loading = True
         queries = self._queries
         fp = self._first_parent
@@ -1083,10 +1113,23 @@ class GraphWidget(QWidget):
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
     def _emit_remote_delete(self, name: str) -> None:
-        remotes = (r.name for r in self._queries.list_remotes.execute())
-        remote, branch = split_remote_branch(name, remotes)
+        remote, branch = split_remote_branch(name, self._remote_names())
         if remote and branch:
             self.remote_branch_delete_requested.emit(remote, branch)
+
+    def _remote_names(self) -> list[str]:
+        """The repo's remotes, or none when they cannot be listed.
+
+        One remote with an invalid name or refspec in .git/config fails the
+        whole listing. Raising from the menu action made the click do nothing
+        at all; with no remotes known the name splits at its first '/', and
+        the confirmation and git's own answer still reach the user.
+        """
+        try:
+            return [r.name for r in self._queries.list_remotes.execute()]
+        except Exception as e:
+            logger.warning("Listing remotes failed: %s", e)
+            return []
 
     def _add_merge_rebase_section(
         self, menu: QMenu, oid: str, branches_on_commit: list[str]

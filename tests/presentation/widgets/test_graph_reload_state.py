@@ -17,8 +17,11 @@ import pytest
 from git_gui.domain.entities import (
     WORKING_TREE_OID,
     Commit,
+    FileDelta,
+    FileStatus,
     RepoState,
     RepoStateInfo,
+    StagingState,
     Tag,
 )
 from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, OID_ROLE
@@ -436,14 +439,63 @@ def test_a_failed_load_is_announced_with_its_reason(graph, qtbot, inline_workers
     assert failed.args == ["cannot be peeled into a commit"]
 
 
+# ── Closing the last repo ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("n", [30, 3 * PAGE_SIZE], ids=["all-loaded", "more-pages"])
+def test_closing_a_repo_scrolled_to_its_end_asks_for_no_more_commits(qtbot, inline_workers, n):
+    """The emptied list scrolls back to the top, which reads as reaching
+    the bottom. It asked the closed repo for its next page, and the log
+    reported a failed load under the empty state."""
+    repo_store = MagicMock()
+    repo_store.get_repo_setting.return_value = False
+    queries = _queries(_chain(n))
+    graph = GraphWidget(queries, MagicMock(), repo_store=repo_store)
+    qtbot.addWidget(graph)
+    graph.resize(400, 300)
+    graph.show()
+    graph.reload()
+    scrollbar = graph._view.verticalScrollBar()
+    qtbot.waitUntil(lambda: scrollbar.maximum() > 0)
+    scrollbar.setValue(scrollbar.maximum())
+    loads = queries.get_commit_graph.execute.call_count
+    failures: list[str] = []
+    graph.load_failed.connect(failures.append)
+
+    graph.set_buses(None, None)
+    qtbot.waitUntil(lambda: scrollbar.maximum() == 0)
+    qtbot.wait(50)
+
+    assert failures == []
+    assert queries.get_commit_graph.execute.call_count == loads
+
+
+def test_searching_with_no_repo_open_reports_no_failed_load(graph, qtbot, inline_workers):
+    graph.set_buses(None, None)
+    failures: list[str] = []
+    graph.load_failed.connect(failures.append)
+
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 12")
+
+    assert failures == []
+
+
 # ── Clicking a commit further down a file's history ──────────────────────────
 
 
-def _paged_file_history(graph: GraphWidget, n: int) -> None:
-    history = _chain(n)
+def _paged_file_history(graph: GraphWidget, n: int, step: int = 1) -> None:
+    """README.md's history: `n` commits, every `step`th of the chain, paged
+    like the real walk. Each of them, and no other commit, changed the file."""
+    history = _chain(n * step)[::step]
     graph._queries.get_file_history.execute.side_effect = lambda path, limit, skip=0, **_: history[
         skip : skip + limit
     ]
+    changed = {c.oid for c in history}
+    readme = FileStatus("README.md", StagingState.STAGED, FileDelta.MODIFIED)
+    graph._queries.get_commit_files.execute.side_effect = lambda oid: (
+        [readme] if oid in changed else []
+    )
 
 
 def test_a_commit_further_down_the_file_history_is_selected_there(graph, inline_workers):
@@ -473,7 +525,10 @@ def test_a_commit_clicked_before_the_file_history_loads_is_selected_there(graph,
 def test_a_branch_past_the_whole_paged_file_history_is_shown_in_the_full_graph(
     graph, inline_workers
 ):
+    """When it cannot be told whether HEAD reaches the branch, the file
+    history is paged through, and the branch shown once it runs out."""
     _with_side_branch(graph)
+    graph._queries.is_ancestor.execute.side_effect = RuntimeError("object not found")
     _paged_file_history(graph, 120)
     graph.set_path_filter("README.md")
 
@@ -481,6 +536,57 @@ def test_a_branch_past_the_whole_paged_file_history_is_shown_in_the_full_graph(
 
     assert graph._path_filter is None
     assert _current_oid(graph) == "side"
+
+
+def test_a_branch_head_does_not_reach_leaves_a_long_file_history_without_walking_it(
+    graph, inline_workers
+):
+    """File history lists only commits HEAD reaches, so a branch forked off
+    it is never there. The click walked the file's whole history first,
+    six times over at doubling sizes, the list jumping to its top each time."""
+    _with_side_branch(graph)
+    graph._queries.is_ancestor.execute.side_effect = lambda ancestor, _head: ancestor != "side"
+    _paged_file_history(graph, 1500)
+    graph.set_path_filter("README.md")
+    walks = graph._queries.get_file_history.execute
+    walks.reset_mock()
+
+    graph.reload_with_extra_tip("side")
+
+    assert graph._path_filter is None
+    assert _current_oid(graph) == "side"
+    walks.assert_not_called()
+
+
+def test_a_tag_on_a_commit_that_left_the_file_alone_leaves_without_walking_it(
+    graph, inline_workers
+):
+    """A release tag, or master under a feature branch: HEAD reaches it, but
+    its commit did not change the file, so it is not in the file's history."""
+    graph._queries.is_ancestor.execute.return_value = True
+    _paged_file_history(graph, 1500, step=2)  # c0, c2, c4… changed README.md
+    graph.set_path_filter("README.md")
+    walks = graph._queries.get_file_history.execute
+    walks.reset_mock()
+
+    graph.reload_with_extra_tip("c5")
+
+    assert graph._path_filter is None
+    assert _current_oid(graph) == "c5"
+    walks.assert_not_called()
+
+
+def test_head_clicked_before_the_file_history_loads_is_selected_there(graph, held_workers):
+    """HEAD is not its own ancestor, but it is where the file history starts."""
+    _paged_file_history(graph, 120)
+    graph._queries.is_ancestor.execute.return_value = False
+    graph.set_path_filter("README.md")
+
+    graph.reload_with_extra_tip("c0")
+    _finish_all(held_workers)
+
+    assert graph._path_filter == "README.md"
+    assert _current_oid(graph) == "c0"
 
 
 # ── Closing a search over the whole history ──────────────────────────────────
