@@ -82,16 +82,24 @@ class SharedHScroll(QObject):
         widths = [e.viewport().width() for e in editors if e.isVisibleTo(self._container)]
         return max(max(widths, default=self._container.width()), 1)
 
+    def refresh_later(self) -> None:
+        """Re-measure once the layout has settled.
+
+        Deferred: an editor added this turn has no width yet, so its scroll
+        range reads as zero until Qt has laid it out. Bound to this object,
+        which dies with the pane that owns it, so a re-measure still pending
+        then is dropped instead of reaching into the destroyed container.
+        """
+        QTimer.singleShot(0, self, self.refresh)
+
     def _on_editor_destroyed(self, _obj=None) -> None:
         """Re-measure once the teardown has finished.
 
         Deferred, because clearing a pane destroys its editors one after
         another and this fires part-way through: measuring now would read a
         half-emptied pane, and would reach for siblings already destroyed.
-        Bound to this object, so a re-measure the pane's own teardown queued
-        is dropped with it instead of reaching into the destroyed container.
         """
-        QTimer.singleShot(0, self, self.refresh)
+        self.refresh_later()
 
     def _on_bar_moved(self, value: int) -> None:
         if self._syncing:

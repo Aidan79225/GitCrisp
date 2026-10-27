@@ -72,6 +72,28 @@ def _is_untracked(staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]) -> bool:
     )
 
 
+def _read_file_hunks(queries: QueryBus, path: str) -> tuple[list[Hunk], list[Hunk]]:
+    """*path*'s staged hunks and its unstaged ones, each empty if it cannot be read.
+
+    Read the same way on the first load, off the UI thread, and on the redraw
+    after a command, on it. A working file another process holds open fails
+    every read: raised from the redraw, it left the pane blank and the owner
+    never told to reload the file list. Each side falls back alone, so a
+    file whose working copy is unreadable still shows what is staged.
+    """
+    try:
+        staged_hunks = queries.get_staged_diff.execute(path)
+    except Exception:
+        logger.warning("Failed to load the staged diff of %r", path, exc_info=True)
+        staged_hunks = []
+    try:
+        unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
+    except Exception:
+        logger.warning("Failed to load the unstaged diff of %r", path, exc_info=True)
+        unstaged_hunks = []
+    return staged_hunks, unstaged_hunks
+
+
 class _LoadSignals(QObject):
     done = Signal(str, list, list)  # path, staged_hunks, unstaged_hunks
 
@@ -224,18 +246,6 @@ class HunkDiffWidget(QWidget):
             for path, frame in self._aggregate_blocks.items()
         }
 
-    def _sync_hscroll(self) -> None:
-        """Re-measure the shared horizontal bar once the layout has settled.
-
-        Deferred: an editor added this turn has no width yet, so its scroll
-        range reads as zero until Qt has laid it out. Bound to this pane's
-        lifetime, so a re-measure still pending when the pane is destroyed is
-        dropped instead of reaching into the destroyed container.
-        """
-        from PySide6.QtCore import QTimer
-
-        QTimer.singleShot(0, self, self._hscroll_sync.refresh)
-
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         # A wider pane means less of the content is out of reach.
@@ -245,7 +255,7 @@ class HunkDiffWidget(QWidget):
         self._current_path = None
         self._all_paths = None
         self._clear_layout()
-        self._sync_hscroll()
+        self._hscroll_sync.refresh_later()
 
     def refresh_view(self) -> None:
         """Redraw after the unified/side-by-side choice changed, keeping the
@@ -267,17 +277,7 @@ class HunkDiffWidget(QWidget):
         self._load_signals = signals  # prevent GC
 
         def _worker():
-            try:
-                staged_hunks = queries.get_staged_diff.execute(path)
-            except Exception:
-                logger.warning("Failed to load the staged diff of %r", path, exc_info=True)
-                staged_hunks = []
-            try:
-                unstaged_hunks = queries.get_file_diff.execute(WORKING_TREE_OID, path)
-            except Exception:
-                logger.warning("Failed to load the unstaged diff of %r", path, exc_info=True)
-                unstaged_hunks = []
-            signals.done.emit(path, staged_hunks, unstaged_hunks)
+            signals.done.emit(path, *_read_file_hunks(queries, path))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -307,7 +307,7 @@ class HunkDiffWidget(QWidget):
         """A block collapsed or expanded: the blocks below it moved, and the
         editors the shared bar measures were hidden or shown."""
         self._loader.check_viewport()
-        self._sync_hscroll()
+        self._hscroll_sync.refresh_later()
 
     def _on_load_done(
         self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]
@@ -330,7 +330,7 @@ class HunkDiffWidget(QWidget):
             entry.get(StagingState.UNSTAGED, []),
         )
         hide_hunks_if_collapsed(inner)
-        self._sync_hscroll()
+        self._hscroll_sync.refresh_later()
 
     def _render_sync(self) -> None:
         """Post-action refresh for single-file mode."""
@@ -338,9 +338,7 @@ class HunkDiffWidget(QWidget):
         if self._current_path is None:
             return
         path = self._current_path
-        staged_hunks = self._queries.get_staged_diff.execute(path)
-        unstaged_hunks = self._queries.get_file_diff.execute(WORKING_TREE_OID, path)
-        self._show_file(path, staged_hunks, unstaged_hunks)
+        self._show_file(path, *_read_file_hunks(self._queries, path))
 
     def _clear_for_redraw(self) -> None:
         """Empty the pane, re-reading which paths are submodules for the new blocks."""
@@ -353,7 +351,7 @@ class HunkDiffWidget(QWidget):
         self._add_file_hunks(inner, path, staged_hunks, unstaged_hunks)
         self._layout.addWidget(frame)
         self._layout.addStretch()
-        self._sync_hscroll()
+        self._hscroll_sync.refresh_later()
 
     def _add_file_hunks(
         self,
