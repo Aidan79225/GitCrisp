@@ -40,6 +40,11 @@ from git_gui.resources import get_resource_path
 PAGE_SIZE = 50
 MAX_RELOAD_LIMIT = 2000  # cap doubling retry to avoid unbounded loads
 
+_REMOTES_UNKNOWN = (
+    "The remotes did not load, so which one holds this branch is unknown. "
+    "Fix the remote configuration (git remote -v), then try again."
+)
+
 
 class _GraphTableView(QTableView):
     """QTableView with full-row hover highlight."""
@@ -550,8 +555,7 @@ class GraphWidget(QWidget):
         # The previous repo's commits mean nothing here, and would stay on
         # screen under this repo's name if its first load failed.
         self._model.reload([], {})
-        if queries is not None:
-            self.reload()
+        self._load_new_listing()
 
     def set_repo_path(self, path: str | None) -> None:
         """Load the persisted first-parent setting for `path` and sync the
@@ -600,15 +604,13 @@ class GraphWidget(QWidget):
         self._path_filter_bar.open(path)
         self._reset_paging()
         self.path_filter_changed.emit(path)
-        if self._queries is not None:
-            self.reload()
+        self._load_new_listing()
 
     def clear_path_filter(self) -> None:
         if self._path_filter is None:
             return
         self._leave_path_filter()
-        if self._queries is not None:
-            self.reload()
+        self._load_new_listing()
 
     def _leave_path_filter(self) -> None:
         self._path_filter = None
@@ -617,13 +619,16 @@ class GraphWidget(QWidget):
         self.path_filter_changed.emit(None)
 
     def _reset_paging(self) -> None:
-        """Drop paging and scroll state that belongs to the previous listing.
+        """Drop paging, scroll and search-load state that belongs to the previous listing.
 
         A limit doubled for the previous one (up to 2000 for a deep
         divergence) would otherwise over-load the next one's first render.
+        A search left waiting on the previous listing's full load would run
+        over the next one's first page and report that as all its matches.
         """
         self._reload_limit = PAGE_SIZE
         self._limit_before_search = None
+        self._pending_search = None
         self._extra_tips = None
         self._pending_scroll_oid = None
         self._pending_merge_base = None
@@ -631,8 +636,20 @@ class GraphWidget(QWidget):
         self._has_more = True
 
     def _on_follow_toggled(self, _checked: bool) -> None:
-        if self._path_filter is not None and self._queries is not None:
+        if self._path_filter is not None:
             self._reset_paging()
+            self._load_new_listing()
+
+    def _load_new_listing(self) -> None:
+        """Load the listing that replaced the previous one, and search it if a search is open.
+
+        The previous listing's matches say nothing about this one, so an open
+        search runs again, loading the whole of it as typing does.
+        """
+        needle = self._search_bar.text()
+        if needle.strip():
+            self._on_search_text_changed(needle)
+        else:
             self.reload()
 
     def reload(self, extra_tips: list[str] | None = None, limit: int | None = None) -> None:
@@ -760,6 +777,12 @@ class GraphWidget(QWidget):
         each step. A commit from before a followed rename changed the file
         under its old name, so it is shown in the full graph as well. When
         the answer cannot be read, the history is paged in as before.
+
+        A followed history lists no merge at all, while a merge's changed
+        files come from its first parent alone: one that brought in a side
+        branch's change to the file names it. Without follow, git does list
+        a merge whose file differs from every parent; the first-parent diff
+        cannot tell that one from the rest, so there a merge is paged in for.
         """
         queries = self._queries
         try:
@@ -769,11 +792,16 @@ class GraphWidget(QWidget):
             # is_ancestor is False for HEAD itself, where the history starts.
             if oid != head_oid and not queries.is_ancestor.execute(oid, head_oid):
                 return False
+            if self._path_filter_bar.follow() and self._is_merge(oid):
+                return False
             changed = queries.get_commit_files.execute(oid)
         except Exception as e:
             logger.warning("Could not tell whether %s is in the file history: %s", oid[:8], e)
             return True
         return any(f.path == self._path_filter for f in changed)
+
+    def _is_merge(self, oid: str) -> bool:
+        return len(self._queries.get_commit_detail.execute(oid).parents) > 1
 
     def _show_in_full_graph(self, oid: str, tips: list[str]) -> None:
         self._leave_path_filter()
@@ -1106,30 +1134,52 @@ class GraphWidget(QWidget):
         _add_branch_actions(
             menu, "Delete branch", local_branches, self.delete_branch_requested.emit
         )
-        _add_branch_actions(menu, "Delete remote branch", remote_branches, self._emit_remote_delete)
+        self._add_remote_delete_actions(menu, remote_branches)
 
         self._add_merge_rebase_section(menu, oid, real_branches)
 
         menu.exec(self._view.viewport().mapToGlobal(pos))
 
-    def _emit_remote_delete(self, name: str) -> None:
-        remote, branch = split_remote_branch(name, self._remote_names())
+    def _add_remote_delete_actions(self, menu: QMenu, names: list[str]) -> None:
+        """Add 'Delete remote branch' for `names`, off for one whose remote is unknown.
+
+        A remote's name may hold a '/', so 'team/upstream/feature' is on
+        'team' or on 'team/upstream' depending on which remotes exist. While
+        they cannot be listed, only a name with a single '/' has one answer:
+        guessing for the others could delete another remote's branch, and
+        the confirmation, which joins the parts back together, cannot show it.
+        """
+        if not names:
+            return
+        remotes = self._remote_names()
+        actions = _add_one_or_submenu(
+            menu, "Delete remote branch", names, lambda name: f"Delete remote branch: {name}"
+        )
+        for action, name in zip(actions, names, strict=True):
+            if remotes is None and name.count("/") > 1:
+                action.setEnabled(False)
+                action.setToolTip(_REMOTES_UNKNOWN)
+                continue
+            action.triggered.connect(
+                lambda _checked=False, n=name, r=remotes or []: self._emit_remote_delete(n, r)
+            )
+
+    def _emit_remote_delete(self, name: str, remotes: list[str]) -> None:
+        remote, branch = split_remote_branch(name, remotes)
         if remote and branch:
             self.remote_branch_delete_requested.emit(remote, branch)
 
-    def _remote_names(self) -> list[str]:
-        """The repo's remotes, or none when they cannot be listed.
+    def _remote_names(self) -> list[str] | None:
+        """The repo's remotes, or None when they cannot be listed.
 
         One remote with an invalid name or refspec in .git/config fails the
-        whole listing. Raising from the menu action made the click do nothing
-        at all; with no remotes known the name splits at its first '/', and
-        the confirmation and git's own answer still reach the user.
+        whole listing. Raising from the menu left the right-click doing nothing.
         """
         try:
             return [r.name for r in self._queries.list_remotes.execute()]
         except Exception as e:
             logger.warning("Listing remotes failed: %s", e)
-            return []
+            return None
 
     def _add_merge_rebase_section(
         self, menu: QMenu, oid: str, branches_on_commit: list[str]
