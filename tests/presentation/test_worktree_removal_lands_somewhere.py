@@ -243,8 +243,20 @@ def _open_rows(win: MainWindow) -> list[tuple[Path, bool]]:
     return [(Path(r.data(Qt.UserRole)), bool(r.data(_IS_ACTIVE_ROLE))) for r in rows]
 
 
-def _remove_the_worktree_on_screen(qtbot, win: MainWindow, main: Path, worktree: str) -> None:
+def _git_removes_the_worktree(win: MainWindow, main: Path, worktree: str) -> None:
+    """Remove *worktree* behind the window's back, as a terminal would.
+
+    The window's change detector watches the worktree's gitdir, and on
+    Windows a watched directory can refuse deletion for a moment, which made
+    `git worktree remove` fail now and then under load. The tests are about
+    what happens after the removal, so the watch is dropped first.
+    """
+    win._stop_change_detector()
     _git(main, "worktree", "remove", worktree)
+
+
+def _remove_the_worktree_on_screen(qtbot, win: MainWindow, main: Path, worktree: str) -> None:
+    _git_removes_the_worktree(win, main, worktree)
     with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
         win._on_worktree_removed(worktree)
 
@@ -315,7 +327,7 @@ def test_a_main_worktree_that_will_not_open_is_not_listed(qtbot, tmp_path):
         return _open_session(path)
 
     win = _window_on(qtbot, worktree, store, session_factory=_main_will_not_open)
-    _git(main, "worktree", "remove", worktree)
+    _git_removes_the_worktree(win, main, worktree)
 
     with qtbot.waitSignal(win._repo_ready_signals.failed, timeout=5000):
         win._on_worktree_removed(worktree)
