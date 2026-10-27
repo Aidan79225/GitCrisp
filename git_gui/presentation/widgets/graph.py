@@ -559,6 +559,9 @@ class GraphWidget(QWidget):
         self._search_matches: list[str] = []
         self._search_idx = -1  # current position in _search_matches
         self._pending_search: str | None = None  # search to re-run after full reload
+        # Whether that search selects its first match: not when a click on a
+        # branch, rather than typing, started it.
+        self._pending_search_jumps = True
         # The reload limit a search's full-history load replaced, put back
         # when the search closes; None while no search has widened it.
         self._limit_before_search: int | None = None
@@ -850,8 +853,16 @@ class GraphWidget(QWidget):
         return len(self._queries.get_commit_detail.execute(oid).parents) > 1
 
     def _show_in_full_graph(self, oid: str, tips: list[str]) -> None:
+        """Leave the file history for the full graph, landing on `oid`.
+
+        An open search runs again over the full graph, as on any other
+        change of listing, but leaves the selection on the clicked commit.
+        """
         self._leave_path_filter()
         self._load_tips_and_land(oid, tips)
+        needle = self._search_bar.text()
+        if needle.strip():
+            self._start_search(needle, jump=False)
 
     def _load_tips_and_land(self, oid: str, tips: list[str]) -> None:
         """Load the full graph with `tips` pushed, then scroll to and select `oid`."""
@@ -972,7 +983,7 @@ class GraphWidget(QWidget):
         if self._pending_search:
             needle = self._pending_search
             self._pending_search = None
-            self._run_search(needle)
+            self._run_search(needle, self._pending_search_jumps)
 
     def _reload_if_stale(self, first_parent: bool, path_filter: str | None) -> bool:
         """Load again if the result in hand no longer answers what is wanted.
@@ -1368,6 +1379,13 @@ class GraphWidget(QWidget):
         return last_row + 1 - working_tree_rows
 
     def _on_search_text_changed(self, text: str) -> None:
+        self._start_search(text, jump=True)
+
+    def _start_search(self, text: str, jump: bool) -> None:
+        """Search the whole listing for `text`, loading all of it first if needed.
+
+        `jump` moves the selection to the first match once they are known.
+        """
         needle = text.strip().lower()
         self._search_matches.clear()
         self._search_idx = -1
@@ -1377,12 +1395,12 @@ class GraphWidget(QWidget):
             return
 
         if self._has_more:
-            self._search_after_full_load(needle)
+            self._search_after_full_load(needle, jump)
             return
 
-        self._run_search(needle)
+        self._run_search(needle, jump)
 
-    def _search_after_full_load(self, needle: str) -> None:
+    def _search_after_full_load(self, needle: str, jump: bool) -> None:
         """Load the whole history, then search it for `needle`.
 
         Later keystrokes only swap the needle: asking again would discard the
@@ -1390,35 +1408,51 @@ class GraphWidget(QWidget):
         """
         full_load_running = self._pending_search is not None
         self._pending_search = needle
+        self._pending_search_jumps = jump
         if full_load_running:
             return
         if self._limit_before_search is None:
             self._limit_before_search = self._reload_limit
         self.reload(limit=999_999)
 
-    def _run_search(self, needle: str) -> None:
-        self._search_matches.clear()
-        self._search_idx = -1
-        for row in range(self._model.rowCount()):
-            index = self._model.index(row, 0)
-            info = self._model.data(index, INFO_ROLE)
-            if info is None:
-                continue
-            haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
-            if needle in haystack:
-                self._search_matches.append(self._model.data(index, OID_ROLE))
-        if self._search_matches:
+    def _run_search(self, needle: str, jump: bool) -> None:
+        """Find the commits matching `needle`, and select the first if `jump`.
+
+        Without `jump` the selection stays where it is. The count shows it as
+        the current match when it is one, and 0 when it is not, so that Enter
+        goes to the first match and Shift+Enter to the last.
+        """
+        self._search_matches = [
+            self._oid_at(row)
+            for row in range(self._model.rowCount())
+            if self._row_matches(row, needle)
+        ]
+        if jump and self._search_matches:
             self._search_idx = 0
             self._jump_to_match()
+        else:
+            selected = self._oid_at(self._view.currentIndex().row())
+            in_matches = selected in self._search_matches
+            self._search_idx = self._search_matches.index(selected) if in_matches else -1
         self._search_bar.set_match_label(
             self._search_idx,
             len(self._search_matches),
         )
 
+    def _row_matches(self, row: int, needle: str) -> bool:
+        info = self._model.data(self._model.index(row, 0), INFO_ROLE)
+        if info is None:
+            return False
+        haystack = f"{info.message}\n{info.author}\n{info.short_oid}\n{info.timestamp}".lower()
+        return needle in haystack
+
     def _on_search_navigate(self, direction: int) -> None:
         if not self._search_matches:
             return
-        self._search_idx = (self._search_idx + direction) % len(self._search_matches)
+        if self._search_idx < 0:  # no match selected yet: start from either end
+            self._search_idx = 0 if direction > 0 else len(self._search_matches) - 1
+        else:
+            self._search_idx = (self._search_idx + direction) % len(self._search_matches)
         self._jump_to_match()
         self._search_bar.set_match_label(
             self._search_idx,
