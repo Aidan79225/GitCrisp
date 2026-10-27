@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication
 
 from git_gui.domain.entities import Worktree
 from git_gui.presentation.bus import CommandBus, QueryBus
@@ -17,8 +18,8 @@ from git_gui.presentation.services.repo_change_detector import RepoChangeDetecto
 
 
 class _RepoReadySignals(QObject):
-    ready = Signal(str, object, object)  # path, QueryBus, CommandBus
-    failed = Signal(str, str)  # path, error
+    ready = Signal(object, object, object)  # the _RepoRequest, QueryBus, CommandBus
+    failed = Signal(object, str)  # the _RepoRequest, error
 
 
 class _SwitchReason(Enum):
@@ -37,11 +38,19 @@ class _SwitchReason(Enum):
 class _RepoRequest:
     path: str
     reason: _SwitchReason = _SwitchReason.SWITCH
-    after: str | None = None  # the open repo an OPEN is listed after; None lists it first
+    after: str | None = None  # the open repo it is listed after; None lists it first
+    # A REPLACE onto a repo that has no row: it joins the open list once it
+    # has opened, as an OPEN does. Failing still leaves nothing to show.
+    listed_on_landing: bool = False
     # Set once a closed repo hands over to this request: the open repo to go
     # to instead if it fails, as closing would have without it. None when no
     # other repo is open.
     fallback: str | None = None
+    # Which open answers this request. Two attempts at one path, a row clicked
+    # again or a repeating Ctrl+<n>, finish on their threads in any order, so
+    # the path cannot tell their answers apart. replace() keeps it: a request
+    # a close hands over to is still waiting for the same open.
+    attempt: object = field(default_factory=object, compare=False, repr=False)
 
 
 def _replaces_a_closed_repo(request: _RepoRequest) -> bool:
@@ -68,6 +77,24 @@ def _worktree_root(path: str, worktrees: list[Worktree]) -> str:
     opened = Path(path).resolve()
     roots = [Path(wt.path) for wt in worktrees if opened.is_relative_to(wt.path)]
     return str(max(roots, key=lambda root: len(root.parts), default=path))
+
+
+def _close_open_menus() -> None:
+    """Close every open menu, the parents of an open submenu included.
+
+    A menu runs a nested event loop, so a switch already on its way lands
+    while one is up, and its entries name a row of the repo on screen when it
+    opened: a stash number, a branch, a file. Picked after the switch, they
+    ran against the repo that replaced it. A closed menu returns no entry and
+    fires none. Closing a submenu leaves its parent the active popup.
+    """
+    popup = QApplication.activePopupWidget()
+    while popup is not None:
+        popup.close()
+        following = QApplication.activePopupWidget()
+        if following is popup:
+            return  # it would not close: asking it again would never end
+        popup = following
 
 
 class _WorktreeOpSignals(QObject):
@@ -176,27 +203,29 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         # Each open runs on its own thread, and they finish in any order — one
         # on a network share can take seconds — so only the latest may land.
         self._repo_request = request
-        path = request.path
         signals = self._repo_ready_signals
 
         def _worker():
             try:
-                queries, commands = self._session_factory(path)
-                signals.ready.emit(path, queries, commands)
+                queries, commands = self._session_factory(request.path)
+                signals.ready.emit(request, queries, commands)
             except Exception as e:
-                signals.failed.emit(path, str(e))
+                signals.failed.emit(request, str(e))
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _request_for(self, path: str) -> _RepoRequest | None:
-        """The request *path* answers, or None if a later one replaced it."""
+    def _request_answered_by(self, opened: _RepoRequest) -> _RepoRequest | None:
+        """The request waiting for *opened*'s open, or None if a later one
+        replaced it, an earlier attempt at the same path included."""
         request = self._repo_request
-        return request if request is not None and request.path == path else None
+        return request if request is not None and request.attempt is opened.attempt else None
 
-    def _on_repo_ready(self, path: str, queries: QueryBus, commands: CommandBus) -> None:
-        request = self._request_for(path)
+    def _on_repo_ready(self, opened: _RepoRequest, queries: QueryBus, commands: CommandBus) -> None:
+        request = self._request_answered_by(opened)
         if request is None:
             return  # superseded: the user has asked for something else since
+        path = request.path
+        _close_open_menus()
         # Both panes show the repo being left behind.
         self._close_blame_pane()
         self._close_reflog_pane()
@@ -254,15 +283,15 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._log_panel.log_error(f"Could not save the repo list: {reason}")
 
     def _record_in_store(self, request: _RepoRequest) -> None:
-        if request.reason is _SwitchReason.OPEN:
+        if request.reason is _SwitchReason.OPEN or request.listed_on_landing:
             self._repo_store.add_open(request.path, after=request.after)
         else:
             self._repo_store.set_active(request.path)
 
-    def _on_repo_failed(self, path: str, error: str) -> None:
+    def _on_repo_failed(self, opened: _RepoRequest, error: str) -> None:
         self._log_panel.expand()
-        self._log_panel.log_error(f"Cannot open {path}: {error}")
-        request = self._request_for(path)
+        self._log_panel.log_error(f"Cannot open {opened.path}: {error}")
+        request = self._request_answered_by(opened)
         if request is None:
             return  # superseded: the user has asked for something else since
         if request.fallback in self._repo_store.get_open_repos():
@@ -289,6 +318,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
     def _clear_window(self) -> None:
         """Show no repo, leaving any requested one free to land when it opens."""
+        _close_open_menus()
         self._stop_change_detector()
         self._close_blame_pane()
         self._close_reflog_pane()
@@ -504,7 +534,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         dlg = WorktreesDialog(worktrees=wts, parent=self)
         dlg.open_requested.connect(self._switch_repo)
         dlg.remove_requested.connect(self._begin_remove_worktree)
-        dlg.lock_requested.connect(self._run_lock_worktree_with_reason)
+        dlg.lock_requested.connect(self._run_lock_worktree)
         dlg.unlock_requested.connect(self._run_unlock_worktree)
         dlg.add_requested.connect(
             lambda: self._open_add_worktree_dialog(preselect_branch=None, default_create=False)
@@ -674,6 +704,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         that raised "head reference does not exist" until the user clicked
         another repo themselves.
         """
+        row_above = self._open_repo_above(path)  # forgetting takes its row away
         self._repo_store.forget(path)
         self.save_repo_list()
 
@@ -688,9 +719,31 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._enter_empty_state()
             return
         self._log_panel.log(f"Removed worktree {path} — switched to {home}")
-        # The repo on screen is gone: one that fails to open leaves nothing
-        # to show, not the deleted directory.
-        self._request_repo(_RepoRequest(home, _SwitchReason.REPLACE))
+        self._request_repo(self._request_to_replace_removed(home, row_above))
+
+    def _open_repo_above(self, path: str) -> str | None:
+        """The open repo listed just above *path*; None when *path* is first
+        or has no row."""
+        open_repos = self._repo_store.get_open_repos()
+        row = open_repos.index(path) if path in open_repos else 0
+        return open_repos[row - 1] if row else None
+
+    def _request_to_replace_removed(self, home: str, row_above: str | None) -> _RepoRequest:
+        """A REPLACE onto *home*: the repo on screen is gone, and one that
+        fails to open leaves nothing to show, not the deleted directory.
+
+        A worktree opened on a row of its own goes back to its main worktree,
+        which is seldom an open repo, and with the worktree's row gone no
+        group hangs under an open one either. Landed there unlisted, the
+        window was on a repo the list did not show, which Ctrl+1..9 could not
+        reach and the next click lost. Such a home takes the removed row's
+        place once it has opened.
+        """
+        open_repos = self._repo_store.get_open_repos()
+        has_row = any(same_path_text(p, home) for p in open_repos)
+        if has_row or self._repo_list.worktree_owner() in open_repos:
+            return _RepoRequest(home, _SwitchReason.REPLACE)
+        return _RepoRequest(home, _SwitchReason.REPLACE, after=row_above, listed_on_landing=True)
 
     def _home_after_removing(self, removed: str) -> str | None:
         """Where to land once the worktree under us is gone.

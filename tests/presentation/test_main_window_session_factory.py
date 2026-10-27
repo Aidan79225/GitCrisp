@@ -43,8 +43,8 @@ def test_switch_repo_invokes_session_factory(qtbot):
 
     assert factory.call_count == 1
     assert factory.call_args.args == ("/some/path",)
-    path, queries, commands = blocker.args
-    assert path == "/some/path"
+    request, queries, commands = blocker.args
+    assert request.path == "/some/path"
     assert queries is fake_queries
     assert commands is fake_commands
 
@@ -59,8 +59,8 @@ def test_switch_repo_factory_failure_emits_failed_signal(qtbot):
     with qtbot.waitSignal(win._repo_ready_signals.failed, timeout=2000) as blocker:
         win._switch_repo("/broken/path")
 
-    path, error = blocker.args
-    assert path == "/broken/path"
+    request, error = blocker.args
+    assert request.path == "/broken/path"
     assert "boom" in error
 
 

@@ -66,7 +66,7 @@ def test_a_repo_switch_does_not_stack_a_second_connection(window, qtbot, repo_pa
     from main import _open_session
 
     queries, commands = _open_session(str(repo_path))
-    window._on_repo_ready(str(repo_path), queries, commands)
+    window._on_repo_ready(window._repo_request, queries, commands)
     qtbot.wait(50)
 
     calls: list[str] = []

@@ -4,7 +4,6 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
-    QInputDialog,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -17,7 +16,9 @@ from git_gui.domain.entities import Worktree
 class WorktreesDialog(QDialog):
     open_requested = Signal(str)  # absolute path
     remove_requested = Signal(str)
-    lock_requested = Signal(str, str)  # path, reason (may be empty)
+    # The window asks for the reason: a switch can land while that prompt is
+    # up, and only the window knows which repo the worktree belongs to.
+    lock_requested = Signal(str)  # absolute path
     unlock_requested = Signal(str)
     add_requested = Signal()
 
@@ -42,7 +43,7 @@ class WorktreesDialog(QDialog):
         self._close_btn = QPushButton("Close")
 
         self._open_btn.clicked.connect(self._on_open)
-        self._lock_btn.clicked.connect(lambda: self._on_lock())
+        self._lock_btn.clicked.connect(self._on_lock)
         self._unlock_btn.clicked.connect(self._on_unlock)
         self._remove_btn.clicked.connect(self._on_remove)
         self._add_btn.clicked.connect(lambda: self.add_requested.emit())
@@ -96,9 +97,8 @@ class WorktreesDialog(QDialog):
     def click_remove(self) -> None:
         self._on_remove()
 
-    def click_lock(self, reason_for_test: str | None = None) -> None:
-        # Test seam: bypass QInputDialog by passing reason directly.
-        self._on_lock(reason_override=reason_for_test)
+    def click_lock(self) -> None:
+        self._on_lock()
 
     def click_unlock(self) -> None:
         self._on_unlock()
@@ -139,18 +139,10 @@ class WorktreesDialog(QDialog):
         if path:
             self.remove_requested.emit(path)
 
-    def _on_lock(self, reason_override: str | None = None) -> None:
+    def _on_lock(self) -> None:
         path = self._selected_path()
-        if not path:
-            return
-        if reason_override is None:
-            text, ok = QInputDialog.getText(self, "Lock Worktree", "Reason (optional):")
-            if not ok:
-                return
-            reason = text.strip()
-        else:
-            reason = reason_override
-        self.lock_requested.emit(path, reason)
+        if path:
+            self.lock_requested.emit(path)
 
     def _on_unlock(self) -> None:
         path = self._selected_path()
