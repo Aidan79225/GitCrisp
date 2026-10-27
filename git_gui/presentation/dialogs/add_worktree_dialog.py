@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from git_gui.presentation.paths import same_path_text
 from git_gui.presentation.theme import get_theme_manager
 
 
@@ -55,10 +56,6 @@ def _location_problem(location: str) -> str | None:
 
 def _is_empty_folder(path: Path) -> bool:
     return path.is_dir() and not any(path.iterdir())
-
-
-def _same_location(a: str, b: str) -> bool:
-    return Path(a).resolve() == Path(b).resolve()
 
 
 class AddWorktreeDialog(QDialog):
@@ -279,7 +276,7 @@ class AddWorktreeDialog(QDialog):
 
     def _refresh_in_use_notice(self) -> None:
         path = self._in_use_path()
-        in_this_worktree = path is not None and _same_location(path, self._repo_path)
+        in_this_worktree = path is not None and same_path_text(path, self._repo_path)
         self._in_use_notice.setVisible(path is not None)
         self._switch_btn.setVisible(not in_this_worktree)
         if in_this_worktree:

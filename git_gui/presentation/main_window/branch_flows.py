@@ -4,7 +4,7 @@ import logging
 
 from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
-from git_gui.domain.entities import Branch, StagingState, Worktree
+from git_gui.domain.entities import Branch, StagingState, Worktree, split_remote_branch
 from git_gui.presentation.bus import CommandBus
 from git_gui.presentation.dialogs.branch_select_dialog import BranchSelectDialog
 from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
@@ -206,7 +206,7 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         """Check out remote branch `name` as a local branch: a new one, or the
         existing namesake reset to it once the user agrees. Returns False when
         nothing was changed."""
-        local_name = name.split("/", 1)[1] if "/" in name else name
+        _, local_name = split_remote_branch(name)
         if local_name in local_branches:
             return self._reset_local_to_remote(local_branches[local_name], name)
         self._commands.checkout_remote_branch.execute(name)

@@ -44,6 +44,20 @@ def _display_path(path: str) -> str:
     return "~/" + rel.as_posix()
 
 
+def _counts_as_a_repo(path: str) -> bool:
+    """Whether Open Repository should try *path*.
+
+    A .git file git cannot follow, left empty by an interrupted submodule
+    checkout or a sync-tool conflict, makes discover_repository raise rather
+    than answer. That folder counts, as it does at launch: opening it fails
+    with git's own error in the log, which says more than "not a repository".
+    """
+    try:
+        return pygit2.discover_repository(path) is not None
+    except pygit2.GitError:
+        return True
+
+
 _KIND_ROLE = Qt.UserRole + 1
 _IS_ACTIVE_ROLE = Qt.UserRole + 2
 
@@ -386,6 +400,18 @@ class RepoListWidget(QWidget):
         """
         return self._worktree_owner
 
+    def main_worktree(self) -> str | None:
+        """The main worktree of the loaded group, as git lists it, if any.
+
+        Where a linked worktree opened on a row of its own goes back to when
+        it is deleted: it is its own owner, and the main worktree may not be
+        an open repo at all.
+        """
+        return next(
+            (str(wt.path) for wt in self._active_worktrees if wt.is_main and not wt.is_bare),
+            None,
+        )
+
     def show_open_repo_from(self, source: Callable[[], str | None]) -> None:
         """Draw the repo *source* names as the one on screen, and ignore clicks on it.
 
@@ -584,7 +610,7 @@ class RepoListWidget(QWidget):
             if not dirs:
                 return
             path = dirs[0]
-            if pygit2.discover_repository(path) is not None:
+            if _counts_as_a_repo(path):
                 self.repo_open_requested.emit(path)
                 return
             QMessageBox.warning(

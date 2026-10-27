@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -13,6 +12,7 @@ from git_gui.domain.entities import Worktree
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
 from git_gui.presentation.menus.git_menu import install_git_menu
+from git_gui.presentation.paths import same_path_text
 from git_gui.presentation.services.repo_change_detector import RepoChangeDetector
 
 
@@ -39,14 +39,13 @@ class _RepoRequest:
     reason: _SwitchReason = _SwitchReason.SWITCH
     after: str | None = None  # the open repo an OPEN is listed after; None lists it first
     # Set once a closed repo hands over to this request: the open repo to go
-    # to instead if it fails, as closing would have without it.
+    # to instead if it fails, as closing would have without it. None when no
+    # other repo is open.
     fallback: str | None = None
 
 
-def _same_path_text(a: str, b: str) -> bool:
-    """Whether two paths are written the same, up to separators and, where the
-    file system ignores it, letter case. Touches no disk."""
-    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+def _replaces_a_closed_repo(request: _RepoRequest) -> bool:
+    return request.reason is _SwitchReason.REPLACE or request.fallback is not None
 
 
 def _branches_in_use(worktrees: list[Worktree]) -> dict[str, str]:
@@ -203,7 +202,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._working_tree.set_repo_path(path)
         self._working_tree.set_buses(self._queries, self._commands)
         self._record_in_store(request)
-        self._save_repo_store()
+        self.save_repo_list()
         self._repo_list.reload()
         self.setWindowTitle(f"GitCrisp — {path}")
         # Re-install the Git menu so its actions bind to the new repo.
@@ -216,18 +215,24 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._load_worktrees_for_active_repo()
         self._refresh_state_banners()
 
-    def _save_repo_store(self) -> None:
+    def save_repo_list(self) -> None:
         """Write the repo list out, reporting a failed write rather than raising.
 
         The in-memory store is already right. An OSError escaping a slot — a
         file briefly locked by antivirus or a sync client, a full disk — would
         abandon a switch or a close halfway, with the panes on one repo and the
-        title, Git menu and change detector still on the other.
+        title, Git menu and change detector still on the other. Escaping the
+        launch, it stopped GitCrisp before the window showed.
         """
         try:
             self._repo_store.save()
         except OSError as e:
             self._report_unsaved_repo_list(str(e))
+
+    def reload_repo_list(self) -> None:
+        """Redraw the repo list from the store, which something other than the
+        window has changed since the list was drawn."""
+        self._repo_list.reload()
 
     def _report_unsaved_repo_list(self, reason: str) -> None:
         self._log_panel.expand()
@@ -249,10 +254,19 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             # It was taking over from a repo closed while it opened: go where
             # that close would have gone without it.
             self._request_repo(_RepoRequest(request.fallback, _SwitchReason.REPLACE))
-        elif request.reason is _SwitchReason.REPLACE or request.fallback is not None:
+        elif request.reason is _SwitchReason.REPLACE:
             # The repo on screen is already closed. Staying on it would leave
             # Ctrl+W retrying this one forever.
             self._enter_empty_state()
+        else:
+            # The window stays where it was, empty if a close handed over to
+            # this request. Left pending, the failed request would be what
+            # Ctrl+W hands over to, and it never lands.
+            self._stop_waiting_for_request()
+
+    def _stop_waiting_for_request(self) -> None:
+        """Count nothing as on its way: the repo on screen is the latest request."""
+        self._repo_request = _RepoRequest(self._repo_path) if self._repo_path else None
 
     def _enter_empty_state(self) -> None:
         self._repo_request = None
@@ -287,14 +301,17 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
     def _on_repo_close(self, path: str) -> None:
         on_screen = self._closing_takes_what_is_on_screen(path)
-        successor = self._repo_after_closing(path)
+        # The repo on its way is never its own fallback: retrying it when it
+        # fails would wait out the same dead share a second time.
+        pending = self._pending_request()
+        successor = self._repo_after_closing(path, skipping=pending.path if pending else None)
         self._repo_store.close_repo(path)
         if on_screen and self._repo_store.get_active() == self._repo_path:
             # The linked worktree of *path* on screen goes with it. Whatever
             # lands next records itself; if nothing does, the next launch
             # must not open onto a worktree whose repo is closed.
             self._repo_store.clear_active()
-        self._save_repo_store()
+        self.save_repo_list()
         self._drop_pending_request_for(path)
         if not on_screen:
             self._repo_list.reload()  # some other row: stay where you are
@@ -310,11 +327,15 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _closing_takes_what_is_on_screen(self, path: str) -> bool:
         """Whether *path* is the repo on screen, the repo on its way to replace
         it after it was closed, or the open repo whose linked worktree is on
-        screen — that worktree's only row hangs under it."""
+        screen — that worktree's only row hangs under it.
+
+        A repo a close handed over to replaces the closed one too, though the
+        user asked for it as a switch: it carries the fallback.
+        """
         if path == self._repo_path:
             return True
         pending = self._pending_request()
-        if pending is not None and pending.path == path and pending.reason is _SwitchReason.REPLACE:
+        if pending is not None and pending.path == path and _replaces_a_closed_repo(pending):
             return True
         in_owned_worktree = self._repo_path not in self._repo_store.get_open_repos()
         return in_owned_worktree and path == self._repo_list.worktree_owner()
@@ -328,16 +349,16 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         # Landing later would make a repo the user has just closed active again.
         pending = self._pending_request()
         if pending is not None and pending.path == path:
-            self._repo_request = _RepoRequest(self._repo_path) if self._repo_path else None
+            self._stop_waiting_for_request()
 
-    def _repo_after_closing(self, path: str) -> str | None:
-        """The open repo listed just before *path*, or after it when it is first."""
+    def _repo_after_closing(self, path: str, skipping: str | None = None) -> str | None:
+        """The open repo listed just before *path*, or after it when it is
+        first, passing over *skipping*."""
         open_repos = self._repo_store.get_open_repos()
-        others = [p for p in open_repos if p != path]
-        if not others:
-            return None
         index = open_repos.index(path) if path in open_repos else 0
-        return others[max(index - 1, 0)]
+        before = [p for p in open_repos[:index] if p != skipping]
+        after = [p for p in open_repos[index:] if p not in (path, skipping)]
+        return before[-1] if before else next(iter(after), None)
 
     def _close_current_repo(self) -> None:
         """Ctrl+W: close the active repo and switch to the previous open one."""
@@ -358,7 +379,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
     def _on_repo_remove_recent(self, path: str) -> None:
         self._repo_store.remove_recent(path)
-        self._save_repo_store()
+        self.save_repo_list()
         self._repo_list.reload()
 
     # ── Worktree orchestration ────────────────────────────────────────────
@@ -395,7 +416,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if self._repo_path in open_repos:
             return self._repo_path
         main = next((wt.path for wt in worktrees if wt.is_main), None)
-        owner = next((p for p in open_repos if main and _same_path_text(p, main)), None)
+        owner = next((p for p in open_repos if main and same_path_text(p, main)), None)
         if owner is None:
             owner = self._repo_list.owner_of(self._repo_path)
         return owner if owner in open_repos else None
@@ -498,13 +519,14 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         label: str,
         op: Callable[[CommandBus], object],
         on_done: Callable[[object], None],
-        on_error: Callable[[Exception], bool] | None = None,
+        on_error: Callable[[Exception, CommandBus], bool] | None = None,
     ) -> None:
         """Run one worktree command off the GUI thread, on the repo open now.
 
         *on_done* gets the command's result back on the GUI thread. A failure
         *on_error* does not claim (by returning True) is reported as
-        "<label> worktree failed: ...".
+        "<label> worktree failed: ...". *on_error* also gets the bus the
+        command ran on: another repo may have opened since it started.
         """
         commands = self._commands
         if commands is None:
@@ -518,7 +540,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
                 signals.failed.emit(e)
 
         def _failed(error: Exception) -> None:
-            if on_error is None or not on_error(error):
+            if on_error is None or not on_error(error, commands):
                 self._report_worktree_error(f"{label} worktree failed: {error}")
 
         signals.done.connect(on_done)
@@ -556,8 +578,11 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _run_lock_worktree(self, path: str) -> None:
         from PySide6.QtWidgets import QInputDialog
 
+        # The prompt is modal: a switch already on its way can land while it
+        # is up, and that repo's git does not know this worktree.
+        asked_in = self._commands
         text, ok = QInputDialog.getText(self, "Lock Worktree", "Reason (optional):")
-        if not ok:
+        if not ok or self._repo_switched_while_asking(asked_in, f"Lock worktree {path}"):
             return
         self._run_lock_worktree_with_reason(path, text.strip())
 
@@ -571,12 +596,19 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _begin_remove_worktree(self, path: str) -> None:
         from PySide6.QtWidgets import QMessageBox
 
-        if (
-            QMessageBox.question(self, "Remove worktree", f"Remove worktree at {path}?")
-            != QMessageBox.Yes
-        ):
+        asked_in = self._commands
+        answer = QMessageBox.question(self, "Remove worktree", f"Remove worktree at {path}?")
+        if answer != QMessageBox.Yes:
             return
-        self._run_remove_worktree(path, force=False)
+        self._remove_worktree_unless_switched(path, asked_in, force=False, override_lock=False)
+
+    def _remove_worktree_unless_switched(
+        self, path: str, asked_in: CommandBus | None, *, force: bool, override_lock: bool
+    ) -> None:
+        """Remove *path* as the user agreed, unless another repo opened while
+        they were asked about it in *asked_in*: its git does not know *path*."""
+        if not self._repo_switched_while_asking(asked_in, f"Remove worktree {path}"):
+            self._run_remove_worktree(path, force=force, override_lock=override_lock)
 
     def _run_remove_worktree(self, path: str, *, force: bool, override_lock: bool = False) -> None:
         self._run_worktree_op(
@@ -585,13 +617,19 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
                 path, force=force, override_lock=override_lock
             ),
             lambda _: self._on_worktree_removed(path),
-            lambda error: self._offer_force_remove(
-                path, error, force=force, override_lock=override_lock
+            lambda error, commands: self._offer_force_remove(
+                path, error, commands, force=force, override_lock=override_lock
             ),
         )
 
     def _offer_force_remove(
-        self, path: str, error: Exception, *, force: bool, override_lock: bool
+        self,
+        path: str,
+        error: Exception,
+        refused_in: CommandBus,
+        *,
+        force: bool,
+        override_lock: bool,
     ) -> bool:
         """Offer to override what git refused the removal for; False for any
         other failure, and for one the user has already overridden.
@@ -605,9 +643,9 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         # architecture guard forbids importing the concrete error types here).
         name = type(error).__name__
         if name == "WorktreeDirtyError" and not force:
-            self._on_remove_dirty(path, override_lock=override_lock)
+            self._on_remove_dirty(path, refused_in, override_lock=override_lock)
         elif name == "WorktreeLockedError" and not override_lock:
-            self._on_remove_locked(path, str(error), force=force)
+            self._on_remove_locked(path, str(error), refused_in, force=force)
         else:
             return False
         return True
@@ -622,7 +660,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         another repo themselves.
         """
         self._repo_store.forget(path)
-        self._save_repo_store()
+        self.save_repo_list()
 
         if path != self._repo_path:
             self._load_worktrees_for_active_repo()
@@ -635,27 +673,36 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._enter_empty_state()
             return
         self._log_panel.log(f"Removed worktree {path} — switched to {home}")
-        self._switch_repo(home)
+        # The repo on screen is gone: one that fails to open leaves nothing
+        # to show, not the deleted directory.
+        self._request_repo(_RepoRequest(home, _SwitchReason.REPLACE))
 
     def _home_after_removing(self, removed: str) -> str | None:
         """Where to land once the worktree under us is gone.
 
         The repo that owned it comes first: it is what the worktree was a view
         of, it is certain to still exist, and it is the same place every time —
-        picking an arbitrary sibling worktree would not be. Siblings and the
-        other open repos are the fallbacks for a session that was opened
-        straight into a worktree, where the owner was never recorded.
-        """
-        owner = self._repo_list.worktree_owner()
-        candidates = [owner] if owner else []
-        candidates += list(self._worktree_paths_by_branch.values())
-        candidates += list(self._repo_store.get_open_repos())
-        for candidate in candidates:
-            if candidate and candidate != removed and Path(candidate).is_dir():
-                return candidate
-        return None
+        picking an arbitrary sibling worktree would not be. A worktree opened
+        on a row of its own is its own owner, and goes back to its main
+        worktree. Siblings and the other open repos are the fallbacks.
 
-    def _on_remove_dirty(self, path: str, *, override_lock: bool) -> None:
+        Only the removed worktree's own repository is looked for on disk: git
+        has just reached it. Another open repo can be on a share that is down,
+        and looking for it here, on the GUI thread, waits out the network
+        timeout; the switch's worker finds out instead.
+        """
+        group = [
+            self._repo_list.worktree_owner(),
+            self._repo_list.main_worktree(),
+            *self._worktree_paths_by_branch.values(),
+        ]
+        for candidate in group:
+            if candidate and not same_path_text(candidate, removed) and Path(candidate).is_dir():
+                return candidate
+        others = self._repo_store.get_open_repos()
+        return next((p for p in others if not same_path_text(p, removed)), None)
+
+    def _on_remove_dirty(self, path: str, refused_in: CommandBus, *, override_lock: bool) -> None:
         from PySide6.QtWidgets import QMessageBox
 
         msg = QMessageBox(self)
@@ -665,9 +712,13 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         msg.addButton("Cancel", QMessageBox.RejectRole)
         msg.exec()
         if msg.clickedButton() is force:
-            self._run_remove_worktree(path, force=True, override_lock=override_lock)
+            self._remove_worktree_unless_switched(
+                path, refused_in, force=True, override_lock=override_lock
+            )
 
-    def _on_remove_locked(self, path: str, reason: str, *, force: bool) -> None:
+    def _on_remove_locked(
+        self, path: str, reason: str, refused_in: CommandBus, *, force: bool
+    ) -> None:
         from PySide6.QtWidgets import QMessageBox
 
         msg = QMessageBox(self)
@@ -679,4 +730,4 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if msg.clickedButton() is override:
             # Lifting the lock alone: uncommitted changes still get their
             # own prompt.
-            self._run_remove_worktree(path, force=force, override_lock=True)
+            self._remove_worktree_unless_switched(path, refused_in, force=force, override_lock=True)
