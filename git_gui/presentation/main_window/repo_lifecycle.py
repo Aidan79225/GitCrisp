@@ -7,6 +7,7 @@ from enum import Enum, auto
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication
 
 from git_gui.domain.entities import Worktree
 from git_gui.presentation.bus import CommandBus, QueryBus
@@ -68,6 +69,24 @@ def _worktree_root(path: str, worktrees: list[Worktree]) -> str:
     opened = Path(path).resolve()
     roots = [Path(wt.path) for wt in worktrees if opened.is_relative_to(wt.path)]
     return str(max(roots, key=lambda root: len(root.parts), default=path))
+
+
+def _close_open_menus() -> None:
+    """Close every open menu, the parents of an open submenu included.
+
+    A menu runs a nested event loop, so a switch already on its way lands
+    while one is up, and its entries name a row of the repo on screen when it
+    opened: a stash number, a branch, a file. Picked after the switch, they
+    ran against the repo that replaced it. A closed menu returns no entry and
+    fires none. Closing a submenu leaves its parent the active popup.
+    """
+    popup = QApplication.activePopupWidget()
+    while popup is not None:
+        popup.close()
+        following = QApplication.activePopupWidget()
+        if following is popup:
+            return  # it would not close: asking it again would never end
+        popup = following
 
 
 class _WorktreeOpSignals(QObject):
@@ -197,6 +216,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         request = self._request_for(path)
         if request is None:
             return  # superseded: the user has asked for something else since
+        _close_open_menus()
         # Both panes show the repo being left behind.
         self._close_blame_pane()
         self._close_reflog_pane()
@@ -289,6 +309,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
     def _clear_window(self) -> None:
         """Show no repo, leaving any requested one free to land when it opens."""
+        _close_open_menus()
         self._stop_change_detector()
         self._close_blame_pane()
         self._close_reflog_pane()
