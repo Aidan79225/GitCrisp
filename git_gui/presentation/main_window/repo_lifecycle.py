@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from pathlib import Path
 
@@ -18,8 +18,8 @@ from git_gui.presentation.services.repo_change_detector import RepoChangeDetecto
 
 
 class _RepoReadySignals(QObject):
-    ready = Signal(str, object, object)  # path, QueryBus, CommandBus
-    failed = Signal(str, str)  # path, error
+    ready = Signal(object, object, object)  # the _RepoRequest, QueryBus, CommandBus
+    failed = Signal(object, str)  # the _RepoRequest, error
 
 
 class _SwitchReason(Enum):
@@ -43,6 +43,11 @@ class _RepoRequest:
     # to instead if it fails, as closing would have without it. None when no
     # other repo is open.
     fallback: str | None = None
+    # Which open answers this request. Two attempts at one path, a row clicked
+    # again or a repeating Ctrl+<n>, finish on their threads in any order, so
+    # the path cannot tell their answers apart. replace() keeps it: a request
+    # a close hands over to is still waiting for the same open.
+    attempt: object = field(default_factory=object, compare=False, repr=False)
 
 
 def _replaces_a_closed_repo(request: _RepoRequest) -> bool:
@@ -195,27 +200,28 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         # Each open runs on its own thread, and they finish in any order — one
         # on a network share can take seconds — so only the latest may land.
         self._repo_request = request
-        path = request.path
         signals = self._repo_ready_signals
 
         def _worker():
             try:
-                queries, commands = self._session_factory(path)
-                signals.ready.emit(path, queries, commands)
+                queries, commands = self._session_factory(request.path)
+                signals.ready.emit(request, queries, commands)
             except Exception as e:
-                signals.failed.emit(path, str(e))
+                signals.failed.emit(request, str(e))
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _request_for(self, path: str) -> _RepoRequest | None:
-        """The request *path* answers, or None if a later one replaced it."""
+    def _request_answered_by(self, opened: _RepoRequest) -> _RepoRequest | None:
+        """The request waiting for *opened*'s open, or None if a later one
+        replaced it, an earlier attempt at the same path included."""
         request = self._repo_request
-        return request if request is not None and request.path == path else None
+        return request if request is not None and request.attempt is opened.attempt else None
 
-    def _on_repo_ready(self, path: str, queries: QueryBus, commands: CommandBus) -> None:
-        request = self._request_for(path)
+    def _on_repo_ready(self, opened: _RepoRequest, queries: QueryBus, commands: CommandBus) -> None:
+        request = self._request_answered_by(opened)
         if request is None:
             return  # superseded: the user has asked for something else since
+        path = request.path
         _close_open_menus()
         # Both panes show the repo being left behind.
         self._close_blame_pane()
@@ -279,10 +285,10 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         else:
             self._repo_store.set_active(request.path)
 
-    def _on_repo_failed(self, path: str, error: str) -> None:
+    def _on_repo_failed(self, opened: _RepoRequest, error: str) -> None:
         self._log_panel.expand()
-        self._log_panel.log_error(f"Cannot open {path}: {error}")
-        request = self._request_for(path)
+        self._log_panel.log_error(f"Cannot open {opened.path}: {error}")
+        request = self._request_answered_by(opened)
         if request is None:
             return  # superseded: the user has asked for something else since
         if request.fallback in self._repo_store.get_open_repos():
