@@ -185,6 +185,10 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
         self._reload()
 
     def _on_rebase_abort(self) -> None:
+        # The banner shows while the rebase still runs in the slot: a second git
+        # on its state would lose this abort, or end the rebase behind its worker.
+        if self._remote_slot_busy("Rebase abort"):
+            return
         try:
             self._commands.rebase_abort.execute()
             self._log_panel.log("Rebase aborted")
@@ -208,6 +212,8 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
         self._reload()
 
     def _on_rebase_continue(self, msg: str) -> None:
+        if self._remote_slot_busy("Rebase continue"):  # see _on_rebase_abort
+            return
         try:
             if self._queries.has_unresolved_conflicts.execute():
                 self._log_panel.expand()

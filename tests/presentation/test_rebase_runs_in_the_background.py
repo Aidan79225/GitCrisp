@@ -50,6 +50,38 @@ REBASES = {
 }
 
 
+class _Resume(NamedTuple):
+    """One way the user abandons or continues a rebase, from its banner."""
+
+    command: str  # the bus command that runs it
+    click: Callable[[MainWindow], None]
+    name: str  # what the log calls it
+
+
+RESUMES = {
+    "abort-in-the-working-tree": _Resume(
+        "rebase_abort",
+        lambda win: win._working_tree.rebase_abort_requested.emit(),
+        "Rebase abort",
+    ),
+    "continue-in-the-working-tree": _Resume(
+        "rebase_continue",
+        lambda win: win._working_tree.rebase_continue_requested.emit(""),
+        "Rebase continue",
+    ),
+    "abort-in-the-diff-pane": _Resume(
+        "rebase_abort",
+        lambda win: win._diff.rebase_abort_requested.emit(),
+        "Rebase abort",
+    ),
+    "continue-in-the-diff-pane": _Resume(
+        "rebase_continue",
+        lambda win: win._diff.rebase_continue_requested.emit(),
+        "Rebase continue",
+    ),
+}
+
+
 class _Git:
     """The git process behind a rebase command: it runs until the test lets it
     exit, and then moves HEAD, as a rebase does, or fails."""
@@ -80,6 +112,14 @@ class _Git:
 
 @pytest.fixture(params=REBASES.values(), ids=REBASES.keys())
 def rebase(request) -> _Rebase:
+    return request.param
+
+
+@pytest.fixture(params=RESUMES.values(), ids=RESUMES.keys())
+def resume(request, window: MainWindow) -> _Resume:
+    # A mock answers yes to everything: with no conflicts left, only the slot
+    # can hold Continue back.
+    window._queries.has_unresolved_conflicts.execute.return_value = False
     return request.param
 
 
@@ -211,6 +251,25 @@ def test_a_toolbar_push_or_pull_requested_while_a_rebase_runs_is_skipped_and_log
     assert "HEAD is not on a branch" not in logged
 
     _let_git_exit(qtbot, window, git)
+
+
+def test_abort_and_continue_wait_while_the_rebase_runs(qtbot, window, git, rebase, resume):
+    # The banner shows as soon as git has begun. A second git on the same rebase
+    # loses the abort, or finishes the rebase behind the worker's back.
+    _start_in_background(qtbot, window, git, rebase)
+
+    resume.click(window)
+
+    getattr(window._commands, resume.command).execute.assert_not_called()
+    assert f"{resume.name} — skipped: {rebase.name} is still running" in _logged(window)
+
+    _let_git_exit(qtbot, window, git)
+
+
+def test_abort_and_continue_run_when_no_rebase_holds_the_slot(window, resume):
+    resume.click(window)
+
+    getattr(window._commands, resume.command).execute.assert_called_once()
 
 
 def test_a_rebase_finishing_after_a_repo_switch_offers_no_undo_in_the_new_repo(
