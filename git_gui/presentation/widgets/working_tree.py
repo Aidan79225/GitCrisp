@@ -5,6 +5,7 @@ import os
 import re
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from typing import NamedTuple
 
 from PySide6.QtCore import QObject, QRect, Qt, Signal, SignalInstance
@@ -306,19 +307,25 @@ class WorkingTreeWidget(QWidget):
         self._load_generation += 1
         generation = self._load_generation
 
-        signals = _LoadSignals()
+        # A child of this panel that deletes itself once answered, so Qt frees it
+        # on the GUI thread. Parentless, a load a newer one had replaced was held
+        # only by its worker, which then deleted the signals on its own thread.
+        signals = _LoadSignals(self)
         signals.done.connect(self._on_reload_done)
         signals.failed.connect(self._on_reload_failed)
-        self._load_signals = signals  # prevent GC
+        signals.done.connect(signals.deleteLater)
+        signals.failed.connect(signals.deleteLater)
 
         def _worker():
             try:
                 files, partial = _deduplicate(queries.get_working_tree.execute())
             except Exception as e:
                 logger.warning("Working tree reload failed: %s", e)
-                signals.failed.emit(str(e), generation)
+                with suppress(RuntimeError):  # the panel was destroyed, signals and all
+                    signals.failed.emit(str(e), generation)
                 return
-            signals.done.emit(files, partial, generation)
+            with suppress(RuntimeError):
+                signals.done.emit(files, partial, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
 

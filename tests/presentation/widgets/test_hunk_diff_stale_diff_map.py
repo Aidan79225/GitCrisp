@@ -45,10 +45,6 @@ def test_the_old_repos_diff_map_does_not_fill_the_new_repos_blocks(qtbot):
     widget.show()
     try:
         widget.load_all_files(["README.md"])
-        # Whether a superseded answer arrives at all races the worker thread's
-        # own teardown, which takes the old load's signals with it; holding
-        # them here makes the answer arrive, as it can in the app.
-        superseded = widget._load_all_signals
         widget.set_buses(new_queries, MagicMock())
         widget.clear()
         widget.load_all_files(["README.md"])
