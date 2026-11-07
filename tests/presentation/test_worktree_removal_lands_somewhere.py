@@ -9,6 +9,7 @@ clicked another repo themselves.
 from __future__ import annotations
 
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -243,20 +244,32 @@ def _open_rows(win: MainWindow) -> list[tuple[Path, bool]]:
     return [(Path(r.data(Qt.UserRole)), bool(r.data(_IS_ACTIVE_ROLE))) for r in rows]
 
 
-def _git_removes_the_worktree(win: MainWindow, main: Path, worktree: str) -> None:
+def _wait_for_the_start_up_loads(qtbot, win: MainWindow) -> None:
+    """Wait out the reads a new window starts on its own.
+
+    The graph's dirty check runs `git status` in the worktree, and Windows will
+    not delete a folder a process is running in.
+    """
+    qtbot.waitUntil(lambda: not win._graph._loading, timeout=10000)
+
+
+def _git_removes_the_worktree(qtbot, win: MainWindow, main: Path, worktree: str) -> None:
     """Remove *worktree* behind the window's back, as a terminal would.
 
-    The window's change detector watches the worktree's gitdir, and on
-    Windows a watched directory can refuse deletion for a moment, which made
-    `git worktree remove` fail now and then under load. The tests are about
-    what happens after the removal, so the watch is dropped first.
+    Windows will not delete a folder a process is running in, and the window
+    runs git in its worktree: in the loads it starts with, and in the reloads
+    its change detector schedules. `git worktree remove` failed now and then
+    with 'Permission denied' when it overlapped one. The tests are about what
+    happens after the removal, so the detector is dropped and the loads are
+    waited out first.
     """
     win._stop_change_detector()
+    _wait_for_the_start_up_loads(qtbot, win)
     _git(main, "worktree", "remove", worktree)
 
 
 def _remove_the_worktree_on_screen(qtbot, win: MainWindow, main: Path, worktree: str) -> None:
-    _git_removes_the_worktree(win, main, worktree)
+    _git_removes_the_worktree(qtbot, win, main, worktree)
     with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
         win._on_worktree_removed(worktree)
 
@@ -327,10 +340,137 @@ def test_a_main_worktree_that_will_not_open_is_not_listed(qtbot, tmp_path):
         return _open_session(path)
 
     win = _window_on(qtbot, worktree, store, session_factory=_main_will_not_open)
-    _git_removes_the_worktree(win, main, worktree)
+    _git_removes_the_worktree(qtbot, win, main, worktree)
 
     with qtbot.waitSignal(win._repo_ready_signals.failed, timeout=5000):
         win._on_worktree_removed(worktree)
 
     assert win._repo_path is None
     assert store.get_open_repos() == [far]
+
+
+# ── The window lets go of the worktree before git deletes it ─────────────────
+
+
+def _quiet(qtbot, win: MainWindow) -> None:
+    """Let the loads still under way finish: a worker must not outlive its test."""
+    win._stop_change_detector()
+    qtbot.waitUntil(lambda: not win._graph._loading, timeout=10000)
+
+
+class _SeenWatching:
+    """The real remove command, noting what the window watched while it ran."""
+
+    def __init__(self, win: MainWindow) -> None:
+        self._win = win
+        self._real = win._commands.remove_worktree
+        self.watching: list[object] = []
+
+    def execute(self, *args, **kwargs):
+        self.watching.append(self._win._change_detector)
+        return self._real.execute(*args, **kwargs)
+
+
+class _Refused:
+    """A remove command git turns down, once *release* is set if there is one."""
+
+    def __init__(self, release: threading.Event | None = None) -> None:
+        self._release = release
+
+    def execute(self, *_args, **_kwargs):
+        if self._release is not None:
+            self._release.wait(5)
+        raise RuntimeError("refused by git")
+
+
+def _relaunched_onto(qtbot, tmp_path, main: Path, worktree: str) -> MainWindow:
+    """A window opened on *worktree*, whose repo *main* is open, past its start-up loads."""
+    store = JsonRepoStore(tmp_path / "repos.json")
+    store.add_open(str(main))
+    store.set_active(worktree)
+    win = _window_on(qtbot, worktree, store)
+    _wait_for_the_start_up_loads(qtbot, win)
+    return win
+
+
+def _log_text(win: MainWindow) -> str:
+    return win._log_panel._body.toPlainText()
+
+
+def test_the_window_stops_watching_the_worktree_on_screen_while_git_removes_it(
+    qtbot, tmp_path, monkeypatch
+):
+    """A reload the watch schedules runs `git status` in the worktree, and on
+    Windows git then fails to delete the folder: 'Permission denied', with the
+    worktree already unregistered and the window left on the dead path."""
+    main, worktree = _repo_with_worktree(tmp_path)
+    win = _relaunched_onto(qtbot, tmp_path, main, worktree)
+    spy = _SeenWatching(win)
+    monkeypatch.setattr(win._commands, "remove_worktree", spy)
+
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=10000):
+        win._run_remove_worktree(worktree, force=False)
+
+    assert spy.watching == [None]
+    assert not Path(worktree).exists()
+    assert Path(win._change_detector._repo_path) == main, "the repo it moved to is watched"
+    _quiet(qtbot, win)
+
+
+def test_a_refused_removal_of_the_worktree_on_screen_leaves_it_watched(
+    qtbot, tmp_path, monkeypatch
+):
+    main, worktree = _repo_with_worktree(tmp_path)
+    win = _relaunched_onto(qtbot, tmp_path, main, worktree)
+    monkeypatch.setattr(win._commands, "remove_worktree", _Refused())
+
+    win._run_remove_worktree(worktree, force=False)
+
+    qtbot.waitUntil(
+        lambda: "Remove worktree failed: refused by git" in _log_text(win), timeout=5000
+    )
+    assert win._change_detector is not None
+    assert Path(win._change_detector._repo_path) == Path(worktree)
+    _quiet(qtbot, win)
+
+
+def test_a_refusal_that_comes_after_another_repo_opened_leaves_that_repos_watch(
+    qtbot, tmp_path, monkeypatch
+):
+    """The watch to bring back would be of the worktree the window has left."""
+    main, worktree = _repo_with_worktree(tmp_path)
+    win = _relaunched_onto(qtbot, tmp_path, main, worktree)
+    refuse = threading.Event()
+    monkeypatch.setattr(win._commands, "remove_worktree", _Refused(refuse))
+    win._run_remove_worktree(worktree, force=False)
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        win._switch_repo(str(main))
+    watching_main = win._change_detector
+
+    refuse.set()
+    qtbot.waitUntil(
+        lambda: "Remove worktree failed: refused by git" in _log_text(win), timeout=5000
+    )
+
+    assert win._change_detector is watching_main
+    _quiet(qtbot, win)
+
+
+def test_removing_another_worktree_leaves_the_watch_alone(qtbot, tmp_path, monkeypatch):
+    main, worktree = _repo_with_worktree(tmp_path)
+    store = JsonRepoStore(tmp_path / "repos.json")
+    store.add_open(str(main))
+    win = _window_on(qtbot, str(main), store)
+    watching = win._change_detector
+    spy = _SeenWatching(win)
+    monkeypatch.setattr(win._commands, "remove_worktree", spy)
+
+    win._run_remove_worktree(worktree, force=False)
+
+    qtbot.waitUntil(
+        lambda: not Path(worktree).exists() and win._repo_list.owner_of(worktree) is None,
+        timeout=10000,
+    )
+    assert spy.watching == [watching]
+    assert win._change_detector is watching
+    _quiet(qtbot, win)

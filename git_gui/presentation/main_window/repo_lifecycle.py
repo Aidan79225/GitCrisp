@@ -667,16 +667,34 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._run_remove_worktree(path, force=force, override_lock=override_lock)
 
     def _run_remove_worktree(self, path: str, *, force: bool, override_lock: bool = False) -> None:
+        # A reload the watch schedules runs git in the folder git is deleting,
+        # and Windows refuses to delete a folder a process is running in.
+        on_screen = self._repo_path is not None and same_path_text(path, self._repo_path)
+        if on_screen:
+            self._stop_change_detector()
+
+        def _refused(error: Exception, refused_in: CommandBus) -> bool:
+            if on_screen:
+                self._resume_watching(refused_in)
+            return self._offer_force_remove(
+                path, error, refused_in, force=force, override_lock=override_lock
+            )
+
         self._run_worktree_op(
             "Remove",
             lambda commands: commands.remove_worktree.execute(
                 path, force=force, override_lock=override_lock
             ),
             lambda _: self._on_worktree_removed(path),
-            lambda error, commands: self._offer_force_remove(
-                path, error, commands, force=force, override_lock=override_lock
-            ),
+            _refused,
         )
+
+    def _resume_watching(self, after_failing_in: CommandBus) -> None:
+        """Watch the repo on screen again, once a removal that stopped the
+        watch has failed — unless another repo has opened since, which has
+        its own."""
+        if self._commands is after_failing_in and self._change_detector is None:
+            self._start_change_detector(self._repo_path)
 
     def _offer_force_remove(
         self,
