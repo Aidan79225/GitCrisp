@@ -21,37 +21,21 @@ from unittest.mock import patch
 
 import pytest
 import shiboken6
-from PySide6.QtCore import QObject, Qt
 from PySide6.QtWidgets import QDialog
 
 from git_gui.presentation.widgets import clone_dialog
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
+from tests.presentation.thread_helpers import recording
 from tests.presentation.window_helpers import blank_window
 
 _URL = "https://example.com/user/repo.git"
-
-
-def _recording(base: type[QObject], destroyed_on: list[str]) -> type[QObject]:
-    """*base*, noting from its C++ destructor the name of the thread that ran it."""
-
-    class Recording(base):
-        def __init__(self, *args, **kwargs) -> None:
-            super().__init__(*args, **kwargs)
-            self.destroyed.connect(
-                lambda *_: destroyed_on.append(threading.current_thread().name),
-                Qt.ConnectionType.DirectConnection,
-            )
-
-    return Recording
 
 
 @pytest.fixture
 def destroyed_on(monkeypatch) -> list[str]:
     """The name of the thread that destroyed each clone's signals, as they are destroyed."""
     names: list[str] = []
-    monkeypatch.setattr(
-        clone_dialog, "_CloneSignals", _recording(clone_dialog._CloneSignals, names)
-    )
+    monkeypatch.setattr(clone_dialog, "_CloneSignals", recording(clone_dialog._CloneSignals, names))
     return names
 
 
