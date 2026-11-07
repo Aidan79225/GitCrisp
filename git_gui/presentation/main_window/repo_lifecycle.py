@@ -679,7 +679,11 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._run_remove_worktree(path, force=force, override_lock=override_lock)
 
     def _is_on_screen(self, path: str) -> bool:
-        """Whether *path* is the repo on screen, however either is written."""
+        """Whether *path* is the repo on screen, compared as text by same_path_text:
+        separators, a trailing separator and (on Windows) letter case do not
+        matter; a link, a mapped drive or a short name for the same folder does
+        not match.
+        """
         return self._repo_path is not None and same_path_text(path, self._repo_path)
 
     def _run_remove_worktree(self, path: str, *, force: bool, override_lock: bool = False) -> None:
