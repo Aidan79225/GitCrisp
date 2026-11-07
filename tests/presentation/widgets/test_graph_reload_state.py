@@ -834,6 +834,45 @@ def test_an_arrow_key_pressed_while_a_branch_loads_is_not_replaced_by_the_branch
     assert graph._pending_scroll_oid is None
 
 
+def test_enter_on_the_current_search_match_while_a_branch_loads_is_not_replaced_by_the_branch(
+    graph, held_workers
+):
+    """Enter goes to a match that is already the current row, which changes no
+    row, so no row change reports the pick."""
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 3")  # its only match, c3, becomes current
+    graph.reload_with_extra_tip("side")
+
+    QTest.keyClick(graph._search_bar.input_widget, Qt.Key_Return)
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
+def test_a_search_retyped_to_the_current_match_while_a_branch_loads_is_not_replaced_by_the_branch(
+    graph, held_workers
+):
+    """The search jumps to its first match as it is typed, with no Enter."""
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    graph.open_search()
+    search = graph._search_bar.input_widget
+    search.setText("commit 3")  # its only match, c3, becomes current
+    graph.reload_with_extra_tip("side")
+
+    search.clear()
+    search.setText("commit 3")  # the same first match: the current row again
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
 @pytest.mark.parametrize(
     "selected_before", [True, False], ids=["a-commit-selected", "nothing-selected"]
 )
@@ -897,6 +936,30 @@ def test_a_row_clicked_after_scrolling_while_a_branch_loads_is_still_on_screen_w
     _finish_all(held_workers)
 
     assert _current_oid(graph) == "c30"
+    assert view.viewport().rect().intersects(view.visualRect(view.currentIndex()))
+
+
+def test_enter_on_a_search_match_far_down_while_a_branch_loads_is_still_on_screen_when_it_lands(
+    qtbot, graph, held_workers
+):
+    """The viewport the load saved when it began is not where Enter has taken
+    the list back to the match."""
+    graph.resize(400, 300)
+    graph.show()
+    qtbot.waitExposed(graph)
+    _first_page_drawn(graph, held_workers, length=200)
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 120")  # loads all 200, then jumps to c120
+    _finish_all(held_workers)
+    view = graph._view
+    qtbot.waitUntil(lambda: view.verticalScrollBar().maximum() > 0)
+    view.verticalScrollBar().setValue(0)  # the user scrolls away from the match
+    graph.reload_with_extra_tip("side")
+
+    QTest.keyClick(graph._search_bar.input_widget, Qt.Key_Return)
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c120"
     assert view.viewport().rect().intersects(view.visualRect(view.currentIndex()))
 
 

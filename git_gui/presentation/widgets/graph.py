@@ -1489,12 +1489,16 @@ class GraphWidget(QWidget):
         )
 
     def _jump_to_match(self) -> None:
-        row = self._row_of(self._search_matches[self._search_idx])
+        oid = self._search_matches[self._search_idx]
+        row = self._row_of(oid)
         if row is None:
             return  # a reload since the search dropped this commit
         index = self._model.index(row, 0)
         self._view.scrollTo(index, QTableView.PositionAtCenter)
         self._view.setCurrentIndex(index)
+        # Jumping to the match that is already current changes no row, and
+        # _on_row_changed hears of a pick only when the row changes.
+        self._supersede_pending_landing(oid)
 
     def _row_of(self, oid: str) -> int | None:
         for row in range(self._model.rowCount()):
