@@ -27,7 +27,8 @@ class BranchOps:
     """Branch read and write operations for the pygit2 adapter.
 
     Mixin — not instantiable on its own. Relies on `self._repo` set up
-    by the composite class.
+    by the composite class, and on RemoteOps' `_run_cancellable_remote_git`,
+    WorktreeOps' `find_worktree_for_branch` and MergeRebaseOps' `_run_git`.
     """
 
     _repo: pygit2.Repository  # provided by the composite
