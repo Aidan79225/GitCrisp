@@ -8,6 +8,7 @@ clicked another repo themselves.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 from pathlib import Path
@@ -473,4 +474,79 @@ def test_removing_another_worktree_leaves_the_watch_alone(qtbot, tmp_path, monke
     )
     assert spy.watching == [watching]
     assert win._change_detector is watching
+    _quiet(qtbot, win)
+
+
+# ── A worktree written another way than git lists it ─────────────────────────
+
+
+def _with_a_trailing_separator(path: str) -> str:
+    return path + os.sep
+
+
+def _with_forward_slashes(path: str) -> str:
+    return path.replace("\\", "/")
+
+
+_WRITTEN_ANOTHER_WAY = pytest.mark.parametrize(
+    "respell",
+    [
+        pytest.param(_with_a_trailing_separator, id="trailing separator"),
+        pytest.param(
+            _with_forward_slashes,
+            id="forward slashes",
+            marks=pytest.mark.skipif(os.sep != "\\", reason="a separator on Windows only"),
+        ),
+    ],
+)
+
+
+@_WRITTEN_ANOTHER_WAY
+def test_the_worktree_on_screen_is_left_when_git_lists_it_another_way(
+    qtbot, tmp_path, monkeypatch, respell
+):
+    """The Open dialog writes forward slashes and git lists the folder with
+    backslashes. The removal dropped the watch, then took the worktree for
+    another one: the window stayed on the deleted folder, unwatched, and its
+    row stayed in the open list."""
+    main, worktree = _repo_with_worktree(tmp_path)
+    store, far = _own_row_store(tmp_path, respell(worktree))
+    win = _window_on(qtbot, respell(worktree), store)
+    _wait_for_the_start_up_loads(qtbot, win)
+    spy = _SeenWatching(win)
+    monkeypatch.setattr(win._commands, "remove_worktree", spy)
+
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=10000, raising=False):
+        win._run_remove_worktree(worktree, force=False)
+
+    assert spy.watching == [None], "the watch is dropped while git removes the folder"
+    assert Path(win._repo_path) == main.resolve()
+    assert Path(win._change_detector._repo_path) == main.resolve(), (
+        "the repo it moved to is watched"
+    )
+    assert store.get_open_repos() == [far, win._repo_path], "main takes the dead row's place"
+    _quiet(qtbot, win)
+
+
+@_WRITTEN_ANOTHER_WAY
+def test_the_open_row_of_a_removed_worktree_is_dropped_however_it_was_written(
+    qtbot, tmp_path, respell
+):
+    """The child row asks git to remove the folder as git lists it, and the
+    open row the Open dialog wrote did not match: it stayed, for a folder that
+    is gone."""
+    main, worktree = _repo_with_worktree(tmp_path)
+    store = JsonRepoStore(tmp_path / "repos.json")
+    store.add_open(respell(worktree))
+    store.add_open(str(main))
+    win = _window_on(qtbot, str(main), store)
+    _wait_for_the_start_up_loads(qtbot, win)
+
+    win._run_remove_worktree(worktree, force=False)
+
+    qtbot.waitUntil(
+        lambda: not Path(worktree).exists() and win._repo_list.owner_of(worktree) is None,
+        timeout=10000,
+    )
+    assert store.get_open_repos() == [str(main)]
     _quiet(qtbot, win)

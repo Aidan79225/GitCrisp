@@ -671,10 +671,14 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if not self._repo_switched_while_asking(asked_in, f"Remove worktree {path}"):
             self._run_remove_worktree(path, force=force, override_lock=override_lock)
 
+    def _is_on_screen(self, path: str) -> bool:
+        """Whether *path* is the repo on screen, however either is written."""
+        return self._repo_path is not None and same_path_text(path, self._repo_path)
+
     def _run_remove_worktree(self, path: str, *, force: bool, override_lock: bool = False) -> None:
         # A reload the watch schedules runs git in the folder git is deleting,
         # and Windows refuses to delete a folder a process is running in.
-        on_screen = self._repo_path is not None and same_path_text(path, self._repo_path)
+        on_screen = self._is_on_screen(path)
         if on_screen:
             self._stop_change_detector()
 
@@ -738,11 +742,12 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         that raised "head reference does not exist" until the user clicked
         another repo themselves.
         """
-        row_above = self._open_repo_above(path)  # forgetting takes its row away
-        self._repo_store.forget(path)
+        listed = self._stored_spelling_of(path)
+        row_above = self._open_repo_above(listed)  # forgetting takes its row away
+        self._repo_store.forget(listed)
         self.save_repo_list()
 
-        if path != self._repo_path:
+        if not self._is_on_screen(path):
             self._load_worktrees_for_active_repo()
             self._repo_list.reload()
             return
@@ -754,6 +759,16 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             return
         self._log_panel.log(f"Removed worktree {path} — switched to {home}")
         self._request_repo(self._request_to_replace_removed(home, row_above))
+
+    def _stored_spelling_of(self, path: str) -> str:
+        """The open row for *path* as the store writes it, else *path*.
+
+        Open Repository keeps the dialog's spelling of a folder, forward slashes
+        on Windows, while git lists the same folder another way: forgetting it
+        as git writes it would miss the row.
+        """
+        open_repos = self._repo_store.get_open_repos()
+        return next((p for p in open_repos if same_path_text(p, path)), path)
 
     def _open_repo_above(self, path: str) -> str | None:
         """The open repo listed just above *path*; None when *path* is first
