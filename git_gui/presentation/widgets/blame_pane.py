@@ -84,7 +84,7 @@ def _syntax_spans(lines: list[BlameLine], path: str) -> list[SyntaxToken]:
 
 class _LoadSignals(QObject):
     done = Signal(list, list, str, str)  # lines, syntax spans, path, oid
-    failed = Signal(str)
+    failed = Signal(str, str, str)  # message, path, oid
 
 
 class _Gutter(QWidget):
@@ -427,7 +427,7 @@ class BlamePane(QWidget):
             try:
                 lines = queries.get_blame.execute(path, at_oid=oid)
             except Exception as e:  # surfaced in the header, not swallowed
-                signals.failed.emit(str(e))
+                signals.failed.emit(str(e), path, oid or "")
                 return
             # Tokenizing a large file takes long enough to freeze the window
             # if it runs where the window does.
@@ -435,10 +435,14 @@ class BlamePane(QWidget):
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _is_current(self, path: str, oid: str) -> bool:
+        """Whether an answer is for the revision on screen; `oid` is "" for HEAD."""
+        return (path, oid or None) == (self._path, self._oid)
+
     def _on_loaded(
         self, lines: list[BlameLine], spans: list[SyntaxToken], path: str, oid: str
     ) -> None:
-        if (path, oid or None) != (self._path, self._oid):
+        if not self._is_current(path, oid):
             return  # the user moved on while this was in flight
         self._suppress_emit = True
         self._editor.set_lines(lines, spans)
@@ -446,7 +450,9 @@ class BlamePane(QWidget):
         self._last_emitted = None
         self._update_status()
 
-    def _on_failed(self, message: str) -> None:
+    def _on_failed(self, message: str, path: str, oid: str) -> None:
+        if not self._is_current(path, oid):
+            return  # the user moved on while this was in flight
         self._editor.set_lines([], [])
         self._status.setText(message)
 
