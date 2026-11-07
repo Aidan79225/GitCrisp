@@ -233,6 +233,12 @@ def _worktrees_listed_under(win: MainWindow, owner: str) -> list[str]:
     return []
 
 
+def _settled(qtbot, win: MainWindow) -> None:
+    """Let the loads under way finish: a worker must not outlive its test."""
+    win._stop_change_detector()
+    qtbot.waitUntil(lambda: not win._graph._loading, timeout=10000)
+
+
 @pytest.mark.parametrize(
     ("open_names", "owner_name"),
     [
@@ -284,9 +290,11 @@ def test_ctrl_w_in_a_linked_worktree_while_another_repo_opens_hands_over_to_it(
     qtbot, tmp_path, repos
 ):
     """The repo the user already asked for takes over; going back to the owner
-    would have replaced that request."""
+    would have replaced that request, and closing the worktree, which has no
+    row to close, listed it under RECENT."""
     a, _, c = repos
     win, _ = _in_worktree_of(qtbot, tmp_path, repos, owner=c)
+    recent_before = win._repo_store.get_recent_repos()
     held = _hold_session(win, a)
     win._switch_repo(a)
 
@@ -296,3 +304,28 @@ def test_ctrl_w_in_a_linked_worktree_while_another_repo_opens_hands_over_to_it(
 
     assert win._repo_path == a
     assert win._repo_store.get_open_repos() == repos
+    assert win._repo_store.get_recent_repos() == recent_before
+
+
+def test_a_second_ctrl_w_while_the_first_is_still_opening_the_owner_does_nothing(
+    qtbot, tmp_path, repos
+):
+    """The first press asks for the owner. The second found that request
+    pending and closed the worktree instead: it was listed under RECENT, and
+    the window went blank until the owner opened. A held key repeats."""
+    _, _, c = repos
+    win, worktree = _in_worktree_of(qtbot, tmp_path, repos, owner=c)
+    recent_before = win._repo_store.get_recent_repos()
+    held = _hold_session(win, c)
+
+    win._close_current_repo()
+    win._close_current_repo()
+
+    assert win._repo_path == worktree, "the worktree stays up until the owner opens"
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        held.release.set()
+    assert win._repo_path == c
+    assert win._repo_store.get_open_repos() == repos
+    assert win._repo_store.get_recent_repos() == recent_before
+    assert _worktrees_listed_under(win, c) == [worktree]
+    _settled(qtbot, win)

@@ -382,8 +382,14 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         pending = self._pending_request()
         if pending is not None and pending.path == path and _replaces_a_closed_repo(pending):
             return True
-        in_owned_worktree = self._repo_path not in self._repo_store.get_open_repos()
-        return in_owned_worktree and path == self._repo_list.worktree_owner()
+        return path == self._open_owner_of_worktree_on_screen()
+
+    def _open_owner_of_worktree_on_screen(self) -> str | None:
+        """The open repo the linked worktree on screen is listed under, or None
+        when the repo on screen has a row of its own or its owner is not open."""
+        owner = self._repo_list.worktree_owner()
+        open_repos = self._repo_store.get_open_repos()
+        return owner if self._repo_path not in open_repos and owner in open_repos else None
 
     def _pending_request(self) -> _RepoRequest | None:
         """The request still opening, or None once the latest one has landed."""
@@ -410,17 +416,16 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
         A linked worktree on screen has no row of its own to close, only a
         child row under its owner's: Ctrl+W goes back to the owner and closes
-        nothing, unless a repo is already on its way, which takes over.
+        nothing. With a repo already on its way it does nothing: that repo
+        takes the screen.
         """
         if not self._repo_path:
             return
-        open_repos = self._repo_store.get_open_repos()
-        owner = self._repo_list.worktree_owner()
-        in_owned_worktree = self._repo_path not in open_repos and owner in open_repos
-        if in_owned_worktree and self._pending_request() is None:
+        owner = self._open_owner_of_worktree_on_screen()
+        if owner is None:
+            self._on_repo_close(self._repo_path)
+        elif self._pending_request() is None:
             self._switch_repo(owner)
-            return
-        self._on_repo_close(self._repo_path)
 
     def _switch_to_repo_index(self, index: int) -> None:
         """Ctrl+1..9: switch to the Nth open repo (1-based)."""

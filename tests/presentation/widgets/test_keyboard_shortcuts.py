@@ -231,6 +231,7 @@ def _make_main_window_stub(repo_path, open_repos):
     and _switch_to_repo_index."""
     stub = MagicMock()
     stub._repo_path = repo_path
+    stub._open_owner_of_worktree_on_screen.return_value = None  # a repo with a row of its own
     store = MagicMock()
     store.get_open_repos.return_value = list(open_repos)
     stub._repo_store = store
