@@ -109,6 +109,37 @@ def test_a_file_the_diff_query_left_out_gets_a_notice_while_the_others_render(
     assert "kept" in "".join(editor.toPlainText() for editor in widget.findChildren(QPlainTextEdit))
 
 
+def test_a_block_that_gets_a_notice_lets_go_of_the_height_its_diff_held(widget, queries, qtbot):
+    """A reload holds each block at the height its last diff had, so the user's
+    place survives while skeletons stand in. The notice that ends a block with
+    no diff is a line long: kept at the old height it sat in a tall empty frame
+    and pushed every file below it off the screen."""
+    long_hunk = Hunk(
+        header="@@ -1,60 +1,60 @@",
+        lines=[(LineKind.ADDED, f"line {i}\n") for i in range(60)],
+    )
+    queries.get_working_tree_diff_map.execute.side_effect = [
+        {"a.txt": {StagingState.UNSTAGED: [long_hunk]}},
+        {},
+    ]
+    widget.resize(700, 600)
+    widget.show()
+    widget.load_all_files(["a.txt"])
+    qtbot.waitUntil(lambda: bool(widget.findChildren(QPlainTextEdit)), timeout=5000)
+
+    widget.load_all_files(["a.txt"])
+    frame = widget._aggregate_blocks["a.txt"]
+    assert frame.minimumHeight() > 0  # held while the skeleton stands in
+    qtbot.waitUntil(lambda: _assert_notices_not_skeletons(widget, 1), timeout=5000)
+
+    assert frame.minimumHeight() == 0
+
+    def frame_is_no_taller_than_its_content() -> None:
+        assert frame.height() <= frame.sizeHint().height()
+
+    qtbot.waitUntil(frame_is_no_taller_than_its_content, timeout=5000)
+
+
 def test_a_failed_load_of_one_files_diff_is_logged(widget, queries, gate, qtbot, caplog):
     queries.get_file_diff.execute.side_effect = _failing_after(gate, "blob is unreadable")
 

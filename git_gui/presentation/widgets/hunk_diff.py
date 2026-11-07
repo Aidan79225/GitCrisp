@@ -190,9 +190,10 @@ class HunkDiffWidget(QWidget):
         for path in shown:
             frame, inner = self._make_file_block(path)
             # A skeleton is far shorter than the block it stands for. Holding
-            # the block's last height until it is realised keeps the content
-            # above the user's place the same height, so the unchanged scroll
-            # value still shows the same file after a stage or discard.
+            # the block's last height until the loader settles it, with its
+            # diff or with a notice, keeps the content above the user's place
+            # the same height, so the unchanged scroll value still shows the
+            # same file after a stage or discard.
             frame.setMinimumHeight(last_heights.get(path, 0))
             self._aggregate_blocks[path] = frame
             skeleton = make_skeleton_container()
@@ -330,7 +331,6 @@ class HunkDiffWidget(QWidget):
         if skeleton is not None:
             inner.removeWidget(skeleton)
             skeleton.deleteLater()
-        inner.parentWidget().setMinimumHeight(0)  # the real content now sets it
         self._add_file_hunks(
             inner,
             path,

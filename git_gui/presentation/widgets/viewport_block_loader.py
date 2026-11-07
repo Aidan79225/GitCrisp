@@ -154,6 +154,10 @@ class ViewportBlockLoader(QObject):
             except RuntimeError:
                 continue
             if frame_rect.intersects(vp_rect):
+                # A reload may have pinned the block at its last content's
+                # height while the skeleton stood in; the content, or the
+                # notice, sets it from here.
+                frame.setMinimumHeight(0)
                 entry = self._diff_map.get(path)
                 if entry is not None:
                     self._realize_fn(path, inner, skeleton, entry)

@@ -146,7 +146,10 @@ def test_a_hidden_pane_realizes_nothing_until_it_is_shown(qtbot):
     realized = []
     loader = ViewportBlockLoader(sa, lambda path, inner, skel, entry: realized.append(path))
     paths = [f"f{i}.txt" for i in range(20)]
-    loader.set_blocks([_make_block(layout, path, height=100) for path in paths])
+    # Blocks that take their height from their content: a frame fixed at 100px
+    # shrinks to its content once the loader releases its height, and more of
+    # them would then fit on screen.
+    loader.set_blocks([_make_growing_block(layout, path, skeleton_height=100) for path in paths])
     loader.set_diff_map({path: ["hunk"] for path in paths})
 
     qtbot.wait(200)
@@ -271,6 +274,25 @@ def test_new_blocks_do_not_inherit_the_diff_map_that_arrived_for_the_old_ones(qt
 
     assert len(_skeleton_bars(new)) > 0
     assert _unavailable_notices(new) == []
+
+
+@pytest.mark.parametrize(
+    "diff_map", [{"a.txt": ["hunk"]}, {}], ids=["a block with its diff", "a block with a notice"]
+)
+def test_a_settled_block_lets_go_of_the_height_a_reload_held_for_it(qtbot, scroll_area, diff_map):
+    """A reload keeps a rebuilt block as tall as its last content until it is
+    settled, so the user's place survives. Either way a block ends, its own
+    content sets the height from then on."""
+    sa, container, layout = scroll_area
+    loader = ViewportBlockLoader(sa, _build_like_a_pane([]))
+    block = _make_skeleton_block(layout, "a.txt")
+    block[1].setMinimumHeight(250)
+    loader.set_blocks([block])
+    loader.set_diff_map(diff_map)
+
+    loader._check_viewport()
+
+    assert block[1].minimumHeight() == 0
 
 
 def test_a_notice_in_a_collapsed_block_stays_hidden(qtbot, scroll_area):
