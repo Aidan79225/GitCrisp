@@ -5,6 +5,7 @@ import logging
 import pygit2
 
 from git_gui.domain.entities import Branch, LocalBranchInfo, TrackedBranch, split_remote_branch
+from git_gui.infrastructure.git_process import git_failure_message, run_git
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,8 @@ def _tracked_by(config: pygit2.Config, branch: str) -> TrackedBranch | None:
 class BranchOps:
     """Branch read and write operations for the pygit2 adapter.
 
-    Mixin — not instantiable on its own. Relies on `self._repo` set up
-    by the composite class.
+    Mixin — not instantiable on its own. Relies on `self._repo`,
+    `self._run_dir` and `self._git_env` set up by the composite class.
     """
 
     _repo: pygit2.Repository  # provided by the composite
@@ -186,7 +187,7 @@ class BranchOps:
         remote_ref = self._repo.branches.remote[remote_branch]
         local_ref = self._repo.branches.local.create(local_name, self._repo.get(remote_ref.target))
         try:
-            local_ref.upstream = remote_ref
+            self._git_branch(f"--set-upstream-to={remote_ref.name}", local_name)
             self._repo.checkout(local_ref)
         except Exception:
             # A checkout refused over uncommitted changes must not leave behind
@@ -211,11 +212,23 @@ class BranchOps:
     def set_branch_upstream(self, name: str, upstream: str) -> None:
         local = self._repo.branches.local[name]
         remote = self._repo.branches.remote[upstream]
-        local.upstream = remote
+        self._git_branch(f"--set-upstream-to={remote.name}", local.branch_name)
 
     def unset_branch_upstream(self, name: str) -> None:
         local = self._repo.branches.local[name]
-        local.upstream = None
+        self._git_branch("--unset-upstream", local.branch_name)
+
+    def _git_branch(self, *args: str) -> None:
+        """Run `git branch` with *args*; a failure raises git's own message.
+
+        Upstreams are changed by git, not through `Branch.upstream`: libgit2
+        reads the shorthand "origin/master" as a local branch of that name
+        before origin's master, and deletes keys from an in-memory config
+        that has not seen what git wrote a moment before.
+        """
+        result = run_git(["git", "branch", *args], cwd=self._run_dir, env=self._git_env)
+        if result.returncode != 0:
+            raise RuntimeError(git_failure_message(result))
 
     def reset_branch_to_ref(self, branch: str, ref: str) -> None:
         # The hard reset moves whatever HEAD is on. Callers check `branch` out
