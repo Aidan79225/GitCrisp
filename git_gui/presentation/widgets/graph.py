@@ -807,9 +807,6 @@ class GraphWidget(QWidget):
         It is the latest pick, so a click still loading toward a landing loses to it.
         """
         self.scroll_to_oid(oid, select=True)
-        # _on_row_changed hears of a pick only when the row changes, and
-        # picking the current commit again changes none.
-        self._supersede_pending_landing(oid)
 
     def _select_in_file_history(self, oid: str, tips: list[str]) -> None:
         """Select `oid` in the file history, paging further in to find it.
@@ -1352,7 +1349,10 @@ class GraphWidget(QWidget):
             )
 
     def scroll_to_oid(self, oid: str, select: bool = False) -> None:
-        """Scroll so the row with the given oid is the first visible item."""
+        """Scroll so the row with the given oid is the first visible item.
+
+        With `select` it is also picked: a click still loading toward a landing loses to it.
+        """
         row = self._row_of(oid)
         if row is None:
             return
@@ -1360,6 +1360,9 @@ class GraphWidget(QWidget):
         self._view.scrollTo(index, QTableView.PositionAtTop)
         if select:
             self._view.setCurrentIndex(index)
+            # _on_row_changed hears of a pick only when the row changes, and
+            # picking the current commit again changes none.
+            self._supersede_pending_landing(oid)
 
     def clear_selection(self) -> None:
         self._view.clearSelection()

@@ -873,6 +873,24 @@ def test_a_search_retyped_to_the_current_match_while_a_branch_loads_is_not_repla
     assert graph._pending_scroll_oid is None
 
 
+def test_head_shown_after_a_checkout_while_a_branch_loads_is_not_replaced_by_the_branch(
+    graph, held_workers
+):
+    """A checkout shows the commit HEAD is now on, which can be the row that
+    is already current."""
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    _select_row(graph, 3)
+    graph.reload_with_extra_tip("side")
+
+    graph.scroll_to_oid("c3", select=True)  # HEAD, as the window shows it after a checkout
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
 @pytest.mark.parametrize(
     "selected_before", [True, False], ids=["a-commit-selected", "nothing-selected"]
 )
