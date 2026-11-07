@@ -45,15 +45,17 @@ def test_the_old_repos_diff_map_does_not_fill_the_new_repos_blocks(qtbot):
     widget.show()
     try:
         widget.load_all_files(["README.md"])
+        old = widget._load_all_signals
         widget.set_buses(new_queries, MagicMock())
         widget.clear()
         widget.load_all_files(["README.md"])
 
-        old_released.set()
-        qtbot.wait(100)
+        # The new worker waits until the old answer has been delivered: unguarded,
+        # it would then reach the new blocks ahead of their own.
+        with qtbot.waitSignal(old.done, timeout=5000):
+            old_released.set()
         new_released.set()
         qtbot.waitUntil(lambda: bool(_shown_text(widget)), timeout=2000)
-        qtbot.wait(100)
     finally:
         old_released.set()
         new_released.set()
