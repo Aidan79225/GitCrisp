@@ -5,13 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QDialog, QMainWindow, QMenu
+from PySide6.QtWidgets import QMainWindow, QMenu
 
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.dialogs.branches_dialog import BranchesDialog
 from git_gui.presentation.dialogs.remote_branches_dialog import RemoteBranchesDialog
 from git_gui.presentation.dialogs.remote_dialog import RemoteDialog
 from git_gui.presentation.dialogs.submodule_dialog import SubmoduleDialog
+from git_gui.presentation.menus.run_and_discard import run_and_discard
 
 
 def install_git_menu(
@@ -44,7 +45,7 @@ def install_git_menu(
     remote_action = QAction("&Remotes...", git_menu)
 
     def _open_remote() -> None:
-        _run_and_discard(RemoteDialog(queries, commands, window))
+        run_and_discard(RemoteDialog(queries, commands, window))
 
     remote_action.triggered.connect(_open_remote)
 
@@ -55,14 +56,14 @@ def install_git_menu(
         dlg.set_worktree_paths(dict(worktree_paths()))
         dlg.checkout_requested.connect(on_checkout_branch)
         dlg.checkout_in_new_worktree_requested.connect(on_checkout_in_new_worktree)
-        _run_and_discard(dlg)
+        run_and_discard(dlg)
 
     branches_action.triggered.connect(_open_branches)
 
     remote_branches_action = QAction("Remote &Branches...", git_menu)
 
     def _open_remote_branches() -> None:
-        _run_and_discard(RemoteBranchesDialog(queries, commands, window))
+        run_and_discard(RemoteBranchesDialog(queries, commands, window))
 
     remote_branches_action.triggered.connect(_open_remote_branches)
 
@@ -71,7 +72,7 @@ def install_git_menu(
     def _open_submodule() -> None:
         d = SubmoduleDialog(queries, commands, repo_workdir, window)
         d.submoduleOpenRequested.connect(on_open_submodule)
-        _run_and_discard(d)
+        run_and_discard(d)
 
     submodule_action.triggered.connect(_open_submodule)
 
@@ -116,13 +117,3 @@ def _remove_previous_git_menu(window: QMainWindow) -> None:
         return
     window.menuBar().removeAction(previous.menuAction())
     previous.deleteLater()
-
-
-def _run_and_discard(dialog: QDialog) -> None:
-    """Run `dialog` modally, then delete it.
-
-    Parented to the window, a finished dialog would otherwise live as long as
-    the window and keep the session it was given open.
-    """
-    dialog.exec()
-    dialog.deleteLater()
