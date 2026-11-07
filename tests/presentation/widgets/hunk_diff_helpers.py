@@ -14,6 +14,9 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+import shiboken6
+from PySide6.QtCore import QObject
+
 
 @contextmanager
 def workers_joined_on_exit() -> Iterator[None]:
@@ -28,3 +31,14 @@ def workers_joined_on_exit() -> Iterator[None]:
     finally:
         for thread in set(threading.enumerate()) - before:
             thread.join(2)
+
+
+def wait_until_deleted(qtbot, obj: QObject, timeout: int = 2000) -> None:
+    """Wait for Qt to delete *obj*, a load's signals that delete themselves once answered.
+
+    A waitSignal on those signals can lose its wake-up to that deletion: their
+    own deleteLater is connected before any observer a test adds, so they can be
+    gone before the observer is called. The pane's slot is connected before
+    deleteLater, so by the time they are gone the pane has had the answer.
+    """
+    qtbot.waitUntil(lambda: not shiboken6.isValid(obj), timeout=timeout)

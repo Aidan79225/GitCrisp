@@ -19,7 +19,7 @@ from PySide6.QtWidgets import QFrame, QLabel, QPlainTextEdit
 
 from git_gui.domain.entities import Hunk, LineKind, StagingState
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
-from tests.presentation.widgets.hunk_diff_helpers import workers_joined_on_exit
+from tests.presentation.widgets.hunk_diff_helpers import wait_until_deleted, workers_joined_on_exit
 
 
 @pytest.fixture
@@ -64,8 +64,9 @@ def test_a_failed_load_of_every_files_diff_is_logged(widget, queries, gate, qtbo
     queries.get_working_tree_diff_map.execute.side_effect = _failing_after(gate, "index is corrupt")
 
     widget.load_all_files(["a.txt"])
-    with qtbot.waitSignal(widget._load_all_signals.done, timeout=2000):
-        gate.set()
+    signals = widget._load_all_signals
+    gate.set()
+    wait_until_deleted(qtbot, signals)
 
     assert "index is corrupt" in caplog.text
 
@@ -144,8 +145,9 @@ def test_a_failed_load_of_one_files_diff_is_logged(widget, queries, gate, qtbot,
     queries.get_file_diff.execute.side_effect = _failing_after(gate, "blob is unreadable")
 
     widget.load_file("a.txt")
-    with qtbot.waitSignal(widget._load_signals.done, timeout=2000):
-        gate.set()
+    signals = widget._load_signals
+    gate.set()
+    wait_until_deleted(qtbot, signals)
 
     assert "blob is unreadable" in caplog.text
 
@@ -154,7 +156,8 @@ def test_a_failed_submodule_listing_is_logged(widget, queries, gate, qtbot, capl
     queries.list_submodules.execute.side_effect = RuntimeError(".gitmodules is unreadable")
 
     widget.load_all_files(["a.txt"])
-    with qtbot.waitSignal(widget._load_all_signals.done, timeout=2000):
-        gate.set()
+    signals = widget._load_all_signals
+    gate.set()
+    wait_until_deleted(qtbot, signals)
 
     assert ".gitmodules is unreadable" in caplog.text
