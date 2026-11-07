@@ -112,6 +112,24 @@ def test_a_dialog_that_cloned_again_after_a_failure_is_freed(qtbot):
     _wait_until_freed(qtbot, win)
 
 
+def test_a_dialog_whose_clone_could_not_start_is_freed(qtbot):
+    """No worker exists, so none is waited for: the count of running workers went up
+    before the thread was started, and a start that failed left the dialog busy for good."""
+    win = blank_window(qtbot)
+
+    def fail_to_start_then_give_up(dialog):
+        dialog._url_edit.setText(_URL)
+        out_of_threads = RuntimeError("can't start new thread")
+        with patch.object(threading.Thread, "start", side_effect=out_of_threads):
+            with pytest.raises(RuntimeError, match="can't start new thread"):
+                dialog._on_clone()
+        return _cancel(dialog)
+
+    _open_clone_dialog(win, fail_to_start_then_give_up)
+
+    _wait_until_freed(qtbot, win)
+
+
 @pytest.fixture
 def git_stops():
     """Set by the test when git should finish dying; set at the end so no worker is left waiting."""

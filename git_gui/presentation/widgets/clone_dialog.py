@@ -194,7 +194,6 @@ class CloneDialog(QDialog):
         signals.ended.connect(self._on_worker_ended)
         signals.ended.connect(signals.deleteLater)
         self._clone_signals = signals  # the newest clone's, for tests to listen to
-        self._workers_running += 1
 
         cancelled = self._cancel_requested
 
@@ -217,6 +216,9 @@ class CloneDialog(QDialog):
                     signals.ended.emit()
 
         threading.Thread(target=_worker, daemon=True).start()
+        # Counted once started: a thread that cannot start never ends. Its `ended` is
+        # queued for the GUI thread, which cannot handle it before this returns.
+        self._workers_running += 1
 
     def _on_progress(self, phase: str, percent: int) -> None:
         self._progress_label.setText(f"{phase}: {percent}%")
