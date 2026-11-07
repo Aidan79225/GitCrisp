@@ -100,7 +100,6 @@ _GROUPS: list[tuple[str, list[str]]] = [
 
 _GRAPH_LANE_PAGE_TITLE = "Graph lanes"
 
-_TYPOGRAPHY_SCALE_DEFAULT = 100
 _TYPOGRAPHY_SCALE_MIN = round(_settings.TYPOGRAPHY_SCALE_MIN * 100)
 _TYPOGRAPHY_SCALE_MAX = round(_settings.TYPOGRAPHY_SCALE_MAX * 100)
 _TYPOGRAPHY_SCALE_STEP = 10
@@ -215,7 +214,6 @@ class ThemeDialog(QDialog):
         self._typo_slider.setTickPosition(QSlider.TicksBelow)
         saved_scale = _settings.load_typography_scale()
         initial_value = round(saved_scale * 100 / _TYPOGRAPHY_SCALE_STEP) * _TYPOGRAPHY_SCALE_STEP
-        initial_value = max(_TYPOGRAPHY_SCALE_MIN, min(_TYPOGRAPHY_SCALE_MAX, initial_value))
         self._typo_slider.setValue(initial_value)
         self._typo_label = QLabel(f"{initial_value}%")
 
