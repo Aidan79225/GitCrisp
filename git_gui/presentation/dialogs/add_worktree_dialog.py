@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -21,6 +21,14 @@ from PySide6.QtWidgets import (
 
 from git_gui.presentation.paths import same_path_text
 from git_gui.presentation.theme import get_theme_manager
+from git_gui.presentation.widgets.background import BackgroundRunner, start_daemon_thread
+
+# Most checks answer well inside this; a hint that flashes up is worse than none.
+_CHECKING_HINT_DELAY_MS = 300
+
+
+class _LocationCheckSignals(QObject):
+    checked = Signal(int, str)  # generation, why the location is refused ("" when it is fine)
 
 
 def _sanitize_branch(branch: str) -> str:
@@ -36,14 +44,21 @@ def _default_location(repo_path: str, branch: str) -> str:
     return str(parent / f"{name}-{_sanitize_branch(branch or 'new')}")
 
 
-def _location_problem(location: str) -> str | None:
-    """Why a worktree cannot be created at `location`, or None when it can."""
-    if not location:
-        return None
-    path = Path(location)
-    if not path.is_absolute():
+def _text_problem(location: str) -> str | None:
+    """Why `location` cannot be a worktree path as written; reads no disk."""
+    if location and not Path(location).is_absolute():
         # git would resolve it against the app's working directory.
         return "Location must be an absolute path."
+    return None
+
+
+def _disk_problem(location: str) -> str | None:
+    """Why a worktree cannot be created at `location`, or None when it can.
+
+    Waits out the network timeout on a share whose server is gone, so it never
+    runs on the GUI thread.
+    """
+    path = Path(location)
     try:
         if path.exists() and not _is_empty_folder(path):
             # git worktree add accepts an empty folder, the only kind Browse… returns.
@@ -70,12 +85,26 @@ class AddWorktreeDialog(QDialog):
         preselect_branch: str | None = None,
         default_create_new: bool = False,
         parent=None,
+        *,
+        run_in_background: BackgroundRunner = start_daemon_thread,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add Worktree")
         self._repo_path = repo_path
         self._branches_in_use = dict(branches_in_use or {})
         self._location_chosen_by_user = False
+        self._run_in_background = run_in_background
+        self._location_checks = _LocationCheckSignals()
+        # Bumped by every change of the location: a check that answers after a
+        # newer change was made is for text that is no longer in the field.
+        self._check_generation = 0
+        # Whether the location in the field has been checked and found fine.
+        # Add reads this and never the disk, and it stays False while a check
+        # is out, so an unchecked location is not offered.
+        self._location_usable = False
+        self._hint_timer = QTimer(self)
+        self._hint_timer.setSingleShot(True)
+        self._hint_timer.setInterval(_CHECKING_HINT_DELAY_MS)
 
         self._branch_combo = self._build_branch_combo(branches)
         self._create_new_cb = QCheckBox("Create new branch")
@@ -145,6 +174,11 @@ class AddWorktreeDialog(QDialog):
         self._location_error.setWordWrap(True)
         self._location_error.setStyleSheet(f"color: {get_theme_manager().current.colors.error};")
         self._location_error.setVisible(False)
+        self._location_hint = QLabel("Checking location…")
+        self._location_hint.setStyleSheet(
+            f"color: {get_theme_manager().current.colors.on_surface_variant};"
+        )
+        self._location_hint.setVisible(False)
         return row
 
     def _build_buttons(self) -> QDialogButtonBox:
@@ -159,6 +193,7 @@ class AddWorktreeDialog(QDialog):
         form.addRow("", self._in_use_notice)
         form.addRow("Location:", location_row)
         form.addRow("", self._location_error)
+        form.addRow("", self._location_hint)
         form.addRow("", self._switch_after_cb)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -170,8 +205,9 @@ class AddWorktreeDialog(QDialog):
         self._new_name.textChanged.connect(self._on_branch_changed)
         self._switch_btn.clicked.connect(self._on_switch_to_existing)
         self._location_edit.textEdited.connect(self._on_location_edited)
-        self._location_edit.textChanged.connect(self._refresh_location_error)
-        self._location_edit.textChanged.connect(self._refresh_add_button)
+        self._location_edit.textChanged.connect(self._on_location_changed)
+        self._location_checks.checked.connect(self._on_location_checked)
+        self._hint_timer.timeout.connect(self._location_hint.show)
         self._browse_btn.clicked.connect(self._on_browse)
         self._buttons.accepted.connect(self.submit)
         self._buttons.rejected.connect(self.reject)
@@ -284,10 +320,40 @@ class AddWorktreeDialog(QDialog):
         else:
             self._in_use_label.setText(f"Already checked out at {path}" if path else "")
 
-    def _refresh_location_error(self) -> None:
-        problem = _location_problem(self.location())
+    def _on_location_changed(self, _text: str) -> None:
+        self._check_generation += 1
+        location = self.location()
+        problem = _text_problem(location)
+        if problem is None and location:
+            self._begin_disk_check(location)
+        else:
+            self._settle_location(problem)
+
+    def _begin_disk_check(self, location: str) -> None:
+        self._location_usable = False
+        self._location_error.setVisible(False)
+        self._hint_timer.start()
+        self._refresh_add_button()
+        generation = self._check_generation
+        signals = self._location_checks
+
+        def _worker() -> None:
+            signals.checked.emit(generation, _disk_problem(location) or "")
+
+        self._run_in_background(_worker)
+
+    def _on_location_checked(self, generation: int, problem: str) -> None:
+        if generation == self._check_generation:
+            self._settle_location(problem or None)
+
+    def _settle_location(self, problem: str | None) -> None:
+        """The location in the field is known: say why it is refused, if it is."""
+        self._location_usable = problem is None and bool(self.location())
+        self._hint_timer.stop()
+        self._location_hint.setVisible(False)
         self._location_error.setText(problem or "")
         self._location_error.setVisible(problem is not None)
+        self._refresh_add_button()
 
     def _refresh_default_location(self) -> None:
         if self._location_chosen_by_user:
@@ -297,8 +363,7 @@ class AddWorktreeDialog(QDialog):
 
     def _refresh_add_button(self) -> None:
         branch = self._current_branch()
-        loc = self.location()
-        valid = bool(branch) and bool(loc) and _location_problem(loc) is None
+        valid = bool(branch) and self._location_usable
         if not self.is_create_new() and self.branch_disabled(branch):
             valid = False
         self._buttons.button(QDialogButtonBox.Ok).setEnabled(valid)

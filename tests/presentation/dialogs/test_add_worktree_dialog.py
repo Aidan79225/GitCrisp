@@ -9,6 +9,11 @@ from PySide6.QtWidgets import QDialog
 from git_gui.presentation.dialogs.add_worktree_dialog import AddWorktreeDialog
 
 
+def _inline(work) -> None:
+    """Check the location at once, so a test reads the answer without waiting."""
+    work()
+
+
 def _open_dialog(
     qtbot,
     *,
@@ -24,6 +29,7 @@ def _open_dialog(
         branches_in_use={} if in_use is None else in_use,
         preselect_branch=preselect,
         default_create_new=default_create,
+        run_in_background=_inline,
     )
     qtbot.addWidget(dlg)
     return dlg

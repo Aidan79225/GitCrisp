@@ -47,10 +47,12 @@ def shown(monkeypatch) -> list[AddWorktreeDialog]:
     return dialogs
 
 
-def test_the_main_worktrees_branch_cannot_be_picked(window, shown, repo_path):
+def test_the_main_worktrees_branch_cannot_be_picked(qtbot, window, shown, repo_path):
     window._open_add_worktree_dialog(preselect_branch="master", default_create=False)
 
     (dialog,) = shown
+    # Add is off until the location is checked: wait, so that only the branch can keep it off.
+    qtbot.waitUntil(lambda: dialog._location_usable, timeout=5000)
     assert dialog.branch_disabled("master")
     assert not dialog.add_button_enabled()
     assert dialog.branch_tooltip("master") == f"Already checked out at {repo_path}"
