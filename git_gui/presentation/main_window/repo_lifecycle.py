@@ -416,15 +416,22 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
         A linked worktree on screen has no row of its own to close, only a
         child row under its owner's: Ctrl+W goes back to the owner and closes
-        nothing. With a repo already on its way it does nothing: that repo
-        takes the screen.
+        nothing. It does nothing while a repo that replaces a closed or
+        removed one is opening, and, for such a worktree, while any repo is:
+        the one opening takes the screen.
         """
         if not self._repo_path:
+            return
+        pending = self._pending_request()
+        if pending is not None and _replaces_a_closed_repo(pending):
+            # What is on screen is already closed or removed, and its
+            # replacement is on its way: closing it again would list it as a
+            # repo of its own under RECENT and blank the window.
             return
         owner = self._open_owner_of_worktree_on_screen()
         if owner is None:
             self._on_repo_close(self._repo_path)
-        elif self._pending_request() is None:
+        elif pending is None:
             self._switch_repo(owner)
 
     def _switch_to_repo_index(self, index: int) -> None:

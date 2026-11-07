@@ -602,3 +602,38 @@ def test_the_open_row_of_a_removed_worktree_is_dropped_however_it_was_written(
     )
     assert store.get_open_repos() == [str(main)]
     _quiet(qtbot, win)
+
+
+# ── Ctrl+W while the replacement of a removed worktree opens ─────────────────
+
+
+def test_ctrl_w_while_the_removed_worktree_is_being_replaced_leaves_the_screen_alone(
+    qtbot, tmp_path
+):
+    """The worktree is gone and main is on its way to take its place. Ctrl+W
+    closed the dead folder as a repo of its own: it was listed under RECENT,
+    where clicking it fails, and the window went blank until main opened."""
+    from main import _open_session
+
+    main, worktree = _repo_with_worktree(tmp_path)
+    store, _ = _own_row_store(tmp_path, worktree)
+    release = threading.Event()
+
+    def _main_held(path: str):
+        if Path(path) == main.resolve():
+            release.wait(5)
+        return _open_session(path)
+
+    win = _window_on(qtbot, worktree, store, session_factory=_main_held)
+    _git_removes_the_worktree(qtbot, win, main, worktree)
+    win._on_worktree_removed(worktree)
+
+    win._close_current_repo()
+
+    assert store.get_recent_repos() == []
+    assert Path(win._repo_path) == Path(worktree), "the window stays until main opens"
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        release.set()
+    assert Path(win._repo_path) == main.resolve()
+    assert store.get_recent_repos() == []
+    _quiet(qtbot, win)

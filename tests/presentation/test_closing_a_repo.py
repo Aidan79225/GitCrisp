@@ -329,3 +329,27 @@ def test_a_second_ctrl_w_while_the_first_is_still_opening_the_owner_does_nothing
     assert win._repo_store.get_recent_repos() == recent_before
     assert _worktrees_listed_under(win, c) == [worktree]
     _settled(qtbot, win)
+
+
+def test_ctrl_w_after_closing_the_owner_while_its_replacement_opens_does_nothing(
+    qtbot, tmp_path, repos
+):
+    """The owner's row went and took the worktree's with it, and b is on its
+    way to replace the screen. Ctrl+W then closed the worktree as a repo of its
+    own: it was listed under RECENT, and the window went blank until b opened."""
+    a, b, c = repos
+    win, worktree = _in_worktree_of(qtbot, tmp_path, repos, owner=c)
+    held = _hold_session(win, b)
+    win._on_repo_close(c)  # b is on its way to replace it
+    recent_before = win._repo_store.get_recent_repos()
+
+    win._close_current_repo()
+
+    assert win._repo_path == worktree, "the worktree stays up until b opens"
+    assert win._repo_store.get_recent_repos() == recent_before
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        held.release.set()
+    assert win._repo_path == b
+    assert win._repo_store.get_open_repos() == [a, b]
+    assert win._repo_store.get_recent_repos() == recent_before
+    _settled(qtbot, win)
