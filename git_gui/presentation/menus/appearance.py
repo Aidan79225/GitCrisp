@@ -6,6 +6,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMainWindow
 
 from git_gui.presentation.dialogs.theme_dialog import ThemeDialog
+from git_gui.presentation.menus.run_and_discard import run_and_discard
 from git_gui.presentation.menus.view_menu import view_menu
 
 
@@ -15,7 +16,7 @@ def install_appearance_menu(window: QMainWindow) -> None:
     Clicking the action opens the Theme dialog.
     """
     action = QAction("&Appearance...", window)
-    action.triggered.connect(lambda: ThemeDialog(window).exec())
+    action.triggered.connect(lambda: run_and_discard(ThemeDialog(window)))
     view_menu(window).addAction(action)
     # Hold a reference to keep the action alive.
     window._appearance_action = action  # type: ignore[attr-defined]

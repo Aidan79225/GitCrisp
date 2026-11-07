@@ -12,5 +12,7 @@ def run_and_discard(dialog: QDialog) -> None:
     if a closure connected to one of its own widgets captures it: it stays a
     child of the window until the window closes, holding whatever it was given.
     """
-    dialog.exec()
-    dialog.deleteLater()
+    try:
+        dialog.exec()
+    finally:
+        dialog.deleteLater()
