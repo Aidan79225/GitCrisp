@@ -798,6 +798,26 @@ def test_a_row_clicked_while_a_branch_loads_is_not_replaced_by_the_branch(
     assert graph._pending_scroll_oid is None
 
 
+def test_the_current_row_clicked_while_a_branch_loads_is_not_replaced_by_the_branch(
+    qtbot, graph, held_workers
+):
+    """Clicking the current row changes no row, so no row change reports the pick."""
+    graph.resize(400, 600)
+    graph.show()
+    qtbot.waitExposed(graph)
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    _select_row(graph, 3)
+    graph.reload_with_extra_tip("side")
+
+    _click_row(graph, 3)
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
 def test_an_arrow_key_pressed_while_a_branch_loads_is_not_replaced_by_the_branch(
     graph, held_workers
 ):

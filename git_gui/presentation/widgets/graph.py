@@ -487,6 +487,7 @@ class GraphWidget(QWidget):
         self._view.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
+        self._view.pressed.connect(self._on_row_pressed)
         self._view.doubleClicked.connect(self._on_double_clicked)
 
         self._view.verticalScrollBar().valueChanged.connect(self._on_scroll)
@@ -1521,6 +1522,15 @@ class GraphWidget(QWidget):
         if oid and oid != self._selected_oid:
             self._selected_oid = oid
             self.commit_selected.emit(oid)
+
+    def _on_row_pressed(self, index: QModelIndex) -> None:
+        """A press picks its commit even when that row is already current.
+
+        The current row does not change then, so _on_row_changed does not run.
+        """
+        oid = self._oid_at(index.row())
+        if oid:
+            self._supersede_pending_landing(oid)
 
     def _on_double_clicked(self, index: QModelIndex) -> None:
         """Double-click a commit to switch to a branch pointing at it.
