@@ -358,3 +358,22 @@ def test_a_cancel_during_the_tag_refresh_leaves_the_finished_op_done_and_says_so
     win._remote_tag_cache.save.assert_not_called()
     # The refresh runs on the op's worker thread; a widget is touched from the GUI thread only.
     assert set(logged_from) == {threading.main_thread()}
+
+
+def test_a_failing_op_opens_the_log_that_the_user_collapsed_while_it_ran(qtbot):
+    win = _make_window(qtbot)
+    fails = threading.Event()
+
+    def _fail_once_released() -> None:
+        fails.wait(2)
+        raise RuntimeError("fatal: could not read from remote repository")
+
+    with patch.object(win, "_reload"):
+        win._run_remote_op("Fetch origin", _fail_once_released)
+        win._log_panel.collapse()  # the op opened it when it started
+        assert not win._log_panel._body.isVisibleTo(win)
+        fails.set()
+        _wait_until_idle(qtbot, win)
+
+    assert "Fetch origin — ERROR: fatal: could not read from remote repository" in _logged_text(win)
+    assert win._log_panel._body.isVisibleTo(win)

@@ -176,6 +176,7 @@ class RemoteOpQueueMixin:
         self._reload()
 
     def _on_remote_error(self, name: str, error: str) -> None:
+        self._log_panel.expand()  # the user may have collapsed it since the op began
         commands, rejected = self._remote_op_commands, self._remote_op_push_target
         self._log_panel.log_error(f"{name} — ERROR: {error}")
         self._end_remote_op()
