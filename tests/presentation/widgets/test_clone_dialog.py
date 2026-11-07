@@ -13,7 +13,11 @@ from PySide6.QtTest import QTest
 
 from git_gui.infrastructure.git_clone import CloneCancelled
 from git_gui.presentation.paths import same_path_text
-from git_gui.presentation.widgets.clone_dialog import CloneDialog, _parse_repo_name
+from git_gui.presentation.widgets.clone_dialog import (
+    CloneDialog,
+    _input_problem,
+    _parse_repo_name,
+)
 
 _CLONE_REPO = "git_gui.presentation.widgets.clone_dialog.clone_repo"
 
@@ -192,6 +196,23 @@ def test_a_cancelled_clone_that_left_files_behind_says_where_and_why(
         dialog.reject()
 
     assert report.args == [str(Path(dialog._folder_edit.text()) / "repo"), _IN_USE]
+
+
+# --- Input: what has to be filled in before a clone starts ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("url", "folder", "name", "problem"),
+    [
+        pytest.param("", "", "", "URL is required.", id="nothing-filled-in-asks-for-the-url"),
+        pytest.param("", "/x", "repo", "URL is required.", id="no-url"),
+        pytest.param("u", "", "repo", "Location is required.", id="no-location"),
+        pytest.param("u", "/x", "", "Folder name is required.", id="no-folder-name"),
+        pytest.param("u", "/x", "repo", None, id="nothing-missing"),
+    ],
+)
+def test_a_clone_asks_for_the_first_field_that_is_missing(url, folder, name, problem):
+    assert _input_problem(url, folder, name) == problem
 
 
 # --- Folder name: the clone stays inside Location -------------------------------------------

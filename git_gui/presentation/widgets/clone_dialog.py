@@ -41,6 +41,22 @@ def _stays_inside(folder: str, name: str) -> bool:
     return Path(os.path.abspath(root / name)).is_relative_to(root)
 
 
+def _input_problem(url: str, folder: str, name: str) -> str | None:
+    """Why a clone of ``url`` into ``folder``/``name`` cannot start, or None when it can.
+
+    Text only: no disk access on the GUI thread.
+    """
+    if not url:
+        return "URL is required."
+    if not folder:
+        return "Location is required."
+    if not name:
+        return "Folder name is required."
+    if not _stays_inside(folder, name):
+        return "Folder name must stay inside the location."
+    return None
+
+
 class _CloneSignals(QObject):
     progress = Signal(str, int)  # phase, percent
     finished = Signal(str)  # dest path
@@ -150,17 +166,9 @@ class CloneDialog(QDialog):
         folder = self._folder_edit.text().strip()
         name = self._name_edit.text().strip()
 
-        if not url:
-            self._show_error("URL is required")
-            return
-        if not folder:
-            self._show_error("Location is required")
-            return
-        if not name:
-            self._show_error("Folder name is required")
-            return
-        if not _stays_inside(folder, name):
-            self._show_error("Folder name must stay inside the location.")
+        problem = _input_problem(url, folder, name)
+        if problem is not None:
+            self._show_error(problem)
             return
 
         dest = str(Path(folder) / name)
@@ -171,7 +179,9 @@ class CloneDialog(QDialog):
         self._progress_bar.setVisible(True)
         self._progress_bar.setValue(0)
         self._progress_label.setText("Starting clone...")
+        self._start_clone_worker(url, dest)
 
+    def _start_clone_worker(self, url: str, dest: str) -> None:
         signals = _CloneSignals()
         signals.progress.connect(self._on_progress)
         signals.finished.connect(self._on_finished)
