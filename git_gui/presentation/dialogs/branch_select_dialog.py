@@ -34,7 +34,7 @@ class BranchSelectDialog(QDialog):
             self._list.addItem(item)
         if branches:
             self._list.setCurrentRow(0)
-        self._list.itemDoubleClicked.connect(lambda _item: self.accept())
+        self._list.itemDoubleClicked.connect(self.accept)
         layout.addWidget(self._list)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
