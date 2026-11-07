@@ -484,7 +484,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if self._repo_path in open_repos:
             return self._repo_path
         main = next((wt.path for wt in worktrees if wt.is_main), None)
-        owner = next((p for p in open_repos if main and same_path_text(p, main)), None)
+        owner = self._open_row_for(main)
         if owner is None:
             owner = self._repo_list.owner_of(self._repo_path)
         return owner if owner in open_repos else None
@@ -749,7 +749,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         that raised "head reference does not exist" until the user clicked
         another repo themselves.
         """
-        listed = self._stored_spelling_of(path)
+        listed = self._open_row_for(path) or path
         row_above = self._open_repo_above(listed)  # forgetting takes its row away
         self._repo_store.forget(listed)
         self.save_repo_list()
@@ -767,15 +767,20 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._log_panel.log(f"Removed worktree {path} — switched to {home}")
         self._request_repo(self._request_to_replace_removed(home, row_above))
 
-    def _stored_spelling_of(self, path: str) -> str:
-        """The open row for *path* as the store writes it, else *path*.
+    def _open_row_for(self, folder: str | None) -> str | None:
+        """The open row for *folder* as the store writes it; None when it has
+        none, and for no folder.
 
-        Open Repository keeps the dialog's spelling of a folder, forward slashes
-        on Windows, while git lists the same folder another way: forgetting it
-        as git writes it would miss the row.
+        Rows are matched as text, never with ==: Open Repository keeps the
+        dialog's spelling of a folder, forward slashes on Windows, while git
+        lists the same folder another way, and a row looked up as git writes it
+        would be missed.
         """
-        open_repos = self._repo_store.get_open_repos()
-        return next((p for p in open_repos if same_path_text(p, path)), path)
+        if not folder:
+            return None
+        return next(
+            (p for p in self._repo_store.get_open_repos() if same_path_text(p, folder)), None
+        )
 
     def _open_repo_above(self, path: str) -> str | None:
         """The open repo listed just above *path*; None when *path* is first
@@ -796,7 +801,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         place once it has opened.
         """
         open_repos = self._repo_store.get_open_repos()
-        has_row = any(same_path_text(p, home) for p in open_repos)
+        has_row = self._open_row_for(home) is not None
         if has_row or self._repo_list.worktree_owner() in open_repos:
             return _RepoRequest(home, _SwitchReason.REPLACE)
         return _RepoRequest(home, _SwitchReason.REPLACE, after=row_above, listed_on_landing=True)
