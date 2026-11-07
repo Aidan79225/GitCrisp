@@ -360,15 +360,19 @@ def _quiet(qtbot, win: MainWindow) -> None:
 
 
 class _SeenWatching:
-    """The real remove command, noting what the window watched while it ran."""
+    """The real remove command, noting whether the window was watching when it ran.
+
+    A flag, not the detector: a failed comparison would have to print a Qt
+    object the window has already deleted.
+    """
 
     def __init__(self, win: MainWindow) -> None:
         self._win = win
         self._real = win._commands.remove_worktree
-        self.watching: list[object] = []
+        self.watching: list[bool] = []
 
     def execute(self, *args, **kwargs):
-        self.watching.append(self._win._change_detector)
+        self.watching.append(self._win._change_detector is not None)
         return self._real.execute(*args, **kwargs)
 
 
@@ -412,7 +416,7 @@ def test_the_window_stops_watching_the_worktree_on_screen_while_git_removes_it(
     with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=10000):
         win._run_remove_worktree(worktree, force=False)
 
-    assert spy.watching == [None]
+    assert spy.watching == [False]
     assert not Path(worktree).exists()
     assert Path(win._change_detector._repo_path) == main, "the repo it moved to is watched"
     _quiet(qtbot, win)
@@ -457,6 +461,54 @@ def test_a_refusal_that_comes_after_another_repo_opened_leaves_that_repos_watch(
     _quiet(qtbot, win)
 
 
+def test_a_refusal_that_comes_after_the_window_was_emptied_starts_no_watch(
+    qtbot, tmp_path, monkeypatch
+):
+    """With no repo on screen there is nothing to watch: starting one raised out
+    of the refusal's slot, before the failure was shown."""
+    main, worktree = _repo_with_worktree(tmp_path)
+    win = _relaunched_onto(qtbot, tmp_path, main, worktree)
+    refuse = threading.Event()
+    monkeypatch.setattr(win._commands, "remove_worktree", _Refused(refuse))
+    win._run_remove_worktree(worktree, force=False)
+    win._enter_empty_state()  # the repo goes while git is still deciding
+
+    refuse.set()
+    qtbot.waitUntil(
+        lambda: "Remove worktree failed: refused by git" in _log_text(win), timeout=5000
+    )
+
+    assert win._change_detector is None
+    _quiet(qtbot, win)
+
+
+def test_a_second_refusal_leaves_the_watch_the_first_one_brought_back(qtbot, tmp_path, monkeypatch):
+    """Two removals refused: the first brings the watch back, and the second
+    finds it running. Starting another would replace it for nothing."""
+    main, worktree = _repo_with_worktree(tmp_path)
+    win = _relaunched_onto(qtbot, tmp_path, main, worktree)
+    started: list[str] = []
+    start = win._start_change_detector
+
+    def _start_noting(path: str) -> None:
+        started.append(path)
+        start(path)
+
+    monkeypatch.setattr(win, "_start_change_detector", _start_noting)
+    refuse = threading.Event()
+    monkeypatch.setattr(win._commands, "remove_worktree", _Refused(refuse))
+    win._run_remove_worktree(worktree, force=False)
+    win._run_remove_worktree(worktree, force=False)
+
+    refuse.set()
+    qtbot.waitUntil(
+        lambda: _log_text(win).count("Remove worktree failed: refused by git") == 2, timeout=5000
+    )
+
+    assert started == [worktree]
+    _quiet(qtbot, win)
+
+
 def test_removing_another_worktree_leaves_the_watch_alone(qtbot, tmp_path, monkeypatch):
     main, worktree = _repo_with_worktree(tmp_path)
     store = JsonRepoStore(tmp_path / "repos.json")
@@ -472,7 +524,7 @@ def test_removing_another_worktree_leaves_the_watch_alone(qtbot, tmp_path, monke
         lambda: not Path(worktree).exists() and win._repo_list.owner_of(worktree) is None,
         timeout=10000,
     )
-    assert spy.watching == [watching]
+    assert spy.watching == [True]
     assert win._change_detector is watching
     _quiet(qtbot, win)
 
@@ -519,7 +571,7 @@ def test_the_worktree_on_screen_is_left_when_git_lists_it_another_way(
     with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=10000, raising=False):
         win._run_remove_worktree(worktree, force=False)
 
-    assert spy.watching == [None], "the watch is dropped while git removes the folder"
+    assert spy.watching == [False], "the watch is dropped while git removes the folder"
     assert Path(win._repo_path) == main.resolve()
     assert Path(win._change_detector._repo_path) == main.resolve(), (
         "the repo it moved to is watched"
