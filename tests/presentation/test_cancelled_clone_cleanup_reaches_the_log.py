@@ -8,10 +8,8 @@ the next clone to the same place failed with "already exists".
 
 from __future__ import annotations
 
-import threading
 from unittest.mock import MagicMock, patch
 
-import pytest
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QDialog
 
@@ -52,14 +50,6 @@ def test_a_cancelled_clone_that_left_files_behind_is_reported_in_the_log(qtbot):
     message = win._log_panel.log_error.call_args.args[0]
     assert "repo" in message
     assert _IN_USE in message
-
-
-@pytest.fixture
-def git_stops():
-    """Set by the test when git should finish dying; set at the end so no worker is left waiting."""
-    stops = threading.Event()
-    yield stops
-    stops.set()
 
 
 def test_a_cancelled_clone_that_stops_late_is_still_reported_before_its_dialog_is_freed(

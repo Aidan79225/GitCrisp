@@ -130,14 +130,6 @@ def test_a_dialog_whose_clone_could_not_start_is_freed(qtbot):
     _wait_until_freed(qtbot, win)
 
 
-@pytest.fixture
-def git_stops():
-    """Set by the test when git should finish dying; set at the end so no worker is left waiting."""
-    stops = threading.Event()
-    yield stops
-    stops.set()
-
-
 def test_a_dialog_cancelled_mid_clone_is_freed_when_the_clone_has_stopped(qtbot, git_stops):
     win = blank_window(qtbot)
 
