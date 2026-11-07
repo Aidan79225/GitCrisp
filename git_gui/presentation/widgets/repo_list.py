@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from git_gui.domain.entities import Worktree
 from git_gui.domain.ports import IRepoStore
+from git_gui.presentation.paths import same_path_text
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.highlighting_tree import HighlightingTreeView
 
@@ -448,8 +449,8 @@ class RepoListWidget(QWidget):
                 item = self._make_repo_item(path, _RowKind.OPEN, is_active=(path == active))
                 if path == group_owner and self._active_worktrees:
                     for wt in self._active_worktrees:
-                        if wt.is_main:
-                            continue  # main worktree IS the owning repo row
+                        if wt.is_main or same_path_text(str(wt.path), path):
+                            continue  # that worktree IS this row
                         item.appendRow(
                             self._make_worktree_item(wt, is_active=(str(wt.path) == active))
                         )
