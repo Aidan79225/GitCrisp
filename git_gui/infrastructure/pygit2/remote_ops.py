@@ -93,6 +93,9 @@ class RemoteOps:
         if not branches:
             return []
         refspecs = [f"refs/heads/{b}" for b in branches]
+        # Plain run_git, not _run_cancellable_remote_git: the Remote Branches
+        # dialog runs this on its own thread, outside the window's remote-op
+        # slot, and the cancel handle belongs to the slot's op.
         result = run_git(
             ["git", "push", "--porcelain", remote, "--delete", *refspecs],
             cwd=self._repo.workdir,
