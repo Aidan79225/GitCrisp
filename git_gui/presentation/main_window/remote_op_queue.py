@@ -164,7 +164,7 @@ class RemoteOpQueueMixin:
         # A repo switch retires the Undo links; one logged now would reset the
         # repo that is open instead of the one the op ran in.
         if self._remote_op_undo_to and self._remote_op_commands is self._commands:
-            self._log_undoable(done, self._remote_op_undo_to)
+            self._log_undoable(done, self._remote_op_undo_to, label=name)
         else:
             self._log_panel.log(done)
         self._end_remote_op()

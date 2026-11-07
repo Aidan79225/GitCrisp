@@ -192,6 +192,17 @@ def test_a_finished_rebase_offers_one_undo_to_where_head_was_before_it(qtbot, wi
     window._reload.assert_called_once_with()
 
 
+def test_the_undo_of_a_finished_rebase_is_labelled_with_the_rebase_alone(
+    qtbot, window, git, rebase
+):
+    # A later restore quotes the label: "(before Rebase onto x)", not "... — done)".
+    _start_in_background(qtbot, window, git, rebase)
+
+    _let_git_exit(qtbot, window, git)
+
+    assert window._undoable == {HEAD_BEFORE: rebase.name}
+
+
 def test_a_rebase_that_fails_is_reported_as_an_error_once_git_exits(qtbot, window, git, rebase):
     git.fails_with = RuntimeError("CONFLICT (content): Merge conflict in a.txt")
     _start_in_background(qtbot, window, git, rebase)
