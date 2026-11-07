@@ -62,6 +62,10 @@ def _parse_porcelain_delete(
 class RemoteOps:
     """Remote management + subprocess-based git push/pull/fetch.
 
+    Push, pull, fetch and the ls-remote that lists a remote's tags
+    (`TagOps.get_remote_tags`) all run through `_run_cancellable_remote_git`,
+    which publishes the cancel handle `cancel_remote_op` terminates.
+
     Mixin — not instantiable on its own. Relies on `self._repo` and
     `self._git_env` set up by the composite class.
     """

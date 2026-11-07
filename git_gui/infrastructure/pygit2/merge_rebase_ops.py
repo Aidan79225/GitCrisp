@@ -194,9 +194,10 @@ class MergeRebaseOps:
     def _run_git(self, *args: str, env_overrides: Mapping[str, str] | None = None) -> None:
         """Run a local git command, such as a merge or rebase, to completion.
 
-        It stays out of the remote-op slot: started while a fetch is in flight,
-        it would otherwise take that fetch's place, and Cancel would stop the
-        wrong process or none.
+        It does not use the cancel handle that `_run_cancellable_remote_git`
+        publishes: started while a fetch is in flight, it would otherwise
+        replace that fetch's handle, and Cancel would stop the wrong process
+        or none.
         """
         env = {**self._git_env, **(env_overrides or {})}
         result = run_git(["git", *args], cwd=self._repo.workdir, env=env)
