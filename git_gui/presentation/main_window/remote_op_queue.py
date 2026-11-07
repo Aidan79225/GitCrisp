@@ -5,7 +5,7 @@ import threading
 from collections.abc import Callable
 from typing import NamedTuple
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
 from git_gui.domain.entities import TrackedBranch
@@ -311,5 +311,11 @@ class RemoteOpQueueMixin:
             data = self._remote_tag_cache.load(repo_path)
             data[remote] = remote_tags
             self._remote_tag_cache.save(repo_path, data)
+        except RemoteOperationCancelled:
+            # The fetch or push already succeeded, so the op still ends as done and
+            # the log only says the refresh was cut short. This is the worker
+            # thread: given the log panel as context, Qt runs the call on the GUI thread.
+            note = f"Remote tag list of {remote} was not refreshed: cancelled"
+            QTimer.singleShot(0, self._log_panel, lambda: self._log_panel.log(note))
         except Exception:
             pass  # cache update failure is non-critical

@@ -9,6 +9,7 @@ import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from git_gui.domain.entities import Branch, LocalBranchInfo, TrackedBranch
+from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.presentation.main_window import MainWindow
 from tests.presentation.window_helpers import blank_window
 
@@ -311,3 +312,49 @@ def test_an_op_that_changes_remote_tags_refreshes_that_remotes_cached_tags(
     getattr(win._commands, command).execute.assert_called_once_with(*args)
     win._queries.get_remote_tags.execute.assert_called_once_with(remote)
     win._remote_tag_cache.save.assert_called_once_with("/repo/a", {remote: ["v1"]})
+
+
+def _logged_text(win: MainWindow) -> str:
+    return win._log_panel._body.toPlainText()
+
+
+@pytest.mark.parametrize(
+    ("name", "start", "remote"),
+    [
+        ("Fetch --all --prune", lambda win: win._on_fetch_all_prune(), "origin"),
+        ("Fetch upstream", lambda win: win._on_fetch_single("upstream"), "upstream"),
+        ("Push tag v1", lambda win: win._on_push_tag("v1"), "origin"),
+    ],
+    ids=["fetch-all", "fetch-one", "push-tag"],
+)
+def test_a_cancel_during_the_tag_refresh_leaves_the_finished_op_done_and_says_so(
+    qtbot, name, start, remote
+):
+    # The fetch or push had already succeeded: calling a Push tag cancelled
+    # would tell the user the tag never reached the remote.
+    win = _make_window(qtbot)
+    win._remote_tag_cache = MagicMock()
+    win._repo_path = "/repo/a"
+    win._queries.get_remote_tags.execute.side_effect = RemoteOperationCancelled("cancelled")
+    logged_from: list[threading.Thread] = []
+    log = win._log_panel.log
+
+    def _log_and_note_the_thread(message: str) -> None:
+        logged_from.append(threading.current_thread())
+        log(message)
+
+    win._log_panel.log = _log_and_note_the_thread
+    with patch.object(win, "_reload"):
+        start(win)
+        _wait_until_idle(qtbot, win)
+
+        def _note_is_logged():
+            assert f"Remote tag list of {remote} was not refreshed" in _logged_text(win)
+
+        qtbot.waitUntil(_note_is_logged, timeout=2000)
+
+    assert f"{name} — done" in _logged_text(win)
+    assert f"{name} — cancelled" not in _logged_text(win)
+    win._remote_tag_cache.save.assert_not_called()
+    # The refresh runs on the op's worker thread; a widget is touched from the GUI thread only.
+    assert set(logged_from) == {threading.main_thread()}

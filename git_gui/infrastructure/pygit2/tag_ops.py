@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 import pygit2
 
 from git_gui.domain.entities import Tag
-from git_gui.infrastructure.git_process import run_git
 
 logger = logging.getLogger(__name__)
 
@@ -87,15 +86,10 @@ class TagOps:
 
         Raises ``RuntimeError`` when the remote cannot be listed, so that a
         caller cannot take an unreachable remote for one without tags.
+        Like a fetch or push it is the one op ``cancel_remote_op`` can stop,
+        raising ``RemoteOperationCancelled``, so it must not overlap one.
         """
-        result = run_git(
-            ["git", "ls-remote", "--tags", remote], cwd=self._repo.workdir, env=self._git_env
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                result.stderr.strip() or f"git ls-remote exited with code {result.returncode}"
-            )
-        return _tag_names(result.stdout)
+        return _tag_names(self._run_cancellable_remote_git("ls-remote", "--tags", remote))
 
     def create_tag(self, name: str, oid: str, message: str | None = None) -> None:
         target = pygit2.Oid(hex=oid)
