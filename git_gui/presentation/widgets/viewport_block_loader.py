@@ -5,7 +5,8 @@ holding thousands of changes — freeze the window, so blocks start as skeletons
 and only the ones the user can actually see are ever built.
 
 Shared by the commit view and the working-tree view, which differ in what a
-realised block contains and in nothing else.
+realised block contains, and in that the working-tree view holds a rebuilt
+block at its last height until the loader settles it.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ class DiffMapSignals(QObject):
 class ViewportBlockLoader(QObject):
     """Lazy block loader driven by scroll-area viewport intersection.
 
-    `realize_fn` is what a block actually becomes — the one thing the two
+    `realize_fn` is what a block actually becomes — the main thing the two
     callers do differently.
     """
 
@@ -158,9 +159,10 @@ class ViewportBlockLoader(QObject):
             except RuntimeError:
                 continue
             if frame_rect.intersects(vp_rect):
-                # A reload may have pinned the block at its last content's
-                # height while the skeleton stood in; the content, or the
-                # notice, sets it from here.
+                # HunkDiffWidget.load_all_files pins a rebuilt block at its last
+                # height (see hunk_diff.py) while its skeleton stands in; settling
+                # it, with its diff or the notice, lets the content set the height
+                # again. The commit view never pins; for it this is a no-op.
                 frame.setMinimumHeight(0)
                 entry = self._diff_map.get(path)
                 if entry is not None:
