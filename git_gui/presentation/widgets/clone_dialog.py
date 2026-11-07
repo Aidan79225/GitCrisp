@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+from contextlib import suppress
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
@@ -182,33 +183,38 @@ class CloneDialog(QDialog):
         self._start_clone_worker(url, dest)
 
     def _start_clone_worker(self, url: str, dest: str) -> None:
-        signals = _CloneSignals()
+        # A child of this dialog that deletes itself once its clone has ended, so
+        # Qt frees it on the GUI thread. Parentless, it died with its last Python
+        # reference, which the worker or a garbage collection on any thread could drop.
+        signals = _CloneSignals(self)
         signals.progress.connect(self._on_progress)
         signals.finished.connect(self._on_finished)
         signals.failed.connect(self._on_failed)
         signals.cleanup_failed.connect(self.cleanup_failed)
         signals.ended.connect(self._on_worker_ended)
-        self._clone_signals = signals  # prevent GC
+        signals.ended.connect(signals.deleteLater)
+        self._clone_signals = signals  # the newest clone's, for tests to listen to
         self._workers_running += 1
 
         cancelled = self._cancel_requested
 
         def _worker():
-            try:
+            with suppress(RuntimeError):  # the dialog was destroyed, signals and all
+                try:
 
-                def _report(p: CloneProgress):
-                    signals.progress.emit(p.phase, p.percent)
+                    def _report(p: CloneProgress):
+                        signals.progress.emit(p.phase, p.percent)
 
-                clone_repo(url, dest, on_progress=_report, cancelled=cancelled)
-                signals.finished.emit(dest)
-            except CloneCancelled as e:
-                # The dialog closed when the user cancelled; only files left behind need telling.
-                if e.cleanup_error is not None:
-                    signals.cleanup_failed.emit(dest, str(e.cleanup_error))
-            except Exception as e:
-                signals.failed.emit(str(e))
-            finally:
-                signals.ended.emit()
+                    clone_repo(url, dest, on_progress=_report, cancelled=cancelled)
+                    signals.finished.emit(dest)
+                except CloneCancelled as e:
+                    # The dialog closed when the user cancelled; only leftover files need telling.
+                    if e.cleanup_error is not None:
+                        signals.cleanup_failed.emit(dest, str(e.cleanup_error))
+                except Exception as e:
+                    signals.failed.emit(str(e))
+                finally:
+                    signals.ended.emit()
 
         threading.Thread(target=_worker, daemon=True).start()
 
