@@ -46,7 +46,11 @@ class ViewportBlockLoader(QObject):
         scroll_area: QScrollArea,
         realize_fn: Callable[[str, QVBoxLayout, QWidget | None, Any], None],
     ) -> None:
-        super().__init__()
+        # A child of the scroll area, with the timer a child of the loader, so
+        # Qt frees both on the GUI thread. Parentless they were Python's, and
+        # the cyclic collector freed them on whichever thread ran it: a timer
+        # stopped from a worker stays armed in the GUI thread's dispatcher.
+        super().__init__(scroll_area)
         self._scroll_area = scroll_area
         self._realize_fn = realize_fn
         self._block_refs: list[BlockRef] = []
@@ -59,7 +63,7 @@ class ViewportBlockLoader(QObject):
         # answers with an empty map, the same as one with nothing to show.
         self._diff_map_arrived = False
 
-        self._scroll_timer = QTimer()
+        self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.setInterval(50)
         self._scroll_timer.timeout.connect(self._check_viewport)

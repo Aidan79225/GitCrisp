@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+import shiboken6
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from git_gui.presentation.widgets.diff_block import make_file_block, make_skeleton_container
@@ -107,6 +109,27 @@ def test_clear_resets_state(qtbot, scroll_area):
     assert loader._realized == set()
     assert loader._diff_map == {}
     assert not loader._diff_map_arrived
+
+
+def test_the_loader_and_its_timer_are_freed_with_the_scroll_area(qtbot):
+    """Qt frees the loader and its timer with the scroll area, on the GUI thread.
+
+    Parentless, they belonged to Python, and the cyclic collector freed them on
+    whichever thread happened to run it, a worker's among them. A timer stopped
+    from another thread stays registered with the GUI thread's dispatcher, and
+    its next expiry delivers an event to freed memory: the test process dies in
+    whichever later test runs an event loop.
+    """
+    sa = QScrollArea()  # not given to qtbot: this test is the one that deletes it
+    loader = ViewportBlockLoader(sa, lambda *a: None)
+    timers = loader.findChildren(QTimer)
+    assert loader.parent() is sa
+    assert timers, "the loader's timer is not its child"
+
+    shiboken6.delete(sa)
+
+    assert not shiboken6.isValid(loader)
+    assert not any(shiboken6.isValid(timer) for timer in timers)
 
 
 def test_two_blocks_for_one_path_are_both_realized(qtbot, scroll_area):
