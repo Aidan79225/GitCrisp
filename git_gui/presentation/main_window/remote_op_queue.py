@@ -39,9 +39,8 @@ class RemoteOpQueueMixin:
     rebase, so that the window stays usable while git runs. `_run_remote_op`
     runs a callable on a background thread and marshals completion back to the
     main thread via Qt signals. A request made while another op holds the slot
-    is reported as skipped and dropped, not queued. An op that
-    `cancel_remote_op` cannot stop passes `cancellable=False`, which keeps
-    Cancel hidden for it.
+    is reported as skipped and dropped, not queued. What Cancel stops is
+    described under *cancellable* in `_run_remote_op`.
     Also hosts the push, pull and fetch handlers.
 
     Mixin — not instantiable on its own. Relies on composite-provided
@@ -83,8 +82,10 @@ class RemoteOpQueueMixin:
         *commands* is the bus *fn* works on, the active repo's unless given.
         *push_target* marks the op as a push that may be offered a force push.
         *undo_to* is the HEAD an Undo link goes back to once *fn* has finished.
-        *cancellable* is False for an op that Cancel cannot stop, which is shown
-        without the button.
+        `cancellable=False` hides Cancel for an op that `cancel_remote_op` cannot
+        stop. Cancel stops only what runs through the adapter's cancellable git
+        runner; an op that keeps the default without running through it shows a
+        Cancel that stops nothing and runs on to its own end.
         """
         if self._remote_slot_busy(name):
             return
@@ -142,10 +143,11 @@ class RemoteOpQueueMixin:
     def _cancel_remote_op(self) -> None:
         """Ask the running op to abort by terminating its git subprocess.
 
-        Completion is reported via the `cancelled` signal. The exception is a
-        Cancel that only cut short the tag refresh after a fetch or tag push:
-        that op had already succeeded, so it ends as done, with a note that
-        the tags were not refreshed.
+        Completion is reported via the `cancelled` signal. The exceptions are a
+        Cancel that only cut short the tag refresh after a fetch or tag push
+        (that op had already succeeded, so it ends as done, with a note that
+        the tags were not refreshed) and a Cancel for an op with no cancel
+        handle (it stops nothing, and the op ends as done or failed).
         """
         commands = self._remote_op_commands
         if not self._remote_running or commands is None:
