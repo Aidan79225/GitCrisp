@@ -414,11 +414,11 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _close_current_repo(self) -> None:
         """Ctrl+W: close the active repo and switch to the previous open one.
 
-        A linked worktree on screen has no row of its own to close, only a
-        child row under its owner's: Ctrl+W goes back to the owner and closes
-        nothing. It does nothing while a repo that replaces a closed or
-        removed one is opening, and, for such a worktree, while any repo is:
-        the one opening takes the screen.
+        A linked worktree on screen that has no row of its own, and whose owner
+        is open, has nothing to close, only a child row under its owner's:
+        Ctrl+W goes back to the owner. It does nothing while a repo that
+        replaces a closed or removed one is opening, and, for such a worktree,
+        while any repo is: the one opening takes the screen.
         """
         if not self._repo_path:
             return

@@ -210,8 +210,9 @@ class MainWindow(
         self._search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
         self._search_shortcut.activated.connect(self._graph.open_search)
 
-        # Ctrl+W — close current repo (switch to previous open repo); inside a
-        # linked worktree, go back to its repo instead
+        # Ctrl+W — close current repo (switch to previous open repo); a linked
+        # worktree with no row of its own, whose repo is open, goes back to that
+        # repo instead
         self._close_repo_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
         self._close_repo_shortcut.activated.connect(self._close_current_repo)
 
