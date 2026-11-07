@@ -33,11 +33,15 @@ class _PushTarget(NamedTuple):
 
 
 class RemoteOpQueueMixin:
-    """The remote-op slot: one push, pull or fetch at a time.
+    """The remote-op slot: one long-running git op at a time.
 
-    `_run_remote_op` runs a callable on a background thread and marshals
-    completion back to the main thread via Qt signals. A request made while
-    another op holds the slot is reported as skipped and dropped, not queued.
+    It holds a push, pull, fetch, tag push, remote tag or branch delete, or
+    rebase, so that the window stays usable while git runs. `_run_remote_op`
+    runs a callable on a background thread and marshals completion back to the
+    main thread via Qt signals. A request made while another op holds the slot
+    is reported as skipped and dropped, not queued. An op that
+    `cancel_remote_op` cannot stop passes `cancellable=False`, which keeps
+    Cancel hidden for it.
     Also hosts the push, pull and fetch handlers.
 
     Mixin — not instantiable on its own. Relies on composite-provided
@@ -136,8 +140,13 @@ class RemoteOpQueueMixin:
         self._log_panel.log_error(f"{name} — skipped: {running} is still running. {retry_hint}")
 
     def _cancel_remote_op(self) -> None:
-        """Ask the running push/pull/fetch to abort by terminating its git
-        subprocess. Completion is reported via the `cancelled` signal."""
+        """Ask the running op to abort by terminating its git subprocess.
+
+        Completion is reported via the `cancelled` signal. The exception is a
+        Cancel that only cut short the tag refresh after a fetch or tag push:
+        that op had already succeeded, so it ends as done, with a note that
+        the tags were not refreshed.
+        """
         commands = self._remote_op_commands
         if not self._remote_running or commands is None:
             return
