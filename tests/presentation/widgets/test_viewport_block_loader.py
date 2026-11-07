@@ -7,7 +7,11 @@ import shiboken6
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget
 
-from git_gui.presentation.widgets.diff_block import make_file_block, make_skeleton_container
+from git_gui.presentation.widgets.diff_block import (
+    make_diff_unavailable_notice,
+    make_file_block,
+    make_skeleton_container,
+)
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
 
@@ -269,6 +273,20 @@ def test_a_path_missing_from_the_diff_map_gets_a_notice_and_the_others_are_built
     qtbot.waitUntil(both_are_settled, timeout=2000)
     assert realized == ["kept.txt"]
     assert _unavailable_notices(kept) == []
+
+
+def test_the_diff_notice_does_not_point_at_a_log(qtbot):
+    """The notice claims only what the code knows: the diff could not be loaded.
+
+    The only log the app shows is the Operations Log, and a failed diff fetch
+    reaches only the log file, so a notice saying "see the log" sent the user
+    to one that has nothing. Whoever routes failed diff fetches to the
+    Operations Log rewords the notice, and this exact match is what tells them to.
+    """
+    notice = make_diff_unavailable_notice()
+    qtbot.addWidget(notice)
+
+    assert notice.text() == "Diff could not be loaded."
 
 
 def test_a_block_keeps_its_skeleton_until_the_diff_map_arrives(qtbot, scroll_area):
