@@ -257,6 +257,27 @@ def test_a_long_hunk_is_sized_for_every_row_not_just_the_rendered_slice(qtbot):
     assert editors[0].height() >= rows * line_height
 
 
+def test_a_theme_change_during_a_long_hunk_render_leaves_both_sides_whole(qtbot):
+    """The panes redraw from the top on a theme change. The slices still queued
+    from the first draw went on inserting their rows into the new text, and
+    the two sides drifted apart."""
+    from git_gui.presentation.theme import get_theme_manager
+
+    hunk = Hunk(header="@@ -1,250 +1,250 @@", lines=[(" ", f"line {i}\n") for i in range(250)])
+    _host, undisturbed = _pane(qtbot, hunk)
+    qtbot.waitUntil(lambda: all(len(_lines(e)) == 250 for e in undisturbed), timeout=2000)
+    expected = [e.toPlainText() for e in undisturbed]
+    _host, switched = _pane(qtbot, hunk)
+    assert all(len(_lines(e)) < 250 for e in switched), "the slices have to still be queued"
+
+    manager = get_theme_manager()
+    manager.theme_changed.emit(manager.current)
+    qtbot.waitUntil(lambda: all(len(_lines(e)) >= 250 for e in switched), timeout=2000)
+
+    assert [len(_lines(e)) for e in switched] == [250, 250]
+    assert [e.toPlainText() for e in switched] == expected
+
+
 def test_a_rewritten_minified_line_is_not_word_diffed(qtbot, monkeypatch):
     """Each side would otherwise run a word diff that is roughly quadratic in
     tokens over a line tens of thousands of characters long."""

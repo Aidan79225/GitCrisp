@@ -172,6 +172,42 @@ def test_diff_block_hunk_rerenders_on_theme_change(app, reset_theme):
     assert "new line" in text_after
 
 
+def test_a_theme_switch_during_a_long_hunk_render_leaves_one_clean_render(app, reset_theme, qtbot):
+    """A hunk over a hundred lines draws one slice per event-loop turn. A switch
+    in between redraws it from the top, and the slices still queued from the
+    first draw went on inserting their rows into the new text."""
+    from PySide6.QtWidgets import QPlainTextEdit
+
+    from git_gui.domain.entities import Hunk
+    from git_gui.presentation.widgets.diff_block import (
+        add_hunk_widget,
+        make_diff_formats,
+        make_file_block,
+    )
+
+    hunk = Hunk(header="@@ -1,250 +1,250 @@", lines=[(" ", f"line {i}\n") for i in range(250)])
+    mgr = get_theme_manager()
+    mgr.set_mode("dark")
+
+    def draw() -> QPlainTextEdit:
+        frame, inner = make_file_block("example.py")
+        qtbot.addWidget(frame)
+        add_hunk_widget(inner, hunk, make_diff_formats())
+        return frame.findChild(QPlainTextEdit)
+
+    undisturbed = draw()
+    qtbot.waitUntil(lambda: undisturbed.document().blockCount() == 251, timeout=2000)
+    expected = undisturbed.toPlainText()
+    switched = draw()
+    assert switched.document().blockCount() < 251, "the slices have to still be queued"
+
+    mgr.set_mode("light")
+    qtbot.waitUntil(lambda: switched.document().blockCount() >= 251, timeout=2000)
+
+    assert switched.document().blockCount() == 251
+    assert switched.toPlainText() == expected
+
+
 def test_diff_block_restyles_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.diff_block import make_file_block
 
