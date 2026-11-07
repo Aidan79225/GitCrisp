@@ -22,19 +22,6 @@ from git_gui.presentation.main_window.window_state import (
     SPLIT_SIDEBAR,
 )
 
-
-@pytest.fixture(autouse=True)
-def _clean_settings():
-    """Each test starts with nothing saved.
-
-    The suite-wide fixture points QSettings at a tmp dir; this clears what
-    earlier tests in the same run left behind.
-    """
-    QSettings().clear()
-    yield
-    QSettings().clear()
-
-
 # ── Storage ──────────────────────────────────────────────────────────────────
 
 
