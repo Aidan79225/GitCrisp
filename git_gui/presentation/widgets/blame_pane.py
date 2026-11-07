@@ -433,13 +433,17 @@ class BlamePane(QWidget):
             try:
                 lines = queries.get_blame.execute(path, at_oid=oid)
             except Exception as e:  # surfaced in the header, not swallowed
-                with suppress(RuntimeError):  # the pane was destroyed, signals and all
+                # Covers an emit after the pane is gone, which finds its signals
+                # deleted with it. A delete landing inside the emit itself is a
+                # known residual; unlike the diff panes this pane is closed in
+                # normal use, not only at exit.
+                with suppress(RuntimeError):
                     signals.failed.emit(str(e), path, oid or "")
                 return
             # Tokenizing a large file takes long enough to freeze the window
             # if it runs where the window does.
             spans = _syntax_spans(lines, path)
-            with suppress(RuntimeError):  # the pane was destroyed, signals and all
+            with suppress(RuntimeError):  # as above
                 signals.done.emit(lines, spans, path, oid or "")
 
         threading.Thread(target=_worker, daemon=True).start()
