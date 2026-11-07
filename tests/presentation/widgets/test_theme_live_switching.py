@@ -208,6 +208,12 @@ def test_a_theme_switch_during_a_long_hunk_render_leaves_one_clean_render(app, r
     assert switched.toPlainText() == expected
 
 
+def test_diff_unavailable_notice_restyles_on_theme_change(app, reset_theme):
+    from git_gui.presentation.widgets.diff_block import make_diff_unavailable_notice
+
+    assert _restyles_with_the_theme(make_diff_unavailable_notice())
+
+
 def test_diff_block_restyles_on_theme_change(app, reset_theme):
     from git_gui.presentation.widgets.diff_block import make_file_block
 

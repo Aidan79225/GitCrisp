@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget
 
+from git_gui.presentation.widgets.diff_block import make_file_block, make_skeleton_container
 from git_gui.presentation.widgets.viewport_block_loader import ViewportBlockLoader
 
 
@@ -105,6 +106,7 @@ def test_clear_resets_state(qtbot, scroll_area):
     assert loader._block_refs == []
     assert loader._realized == set()
     assert loader._diff_map == {}
+    assert not loader._diff_map_arrived
 
 
 def test_two_blocks_for_one_path_are_both_realized(qtbot, scroll_area):
@@ -165,6 +167,130 @@ def _make_growing_block(layout, path: str, skeleton_height: int = 20):
     inner.addWidget(skeleton)
     layout.addWidget(frame)
     return (path, frame, inner, skeleton)
+
+
+def _make_skeleton_block(layout, path: str):
+    """A file block holding the real placeholder, as the panes build them."""
+    frame, inner = make_file_block(path)
+    skeleton = make_skeleton_container()
+    inner.addWidget(skeleton)
+    layout.addWidget(frame)
+    return (path, frame, inner, skeleton)
+
+
+def _skeleton_bars(block) -> list[QFrame]:
+    return block[1].findChildren(QFrame, "skeletonBar")
+
+
+def _unavailable_notices(block) -> list[QLabel]:
+    return [
+        label for label in block[1].findChildren(QLabel) if "could not be loaded" in label.text()
+    ]
+
+
+def _assert_holds_a_notice_not_a_skeleton(block) -> None:
+    assert _skeleton_bars(block) == []
+    assert len(_unavailable_notices(block)) == 1
+
+
+def _build_like_a_pane(realized: list[str]):
+    """What the panes do with a block that has its diff: swap the skeleton for hunks."""
+
+    def build(path, inner, skeleton, entry):
+        realized.append(path)
+        inner.removeWidget(skeleton)
+        skeleton.deleteLater()
+
+    return build
+
+
+def test_a_diff_map_that_arrived_empty_replaces_each_skeleton_with_a_notice(qtbot, scroll_area):
+    """A diff fetch that failed answers with an empty map. Taking that for a
+    map that has not come yet left the placeholder bars up for good."""
+    sa, container, layout = scroll_area
+    realized: list[str] = []
+    loader = ViewportBlockLoader(sa, _build_like_a_pane(realized))
+    blocks = [_make_skeleton_block(layout, path) for path in ("a.txt", "b.txt")]
+    loader.set_blocks(blocks)
+
+    loader.set_diff_map({})
+
+    def every_block_holds_a_notice() -> None:
+        for block in blocks:
+            _assert_holds_a_notice_not_a_skeleton(block)
+
+    qtbot.waitUntil(every_block_holds_a_notice, timeout=2000)
+    assert realized == []
+
+
+def test_a_path_missing_from_the_diff_map_gets_a_notice_and_the_others_are_built(
+    qtbot, scroll_area
+):
+    """The working tree's map holds only the paths it could diff: one whose
+    change went away meanwhile has no entry, and kept its placeholder bars."""
+    sa, container, layout = scroll_area
+    realized: list[str] = []
+    loader = ViewportBlockLoader(sa, _build_like_a_pane(realized))
+    kept, vanished = (_make_skeleton_block(layout, path) for path in ("kept.txt", "vanished.txt"))
+    loader.set_blocks([kept, vanished])
+
+    loader.set_diff_map({"kept.txt": ["hunk"]})
+
+    def both_are_settled() -> None:
+        assert _skeleton_bars(kept) == []
+        _assert_holds_a_notice_not_a_skeleton(vanished)
+
+    qtbot.waitUntil(both_are_settled, timeout=2000)
+    assert realized == ["kept.txt"]
+    assert _unavailable_notices(kept) == []
+
+
+def test_a_block_keeps_its_skeleton_until_the_diff_map_arrives(qtbot, scroll_area):
+    """Nothing is known about any file before the fetch answers."""
+    sa, container, layout = scroll_area
+    loader = ViewportBlockLoader(sa, lambda *a: None)
+    block = _make_skeleton_block(layout, "a.txt")
+    loader.set_blocks([block])
+
+    loader._check_viewport()
+
+    assert len(_skeleton_bars(block)) > 0
+    assert _unavailable_notices(block) == []
+
+
+def test_new_blocks_do_not_inherit_the_diff_map_that_arrived_for_the_old_ones(qtbot, scroll_area):
+    sa, container, layout = scroll_area
+    loader = ViewportBlockLoader(sa, lambda *a: None)
+    old = _make_skeleton_block(layout, "old.txt")
+    loader.set_blocks([old])
+    loader.set_diff_map({"old.txt": ["hunk"]})
+    new = _make_skeleton_block(layout, "new.txt")
+    loader.set_blocks([new])
+
+    loader._check_viewport()
+
+    assert len(_skeleton_bars(new)) > 0
+    assert _unavailable_notices(new) == []
+
+
+def test_a_notice_in_a_collapsed_block_stays_hidden(qtbot, scroll_area):
+    """A block can be collapsed while it is still a skeleton. Whatever is put
+    in it afterwards has to stay out of sight under the chevron."""
+    from git_gui.presentation.widgets._collapse_toggle import _CollapseToggle
+
+    sa, container, layout = scroll_area
+    loader = ViewportBlockLoader(sa, lambda *a: None)
+    block = _make_skeleton_block(layout, "a.txt")
+    loader.set_blocks([block])
+    block[1].findChild(_CollapseToggle).click()
+
+    loader.set_diff_map({})
+
+    def holds_a_notice() -> None:
+        assert len(_unavailable_notices(block)) == 1
+
+    qtbot.waitUntil(holds_a_notice, timeout=2000)
+    assert not _unavailable_notices(block)[0].isVisible()
 
 
 def test_a_block_pushed_off_screen_by_the_one_just_built_is_not_built(qtbot, scroll_area):

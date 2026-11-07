@@ -799,6 +799,24 @@ def make_overflow_notice(hidden: int) -> QLabel:
     return label
 
 
+def _diff_unavailable_style() -> str:
+    return f"color: {get_theme_manager().current.colors.on_surface_variant};"
+
+
+def make_diff_unavailable_notice() -> QLabel:
+    """A muted line that takes a skeleton's place when the diff is not coming.
+
+    The skeleton promises a diff; this is what a block shows once the fetch
+    has answered without one, so the bars do not wait for it forever.
+    """
+    label = QLabel("Diff could not be loaded — see the log.")
+    label.setWordWrap(True)
+    label.setContentsMargins(8, 6, 8, 6)
+    label.setStyleSheet(_diff_unavailable_style())
+    connect_widget(label, rebuild=lambda: label.setStyleSheet(_diff_unavailable_style()))
+    return label
+
+
 _SKELETON_BAR_COUNT = 4
 
 
