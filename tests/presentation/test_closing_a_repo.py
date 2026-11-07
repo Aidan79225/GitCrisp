@@ -353,3 +353,23 @@ def test_ctrl_w_after_closing_the_owner_while_its_replacement_opens_does_nothing
     assert win._repo_store.get_open_repos() == [a, b]
     assert win._repo_store.get_recent_repos() == recent_before
     _settled(qtbot, win)
+
+
+def test_closing_the_owner_again_while_its_replacement_opens_leaves_the_screen_alone(
+    qtbot, tmp_path, repos
+):
+    """The owner's row stays drawn until b has opened, so it can be closed
+    again. The owner is closed already: the second close leaves the worktree up
+    for b to replace rather than blanking the window."""
+    a, b, c = repos
+    win, worktree = _in_worktree_of(qtbot, tmp_path, repos, owner=c)
+    held = _hold_session(win, b)
+    win._on_repo_close(c)  # b is on its way to replace it
+    win._on_repo_close(c)  # the same row, closed again
+
+    assert win._repo_path == worktree, "the worktree stays up until b opens"
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        held.release.set()
+    assert win._repo_path == b
+    assert win._repo_store.get_open_repos() == [a, b]
+    _settled(qtbot, win)
