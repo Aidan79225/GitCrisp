@@ -11,6 +11,7 @@ draws a branch merged long ago as a lane that never merges.
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -26,6 +27,10 @@ class _InlineThread:
     A real worker thread here outlives the test: it emits into a widget qtbot
     has already torn down, which on Windows is heap corruption rather than a
     failure. Nothing in these tests needs the work to be off the main thread.
+
+    Only the graph's own reference is swapped: the threads subprocess reads
+    git's output on, including those of a worker an earlier test left
+    running, must stay real.
     """
 
     def __init__(self, target=None, daemon=None, **kwargs) -> None:
@@ -38,7 +43,9 @@ class _InlineThread:
 
 @pytest.fixture
 def inline_workers(monkeypatch):
-    monkeypatch.setattr("git_gui.presentation.widgets.graph.threading.Thread", _InlineThread)
+    monkeypatch.setattr(
+        "git_gui.presentation.widgets.graph.threading", SimpleNamespace(Thread=_InlineThread)
+    )
 
 
 def _quiet_queries(w: GraphWidget) -> None:

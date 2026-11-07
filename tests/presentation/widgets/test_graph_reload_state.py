@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -72,15 +73,23 @@ class _HeldWorkers:
         self.waiting.pop(0)()
 
 
+# Both fixtures swap only the graph's own reference to `threading`. Faking
+# `threading.Thread` itself reached every thread in the process, including
+# the ones subprocess reads git's output on in a worker an earlier test left
+# running.
 @pytest.fixture
 def inline_workers(monkeypatch):
-    monkeypatch.setattr("git_gui.presentation.widgets.graph.threading.Thread", _InlineThread)
+    monkeypatch.setattr(
+        "git_gui.presentation.widgets.graph.threading", SimpleNamespace(Thread=_InlineThread)
+    )
 
 
 @pytest.fixture
 def held_workers(monkeypatch) -> _HeldWorkers:
     held = _HeldWorkers()
-    monkeypatch.setattr("git_gui.presentation.widgets.graph.threading.Thread", held.thread)
+    monkeypatch.setattr(
+        "git_gui.presentation.widgets.graph.threading", SimpleNamespace(Thread=held.thread)
+    )
     return held
 
 
