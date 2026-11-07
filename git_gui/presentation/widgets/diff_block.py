@@ -809,7 +809,7 @@ def make_diff_unavailable_notice() -> QLabel:
     The skeleton promises a diff; this is what a block shows once the fetch
     has answered without one, so the bars do not wait for it forever.
     """
-    label = QLabel("Diff could not be loaded — see the log.")
+    label = QLabel("Diff could not be loaded.")
     label.setWordWrap(True)
     label.setContentsMargins(8, 6, 8, 6)
     label.setStyleSheet(_diff_unavailable_style())
