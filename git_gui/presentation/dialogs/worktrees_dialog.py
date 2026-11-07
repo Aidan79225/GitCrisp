@@ -46,7 +46,7 @@ class WorktreesDialog(QDialog):
         self._lock_btn.clicked.connect(self._on_lock)
         self._unlock_btn.clicked.connect(self._on_unlock)
         self._remove_btn.clicked.connect(self._on_remove)
-        self._add_btn.clicked.connect(lambda: self.add_requested.emit())
+        self._add_btn.clicked.connect(self.add_requested)
         self._close_btn.clicked.connect(self.accept)
 
         btn_row = QHBoxLayout()
