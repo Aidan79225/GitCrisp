@@ -796,9 +796,19 @@ class GraphWidget(QWidget):
 
         # Nothing to fetch when every tip is already drawn — just scroll and select.
         if self._loaded_oids().issuperset(tips):
-            self.scroll_to_oid(oid, select=True)
+            self._select_drawn(oid)
             return
         self._load_tips_and_land(oid, tips)
+
+    def _select_drawn(self, oid: str) -> None:
+        """Scroll to and select a commit that is already drawn.
+
+        It is the latest pick, so a click still loading toward a landing loses to it.
+        """
+        self.scroll_to_oid(oid, select=True)
+        # _on_row_changed hears of a pick only when the row changes, and
+        # picking the current commit again changes none.
+        self._supersede_pending_landing(oid)
 
     def _select_in_file_history(self, oid: str, tips: list[str]) -> None:
         """Select `oid` in the file history, paging further in to find it.
@@ -810,7 +820,7 @@ class GraphWidget(QWidget):
         the file view for a commit on a later page.
         """
         if self._row_of(oid) is not None:
-            self.scroll_to_oid(oid, select=True)
+            self._select_drawn(oid)
         elif self._has_more and self._may_be_in_file_history(oid):
             self._pending_scroll_oid = oid
             self._pending_merge_base = None
@@ -1028,10 +1038,27 @@ class GraphWidget(QWidget):
         self.scroll_to_oid(self._pending_scroll_oid, select=True)
         self._scroll_anchor_oid = None
 
+    def _supersede_pending_landing(self, picked: str | None) -> None:
+        """Drop the landing a click is still loading toward, as `picked` was chosen after it.
+
+        Left in place, the load would finish by selecting that click's commit
+        over `picked`. Picking that same commit is no change of mind, so its
+        landing stays. `picked` is None when the pick is no commit, a stash.
+        """
+        pending = self._pending_scroll_oid
+        if pending is None or pending == picked:
+            return
+        self._pending_scroll_oid = None
+        self._pending_merge_base = None
+        # The load restores the viewport saved when it began, from before this
+        # pick, and would scroll the picked row out of sight.
+        self._capture_scroll_anchor()
+
     def _capture_scroll_anchor(self) -> None:
         """Remember the OID of the row at the top of the visible viewport so
         we can restore the scroll position after a reload. Called from
-        reload() before the worker runs."""
+        reload() before the worker runs, and when a later pick supersedes the
+        click that started it."""
         if self._model.rowCount() == 0:
             self._scroll_anchor_oid = None
             return
@@ -1338,6 +1365,7 @@ class GraphWidget(QWidget):
         self._view.setCurrentIndex(self._model.index(-1, 0))
         # Left set, it would swallow the next click on the same commit.
         self._selected_oid = None
+        self._supersede_pending_landing(None)
 
     # ── Search ───────────────────────────────────────────────────────────
     def open_search(self) -> None:
@@ -1481,6 +1509,8 @@ class GraphWidget(QWidget):
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._oid_at(current.row())
+        if oid:
+            self._supersede_pending_landing(oid)
         # Skip re-emitting for the already-selected commit. A model reset (from
         # an auto-reload) invalidates the current index, so restoring the
         # selection fires currentRowChanged with the same oid. Re-emitting there
