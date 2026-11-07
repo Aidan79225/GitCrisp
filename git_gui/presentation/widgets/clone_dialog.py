@@ -46,6 +46,7 @@ class _CloneSignals(QObject):
     finished = Signal(str)  # dest path
     failed = Signal(str)  # error message
     cleanup_failed = Signal(str, str)  # dest path, reason
+    ended = Signal()  # the worker is done, whichever way the clone went
 
 
 class CloneDialog(QDialog):
@@ -60,6 +61,8 @@ class CloneDialog(QDialog):
         self.setMinimumWidth(500)
         self._cloning = False
         self._cancel_requested = threading.Event()
+        self._workers_running = 0
+        self._release_requested = False
 
         # URL
         self._url_edit = QLineEdit()
@@ -174,7 +177,9 @@ class CloneDialog(QDialog):
         signals.finished.connect(self._on_finished)
         signals.failed.connect(self._on_failed)
         signals.cleanup_failed.connect(self.cleanup_failed)
+        signals.ended.connect(self._on_worker_ended)
         self._clone_signals = signals  # prevent GC
+        self._workers_running += 1
 
         cancelled = self._cancel_requested
 
@@ -192,6 +197,8 @@ class CloneDialog(QDialog):
                     signals.cleanup_failed.emit(dest, str(e.cleanup_error))
             except Exception as e:
                 signals.failed.emit(str(e))
+            finally:
+                signals.ended.emit()
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -239,3 +246,21 @@ class CloneDialog(QDialog):
         if self._cloning:
             self._cancel_requested.set()
         super().reject()
+
+    def release(self) -> None:
+        """Delete the dialog, once it has closed and no clone is still ending.
+
+        A cancelled clone's worker outlives the closed dialog: it reports what it
+        could not remove through the dialog, so deleting the dialog sooner would
+        drop that report.
+        """
+        self._release_requested = True
+        self._delete_if_idle()
+
+    def _on_worker_ended(self) -> None:
+        self._workers_running -= 1
+        self._delete_if_idle()
+
+    def _delete_if_idle(self) -> None:
+        if self._release_requested and self._workers_running == 0:
+            self.deleteLater()
