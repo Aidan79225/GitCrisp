@@ -265,3 +265,67 @@ def test_a_misspelt_mode_is_refused_rather_than_taking_another_branch(app, isola
 
     with pytest.raises(ValueError):
         mgr.set_mode("Custom")
+
+
+def _launch_font_size(app) -> int:
+    """The point size of the app font once a ThemeManager has started on the
+    settings saved at that moment."""
+    ThemeManager(app)
+    return app.font().pointSize()
+
+
+@pytest.mark.parametrize(
+    "unusable",
+    [
+        "large",
+        "150%",
+        "",
+        None,
+        [1.5],
+        {"scale": 1.5},
+        False,
+        float("nan"),
+        float("inf"),
+        -float("inf"),
+        10**400,
+    ],
+    ids=[
+        "word",
+        "percent-sign",
+        "empty-string",
+        "null",
+        "list",
+        "object",
+        "boolean",
+        "nan",
+        "infinity",
+        "negative-infinity",
+        "integer-beyond-float",
+    ],
+)
+def test_a_text_scale_that_is_not_a_finite_number_is_ignored_at_launch(
+    app, isolated_settings, restore_app_font, unusable
+):
+    """settings.json can be edited by hand. Such a value used to raise out of
+    ThemeManager.__init__, so the app did not open until the file was fixed."""
+    size_without_a_saved_scale = _launch_font_size(app)
+    s.save_settings({"typography_scale": unusable})
+
+    assert _launch_font_size(app) == size_without_a_saved_scale
+
+
+@pytest.mark.parametrize(
+    ("saved", "limit"),
+    [(1e12, 2.0), (3.0, 2.0), (0, 0.5), (-3, 0.5)],
+    ids=["beyond-any-font-size", "above-the-maximum", "zero", "negative"],
+)
+def test_a_text_scale_outside_the_sliders_range_is_limited_to_it_at_launch(
+    app, isolated_settings, restore_app_font, saved, limit
+):
+    """1e12 overflowed the integer behind QFont.setPointSize and stopped the
+    launch; 0 and -3 made a 1 pt font."""
+    s.save_settings({"typography_scale": limit})
+    size_at_the_limit = _launch_font_size(app)
+    s.save_settings({"typography_scale": saved})
+
+    assert _launch_font_size(app) == size_at_the_limit

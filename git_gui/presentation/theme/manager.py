@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QWidget
 
 from .loader import ThemeValidationError, load_builtin, load_theme
 from .qss_template import render
-from .settings import load_settings, save_settings
+from .settings import load_settings, load_typography_scale, save_settings
 from .tokens import Theme
 
 _log = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class ThemeManager(QObject):
         if body.family:
             font.setFamily(body.family)
         if body.size > 0:
-            scale = float(load_settings().get("typography_scale", 1.0))
+            scale = load_typography_scale()
             font.setPointSize(_scaled_point_size(body.size, scale))
         if body.weight:
             font.setWeight(QFont.Weight(body.weight))

@@ -256,6 +256,38 @@ def test_dialog_opens_when_the_saved_custom_theme_is_malformed(app, reset_theme,
     assert isinstance(ThemeDialog(), QDialog)
 
 
+@pytest.mark.parametrize(
+    "unusable",
+    ["150%", None, float("nan"), float("inf")],
+    ids=["percent-sign", "null", "nan", "infinity"],
+)
+def test_dialog_opens_at_100_percent_when_the_saved_text_scale_is_unusable(
+    app, reset_theme, custom_theme_file, qtbot, unusable
+):
+    """The slider float()ed the saved value on open and raised, so View >
+    Appearance did nothing, and nothing in the app could repair the value."""
+    from git_gui.presentation.theme import settings as s
+
+    s.save_settings({"typography_scale": unusable})
+
+    dlg = ThemeDialog()
+    qtbot.addWidget(dlg)
+
+    assert dlg._typo_slider.value() == 100
+
+
+def test_the_slider_spans_the_range_a_saved_text_scale_is_limited_to(
+    app, reset_theme, custom_theme_file, qtbot
+):
+    from git_gui.presentation.theme import settings as s
+
+    dlg = ThemeDialog()
+    qtbot.addWidget(dlg)
+
+    assert dlg._typo_slider.minimum() == round(s.TYPOGRAPHY_SCALE_MIN * 100)
+    assert dlg._typo_slider.maximum() == round(s.TYPOGRAPHY_SCALE_MAX * 100)
+
+
 def _save_light_based_custom_theme_then_switch_to_dark() -> None:
     get_theme_manager().set_mode("light")
     dlg = ThemeDialog()
