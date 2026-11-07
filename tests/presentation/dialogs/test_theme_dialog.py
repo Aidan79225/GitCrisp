@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QDialog, QRadioButton
 
 from git_gui.presentation.dialogs.theme_dialog import ThemeDialog
@@ -39,6 +40,29 @@ def custom_theme_file(tmp_path, monkeypatch) -> Path:
     return custom_path
 
 
+def _live_theme_dialogs() -> list[ThemeDialog]:
+    return [w for w in QApplication.topLevelWidgets() if isinstance(w, ThemeDialog)]
+
+
+@pytest.fixture(autouse=True)
+def _free_the_theme_dialogs():
+    """Delete the dialogs a test built, so the tests after it do not restyle them.
+
+    A ThemeDialog connects closures that capture it to its own widgets, so one
+    nobody references any more stays alive with its 150 or so widgets.
+    ThemeManager restyles every live widget on each theme change, so every
+    later test here and in theme/test_manager.py paid for all of them.
+
+    The DeferredDelete is sent by hand because processEvents leaves a
+    deleteLater() pending outside an event loop, and there is no qtbot here
+    because pytest-qt closes its widgets before fixtures are torn down.
+    """
+    yield
+    for dialog in _live_theme_dialogs():
+        dialog.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 def _write_custom_theme(path: Path, theme: Theme) -> None:
     """Save *theme* to *path* the way Apply would."""
     import json
@@ -55,6 +79,18 @@ def _radios(dialog: ThemeDialog) -> dict[str, QRadioButton]:
         for radio in dialog.findChildren(QRadioButton)
         if radio.property("mode") in ("system", "light", "dark", "custom")
     }
+
+
+# This pair only means something in the order written, which is the order
+# pytest runs a module in (see tests/test_settings_isolation.py).
+def test_a_test_can_leave_a_dialog_alive(app):
+    dlg = ThemeDialog()
+
+    assert dlg in QApplication.topLevelWidgets()
+
+
+def test_the_next_test_starts_with_no_dialog_alive():
+    assert len(_live_theme_dialogs()) == 0
 
 
 def test_dialog_constructs(app, reset_theme):
