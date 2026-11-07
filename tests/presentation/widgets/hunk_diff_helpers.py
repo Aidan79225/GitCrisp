@@ -1,8 +1,11 @@
-"""Let a working-tree pane's diff workers finish before the pane is let go.
+"""Let a pane's diff workers finish before the pane is let go.
 
-A worker keeps its signals object alive until the thread ends. If the test
-drops the pane first, the worker's exit is what destroys that object, on a
-thread that does not own it, and Qt can crash for it in a later test.
+A pane's load signals are its children, so they are deleted with it, on the GUI
+thread. A worker still inside its emit at that moment would be calling into an
+object being torn down: a known residual, microseconds wide, that exists only
+where a pane is destroyed (in the shipped app, when the window closes). A
+worker left running also outlives its test, and answers or logs during a later
+one. Joining the workers before the pane goes rules out both.
 """
 
 from __future__ import annotations
@@ -14,7 +17,11 @@ from contextlib import contextmanager
 
 @contextmanager
 def workers_joined_on_exit() -> Iterator[None]:
-    """Join every thread started inside the block before leaving it."""
+    """Join every thread started inside the block before leaving it.
+
+    No worker is then still emitting into a pane as it is destroyed, or
+    running on into a later test.
+    """
     before = set(threading.enumerate())
     try:
         yield

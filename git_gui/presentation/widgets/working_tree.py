@@ -321,10 +321,14 @@ class WorkingTreeWidget(QWidget):
                 files, partial = _deduplicate(queries.get_working_tree.execute())
             except Exception as e:
                 logger.warning("Working tree reload failed: %s", e)
-                with suppress(RuntimeError):  # the panel was destroyed, signals and all
+                # Covers an emit after the panel is gone, which finds its signals
+                # deleted with it. A delete landing inside the emit itself is a
+                # known residual: this panel dies only when the window is
+                # destroyed at exit.
+                with suppress(RuntimeError):
                     signals.failed.emit(str(e), generation)
                 return
-            with suppress(RuntimeError):
+            with suppress(RuntimeError):  # an emit after the panel is gone, as above
                 signals.done.emit(files, partial, generation)
 
         threading.Thread(target=_worker, daemon=True).start()

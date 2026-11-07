@@ -228,7 +228,11 @@ class HunkDiffWidget(QWidget):
             except Exception:
                 logger.warning("Failed to load the working tree's diffs", exc_info=True)
                 result = {}
-            with suppress(RuntimeError):  # the pane was destroyed, signals and all
+            # Covers an emit after the pane is gone, which finds its signals
+            # deleted with it. A delete landing inside the emit itself is a
+            # known residual: this pane dies only when the window is destroyed
+            # at exit.
+            with suppress(RuntimeError):
                 signals.done.emit(result, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -284,7 +288,7 @@ class HunkDiffWidget(QWidget):
 
         def _worker():
             staged_hunks, unstaged_hunks = _read_file_hunks(queries, path)
-            with suppress(RuntimeError):  # the pane was destroyed, signals and all
+            with suppress(RuntimeError):  # an emit after the pane is gone; see load_all_files
                 signals.done.emit(path, staged_hunks, unstaged_hunks, generation)
 
         threading.Thread(target=_worker, daemon=True).start()

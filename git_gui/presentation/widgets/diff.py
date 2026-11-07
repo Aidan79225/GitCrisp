@@ -589,7 +589,11 @@ class DiffWidget(QWidget):
             except Exception:
                 logger.warning("Failed to load the diffs of commit %r", oid, exc_info=True)
                 result = {}
-            with suppress(RuntimeError):  # the pane was destroyed, signals and all
+            # Covers an emit after the pane is gone, which finds its signals
+            # deleted with it. A delete landing inside the emit itself is a
+            # known residual: this pane dies only when the window is destroyed
+            # at exit.
+            with suppress(RuntimeError):
                 signals.done.emit(result, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
