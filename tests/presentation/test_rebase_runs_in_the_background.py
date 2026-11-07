@@ -264,7 +264,9 @@ def test_a_toolbar_push_or_pull_requested_while_a_rebase_runs_is_skipped_and_log
     _let_git_exit(qtbot, window, git)
 
 
-def test_abort_and_continue_wait_while_the_rebase_runs(qtbot, window, git, rebase, resume):
+def test_abort_and_continue_requested_while_a_rebase_runs_are_skipped_and_logged(
+    qtbot, window, git, rebase, resume
+):
     # The banner shows as soon as git has begun. A second git on the same rebase
     # loses the abort, or finishes the rebase behind the worker's back.
     _start_in_background(qtbot, window, git, rebase)
