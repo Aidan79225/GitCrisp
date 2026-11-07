@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import threading
 from pathlib import Path
@@ -27,6 +28,17 @@ def _parse_repo_name(url: str) -> str:
     """Extract repo name from a git URL."""
     m = _REPO_NAME_RE.search(url.strip())
     return m.group(1) if m else ""
+
+
+def _stays_inside(folder: str, name: str) -> bool:
+    """Whether a clone named ``name`` under ``folder`` is written inside ``folder``.
+
+    Joined the way git sees it, so ``..``, another drive, a rooted name and an
+    absolute path all count. Text only: no disk access on the GUI thread.
+    """
+    # abspath, not normpath: Path.is_relative_to takes "../x" for inside ".".
+    root = Path(os.path.abspath(folder))
+    return Path(os.path.abspath(root / name)).is_relative_to(root)
 
 
 class _CloneSignals(QObject):
@@ -143,6 +155,9 @@ class CloneDialog(QDialog):
             return
         if not name:
             self._show_error("Folder name is required")
+            return
+        if not _stays_inside(folder, name):
+            self._show_error("Folder name must stay inside the location.")
             return
 
         dest = str(Path(folder) / name)
