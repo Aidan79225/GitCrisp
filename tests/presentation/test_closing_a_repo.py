@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import Qt
 
 from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
 from git_gui.infrastructure.repo_store import JsonRepoStore
@@ -206,3 +207,92 @@ def test_closing_the_repo_on_its_way_to_replace_a_closed_one_moves_on(qtbot, tmp
 
     assert win._repo_path == c
     assert win._repo_store.get_active() == c
+
+
+# ── Ctrl+W inside a linked worktree ──────────────────────────────────────────
+
+
+def _in_worktree_of(qtbot, tmp_path, open_repos: list[str], owner: str) -> tuple[MainWindow, str]:
+    """A window on *owner*'s linked worktree, switched to in-session.
+
+    The worktree gets no row of its own: it hangs under *owner*'s.
+    """
+    worktree = _linked_worktree(owner, tmp_path)
+    win = _window_on(qtbot, tmp_path, open_repos, active=owner)
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        win._switch_repo(worktree)
+    return win, worktree
+
+
+def _worktrees_listed_under(win: MainWindow, owner: str) -> list[str]:
+    open_header = win._repo_list._model.item(0)
+    for row in range(open_header.rowCount()):
+        repo_item = open_header.child(row)
+        if repo_item.data(Qt.UserRole) == owner:
+            return [repo_item.child(i).data(Qt.UserRole) for i in range(repo_item.rowCount())]
+    return []
+
+
+@pytest.mark.parametrize(
+    ("open_names", "owner_name"),
+    [
+        pytest.param("abc", "a", id="owner first"),
+        pytest.param("abc", "b", id="owner in the middle"),
+        pytest.param("abc", "c", id="owner last"),
+        pytest.param("c", "c", id="owner only"),
+    ],
+)
+def test_ctrl_w_in_a_linked_worktree_goes_back_to_its_owner(
+    qtbot, tmp_path, repos, open_names, owner_name
+):
+    """The worktree has no row to close, only the owner's. It went to the first
+    open repo whoever owned it, closed nothing, and listed the worktree as a
+    closed repo under RECENT."""
+    paths = dict(zip("abc", repos))
+    open_repos = [paths[name] for name in open_names]
+    owner = paths[owner_name]
+    win, worktree = _in_worktree_of(qtbot, tmp_path, open_repos, owner)
+    recent_before = win._repo_store.get_recent_repos()
+
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        win._close_current_repo()
+
+    assert win._repo_path == owner
+    assert win._repo_store.get_active() == owner
+    assert win._repo_store.get_open_repos() == open_repos
+    assert win._repo_store.get_recent_repos() == recent_before
+    assert _worktrees_listed_under(win, owner) == [worktree]
+
+
+def test_ctrl_w_in_a_linked_worktree_whose_owner_is_not_open_closes_it_as_before(
+    qtbot, tmp_path, repos
+):
+    """Relaunched onto a worktree whose repo is closed: no owner to go back to."""
+    a, b, c = repos
+    worktree = _linked_worktree(c, tmp_path)
+    win = _window_on(qtbot, tmp_path, [a, b], active=worktree)
+
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        win._close_current_repo()
+
+    assert win._repo_path == a
+    assert win._repo_store.get_open_repos() == [a, b]
+    assert win._repo_store.get_recent_repos() == [worktree]
+
+
+def test_ctrl_w_in_a_linked_worktree_while_another_repo_opens_hands_over_to_it(
+    qtbot, tmp_path, repos
+):
+    """The repo the user already asked for takes over; going back to the owner
+    would have replaced that request."""
+    a, _, c = repos
+    win, _ = _in_worktree_of(qtbot, tmp_path, repos, owner=c)
+    held = _hold_session(win, a)
+    win._switch_repo(a)
+
+    win._close_current_repo()
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        held.release.set()
+
+    assert win._repo_path == a
+    assert win._repo_store.get_open_repos() == repos

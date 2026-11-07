@@ -406,8 +406,19 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         return before[-1] if before else next(iter(after), None)
 
     def _close_current_repo(self) -> None:
-        """Ctrl+W: close the active repo and switch to the previous open one."""
+        """Ctrl+W: close the active repo and switch to the previous open one.
+
+        A linked worktree on screen has no row of its own to close, only a
+        child row under its owner's: Ctrl+W goes back to the owner and closes
+        nothing, unless a repo is already on its way, which takes over.
+        """
         if not self._repo_path:
+            return
+        open_repos = self._repo_store.get_open_repos()
+        owner = self._repo_list.worktree_owner()
+        in_owned_worktree = self._repo_path not in open_repos and owner in open_repos
+        if in_owned_worktree and self._pending_request() is None:
+            self._switch_repo(owner)
             return
         self._on_repo_close(self._repo_path)
 
