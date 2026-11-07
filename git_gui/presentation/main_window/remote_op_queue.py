@@ -62,6 +62,7 @@ class RemoteOpQueueMixin:
         # follows up on the op must go to the repo it started in.
         self._remote_op_commands: CommandBus | None = None
         self._remote_op_push_target: _PushTarget | None = None
+        self._remote_op_undo_to: str | None = None
 
     def _run_remote_op(
         self,
@@ -70,11 +71,16 @@ class RemoteOpQueueMixin:
         *,
         commands: CommandBus | None = None,
         push_target: _PushTarget | None = None,
+        undo_to: str | None = None,
+        cancellable: bool = True,
     ) -> None:
         """Run *fn* on a worker thread unless another remote op is running.
 
         *commands* is the bus *fn* works on, the active repo's unless given.
         *push_target* marks the op as a push that may be offered a force push.
+        *undo_to* is the HEAD an Undo link goes back to once *fn* has finished.
+        *cancellable* is False for an op that Cancel cannot stop, which is shown
+        without the button.
         """
         if self._remote_slot_busy(name):
             return
@@ -85,9 +91,10 @@ class RemoteOpQueueMixin:
         self._remote_op_name = name
         self._remote_op_commands = commands if commands is not None else self._commands
         self._remote_op_push_target = push_target
+        self._remote_op_undo_to = undo_to
         self.statusBar().showMessage(f"⏳ {name}...")
         self._cancel_remote_btn.setEnabled(True)
-        self._cancel_remote_btn.setVisible(True)
+        self._cancel_remote_btn.setVisible(cancellable)
 
         signals = _RemoteSignals()
         signals.finished.connect(self._on_remote_done)
@@ -147,12 +154,19 @@ class RemoteOpQueueMixin:
         self._remote_op_name = None
         self._remote_op_commands = None
         self._remote_op_push_target = None
+        self._remote_op_undo_to = None
         self.statusBar().clearMessage()
         self._cancel_remote_btn.setVisible(False)
         self._cancel_remote_btn.setEnabled(True)
 
     def _on_remote_done(self, name: str) -> None:
-        self._log_panel.log(f"{name} — done")
+        done = f"{name} — done"
+        # A repo switch retires the Undo links; one logged now would reset the
+        # repo that is open instead of the one the op ran in.
+        if self._remote_op_undo_to and self._remote_op_commands is self._commands:
+            self._log_undoable(done, self._remote_op_undo_to)
+        else:
+            self._log_panel.log(done)
         self._end_remote_op()
         self._reload()
 
