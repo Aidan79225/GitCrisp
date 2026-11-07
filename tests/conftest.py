@@ -32,7 +32,7 @@ def _isolated_gitcrisp_home(tmp_path_factory):
         Path.home = original  # type: ignore[method-assign]
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(autouse=True)
 def _isolated_settings(tmp_path_factory):
     """Keep the suite out of the developer's real config.
 
@@ -40,6 +40,11 @@ def _isolated_settings(tmp_path_factory):
     and pytest-qt closes every widget it adopts — so without this, running the
     tests would silently overwrite the layout of the app the developer is
     using.
+
+    Every test gets a directory of its own rather than the session sharing
+    one: a preference a test saves, or a path it moves the store to, would
+    otherwise be where every later test starts. The directory is not
+    ``tmp_path``, which repo fixtures use as a working tree.
     """
     from PySide6.QtCore import QCoreApplication, QSettings
 
