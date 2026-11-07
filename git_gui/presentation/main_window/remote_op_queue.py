@@ -263,13 +263,15 @@ class RemoteOpQueueMixin:
             return []
 
     def _branch_to_sync(self, op: str) -> str | None:
-        """The checked-out branch, or None after logging that HEAD is on none.
+        """The checked-out branch, or None after logging why *op* cannot go ahead.
 
         The toolbar's Push and Pull stay enabled on a detached HEAD (every
         rebase stops on one) and in a repo with no commits yet, so a click
-        there needs an answer.
+        there needs an answer. The slot is asked first: a rebase running in
+        it leaves HEAD detached too, and "check out a branch" would be the
+        wrong advice.
         """
-        if self._queries is None:
+        if self._queries is None or self._remote_slot_busy(op):
             return None
         branch = self._get_current_branch()
         if branch is None:

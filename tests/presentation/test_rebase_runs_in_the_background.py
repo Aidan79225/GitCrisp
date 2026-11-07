@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from git_gui.domain.entities import Branch
 from git_gui.presentation.main_window import MainWindow
 from tests.presentation.window_helpers import wired_window
 
@@ -189,6 +190,25 @@ def test_a_fetch_requested_while_a_rebase_runs_is_skipped_and_logged(qtbot, wind
     skipped = window._log_panel.log_error.call_args.args[0]
     assert rebase.name in skipped
     assert "skipped" in skipped
+
+    _let_git_exit(qtbot, window, git)
+
+
+@pytest.mark.parametrize(
+    ("requested", "button"), [("pull_requested", "Pull"), ("push_requested", "Push")]
+)
+def test_a_toolbar_push_or_pull_requested_while_a_rebase_runs_is_skipped_and_logged(
+    qtbot, window, git, rebase, requested, button
+):
+    # HEAD is detached while git replays the commits: no branch is checked out.
+    window._queries.get_branches.execute.return_value = [Branch("feature", False, False, TARGET)]
+    _start_in_background(qtbot, window, git, rebase)
+
+    getattr(window._graph, requested).emit()
+
+    logged = _logged(window)
+    assert f"{button} — skipped: {rebase.name} is still running" in logged
+    assert "HEAD is not on a branch" not in logged
 
     _let_git_exit(qtbot, window, git)
 
