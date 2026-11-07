@@ -136,7 +136,7 @@ def test_a_remote_whose_tags_cannot_be_listed_raises_runtime_error_not_cancelled
 
 
 def test_aborting_a_merge_leaves_the_running_fetch_cancellable(repo_impl):
-    """A local command run while a fetch is in flight must not take its cancel slot."""
+    """A local command run while a fetch is in flight must not replace the fetch's cancel handle."""
     in_flight_fetch = object()
     repo_impl._active_remote_proc = in_flight_fetch
     with pytest.raises(RuntimeError):
