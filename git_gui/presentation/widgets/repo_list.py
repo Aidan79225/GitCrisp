@@ -449,11 +449,12 @@ class RepoListWidget(QWidget):
                 item = self._make_repo_item(path, _RowKind.OPEN, is_active=(path == active))
                 if path == group_owner and self._active_worktrees:
                     for wt in self._active_worktrees:
-                        # is_main: the main worktree is the main repo's own row, which
-                        # the group hangs under, so it is never a child. Git names it
-                        # by its real path, which a row opened through a link does
-                        # not match as text.
-                        # Same path: a linked worktree opened on a row of its own.
+                        # Left out: the main worktree (told by is_main, not by path:
+                        # git names it by its real path, which a row opened through
+                        # a link does not match as text) and the folder of this very
+                        # row (a linked worktree opened on a row of its own). Under a
+                        # linked worktree's row the main worktree is left out too,
+                        # though it is not that row.
                         if wt.is_main or same_path_text(str(wt.path), path):
                             continue
                         item.appendRow(
