@@ -1,5 +1,6 @@
-"""Let a pane's workers finish before the pane is let go.
+"""Helpers for the tests of panes whose loads run on worker threads.
 
+workers_joined_on_exit lets a pane's workers finish before the pane is let go.
 A pane's load signals are its children, so they are deleted with it, on the GUI
 thread. A worker still inside its emit at that moment would be calling into an
 object being torn down: a known residual, microseconds wide, that exists only
@@ -8,6 +9,11 @@ when the window closes, while a BlamePane is destroyed whenever the user closes
 it. A worker left running also outlives its test, and answers or logs during a
 later one. workers_joined_on_exit joins each worker for up to two seconds, which
 keeps both out of the tests.
+
+wait_until_deleted waits for a load's signals to be deleted. They delete
+themselves once answered, and a waitSignal on them can lose its wake-up, because
+the deletion can come before the observer is woken. A test waits for the
+deletion itself.
 """
 
 from __future__ import annotations

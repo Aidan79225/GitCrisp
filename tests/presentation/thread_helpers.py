@@ -1,8 +1,10 @@
-"""Helpers for the tests that pin which thread a worker's signals are freed on.
+"""Helpers for the test files that pin which thread a worker's signals are freed on.
 
-Qt documents deleting a QObject from a thread other than its own as unsafe. Each
-of those tests holds a worker inside its query, lets the pane move on, and reads
-the name of the thread that ran the signals' C++ destructor.
+Qt documents deleting a QObject from a thread other than its own as unsafe, so
+recording() notes the name of the thread that ran a signals class's C++
+destructor; the clone, blame and load test files all use it. The blame and load
+test files, whose tests hold a worker inside its query, also share Gate and
+deliver_queued_answers().
 """
 
 from __future__ import annotations
