@@ -604,15 +604,33 @@ def test_the_open_row_of_a_removed_worktree_is_dropped_however_it_was_written(
     _quiet(qtbot, win)
 
 
-# ── Ctrl+W while the replacement of a removed worktree opens ─────────────────
+# ── Closing the removed worktree while its replacement opens ─────────────────
 
 
-def test_ctrl_w_while_the_removed_worktree_is_being_replaced_leaves_the_screen_alone(
-    qtbot, tmp_path
+def _ctrl_w(win: MainWindow, worktree: str) -> None:
+    win._close_current_repo()
+
+
+def _close_item_of_its_row(win: MainWindow, worktree: str) -> None:
+    """What the Close item of a repo's row in the list asks for."""
+    win._repo_list.repo_close_requested.emit(worktree)
+
+
+@pytest.mark.parametrize(
+    "close",
+    [
+        pytest.param(_ctrl_w, id="ctrl_w"),
+        pytest.param(_close_item_of_its_row, id="close_item"),
+    ],
+)
+def test_closing_the_removed_worktree_while_it_is_being_replaced_leaves_the_screen_alone(
+    qtbot, tmp_path, close
 ):
-    """The worktree is gone and main is on its way to take its place. Ctrl+W
-    closed the dead folder as a repo of its own: it was listed under RECENT,
-    where clicking it fails, and the window went blank until main opened."""
+    """The worktree is gone and main is on its way to take its place, but the
+    worktree's row stays drawn until main opens. Closing it once more, with
+    Ctrl+W or from that row, closed the dead folder as a repo of its own: it
+    was listed under RECENT, where clicking it fails, and the window went
+    blank until main opened."""
     from main import _open_session
 
     main, worktree = _repo_with_worktree(tmp_path)
@@ -627,8 +645,9 @@ def test_ctrl_w_while_the_removed_worktree_is_being_replaced_leaves_the_screen_a
     win = _window_on(qtbot, worktree, store, session_factory=_main_held)
     _git_removes_the_worktree(qtbot, win, main, worktree)
     win._on_worktree_removed(worktree)
+    assert _open_rows(win)[-1] == (Path(worktree), True), "the dead row is still drawn"
 
-    win._close_current_repo()
+    close(win, worktree)
 
     assert store.get_recent_repos() == []
     assert Path(win._repo_path) == Path(worktree), "the window stays until main opens"

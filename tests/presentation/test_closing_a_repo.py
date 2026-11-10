@@ -373,3 +373,25 @@ def test_closing_the_owner_again_while_its_replacement_opens_leaves_the_screen_a
     assert win._repo_path == b
     assert win._repo_store.get_open_repos() == [a, b]
     _settled(qtbot, win)
+
+
+# ── Closing the repo on screen again while its replacement opens ─────────────
+
+
+def test_closing_the_closed_repo_again_while_its_replacement_opens_leaves_the_screen_alone(
+    qtbot, tmp_path, repos
+):
+    """c's row stays drawn until b has opened, so it can be closed again. c is
+    closed already: the second close left the window blank until b opened."""
+    a, b, c = repos
+    win = _window_on(qtbot, tmp_path, repos, active=c)
+    held = _hold_session(win, b)
+    win._on_repo_close(c)  # b is on its way to replace it
+    win._on_repo_close(c)  # the same row, closed again
+
+    assert win._repo_path == c, "c stays up until b opens"
+    with qtbot.waitSignal(win._repo_ready_signals.ready, timeout=5000):
+        held.release.set()
+    assert win._repo_path == b
+    assert win._repo_store.get_open_repos() == [a, b]
+    _settled(qtbot, win)

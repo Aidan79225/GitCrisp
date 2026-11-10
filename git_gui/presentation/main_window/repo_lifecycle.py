@@ -345,10 +345,20 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._request_repo(_RepoRequest(path, _SwitchReason.OPEN, after=after))
 
     def _on_repo_close(self, path: str) -> None:
+        """Close *path*, as the Close item of a repo's row and Ctrl+W both ask.
+
+        It does nothing for the repo on screen once that was closed or removed
+        and its replacement is opening: the replacement takes the screen.
+        """
+        pending = self._pending_request()
+        if path == self._repo_path and pending is not None and _replaces_a_closed_repo(pending):
+            # What is on screen is already closed or removed, and its
+            # replacement is on its way: closing it again would list it as a
+            # repo of its own under RECENT and blank the window.
+            return
         on_screen = self._closing_takes_what_is_on_screen(path)
         # The repo on its way is never its own fallback: retrying it when it
         # fails would wait out the same dead share a second time.
-        pending = self._pending_request()
         successor = self._repo_after_closing(path, skipping=pending.path if pending else None)
         self._repo_store.close_repo(path)
         if on_screen and self._repo_store.get_active() == self._repo_path:
@@ -416,22 +426,17 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
         A linked worktree on screen that has no row of its own, and whose owner
         is open, has nothing to close, only a child row under its owner's:
-        Ctrl+W goes back to the owner. It does nothing while a repo that
-        replaces a closed or removed one is opening, and, for such a worktree,
-        while any repo is: the one opening takes the screen.
+        Ctrl+W goes back to the owner, or does nothing while any repo is
+        opening: the one opening takes the screen. Any other repo is closed by
+        _on_repo_close, which does nothing while a repo that replaces a closed
+        or removed one is opening.
         """
         if not self._repo_path:
-            return
-        pending = self._pending_request()
-        if pending is not None and _replaces_a_closed_repo(pending):
-            # What is on screen is already closed or removed, and its
-            # replacement is on its way: closing it again would list it as a
-            # repo of its own under RECENT and blank the window.
             return
         owner = self._open_owner_of_worktree_on_screen()
         if owner is None:
             self._on_repo_close(self._repo_path)
-        elif pending is None:
+        elif self._pending_request() is None:
             self._switch_repo(owner)
 
     def _switch_to_repo_index(self, index: int) -> None:
