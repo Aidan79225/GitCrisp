@@ -14,10 +14,10 @@ def run_and_discard(dialog: QDialog) -> None:
     defeats that, as the Theme dialog's slots do: the dialog then stays a child
     of the window until the window closes, holding whatever it was given.
 
-    Run every dialog a menu opens through here, so that a closure added to one
-    later cannot keep it, and whatever it was given, alive under the window.
-    The exception is a dialog that sets WA_DeleteOnClose: `exec()` deletes it on
-    return, and `deleteLater()` on the deleted dialog raises RuntimeError.
+    The Git menu runs its dialogs through here as well, so that a closure added
+    to one later cannot keep it, and whatever it was given, alive under the
+    window. Do not pass a dialog that sets WA_DeleteOnClose: `exec()` deletes it
+    on return, and `deleteLater()` on the deleted dialog raises RuntimeError.
     """
     try:
         dialog.exec()
