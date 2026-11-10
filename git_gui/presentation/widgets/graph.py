@@ -797,16 +797,9 @@ class GraphWidget(QWidget):
 
         # Nothing to fetch when every tip is already drawn — just scroll and select.
         if self._loaded_oids().issuperset(tips):
-            self._select_drawn(oid)
+            self.scroll_to_oid(oid, select=True)
             return
         self._load_tips_and_land(oid, tips)
-
-    def _select_drawn(self, oid: str) -> None:
-        """Scroll to and select a commit that is already drawn.
-
-        It is the latest pick, so a click still loading toward a landing loses to it.
-        """
-        self.scroll_to_oid(oid, select=True)
 
     def _select_in_file_history(self, oid: str, tips: list[str]) -> None:
         """Select `oid` in the file history, paging further in to find it.
@@ -818,7 +811,7 @@ class GraphWidget(QWidget):
         the file view for a commit on a later page.
         """
         if self._row_of(oid) is not None:
-            self._select_drawn(oid)
+            self.scroll_to_oid(oid, select=True)
         elif self._has_more and self._may_be_in_file_history(oid):
             self._pending_scroll_oid = oid
             self._pending_merge_base = None
@@ -1353,11 +1346,18 @@ class GraphWidget(QWidget):
 
         With `select` it is also picked: a click still loading toward a landing loses to it.
         """
+        self._show_row(oid, QTableView.PositionAtTop, select)
+
+    def _show_row(self, oid: str, hint: QTableView.ScrollHint, select: bool) -> None:
+        """Scroll the row of `oid` into view as `hint` says, and pick it if `select`.
+
+        A commit with no row is left alone.
+        """
         row = self._row_of(oid)
         if row is None:
             return
         index = self._model.index(row, 0)
-        self._view.scrollTo(index, QTableView.PositionAtTop)
+        self._view.scrollTo(index, hint)
         if select:
             self._view.setCurrentIndex(index)
             # _on_row_changed hears of a pick only when the row changes, and
@@ -1493,15 +1493,8 @@ class GraphWidget(QWidget):
 
     def _jump_to_match(self) -> None:
         oid = self._search_matches[self._search_idx]
-        row = self._row_of(oid)
-        if row is None:
-            return  # a reload since the search dropped this commit
-        index = self._model.index(row, 0)
-        self._view.scrollTo(index, QTableView.PositionAtCenter)
-        self._view.setCurrentIndex(index)
-        # Jumping to the match that is already current changes no row, and
-        # _on_row_changed hears of a pick only when the row changes.
-        self._supersede_pending_landing(oid)
+        # A reload since the search may have dropped the commit: nothing moves then.
+        self._show_row(oid, QTableView.PositionAtCenter, select=True)
 
     def _row_of(self, oid: str) -> int | None:
         for row in range(self._model.rowCount()):
