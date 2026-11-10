@@ -8,7 +8,6 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
-import shiboken6
 
 from git_gui.domain.entities import BlameLine
 from git_gui.presentation.theme import get_theme_manager
@@ -22,6 +21,7 @@ from git_gui.presentation.widgets.blame_pane import (
     _elide,
     _lane_color,
 )
+from tests.presentation.widgets.hunk_diff_helpers import wait_until_deleted, workers_joined_on_exit
 
 
 def _line(no: int, text: str, oid: str, *, run_start: bool) -> BlameLine:
@@ -109,10 +109,8 @@ def test_a_result_for_a_revision_the_user_left_is_discarded(qtbot):
 @pytest.fixture
 def workers_joined():
     """Join each load worker the test started, so none outlives the test."""
-    before = set(threading.enumerate())
-    yield
-    for thread in set(threading.enumerate()) - before:
-        thread.join(5)
+    with workers_joined_on_exit():
+        yield
 
 
 @pytest.fixture
@@ -159,9 +157,7 @@ def test_a_late_failure_does_not_clear_the_blame_the_user_returned_to(qtbot, gat
     qtbot.waitUntil(lambda: w._status.full_text() == "src/app.py @ HEAD")
 
     gate.set()
-    # The signals delete themselves once the pane has had the answer. A
-    # waitSignal on them can lose the race with that deletion, so wait for it.
-    qtbot.waitUntil(lambda: not shiboken6.isValid(superseded))
+    wait_until_deleted(qtbot, superseded, timeout=5000)
 
     assert w._editor.toPlainText() == "first\nsecond\nthird"
     assert w._status.full_text() == "src/app.py @ HEAD"
