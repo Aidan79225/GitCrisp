@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -29,6 +28,7 @@ from git_gui.domain.entities import (
 )
 from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, OID_ROLE
 from git_gui.presentation.widgets.graph import PAGE_SIZE, GraphWidget
+from tests.presentation.widgets.graph_helpers import InlineThread, fake_graph_threads
 
 
 def _chain(n: int, prefix: str = "c") -> list[Commit]:
@@ -43,17 +43,6 @@ def _chain(n: int, prefix: str = "c") -> list[Commit]:
         )
         for i in range(n)
     ]
-
-
-class _InlineThread:
-    """Runs the worker where it was created, so its result lands at once."""
-
-    def __init__(self, target=None, daemon=None, **kwargs) -> None:
-        self._target = target
-
-    def start(self) -> None:
-        if self._target is not None:
-            self._target()
 
 
 class _HeldWorkers:
@@ -73,23 +62,15 @@ class _HeldWorkers:
         self.waiting.pop(0)()
 
 
-# Both fixtures swap only the graph's own reference to `threading`. Faking
-# `threading.Thread` itself reached every thread in the process, including
-# the ones subprocess reads git's output on in a worker an earlier test left
-# running.
 @pytest.fixture
 def inline_workers(monkeypatch):
-    monkeypatch.setattr(
-        "git_gui.presentation.widgets.graph.threading", SimpleNamespace(Thread=_InlineThread)
-    )
+    fake_graph_threads(monkeypatch, InlineThread)
 
 
 @pytest.fixture
 def held_workers(monkeypatch) -> _HeldWorkers:
     held = _HeldWorkers()
-    monkeypatch.setattr(
-        "git_gui.presentation.widgets.graph.threading", SimpleNamespace(Thread=held.thread)
-    )
+    fake_graph_threads(monkeypatch, held.thread)
     return held
 
 

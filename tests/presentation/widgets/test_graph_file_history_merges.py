@@ -9,7 +9,6 @@ followed file history never lists a merge at all.
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pygit2
@@ -20,28 +19,12 @@ from git_gui.infrastructure.pygit2 import Pygit2Repository
 from git_gui.presentation.bus import QueryBus
 from git_gui.presentation.models.graph_model import OID_ROLE
 from git_gui.presentation.widgets.graph import PAGE_SIZE, GraphWidget
-
-
-class _InlineThread:
-    """Runs the worker where it was created, so its result lands at once.
-
-    Only the graph's own reference is swapped: subprocess reads git's output
-    on threads of its own, which must stay real.
-    """
-
-    def __init__(self, target=None, daemon=None, **kwargs) -> None:
-        self._target = target
-
-    def start(self) -> None:
-        if self._target is not None:
-            self._target()
+from tests.presentation.widgets.graph_helpers import InlineThread, fake_graph_threads
 
 
 @pytest.fixture(autouse=True)
 def inline_workers(monkeypatch):
-    monkeypatch.setattr(
-        "git_gui.presentation.widgets.graph.threading", SimpleNamespace(Thread=_InlineThread)
-    )
+    fake_graph_threads(monkeypatch, InlineThread)
 
 
 class _History:
