@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QAbstractItemView
 
 from git_gui.domain.entities import (
     WORKING_TREE_OID,
@@ -938,7 +939,12 @@ def test_a_row_clicked_after_scrolling_while_a_branch_loads_is_still_on_screen_w
     scrollbar = view.verticalScrollBar()
     qtbot.waitUntil(lambda: scrollbar.maximum() > 30)
     graph.reload_with_extra_tip("side")
-    scrollbar.setValue(30)  # the user scrolls on while it loads
+    # The user scrolls on while it loads. Not scrollbar.setValue(30): where a scroll step is
+    # a pixel, as on macOS, that is thirty pixels, and row 30 stays far out of sight, where
+    # no user could click it.
+    row = graph._model.index(30, 0)
+    view.scrollTo(row, QAbstractItemView.PositionAtTop)
+    assert view.viewport().rect().intersects(view.visualRect(row))
 
     _click_row(graph, 30)
     _finish_all(held_workers)
