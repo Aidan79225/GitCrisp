@@ -8,6 +8,7 @@ diff pane it hands off to, and the commit list gives way while it is open.
 from __future__ import annotations
 
 import threading
+from contextlib import suppress
 from itertools import accumulate
 
 from PySide6.QtCore import QEvent, QObject, QRect, QSize, Qt, Signal
@@ -84,7 +85,7 @@ def _syntax_spans(lines: list[BlameLine], path: str) -> list[SyntaxToken]:
 
 class _LoadSignals(QObject):
     done = Signal(list, list, str, str)  # lines, syntax spans, path, oid
-    failed = Signal(str)
+    failed = Signal(str, str, str)  # message, path, oid
 
 
 class _Gutter(QWidget):
@@ -416,10 +417,15 @@ class BlamePane(QWidget):
         self._back_btn.setVisible(bool(self._history))
         self._update_status(loading=True)
 
-        signals = _LoadSignals()
+        # A child of this pane that deletes itself once answered, so Qt frees it
+        # on the GUI thread. Parentless, a load the user had moved on from was
+        # held only by its worker, which then deleted the signals on its own thread.
+        signals = _LoadSignals(self)
         signals.done.connect(self._on_loaded)
         signals.failed.connect(self._on_failed)
-        self._load_signals = signals  # prevent GC while the worker runs
+        signals.done.connect(signals.deleteLater)
+        signals.failed.connect(signals.deleteLater)
+        self._load_signals = signals  # the newest load's, for tests to wait on
 
         queries = self._queries
 
@@ -427,18 +433,29 @@ class BlamePane(QWidget):
             try:
                 lines = queries.get_blame.execute(path, at_oid=oid)
             except Exception as e:  # surfaced in the header, not swallowed
-                signals.failed.emit(str(e))
+                # Covers an emit after the pane is gone, which finds its signals
+                # deleted with it. A delete landing inside the emit itself is a
+                # known residual; unlike the diff panes this pane is closed in
+                # normal use, not only at exit.
+                with suppress(RuntimeError):
+                    signals.failed.emit(str(e), path, oid or "")
                 return
             # Tokenizing a large file takes long enough to freeze the window
             # if it runs where the window does.
-            signals.done.emit(lines, _syntax_spans(lines, path), path, oid or "")
+            spans = _syntax_spans(lines, path)
+            with suppress(RuntimeError):  # as above
+                signals.done.emit(lines, spans, path, oid or "")
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _is_current(self, path: str, oid: str) -> bool:
+        """Whether an answer is for the revision on screen; `oid` is "" for HEAD."""
+        return (path, oid or None) == (self._path, self._oid)
 
     def _on_loaded(
         self, lines: list[BlameLine], spans: list[SyntaxToken], path: str, oid: str
     ) -> None:
-        if (path, oid or None) != (self._path, self._oid):
+        if not self._is_current(path, oid):
             return  # the user moved on while this was in flight
         self._suppress_emit = True
         self._editor.set_lines(lines, spans)
@@ -446,7 +463,9 @@ class BlamePane(QWidget):
         self._last_emitted = None
         self._update_status()
 
-    def _on_failed(self, message: str) -> None:
+    def _on_failed(self, message: str, path: str, oid: str) -> None:
+        if not self._is_current(path, oid):
+            return  # the user moved on while this was in flight
         self._editor.set_lines([], [])
         self._status.setText(message)
 

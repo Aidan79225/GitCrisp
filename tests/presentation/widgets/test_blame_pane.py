@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from datetime import datetime
 from unittest.mock import MagicMock
@@ -20,6 +21,7 @@ from git_gui.presentation.widgets.blame_pane import (
     _elide,
     _lane_color,
 )
+from tests.presentation.widgets.hunk_diff_helpers import wait_until_deleted, workers_joined_on_exit
 
 
 def _line(no: int, text: str, oid: str, *, run_start: bool) -> BlameLine:
@@ -102,6 +104,76 @@ def test_a_result_for_a_revision_the_user_left_is_discarded(qtbot):
     w._on_loaded([_line(1, "stale", AAA, run_start=True)], [], "src/app.py", "")
 
     assert w._editor.toPlainText() == "first\nsecond\nthird"
+
+
+@pytest.fixture
+def workers_joined():
+    """Join each load worker the test started, so none outlives the test."""
+    with workers_joined_on_exit():
+        yield
+
+
+@pytest.fixture
+def gate(workers_joined):
+    """Holds a parked load worker until the test opens it, and opens it at the end."""
+    held = threading.Event()
+    yield held
+    held.set()
+
+
+def test_a_failure_for_a_revision_the_user_left_is_discarded(qtbot):
+    w, _ = _pane(qtbot)
+    w._oid = "some-other-revision"
+
+    w._on_failed("src/app.py does not exist at some-oth", "src/app.py", "")
+
+    assert w._editor.toPlainText() == "first\nsecond\nthird"
+    assert w._status.full_text() == "src/app.py @ HEAD"
+
+
+def test_a_late_failure_does_not_clear_the_blame_the_user_returned_to(qtbot, gate):
+    """An older revision can fail long after the user walked back out of it.
+
+    The failure cleared whatever was showing: the revision the user had
+    returned to lost its blame, and Back, with nothing left to climb out of,
+    was already hidden.
+    """
+    w, queries = _pane(qtbot)
+    queries.get_commit_detail.execute.return_value = MagicMock(parents=["parent-oid"])
+    entered = threading.Event()
+
+    def blame(path, at_oid=None):
+        if at_oid != "parent-oid":
+            return list(LINES)
+        entered.set()
+        gate.wait(5)
+        raise ValueError(f"{path} does not exist at {at_oid[:SHA_CHARS]}")
+
+    queries.get_blame.execute.side_effect = blame
+    w._blame_before(BBB)
+    superseded = w._load_signals
+    qtbot.waitUntil(entered.is_set)
+    w._go_back()
+    qtbot.waitUntil(lambda: w._status.full_text() == "src/app.py @ HEAD")
+
+    gate.set()
+    wait_until_deleted(qtbot, superseded, timeout=5000)
+
+    assert w._editor.toPlainText() == "first\nsecond\nthird"
+    assert w._status.full_text() == "src/app.py @ HEAD"
+
+
+def test_a_failure_at_the_older_revision_being_blamed_is_shown(qtbot, workers_joined):
+    """What a failure is checked against is the revision asked for, parent oid and all."""
+    w, queries = _pane(qtbot)
+    queries.get_commit_detail.execute.return_value = MagicMock(parents=["parent-oid"])
+    queries.get_blame.execute.side_effect = ValueError("src/app.py does not exist at parent-o")
+
+    w._blame_before(BBB)
+    qtbot.waitUntil(lambda: "does not exist" in w._status.full_text())
+
+    assert w._editor._lines == []
+    assert w._status.full_text() == "src/app.py does not exist at parent-o"
 
 
 def test_theme_change_recolours_the_code(qtbot):

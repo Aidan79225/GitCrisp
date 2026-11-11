@@ -1,11 +1,13 @@
-"""Let a pane's diff workers finish before the pane is let go.
+"""Let a pane's workers finish before the pane is let go.
 
 A pane's load signals are its children, so they are deleted with it, on the GUI
 thread. A worker still inside its emit at that moment would be calling into an
 object being torn down: a known residual, microseconds wide, that exists only
-where a pane is destroyed (in the shipped app, when the window closes). A
-worker left running also outlives its test, and answers or logs during a later
-one. Joining the workers before the pane goes rules out both.
+where a pane is destroyed. In the shipped app the diff panes are destroyed only
+when the window closes, while a BlamePane is destroyed whenever the user closes
+it. A worker left running also outlives its test, and answers or logs during a
+later one. workers_joined_on_exit joins each worker for up to two seconds, which
+keeps both out of the tests.
 """
 
 from __future__ import annotations
@@ -20,10 +22,10 @@ from PySide6.QtCore import QObject
 
 @contextmanager
 def workers_joined_on_exit() -> Iterator[None]:
-    """Join every thread started inside the block before leaving it.
+    """Join every thread started inside the block, up to two seconds each, before leaving it.
 
-    No worker is then still emitting into a pane as it is destroyed, or
-    running on into a later test.
+    A worker that finishes within that time is no longer emitting into a pane
+    destroyed after the block, nor running on into a later test.
     """
     before = set(threading.enumerate())
     try:
