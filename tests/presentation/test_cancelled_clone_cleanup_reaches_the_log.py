@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QDialog
 
 from git_gui.infrastructure.git_clone import CloneCancelled
@@ -49,3 +50,32 @@ def test_a_cancelled_clone_that_left_files_behind_is_reported_in_the_log(qtbot):
     message = win._log_panel.log_error.call_args.args[0]
     assert "repo" in message
     assert _IN_USE in message
+
+
+def test_a_cancelled_clone_that_stops_late_is_still_reported_before_its_dialog_is_freed(
+    qtbot, git_stops
+):
+    """git can take longer to die than the dialog takes to close, and the report goes
+    through that dialog, so the window may not delete it while the clone is stopping."""
+    win = blank_window(qtbot)
+    win._log_panel = MagicMock()
+
+    def clone_slow_to_stop(url, dest, on_progress=None, cancelled=None):
+        git_stops.wait(5)
+        raise CloneCancelled("cancelled", cleanup_error=PermissionError(_IN_USE))
+
+    with (
+        patch(
+            "git_gui.presentation.widgets.clone_dialog.clone_repo",
+            side_effect=clone_slow_to_stop,
+        ),
+        patch.object(CloneDialog, "exec", _start_and_cancel),
+    ):
+        win._on_clone_requested()
+        # Run any deletion that is already due, as the event loop does at its next turn.
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        git_stops.set()
+        qtbot.waitUntil(lambda: win._log_panel.log_error.called)
+
+    assert _IN_USE in win._log_panel.log_error.call_args.args[0]
+    qtbot.waitUntil(lambda: win.findChildren(CloneDialog) == [])

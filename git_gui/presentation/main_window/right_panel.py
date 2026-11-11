@@ -116,6 +116,7 @@ class RightPanelMixin:
         dialog.clone_completed.connect(self._on_clone_completed)
         dialog.cleanup_failed.connect(self._on_clone_cleanup_failed)
         dialog.exec()
+        dialog.release()
 
     def _on_clone_completed(self, path: str) -> None:
         self._on_repo_open(path)

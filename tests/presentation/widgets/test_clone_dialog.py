@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from unittest.mock import patch
@@ -11,7 +12,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 
 from git_gui.infrastructure.git_clone import CloneCancelled
-from git_gui.presentation.widgets.clone_dialog import CloneDialog, _parse_repo_name
+from git_gui.presentation.paths import same_path_text
+from git_gui.presentation.widgets.clone_dialog import (
+    CloneDialog,
+    _input_problem,
+    _parse_repo_name,
+)
 
 _CLONE_REPO = "git_gui.presentation.widgets.clone_dialog.clone_repo"
 
@@ -190,3 +196,113 @@ def test_a_cancelled_clone_that_left_files_behind_says_where_and_why(
         dialog.reject()
 
     assert report.args == [str(Path(dialog._folder_edit.text()) / "repo"), _IN_USE]
+
+
+# --- Input: what has to be filled in before a clone starts ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("url", "folder", "name", "problem"),
+    [
+        pytest.param("", "", "", "URL is required.", id="nothing-filled-in-asks-for-the-url"),
+        pytest.param("", "/x", "repo", "URL is required.", id="no-url"),
+        pytest.param("u", "", "repo", "Location is required.", id="no-location"),
+        pytest.param("u", "/x", "", "Folder name is required.", id="no-folder-name"),
+        pytest.param("u", "/x", "repo", None, id="nothing-missing"),
+    ],
+)
+def test_a_clone_asks_for_the_first_field_that_is_missing(url, folder, name, problem):
+    assert _input_problem(url, folder, name) == problem
+
+
+# --- Folder name: the clone stays inside Location -------------------------------------------
+
+_OUTSIDE_THE_LOCATION = "Folder name must stay inside the location."
+_WINDOWS_ONLY = pytest.mark.skipif(
+    os.name != "nt", reason="drives, UNC shares and backslash separators exist only on Windows"
+)
+
+
+@pytest.fixture
+def location(tmp_path) -> Path:
+    return tmp_path / "location"
+
+
+def _press_clone(qtbot, location: Path, name: str):
+    """Type `name` under `location`, press Clone; return the dialog and the stand-in for git."""
+    dialog = _dialog(qtbot)
+    dialog._folder_edit.setText(str(location))
+    dialog._name_edit.setText(name)
+    with patch(_CLONE_REPO) as clone:
+        dialog._on_clone()
+    return dialog, clone
+
+
+def _assert_refused(dialog: CloneDialog, clone) -> None:
+    assert not dialog._cloning, "a clone was started"
+    assert dialog._error_label.isVisible()
+    assert dialog._error_label.text() == _OUTSIDE_THE_LOCATION
+    clone.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("../x", id="beside-the-location"),
+        pytest.param("a/../../x", id="up-out-of-a-subfolder"),
+        pytest.param("..", id="the-parent-folder-itself"),
+        pytest.param(r"..\x", id="beside-the-location-with-backslash", marks=_WINDOWS_ONLY),
+        pytest.param(r"D:\x", id="another-drive", marks=_WINDOWS_ONLY),
+        pytest.param("D:x", id="another-drive-without-a-root", marks=_WINDOWS_ONLY),
+        pytest.param(r"\x", id="the-root-of-the-drive", marks=_WINDOWS_ONLY),
+        pytest.param(r"\\server\share\x", id="a-network-share", marks=_WINDOWS_ONLY),
+    ],
+)
+def test_a_folder_name_that_leaves_the_location_starts_no_clone(qtbot, location, name):
+    """Git was given Location joined with whatever was typed, so a name that climbed out
+    of it or named another drive cloned there, with no sign of it in the dialog."""
+    _assert_refused(*_press_clone(qtbot, location, name))
+
+
+def test_an_absolute_folder_name_outside_the_location_starts_no_clone(qtbot, location, tmp_path):
+    _assert_refused(*_press_clone(qtbot, location, str(tmp_path / "elsewhere")))
+
+
+def test_a_url_ending_in_dot_dot_cannot_clone_into_the_parent_of_the_location(qtbot, location):
+    """Pasting a URL fills in its last part as the folder name, and for this one that is '..'."""
+    dialog = _dialog(qtbot)
+    dialog._folder_edit.setText(str(location))
+    dialog._url_edit.setText("https://example.com/user/..")
+    assert dialog._name_edit.text() == ".."
+
+    with patch(_CLONE_REPO) as clone:
+        dialog._on_clone()
+
+    _assert_refused(dialog, clone)
+
+
+def test_a_folder_name_cannot_leave_a_relative_location(qtbot, tmp_path, monkeypatch):
+    """A relative Location is the working folder, and its parent is outside it."""
+    monkeypatch.chdir(tmp_path)
+
+    _assert_refused(*_press_clone(qtbot, Path("."), "../x"))
+
+
+@pytest.mark.parametrize(
+    ("name", "folders_inside"),
+    [
+        pytest.param("group/repo", ("group", "repo"), id="a-subfolder"),
+        pytest.param(".", (), id="the-location-itself"),
+    ],
+)
+def test_a_folder_name_that_stays_inside_the_location_clones_there(
+    qtbot, location, name, folders_inside
+):
+    dialog = _dialog(qtbot)
+    dialog._folder_edit.setText(str(location))
+    dialog._name_edit.setText(name)
+
+    with patch(_CLONE_REPO) as clone, qtbot.waitSignal(dialog.clone_completed):
+        dialog._on_clone()
+
+    assert same_path_text(clone.call_args.args[1], str(location.joinpath(*folders_inside)))

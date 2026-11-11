@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
 import threading
+from contextlib import suppress
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
@@ -29,11 +31,39 @@ def _parse_repo_name(url: str) -> str:
     return m.group(1) if m else ""
 
 
+def _stays_inside(folder: str, name: str) -> bool:
+    """Whether a clone named ``name`` under ``folder`` is written inside ``folder``.
+
+    Joined the way git sees it, so ``..``, another drive, a rooted name and an
+    absolute path all count. Text only: no disk access on the GUI thread.
+    """
+    # abspath, not normpath: Path.is_relative_to takes "../x" for inside ".".
+    root = Path(os.path.abspath(folder))
+    return Path(os.path.abspath(root / name)).is_relative_to(root)
+
+
+def _input_problem(url: str, folder: str, name: str) -> str | None:
+    """Why a clone of ``url`` into ``folder``/``name`` cannot start, or None when it can.
+
+    Text only: no disk access on the GUI thread.
+    """
+    if not url:
+        return "URL is required."
+    if not folder:
+        return "Location is required."
+    if not name:
+        return "Folder name is required."
+    if not _stays_inside(folder, name):
+        return "Folder name must stay inside the location."
+    return None
+
+
 class _CloneSignals(QObject):
     progress = Signal(str, int)  # phase, percent
     finished = Signal(str)  # dest path
     failed = Signal(str)  # error message
     cleanup_failed = Signal(str, str)  # dest path, reason
+    ended = Signal()  # the worker is done, whichever way the clone went
 
 
 class CloneDialog(QDialog):
@@ -48,6 +78,8 @@ class CloneDialog(QDialog):
         self.setMinimumWidth(500)
         self._cloning = False
         self._cancel_requested = threading.Event()
+        self._workers_running = 0
+        self._release_requested = False
 
         # URL
         self._url_edit = QLineEdit()
@@ -135,14 +167,9 @@ class CloneDialog(QDialog):
         folder = self._folder_edit.text().strip()
         name = self._name_edit.text().strip()
 
-        if not url:
-            self._show_error("URL is required")
-            return
-        if not folder:
-            self._show_error("Location is required")
-            return
-        if not name:
-            self._show_error("Folder name is required")
+        problem = _input_problem(url, folder, name)
+        if problem is not None:
+            self._show_error(problem)
             return
 
         dest = str(Path(folder) / name)
@@ -153,32 +180,45 @@ class CloneDialog(QDialog):
         self._progress_bar.setVisible(True)
         self._progress_bar.setValue(0)
         self._progress_label.setText("Starting clone...")
+        self._start_clone_worker(url, dest)
 
-        signals = _CloneSignals()
+    def _start_clone_worker(self, url: str, dest: str) -> None:
+        # A child of this dialog that deletes itself once its clone has ended, so
+        # Qt frees it on the GUI thread. Parentless, it died with its last Python
+        # reference, which the worker or a garbage collection on any thread could drop.
+        signals = _CloneSignals(self)
         signals.progress.connect(self._on_progress)
         signals.finished.connect(self._on_finished)
         signals.failed.connect(self._on_failed)
         signals.cleanup_failed.connect(self.cleanup_failed)
-        self._clone_signals = signals  # prevent GC
+        signals.ended.connect(self._on_worker_ended)
+        signals.ended.connect(signals.deleteLater)
+        self._clone_signals = signals  # the newest clone's, for tests to listen to
 
         cancelled = self._cancel_requested
 
         def _worker():
-            try:
+            with suppress(RuntimeError):  # the dialog was destroyed, signals and all
+                try:
 
-                def _report(p: CloneProgress):
-                    signals.progress.emit(p.phase, p.percent)
+                    def _report(p: CloneProgress):
+                        signals.progress.emit(p.phase, p.percent)
 
-                clone_repo(url, dest, on_progress=_report, cancelled=cancelled)
-                signals.finished.emit(dest)
-            except CloneCancelled as e:
-                # The dialog closed when the user cancelled; only files left behind need telling.
-                if e.cleanup_error is not None:
-                    signals.cleanup_failed.emit(dest, str(e.cleanup_error))
-            except Exception as e:
-                signals.failed.emit(str(e))
+                    clone_repo(url, dest, on_progress=_report, cancelled=cancelled)
+                    signals.finished.emit(dest)
+                except CloneCancelled as e:
+                    # The dialog closed when the user cancelled; only leftover files need telling.
+                    if e.cleanup_error is not None:
+                        signals.cleanup_failed.emit(dest, str(e.cleanup_error))
+                except Exception as e:
+                    signals.failed.emit(str(e))
+                finally:
+                    signals.ended.emit()
 
         threading.Thread(target=_worker, daemon=True).start()
+        # Counted once started: a thread that cannot start never ends. Its `ended` is
+        # queued for the GUI thread, which cannot handle it before this returns.
+        self._workers_running += 1
 
     def _on_progress(self, phase: str, percent: int) -> None:
         self._progress_label.setText(f"{phase}: {percent}%")
@@ -224,3 +264,21 @@ class CloneDialog(QDialog):
         if self._cloning:
             self._cancel_requested.set()
         super().reject()
+
+    def release(self) -> None:
+        """Delete the dialog, once it has closed and no clone is still ending.
+
+        A cancelled clone's worker outlives the closed dialog: it reports what it
+        could not remove through the dialog, so deleting the dialog sooner would
+        drop that report.
+        """
+        self._release_requested = True
+        self._delete_if_idle()
+
+    def _on_worker_ended(self) -> None:
+        self._workers_running -= 1
+        self._delete_if_idle()
+
+    def _delete_if_idle(self) -> None:
+        if self._release_requested and self._workers_running == 0:
+            self.deleteLater()
