@@ -13,6 +13,9 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QAbstractItemView
 
 from git_gui.domain.entities import (
     WORKING_TREE_OID,
@@ -26,6 +29,7 @@ from git_gui.domain.entities import (
 )
 from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, OID_ROLE
 from git_gui.presentation.widgets.graph import PAGE_SIZE, GraphWidget
+from tests.presentation.widgets.graph_helpers import InlineThread, fake_graph_threads
 
 
 def _chain(n: int, prefix: str = "c") -> list[Commit]:
@@ -40,17 +44,6 @@ def _chain(n: int, prefix: str = "c") -> list[Commit]:
         )
         for i in range(n)
     ]
-
-
-class _InlineThread:
-    """Runs the worker where it was created, so its result lands at once."""
-
-    def __init__(self, target=None, daemon=None, **kwargs) -> None:
-        self._target = target
-
-    def start(self) -> None:
-        if self._target is not None:
-            self._target()
 
 
 class _HeldWorkers:
@@ -72,13 +65,13 @@ class _HeldWorkers:
 
 @pytest.fixture
 def inline_workers(monkeypatch):
-    monkeypatch.setattr("git_gui.presentation.widgets.graph.threading.Thread", _InlineThread)
+    fake_graph_threads(monkeypatch, InlineThread)
 
 
 @pytest.fixture
 def held_workers(monkeypatch) -> _HeldWorkers:
     held = _HeldWorkers()
-    monkeypatch.setattr("git_gui.presentation.widgets.graph.threading.Thread", held.thread)
+    fake_graph_threads(monkeypatch, held.thread)
     return held
 
 
@@ -728,3 +721,299 @@ def test_rows_scrolled_to_after_the_search_closes_survive_a_reload(graph, inline
     graph.reload()
 
     assert _top_oid(graph) == top
+
+
+# ── A pick made while an earlier click is still loading ──────────────────────
+#
+# A click on a branch whose tip is not drawn lands on it once its load
+# finishes. The user can pick something else meanwhile, and the last pick has
+# to win: the load used to finish by selecting the first click's commit over
+# it, and the diff pane followed.
+
+
+def _first_page_drawn(graph: GraphWidget, held: _HeldWorkers, length: int = 10) -> None:
+    """The first page is drawn; `side`, a branch off it, is not on it."""
+    _with_side_branch(graph, length)
+    graph.reload()
+    _finish_all(held)
+
+
+def _announcements(graph: GraphWidget) -> list[str]:
+    """The commits `commit_selected` announces from now on: what the diff pane shows."""
+    announced: list[str] = []
+    graph.commit_selected.connect(announced.append)
+    return announced
+
+
+def _click_row(graph: GraphWidget, row: int) -> None:
+    view = graph._view
+    centre = view.visualRect(graph._model.index(row, 0)).center()
+    QTest.mouseClick(view.viewport(), Qt.LeftButton, Qt.NoModifier, centre)
+
+
+@pytest.mark.parametrize(
+    "current_again", [False, True], ids=["another-commit", "the-current-commit"]
+)
+def test_a_drawn_commit_picked_while_a_branch_loads_is_not_replaced_by_the_branch(
+    graph, held_workers, current_again
+):
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    if current_again:
+        _select_row(graph, 3)  # picked again below, which changes no row
+    graph.reload_with_extra_tip("side")  # its tip is not drawn: the load is in flight
+
+    graph.reload_with_extra_tip("c3")
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
+def test_a_row_clicked_while_a_branch_loads_is_not_replaced_by_the_branch(
+    qtbot, graph, held_workers
+):
+    graph.resize(400, 600)
+    graph.show()
+    qtbot.waitExposed(graph)
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    graph.reload_with_extra_tip("side")
+
+    _click_row(graph, 2)
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c2"
+    assert announced[-1:] == ["c2"]
+    assert graph._pending_scroll_oid is None
+
+
+def test_the_current_row_clicked_while_a_branch_loads_is_not_replaced_by_the_branch(
+    qtbot, graph, held_workers
+):
+    """Clicking the current row changes no row, so no row change reports the pick."""
+    graph.resize(400, 600)
+    graph.show()
+    qtbot.waitExposed(graph)
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    _select_row(graph, 3)
+    graph.reload_with_extra_tip("side")
+
+    _click_row(graph, 3)
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
+def test_an_arrow_key_pressed_while_a_branch_loads_is_not_replaced_by_the_branch(
+    graph, held_workers
+):
+    _first_page_drawn(graph, held_workers)
+    _select_row(graph, 2)
+    announced = _announcements(graph)
+    graph.reload_with_extra_tip("side")
+
+    QTest.keyClick(graph._view, Qt.Key_Down)
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
+def test_enter_on_the_current_search_match_while_a_branch_loads_is_not_replaced_by_the_branch(
+    graph, held_workers
+):
+    """Enter goes to a match that is already the current row, which changes no
+    row, so no row change reports the pick."""
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 3")  # its only match, c3, becomes current
+    graph.reload_with_extra_tip("side")
+
+    QTest.keyClick(graph._search_bar.input_widget, Qt.Key_Return)
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
+def test_a_search_retyped_to_the_current_match_while_a_branch_loads_is_not_replaced_by_the_branch(
+    graph, held_workers
+):
+    """The search jumps to its first match as it is typed, with no Enter."""
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    graph.open_search()
+    search = graph._search_bar.input_widget
+    search.setText("commit 3")  # its only match, c3, becomes current
+    graph.reload_with_extra_tip("side")
+
+    search.clear()
+    search.setText("commit 3")  # the same first match: the current row again
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
+def test_head_shown_after_a_checkout_while_a_branch_loads_is_not_replaced_by_the_branch(
+    graph, held_workers
+):
+    """A checkout shows the commit HEAD is now on, which can be the row that
+    is already current."""
+    _first_page_drawn(graph, held_workers)
+    announced = _announcements(graph)
+    _select_row(graph, 3)
+    graph.reload_with_extra_tip("side")
+
+    graph.scroll_to_oid("c3", select=True)  # HEAD, as the window shows it after a checkout
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None
+
+
+@pytest.mark.parametrize(
+    "selected_before", [True, False], ids=["a-commit-selected", "nothing-selected"]
+)
+def test_a_stash_picked_while_a_branch_loads_is_not_replaced_by_the_branch(
+    graph, held_workers, selected_before
+):
+    """Clicking a stash clears the graph's selection, then shows the stash in
+    the diff pane. With nothing selected, clearing changes no row and Qt
+    announces nothing."""
+    _first_page_drawn(graph, held_workers)
+    if selected_before:
+        _select_row(graph, 3)
+    graph.reload_with_extra_tip("side")
+    announced = _announcements(graph)
+
+    graph.clear_selection()
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) is None
+    assert announced == []
+    assert graph._pending_scroll_oid is None
+
+
+def test_a_commit_picked_far_down_while_a_branch_loads_is_still_on_screen_when_it_lands(
+    qtbot, graph, held_workers
+):
+    """The load puts back the viewport saved when it began, from before the
+    pick, which scrolled the picked row out of sight."""
+    graph.resize(400, 300)
+    graph.show()
+    qtbot.waitExposed(graph)
+    _first_page_drawn(graph, held_workers, length=200)
+    scrollbar = graph._view.verticalScrollBar()
+    qtbot.waitUntil(lambda: scrollbar.maximum() > 0)
+    graph.reload_with_extra_tip("side")
+
+    graph.reload_with_extra_tip("c40")
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c40"
+    picked = graph._view.visualRect(graph._view.currentIndex())
+    assert graph._view.viewport().rect().intersects(picked)
+
+
+def test_a_row_clicked_after_scrolling_while_a_branch_loads_is_still_on_screen_when_it_lands(
+    qtbot, graph, held_workers
+):
+    """The viewport the load saved when it began is not where the user has
+    scrolled to since."""
+    graph.resize(400, 300)
+    graph.show()
+    qtbot.waitExposed(graph)
+    _first_page_drawn(graph, held_workers, length=200)
+    view = graph._view
+    scrollbar = view.verticalScrollBar()
+    qtbot.waitUntil(lambda: scrollbar.maximum() > 30)
+    graph.reload_with_extra_tip("side")
+    # The user scrolls on while it loads. Not scrollbar.setValue(30): where a scroll step is
+    # a pixel, as on macOS, that is thirty pixels, and row 30 stays far out of sight, where
+    # no user could click it.
+    row = graph._model.index(30, 0)
+    view.scrollTo(row, QAbstractItemView.PositionAtTop)
+    assert view.viewport().rect().intersects(view.visualRect(row))
+
+    _click_row(graph, 30)
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c30"
+    assert view.viewport().rect().intersects(view.visualRect(view.currentIndex()))
+
+
+def test_enter_on_a_search_match_far_down_while_a_branch_loads_is_still_on_screen_when_it_lands(
+    qtbot, graph, held_workers
+):
+    """The viewport the load saved when it began is not where Enter has taken
+    the list back to the match."""
+    graph.resize(400, 300)
+    graph.show()
+    qtbot.waitExposed(graph)
+    _first_page_drawn(graph, held_workers, length=200)
+    graph.open_search()
+    graph._search_bar.input_widget.setText("commit 120")  # loads all 200, then jumps to c120
+    _finish_all(held_workers)
+    view = graph._view
+    qtbot.waitUntil(lambda: view.verticalScrollBar().maximum() > 0)
+    view.verticalScrollBar().setValue(0)  # the user scrolls away from the match
+    graph.reload_with_extra_tip("side")
+
+    QTest.keyClick(graph._search_bar.input_widget, Qt.Key_Return)
+    _finish_all(held_workers)
+
+    assert _current_oid(graph) == "c120"
+    assert view.viewport().rect().intersects(view.visualRect(view.currentIndex()))
+
+
+def test_the_branch_clicked_again_while_it_loads_toward_its_merge_base_still_lands_on_it(
+    graph, held_workers
+):
+    """A branch forked far back loads in rounds, each reaching further for the
+    merge base, and lands once it has. Clicking it again picks the commit the
+    click is already bound for: stopping the rounds there left its lane
+    without the commits it joins."""
+    _first_page_drawn(graph, held_workers, length=200)
+    graph._queries.get_merge_base.execute.return_value = "c120"
+    graph.reload_with_extra_tip("side")
+    held_workers.finish_next()  # the first round draws `side`, not yet c120
+
+    graph.reload_with_extra_tip("side")
+    _finish_all(held_workers)
+
+    assert graph._row_of("c120") is not None
+    assert _current_oid(graph) == "side"
+
+
+@pytest.mark.parametrize(
+    "current_again", [False, True], ids=["another-commit", "the-current-commit"]
+)
+def test_a_commit_picked_in_the_file_history_while_a_deeper_one_loads_is_not_replaced_by_it(
+    graph, held_workers, current_again
+):
+    _paged_file_history(graph, 120)
+    graph.set_path_filter("README.md")
+    _finish_all(held_workers)
+    announced = _announcements(graph)
+    if current_again:
+        _select_row(graph, 3)  # picked again below, which changes no row
+    graph.reload_with_extra_tip("c80")  # on a later page: the history loads further in
+
+    graph.reload_with_extra_tip("c3")
+    _finish_all(held_workers)
+
+    assert graph._path_filter == "README.md"
+    assert _current_oid(graph) == "c3"
+    assert announced[-1:] == ["c3"]
+    assert graph._pending_scroll_oid is None

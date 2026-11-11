@@ -487,6 +487,7 @@ class GraphWidget(QWidget):
         self._view.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
+        self._view.pressed.connect(self._on_row_pressed)
         self._view.doubleClicked.connect(self._on_double_clicked)
 
         self._view.verticalScrollBar().valueChanged.connect(self._on_scroll)
@@ -1028,10 +1029,27 @@ class GraphWidget(QWidget):
         self.scroll_to_oid(self._pending_scroll_oid, select=True)
         self._scroll_anchor_oid = None
 
+    def _supersede_pending_landing(self, picked: str | None) -> None:
+        """Drop the landing a click is still loading toward, as `picked` was chosen after it.
+
+        Left in place, the load would finish by selecting that click's commit
+        over `picked`. Picking that same commit is no change of mind, so its
+        landing stays. `picked` is None when the pick is no commit, a stash.
+        """
+        pending = self._pending_scroll_oid
+        if pending is None or pending == picked:
+            return
+        self._pending_scroll_oid = None
+        self._pending_merge_base = None
+        # The load restores the viewport saved when it began, from before this
+        # pick, and would scroll the picked row out of sight.
+        self._capture_scroll_anchor()
+
     def _capture_scroll_anchor(self) -> None:
         """Remember the OID of the row at the top of the visible viewport so
         we can restore the scroll position after a reload. Called from
-        reload() before the worker runs."""
+        reload() before the worker runs, and when a later pick supersedes the
+        click that started it."""
         if self._model.rowCount() == 0:
             self._scroll_anchor_oid = None
             return
@@ -1324,20 +1342,34 @@ class GraphWidget(QWidget):
             )
 
     def scroll_to_oid(self, oid: str, select: bool = False) -> None:
-        """Scroll so the row with the given oid is the first visible item."""
+        """Scroll so the row with the given oid is the first visible item.
+
+        With `select` it is also picked: a click still loading toward a landing loses to it.
+        """
+        self._show_row(oid, QTableView.PositionAtTop, select)
+
+    def _show_row(self, oid: str, hint: QTableView.ScrollHint, select: bool) -> None:
+        """Scroll the row of `oid` into view as `hint` says, and pick it if `select`.
+
+        A commit with no row is left alone.
+        """
         row = self._row_of(oid)
         if row is None:
             return
         index = self._model.index(row, 0)
-        self._view.scrollTo(index, QTableView.PositionAtTop)
+        self._view.scrollTo(index, hint)
         if select:
             self._view.setCurrentIndex(index)
+            # _on_row_changed hears of a pick only when the row changes, and
+            # picking the current commit again changes none.
+            self._supersede_pending_landing(oid)
 
     def clear_selection(self) -> None:
         self._view.clearSelection()
         self._view.setCurrentIndex(self._model.index(-1, 0))
         # Left set, it would swallow the next click on the same commit.
         self._selected_oid = None
+        self._supersede_pending_landing(None)
 
     # ── Search ───────────────────────────────────────────────────────────
     def open_search(self) -> None:
@@ -1460,12 +1492,9 @@ class GraphWidget(QWidget):
         )
 
     def _jump_to_match(self) -> None:
-        row = self._row_of(self._search_matches[self._search_idx])
-        if row is None:
-            return  # a reload since the search dropped this commit
-        index = self._model.index(row, 0)
-        self._view.scrollTo(index, QTableView.PositionAtCenter)
-        self._view.setCurrentIndex(index)
+        oid = self._search_matches[self._search_idx]
+        # A reload since the search may have dropped the commit: nothing moves then.
+        self._show_row(oid, QTableView.PositionAtCenter, select=True)
 
     def _row_of(self, oid: str) -> int | None:
         for row in range(self._model.rowCount()):
@@ -1481,6 +1510,8 @@ class GraphWidget(QWidget):
 
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         oid = self._oid_at(current.row())
+        if oid:
+            self._supersede_pending_landing(oid)
         # Skip re-emitting for the already-selected commit. A model reset (from
         # an auto-reload) invalidates the current index, so restoring the
         # selection fires currentRowChanged with the same oid. Re-emitting there
@@ -1491,6 +1522,15 @@ class GraphWidget(QWidget):
         if oid and oid != self._selected_oid:
             self._selected_oid = oid
             self.commit_selected.emit(oid)
+
+    def _on_row_pressed(self, index: QModelIndex) -> None:
+        """A press picks its commit even when that row is already current.
+
+        The current row does not change then, so _on_row_changed does not run.
+        """
+        oid = self._oid_at(index.row())
+        if oid:
+            self._supersede_pending_landing(oid)
 
     def _on_double_clicked(self, index: QModelIndex) -> None:
         """Double-click a commit to switch to a branch pointing at it.

@@ -17,28 +17,12 @@ import pytest
 
 from git_gui.domain.entities import Commit
 from git_gui.presentation.widgets.graph import MAX_RELOAD_LIMIT, PAGE_SIZE, GraphWidget
-from tests.presentation.widgets.graph_helpers import graph_widget
-
-
-class _InlineThread:
-    """Runs the worker where it was created.
-
-    A real worker thread here outlives the test: it emits into a widget qtbot
-    has already torn down, which on Windows is heap corruption rather than a
-    failure. Nothing in these tests needs the work to be off the main thread.
-    """
-
-    def __init__(self, target=None, daemon=None, **kwargs) -> None:
-        self._target = target
-
-    def start(self) -> None:
-        if self._target is not None:
-            self._target()
+from tests.presentation.widgets.graph_helpers import InlineThread, fake_graph_threads, graph_widget
 
 
 @pytest.fixture
 def inline_workers(monkeypatch):
-    monkeypatch.setattr("git_gui.presentation.widgets.graph.threading.Thread", _InlineThread)
+    fake_graph_threads(monkeypatch, InlineThread)
 
 
 def _quiet_queries(w: GraphWidget) -> None:
