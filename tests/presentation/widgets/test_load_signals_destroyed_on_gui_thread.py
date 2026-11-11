@@ -23,7 +23,6 @@ from unittest.mock import MagicMock
 
 import pytest
 import shiboken6
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
 from git_gui.domain.entities import Commit, FileDelta, FileStatus, Hunk, LineKind, StagingState
@@ -31,6 +30,7 @@ from git_gui.presentation.widgets import diff, hunk_diff, working_tree
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
 from git_gui.presentation.widgets.working_tree import WorkingTreeWidget
+from tests.presentation.thread_helpers import Gate, deliver_queued_answers, recording
 from tests.presentation.widgets.hunk_diff_helpers import workers_joined_on_exit
 
 
@@ -40,44 +40,6 @@ def _hunk(text: str) -> Hunk:
 
 def _file(path: str) -> FileStatus:
     return FileStatus(path=path, status=StagingState.UNSTAGED, delta=FileDelta.MODIFIED)
-
-
-class _Gate:
-    """Holds a worker inside its query until the test lets it go."""
-
-    def __init__(self) -> None:
-        self.holder: threading.Thread | None = None
-        self._entered = threading.Event()
-        self._open = threading.Event()
-
-    def hold(self) -> None:
-        """Called by the worker: say it is in, then wait."""
-        self.holder = threading.current_thread()
-        self._entered.set()
-        self._open.wait(5)
-
-    def held_worker(self) -> threading.Thread:
-        """The worker inside the query, once it is there."""
-        assert self._entered.wait(5), "the held load never reached its query"
-        assert self.holder is not None
-        return self.holder
-
-    def open(self) -> None:
-        self._open.set()
-
-
-def _recording(base: type[QObject], destroyed_on: list[str]) -> type[QObject]:
-    """*base*, noting from its C++ destructor the name of the thread that ran it."""
-
-    class Recording(base):
-        def __init__(self, *args, **kwargs) -> None:
-            super().__init__(*args, **kwargs)
-            self.destroyed.connect(
-                lambda *_: destroyed_on.append(threading.current_thread().name),
-                Qt.DirectConnection,
-            )
-
-    return Recording
 
 
 def _spy(monkeypatch, target, name: str, describe: Callable[..., list[str]]) -> list[list[str]]:
@@ -98,7 +60,7 @@ class _Scenario:
     """A pane given two loads: the first held inside its query, then one that supersedes it."""
 
     pane: QWidget
-    gate: _Gate
+    gate: Gate
     load_first: Callable[[], None]
     load_second: Callable[[], None]
     accepted: list[list[str]]  # the paths each answer the pane took in was for
@@ -112,13 +74,13 @@ class _Scenario:
 
 def _reload_scenario(monkeypatch, destroyed_on: list[str], *, first_fails: bool) -> _Scenario:
     monkeypatch.setattr(
-        working_tree, "_LoadSignals", _recording(working_tree._LoadSignals, destroyed_on)
+        working_tree, "_LoadSignals", recording(working_tree._LoadSignals, destroyed_on)
     )
     if first_fails:
         # pytest keeps the log record of the failure; its argument is the
         # exception, whose traceback holds the worker's frame and so its signals.
         monkeypatch.setattr(working_tree.logger, "disabled", True)
-    gate = _Gate()
+    gate = Gate()
     queries = MagicMock()
     queries.get_working_tree_diff_map.execute.return_value = {}
     queries.list_submodules.execute.return_value = []
@@ -142,8 +104,8 @@ def _reload_scenario(monkeypatch, destroyed_on: list[str], *, first_fails: bool)
 
 
 def _single_file_scenario(monkeypatch, destroyed_on: list[str]) -> _Scenario:
-    monkeypatch.setattr(hunk_diff, "_LoadSignals", _recording(hunk_diff._LoadSignals, destroyed_on))
-    gate = _Gate()
+    monkeypatch.setattr(hunk_diff, "_LoadSignals", recording(hunk_diff._LoadSignals, destroyed_on))
+    gate = Gate()
     queries = MagicMock()
     queries.list_submodules.execute.return_value = []
     queries.get_staged_diff.execute.return_value = []
@@ -168,9 +130,9 @@ def _single_file_scenario(monkeypatch, destroyed_on: list[str]) -> _Scenario:
 
 def _all_files_scenario(monkeypatch, destroyed_on: list[str]) -> _Scenario:
     monkeypatch.setattr(
-        hunk_diff, "DiffMapSignals", _recording(hunk_diff.DiffMapSignals, destroyed_on)
+        hunk_diff, "DiffMapSignals", recording(hunk_diff.DiffMapSignals, destroyed_on)
     )
-    gate = _Gate()
+    gate = Gate()
     queries = MagicMock()
     queries.list_submodules.execute.return_value = []
 
@@ -197,8 +159,8 @@ COMMIT_FILES = {FIRST_COMMIT: "a.txt", SECOND_COMMIT: "b.txt"}
 
 
 def _commit_scenario(monkeypatch, destroyed_on: list[str]) -> _Scenario:
-    monkeypatch.setattr(diff, "DiffMapSignals", _recording(diff.DiffMapSignals, destroyed_on))
-    gate = _Gate()
+    monkeypatch.setattr(diff, "DiffMapSignals", recording(diff.DiffMapSignals, destroyed_on))
+    gate = Gate()
     queries = MagicMock()
     queries.get_commit_detail.execute.side_effect = lambda oid: Commit(
         oid=oid, message="m\n", author="A", timestamp=datetime(2026, 1, 1), parents=[]
@@ -237,13 +199,6 @@ SCENARIOS = [
 ]
 
 
-def _deliver_queued_answers() -> None:
-    """Run the slots the workers queued, then the deletions those slots scheduled."""
-    for _ in range(2):
-        QCoreApplication.sendPostedEvents()
-        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-
-
 @pytest.mark.parametrize("make_scenario", SCENARIOS)
 def test_a_superseded_loads_signals_are_destroyed_on_the_gui_thread(
     qtbot, monkeypatch, make_scenario
@@ -261,7 +216,7 @@ def test_a_superseded_loads_signals_are_destroyed_on_the_gui_thread(
             scenario.gate.open()
         first_worker.join(5)
         assert not first_worker.is_alive()
-        _deliver_queued_answers()
+        deliver_queued_answers()
 
     assert [name for name in destroyed_on if name != gui_thread] == []
     assert len(destroyed_on) == 2  # one per load: the superseded one's did not outlive its answer
@@ -293,7 +248,7 @@ def _shown_text(widget: HunkDiffWidget) -> str:
 
 def test_a_slower_load_of_the_same_file_does_not_replace_the_newer_loads_hunks(qtbot):
     """The pane compared only the path, and both loads are for the same one."""
-    gate = _Gate()
+    gate = Gate()
     reads: list[None] = []
 
     def _file_diff(_oid, _path):
@@ -319,7 +274,7 @@ def test_a_slower_load_of_the_same_file_does_not_replace_the_newer_loads_hunks(q
             gate.open()
         slower_worker.join(5)
         assert not slower_worker.is_alive()
-        _deliver_queued_answers()
+        deliver_queued_answers()
 
     assert "from the slower load" not in _shown_text(pane)
     assert "from the newer load" in _shown_text(pane)
