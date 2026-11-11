@@ -67,6 +67,10 @@ def test_a_finished_dialog_releases_its_session(qtbot):
     old = MagicMock()
     old.list_remotes.execute.return_value = []
     _install(window, old)
+    # exec() is stubbed, which skips what PySide's exec() does: it hands the
+    # dialog back to Python, which frees it once nothing references it. Only
+    # run_and_discard's deleteLater releases this one, so the test pins the Git
+    # menu's use of the helper and is not evidence that the dialogs leak.
     with patch.object(RemoteDialog, "exec", return_value=0):
         window._git_remote_action.trigger()
     released = weakref.ref(old)

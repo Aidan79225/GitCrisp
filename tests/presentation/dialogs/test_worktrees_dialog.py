@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QDialog, QWidget
+
 from git_gui.domain.entities import Worktree
 from git_gui.presentation.dialogs.worktrees_dialog import WorktreesDialog
 
@@ -85,6 +88,15 @@ def test_add_button_emits_add_requested(qtbot):
     assert received == [True]
 
 
+def test_clicking_the_add_button_emits_add_requested(qtbot):
+    """The button itself: click_add() emits the signal without going through it."""
+    dlg = _open(qtbot, [])
+    received: list = []
+    dlg.add_requested.connect(lambda: received.append(True))
+    dlg._add_btn.click()
+    assert received == [True]
+
+
 def test_opening_a_worktree_closes_the_dialog(qtbot):
     dlg = _open(qtbot, [_wt("feat", "/tmp/wt-feat")])
     dlg.show()
@@ -103,3 +115,30 @@ def test_set_worktrees_drops_a_removed_worktree(qtbot):
     dlg = _open(qtbot, [_wt("main", "/tmp/main", main=True), _wt("feat", "/tmp/wt-feat")])
     dlg.set_worktrees([_wt("main", "/tmp/main", main=True)])
     assert [dlg.row_path(r) for r in range(dlg.row_count())] == ["/tmp/main"]
+
+
+def _cancel_the_dialog_that_is_up() -> None:
+    dialog = QApplication.activeModalWidget()
+    if dialog is not None:
+        dialog.reject()
+
+
+def test_a_closed_dialog_is_freed_once_its_owner_lets_go_of_it(qtbot):
+    """The Add button used to be connected through a lambda that captured the
+    dialog, which kept every dialog the window had run under it, 26 widgets each.
+
+    The exec() is the real one: a stub skips what PySide does to a dialog it
+    runs, and every dialog then looks as if it had been leaked.
+    """
+    window = QWidget()
+    qtbot.addWidget(window)
+
+    for opening in (1, 2):
+        QTimer.singleShot(0, _cancel_the_dialog_that_is_up)
+        result = WorktreesDialog(worktrees=[_wt()], parent=window).exec()
+
+        assert result == QDialog.DialogCode.Rejected
+        left = len(window.findChildren(WorktreesDialog))
+        assert left == 0, (
+            f"{left} Worktrees dialog(s) still under the window after opening {opening}"
+        )
