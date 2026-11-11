@@ -5,7 +5,8 @@ holding thousands of changes — freeze the window, so blocks start as skeletons
 and only the ones the user can actually see are ever built.
 
 Shared by the commit view and the working-tree view, which differ in what a
-realised block contains and in nothing else.
+realised block contains, and in that the working-tree view holds a rebuilt
+block at its last height until the loader settles it.
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ from typing import Any
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QFrame, QScrollArea, QVBoxLayout, QWidget
+
+from git_gui.presentation.widgets.diff_block import make_diff_unavailable_notice
+from git_gui.presentation.widgets.hunk_view import hide_hunks_if_collapsed
 
 # A file's block: its path, its frame, the layout hunks go into, and the
 # skeleton standing in for them until it is realised.
@@ -34,7 +38,7 @@ class DiffMapSignals(QObject):
 class ViewportBlockLoader(QObject):
     """Lazy block loader driven by scroll-area viewport intersection.
 
-    `realize_fn` is what a block actually becomes — the one thing the two
+    `realize_fn` is what a block actually becomes — the main thing the two
     callers do differently.
     """
 
@@ -43,7 +47,11 @@ class ViewportBlockLoader(QObject):
         scroll_area: QScrollArea,
         realize_fn: Callable[[str, QVBoxLayout, QWidget | None, Any], None],
     ) -> None:
-        super().__init__()
+        # A child of the scroll area, with the timer a child of the loader, so
+        # Qt frees both on the GUI thread. Parentless they were Python's, and
+        # the cyclic collector freed them on whichever thread ran it: a timer
+        # stopped from a worker stays armed in the GUI thread's dispatcher.
+        super().__init__(scroll_area)
         self._scroll_area = scroll_area
         self._realize_fn = realize_fn
         self._block_refs: list[BlockRef] = []
@@ -52,8 +60,11 @@ class ViewportBlockLoader(QObject):
         # block a skeleton for good.
         self._realized: set[int] = set()
         self._diff_map: dict[str, Any] = {}
+        # The map cannot say whether the fetch has answered: one that failed
+        # answers with an empty map, the same as one with nothing to show.
+        self._diff_map_arrived = False
 
-        self._scroll_timer = QTimer()
+        self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.setInterval(50)
         self._scroll_timer.timeout.connect(self._check_viewport)
@@ -65,6 +76,7 @@ class ViewportBlockLoader(QObject):
         self._block_refs = list(block_refs)
         self._realized = set()
         self._diff_map = {}
+        self._diff_map_arrived = False
 
     def set_diff_map(self, diff_map: dict[str, Any]) -> None:
         """Store the fetched diff data and schedule the first viewport check.
@@ -73,6 +85,7 @@ class ViewportBlockLoader(QObject):
         we ask which blocks are visible.
         """
         self._diff_map = diff_map
+        self._diff_map_arrived = True
         QTimer.singleShot(0, self._check_viewport)
 
     def check_viewport(self) -> None:
@@ -88,6 +101,7 @@ class ViewportBlockLoader(QObject):
         self._block_refs = []
         self._realized = set()
         self._diff_map = {}
+        self._diff_map_arrived = False
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         # Blocks that arrived while the pane was hidden are still waiting.
@@ -115,12 +129,13 @@ class ViewportBlockLoader(QObject):
 
         One block per call: realising it grows the layout and moves everything
         below, so which block is visible next cannot be known until Qt has laid
-        this one out.
+        this one out. Once the map has arrived, a visible block it has no entry
+        for gets a notice in place of its skeleton: that diff is not coming.
 
         RuntimeError is a frame a newer load already deleted — the Python
         wrapper outlives the C++ widget, and touching it raises.
         """
-        if not self._block_refs or not self._diff_map:
+        if not self._block_refs or not self._diff_map_arrived:
             return
         try:
             viewport = self._scroll_area.viewport()
@@ -144,13 +159,33 @@ class ViewportBlockLoader(QObject):
             except RuntimeError:
                 continue
             if frame_rect.intersects(vp_rect):
+                # HunkDiffWidget.load_all_files pins a rebuilt block at its last
+                # height (see hunk_diff.py) while its skeleton stands in; settling
+                # it, with its diff or the notice, lets the content set the height
+                # again. The commit view never pins; for it this is a no-op.
+                frame.setMinimumHeight(0)
                 entry = self._diff_map.get(path)
                 if entry is not None:
                     self._realize_fn(path, inner, skeleton, entry)
-                    _show_what_was_added(inner)
+                else:
+                    _show_diff_unavailable(inner, skeleton)
+                _show_what_was_added(inner)
                 self._realized.add(index)
                 QTimer.singleShot(0, self._check_viewport)
                 return
+
+
+def _show_diff_unavailable(inner: QVBoxLayout, skeleton: QWidget | None) -> None:
+    """Swap a block's skeleton for the notice that its diff is not coming.
+
+    The map answered without this path: the fetch failed, or the change was
+    gone by the time the diff was taken.
+    """
+    if skeleton is not None:
+        inner.removeWidget(skeleton)
+        skeleton.deleteLater()
+    inner.addWidget(make_diff_unavailable_notice())
+    hide_hunks_if_collapsed(inner)
 
 
 def _show_what_was_added(inner: QVBoxLayout) -> None:

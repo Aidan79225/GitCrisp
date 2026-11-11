@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
@@ -333,21 +334,35 @@ def fit_height_to_lines(editor: QPlainTextEdit, line_count: int) -> None:
 # small enough that a generated file does not freeze the window while it renders.
 CHUNK_SIZE = 100
 
+# Which render owns a document: see render_in_chunks.
+_RENDER_ID_PROPERTY = "chunkedRenderId"
+_render_ids = itertools.count(1)
+
 
 def render_in_chunks(
     document: QTextDocument, total: int, render_range: Callable[[int, int], None]
 ) -> None:
     """Render rows 0 to *total* through *render_range*, the first slice now.
 
-    The rest follow one slice per event-loop turn. *document* is the timer's
-    context: when its widget is deleted (e.g. _clear_blocks during a commit or
-    repo switch) the document goes with it and Qt cancels the pending slice,
-    which otherwise dereferenced a dangling QTextDocument, an access violation
-    on Windows.
+    The rest follow one slice per event-loop turn. A document belongs to the
+    latest render started on it: each call stamps the document with a new id
+    before its first slice, and a queued slice that finds another id there
+    drops itself. An editor is cleared and drawn again in place (a theme
+    change does it), and the slices still queued from the first draw would
+    otherwise keep inserting their rows into the new text.
+
+    *document* is the timer's context: when its widget is deleted (e.g.
+    _clear_blocks during a commit or repo switch) the document goes with it
+    and Qt cancels the pending slice, which otherwise dereferenced a dangling
+    QTextDocument, an access violation on Windows.
     """
+    render_id = next(_render_ids)
+    document.setProperty(_RENDER_ID_PROPERTY, render_id)
     render_range(0, min(CHUNK_SIZE, total))
 
     def render_from(start: int) -> None:
+        if document.property(_RENDER_ID_PROPERTY) != render_id:
+            return  # a newer render owns the document now
         # No guard for a deleted document: the timer's context already drops
         # the slice then. A guard here only hid real rendering failures,
         # leaving a half-drawn hunk with nothing in the log.
@@ -781,6 +796,24 @@ def make_overflow_notice(hidden: int) -> QLabel:
     )
     label.setWordWrap(True)
     label.setContentsMargins(8, 8, 8, 8)
+    return label
+
+
+def _diff_unavailable_style() -> str:
+    return f"color: {get_theme_manager().current.colors.on_surface_variant};"
+
+
+def make_diff_unavailable_notice() -> QLabel:
+    """A muted line that takes a skeleton's place when the diff is not coming.
+
+    The skeleton promises a diff; this is what a block shows once the fetch
+    has answered without one, so the bars do not wait for it forever.
+    """
+    label = QLabel("Diff could not be loaded.")
+    label.setWordWrap(True)
+    label.setContentsMargins(8, 6, 8, 6)
+    label.setStyleSheet(_diff_unavailable_style())
+    connect_widget(label, rebuild=lambda: label.setStyleSheet(_diff_unavailable_style()))
     return label
 
 

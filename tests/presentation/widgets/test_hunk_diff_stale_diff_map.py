@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QPlainTextEdit
 
 from git_gui.domain.entities import Hunk, LineKind, StagingState
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
+from tests.presentation.widgets.hunk_diff_helpers import wait_until_deleted
 
 
 def _gated_queries(line: str) -> tuple[MagicMock, threading.Event]:
@@ -45,19 +46,19 @@ def test_the_old_repos_diff_map_does_not_fill_the_new_repos_blocks(qtbot):
     widget.show()
     try:
         widget.load_all_files(["README.md"])
-        # Whether a superseded answer arrives at all races the worker thread's
-        # own teardown, which takes the old load's signals with it; holding
-        # them here makes the answer arrive, as it can in the app.
-        superseded = widget._load_all_signals
+        old = widget._load_all_signals
         widget.set_buses(new_queries, MagicMock())
         widget.clear()
         widget.load_all_files(["README.md"])
 
+        # The new worker waits until the old answer has been handled and its map is
+        # seen to be dropped: a new answer landing first would replace a stale map
+        # before it was shown, and the test would pass without the guard.
         old_released.set()
-        qtbot.wait(100)
+        wait_until_deleted(qtbot, old, timeout=5000)
+        assert widget._loader._diff_map == {}
         new_released.set()
         qtbot.waitUntil(lambda: bool(_shown_text(widget)), timeout=2000)
-        qtbot.wait(100)
     finally:
         old_released.set()
         new_released.set()

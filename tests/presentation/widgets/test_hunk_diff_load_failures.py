@@ -1,8 +1,8 @@
-"""A diff the working-tree pane cannot load leaves a trace in the log.
+"""A diff the working-tree pane cannot load leaves a trace in the log and a
+notice where the diff would have been.
 
-The pane falls back to showing no hunks, which looks the same as a file with
-no changes; without the log line, whoever investigates has nothing to start
-from.
+Without the log line, whoever investigates has nothing to start from; without
+the notice, the file's block shows loading bars for good.
 
 Each test waits for its worker's answer to land before it ends, so the
 answer cannot arrive in a later test.
@@ -15,9 +15,11 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
+from PySide6.QtWidgets import QFrame, QLabel, QPlainTextEdit
 
+from git_gui.domain.entities import Hunk, LineKind, StagingState
 from git_gui.presentation.widgets.hunk_diff import HunkDiffWidget
-from tests.presentation.widgets.hunk_diff_helpers import workers_joined_on_exit
+from tests.presentation.widgets.hunk_diff_helpers import wait_until_deleted, workers_joined_on_exit
 
 
 @pytest.fixture
@@ -62,18 +64,90 @@ def test_a_failed_load_of_every_files_diff_is_logged(widget, queries, gate, qtbo
     queries.get_working_tree_diff_map.execute.side_effect = _failing_after(gate, "index is corrupt")
 
     widget.load_all_files(["a.txt"])
-    with qtbot.waitSignal(widget._load_all_signals.done, timeout=2000):
-        gate.set()
+    signals = widget._load_all_signals
+    gate.set()
+    wait_until_deleted(qtbot, signals)
 
     assert "index is corrupt" in caplog.text
+
+
+def _assert_notices_not_skeletons(widget: HunkDiffWidget, expected: int) -> None:
+    assert widget.findChildren(QFrame, "skeletonBar") == []
+    notices = [
+        label for label in widget.findChildren(QLabel) if "could not be loaded" in label.text()
+    ]
+    assert len(notices) == expected
+
+
+def test_a_failed_load_of_every_files_diff_leaves_a_notice_in_each_block(
+    widget, queries, gate, qtbot
+):
+    queries.get_working_tree_diff_map.execute.side_effect = _failing_after(gate, "index is corrupt")
+    widget.resize(700, 600)
+    widget.show()
+
+    widget.load_all_files(["a.txt", "b.txt"])
+    gate.set()
+
+    qtbot.waitUntil(lambda: _assert_notices_not_skeletons(widget, 2), timeout=5000)
+
+
+def test_a_file_the_diff_query_left_out_gets_a_notice_while_the_others_render(
+    widget, queries, qtbot
+):
+    """A file another process holds open is skipped with a log line and the
+    rest of the map comes back; its block kept the loading bars."""
+    hunk = Hunk(header="@@ -1 +1 @@", lines=[(LineKind.ADDED, "kept\n")])
+    queries.get_working_tree_diff_map.execute.side_effect = lambda _paths: {
+        "a.txt": {StagingState.UNSTAGED: [hunk]}
+    }
+    widget.resize(700, 600)
+    widget.show()
+
+    widget.load_all_files(["a.txt", "b.txt"])
+
+    qtbot.waitUntil(lambda: _assert_notices_not_skeletons(widget, 1), timeout=5000)
+    assert "kept" in "".join(editor.toPlainText() for editor in widget.findChildren(QPlainTextEdit))
+
+
+def test_a_block_that_gets_a_notice_lets_go_of_the_height_its_diff_held(widget, queries, qtbot):
+    """A reload holds each block at the height its last diff had, so the user's
+    place survives while skeletons stand in. The notice that ends a block with
+    no diff is a line long: kept at the old height it sat in a tall empty frame
+    and pushed every file below it off the screen."""
+    long_hunk = Hunk(
+        header="@@ -1,60 +1,60 @@",
+        lines=[(LineKind.ADDED, f"line {i}\n") for i in range(60)],
+    )
+    queries.get_working_tree_diff_map.execute.side_effect = [
+        {"a.txt": {StagingState.UNSTAGED: [long_hunk]}},
+        {},
+    ]
+    widget.resize(700, 600)
+    widget.show()
+    widget.load_all_files(["a.txt"])
+    qtbot.waitUntil(lambda: bool(widget.findChildren(QPlainTextEdit)), timeout=5000)
+
+    widget.load_all_files(["a.txt"])
+    frame = widget._aggregate_blocks["a.txt"]
+    assert frame.minimumHeight() > 0  # held while the skeleton stands in
+    qtbot.waitUntil(lambda: _assert_notices_not_skeletons(widget, 1), timeout=5000)
+
+    assert frame.minimumHeight() == 0
+
+    def frame_is_no_taller_than_its_content() -> None:
+        assert frame.height() <= frame.sizeHint().height()
+
+    qtbot.waitUntil(frame_is_no_taller_than_its_content, timeout=5000)
 
 
 def test_a_failed_load_of_one_files_diff_is_logged(widget, queries, gate, qtbot, caplog):
     queries.get_file_diff.execute.side_effect = _failing_after(gate, "blob is unreadable")
 
     widget.load_file("a.txt")
-    with qtbot.waitSignal(widget._load_signals.done, timeout=2000):
-        gate.set()
+    signals = widget._load_signals
+    gate.set()
+    wait_until_deleted(qtbot, signals)
 
     assert "blob is unreadable" in caplog.text
 
@@ -82,7 +156,8 @@ def test_a_failed_submodule_listing_is_logged(widget, queries, gate, qtbot, capl
     queries.list_submodules.execute.side_effect = RuntimeError(".gitmodules is unreadable")
 
     widget.load_all_files(["a.txt"])
-    with qtbot.waitSignal(widget._load_all_signals.done, timeout=2000):
-        gate.set()
+    signals = widget._load_all_signals
+    gate.set()
+    wait_until_deleted(qtbot, signals)
 
     assert ".gitmodules is unreadable" in caplog.text

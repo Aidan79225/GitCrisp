@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 
 from PySide6.QtCore import QObject, QSize, Signal
 from PySide6.QtGui import QIcon
@@ -92,7 +93,7 @@ def _read_file_hunks(queries: QueryBus, path: str) -> tuple[list[Hunk], list[Hun
 
 
 class _LoadSignals(QObject):
-    done = Signal(str, list, list)  # path, staged_hunks, unstaged_hunks
+    done = Signal(str, list, list, int)  # path, staged_hunks, unstaged_hunks, load generation
 
 
 class HunkDiffWidget(QWidget):
@@ -115,6 +116,10 @@ class HunkDiffWidget(QWidget):
         # generation it was asked for, so one meant for blocks that are gone,
         # after a repo switch or a newer load, is dropped.
         self._blocks_generation = 0
+        # Bumped by every single-file load, which hands it back with its hunks.
+        # A slower load of the same file would pass the path check, and put its
+        # older hunks over the newer load's.
+        self._file_load_generation = 0
 
         # Lazy loading — initialized after scroll area is created (see below)
         self._loader: ViewportBlockLoader | None = None
@@ -185,9 +190,10 @@ class HunkDiffWidget(QWidget):
         for path in shown:
             frame, inner = self._make_file_block(path)
             # A skeleton is far shorter than the block it stands for. Holding
-            # the block's last height until it is realised keeps the content
-            # above the user's place the same height, so the unchanged scroll
-            # value still shows the same file after a stage or discard.
+            # the block's last height until the loader settles it, with its
+            # diff or with a notice, keeps the content above the user's place
+            # the same height, so the unchanged scroll value still shows the
+            # same file after a stage or discard.
             frame.setMinimumHeight(last_heights.get(path, 0))
             self._aggregate_blocks[path] = frame
             skeleton = make_skeleton_container()
@@ -205,9 +211,13 @@ class HunkDiffWidget(QWidget):
 
         queries = self._queries
         generation = self._blocks_generation
-        signals = DiffMapSignals()
+        # A child of this pane that deletes itself once answered, so Qt frees it
+        # on the GUI thread. Parentless, a load a newer one had replaced was held
+        # only by its worker, which then deleted the signals on its own thread.
+        signals = DiffMapSignals(self)
         signals.done.connect(self._on_diff_map_loaded)
-        self._load_all_signals = signals  # prevent GC
+        signals.done.connect(signals.deleteLater)
+        self._load_all_signals = signals  # the newest load's, for tests to wait on
 
         def _worker():
             try:
@@ -218,7 +228,12 @@ class HunkDiffWidget(QWidget):
             except Exception:
                 logger.warning("Failed to load the working tree's diffs", exc_info=True)
                 result = {}
-            signals.done.emit(result, generation)
+            # Covers an emit after the pane is gone, which finds its signals
+            # deleted with it. A delete landing inside the emit itself is a
+            # known residual: this pane dies only when the window is destroyed
+            # at exit.
+            with suppress(RuntimeError):
+                signals.done.emit(result, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -262,13 +277,19 @@ class HunkDiffWidget(QWidget):
             return
         path = self._current_path
         queries = self._queries
+        self._file_load_generation += 1
+        generation = self._file_load_generation
 
-        signals = _LoadSignals()
+        # Deleted by Qt on the GUI thread once answered; see load_all_files.
+        signals = _LoadSignals(self)
         signals.done.connect(self._on_load_done)
-        self._load_signals = signals  # prevent GC
+        signals.done.connect(signals.deleteLater)
+        self._load_signals = signals  # the newest load's, for tests to wait on
 
         def _worker():
-            signals.done.emit(path, *_read_file_hunks(queries, path))
+            staged_hunks, unstaged_hunks = _read_file_hunks(queries, path)
+            with suppress(RuntimeError):  # an emit after the pane is gone; see load_all_files
+                signals.done.emit(path, staged_hunks, unstaged_hunks, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -302,9 +323,9 @@ class HunkDiffWidget(QWidget):
         self._hscroll_sync.refresh_later()
 
     def _on_load_done(
-        self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk]
+        self, path: str, staged_hunks: list[Hunk], unstaged_hunks: list[Hunk], generation: int
     ) -> None:
-        if path != self._current_path:
+        if path != self._current_path or generation != self._file_load_generation:
             return
         self._clear_for_redraw()
         self._show_file(path, staged_hunks, unstaged_hunks)
@@ -314,7 +335,6 @@ class HunkDiffWidget(QWidget):
         if skeleton is not None:
             inner.removeWidget(skeleton)
             skeleton.deleteLater()
-        inner.parentWidget().setMinimumHeight(0)  # the real content now sets it
         self._add_file_hunks(
             inner,
             path,

@@ -10,6 +10,7 @@ from git_gui.presentation.widgets import diff_block
 from git_gui.presentation.widgets.diff_block import (
     make_diff_formats,
     render_hunk_content_lines,
+    render_in_chunks,
 )
 
 
@@ -90,6 +91,26 @@ def test_chunked_render_canceled_when_widget_deleted(qtbot, monkeypatch):
         "no chunk should render after the parent widget is deleted; "
         "the QTimer.singleShot context guard must cancel the pending callback"
     )
+
+
+def test_a_newer_render_supersedes_the_pending_slices_of_an_older_one(qtbot):
+    """A theme change clears the editor and renders the hunk again while the
+    first render still has slices queued. Those carried on inserting their
+    rows, in the old colours, into the new text."""
+    edit = QPlainTextEdit()
+    qtbot.addWidget(edit)
+    older: list[tuple[int, int]] = []
+    newer: list[tuple[int, int]] = []
+
+    render_in_chunks(edit.document(), 250, lambda start, end: older.append((start, end)))
+    edit.clear()
+    render_in_chunks(edit.document(), 250, lambda start, end: newer.append((start, end)))
+    # The older slices were queued first, so once the newer render is whole
+    # they have had every chance to run.
+    qtbot.waitUntil(lambda: newer[-1:] == [(200, 250)], timeout=2000)
+
+    assert newer == [(0, 100), (100, 200), (200, 250)]
+    assert older == [(0, 100)]
 
 
 def test_make_file_block_collapse_hides_non_header_widgets(qtbot):

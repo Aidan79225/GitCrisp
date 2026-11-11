@@ -374,6 +374,33 @@ def test_a_failed_diff_fetch_is_logged(diff_widget, qtbot, caplog):
     assert "abc123" in caplog.text
 
 
+def test_a_failed_diff_fetch_leaves_a_notice_in_every_block_not_skeletons(
+    multi_file_diff_widget, qtbot
+):
+    """The fetch failing off the UI thread left every file block showing the
+    loading bars for good, with nothing on screen to say it was over."""
+    from PySide6.QtWidgets import QFrame, QLabel
+
+    widget, queries = multi_file_diff_widget
+    widget.resize(700, 900)
+    queries.get_commit_diff_map.execute.side_effect = RuntimeError("object store changed")
+
+    with patch("threading.Thread") as thread:
+        widget._render_all_files("abc123")
+    thread.call_args.kwargs["target"]()
+
+    def every_block_holds_a_notice() -> None:
+        assert widget._diff_container.findChildren(QFrame, "skeletonBar") == []
+        notices = [
+            label
+            for label in widget._diff_container.findChildren(QLabel)
+            if "could not be loaded" in label.text()
+        ]
+        assert len(notices) == 3
+
+    qtbot.waitUntil(every_block_holds_a_notice, timeout=2000)
+
+
 def test_a_failed_submodule_listing_is_logged(diff_widget, qtbot, caplog):
     """As in the working-tree pane: the headers then open nothing, and the log
     is the only place that says why."""

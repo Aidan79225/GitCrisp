@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from typing import NamedTuple
 
 from PySide6.QtCore import QEvent, Qt, Signal, SignalInstance
@@ -575,9 +576,12 @@ class DiffWidget(QWidget):
     def _fetch_diff_map(self, oid: str, generation: int) -> None:
         """Fetch every file's diff of *oid* off the UI thread, for the blocks of *generation*."""
         queries = self._queries
-        signals = DiffMapSignals()
+        # A child of this pane that deletes itself once answered, so Qt frees it
+        # on the GUI thread. Parentless, a fetch a newer one had replaced was held
+        # only by its worker, which then deleted the signals on its own thread.
+        signals = DiffMapSignals(self)
         signals.done.connect(self._on_diff_map_loaded)
-        self._diff_map_signals = signals  # prevent GC
+        signals.done.connect(signals.deleteLater)
 
         def _worker():
             try:
@@ -585,7 +589,12 @@ class DiffWidget(QWidget):
             except Exception:
                 logger.warning("Failed to load the diffs of commit %r", oid, exc_info=True)
                 result = {}
-            signals.done.emit(result, generation)
+            # Covers an emit after the pane is gone, which finds its signals
+            # deleted with it. A delete landing inside the emit itself is a
+            # known residual: this pane dies only when the window is destroyed
+            # at exit.
+            with suppress(RuntimeError):
+                signals.done.emit(result, generation)
 
         threading.Thread(target=_worker, daemon=True).start()
 
