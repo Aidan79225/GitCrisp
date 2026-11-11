@@ -29,6 +29,10 @@ def repo(tmp_path: Path):
     return Pygit2Repository(str(p)), p
 
 
+def _tracks(r, name):
+    return {i.name: i.tracks for i in r.list_local_branches_with_upstream()}[name]
+
+
 def test_a_branch_without_upstream_lists_its_tip_and_subject(repo):
     r, p = repo
     tip = str(pygit2.Repository(str(p)).head.target)
@@ -66,6 +70,54 @@ def test_what_a_branch_tracks_tells_apart_two_upstreams_of_one_shorthand(repo):
     assert infos["master"].upstream == infos["topic"].upstream == "origin/master"
     assert infos["master"].tracks == TrackedBranch("origin", "refs/heads/master")
     assert infos["topic"].tracks == TrackedBranch(".", "refs/heads/origin/master")
+
+
+def test_an_upstream_is_the_remote_branch_even_beside_a_local_branch_of_the_same_name(repo):
+    # "origin/master" names a local branch as well as origin's master; the one
+    # the user picked from the remote branches is origin's, and `git pull`
+    # must keep fetching from origin rather than from this repository.
+    r, p = repo
+    _run(str(p), "branch", "origin/master")
+
+    r.set_branch_upstream("master", "origin/master")
+
+    assert _tracks(r, "master") == TrackedBranch("origin", "refs/heads/master")
+
+
+def test_an_upstream_on_a_remote_named_with_a_slash_is_recorded_under_that_remote(repo):
+    r, p = repo
+    _run(str(p), "remote", "add", "gh/fork", str(p))
+    _run(str(p), "fetch", "-q", "gh/fork")
+
+    r.set_branch_upstream("master", "gh/fork/master")
+
+    assert _tracks(r, "master") == TrackedBranch("gh/fork", "refs/heads/master")
+
+
+def test_a_refused_upstream_raises_what_git_said_and_leaves_the_branch_untracked(repo):
+    # With no fetch refspec left to map origin's branches, git cannot tell which
+    # remote refs/remotes/origin/master belongs to.
+    r, p = repo
+    _run(str(p), "config", "--unset-all", "remote.origin.fetch")
+
+    with pytest.raises(RuntimeError, match="refs/remotes/origin/master"):
+        r.set_branch_upstream("master", "origin/master")
+
+    assert _tracks(r, "master") is None
+
+
+def test_a_remote_checkout_tracks_the_remote_branch_even_beside_a_local_branch_of_its_name(repo):
+    # origin/feature is a remote-tracking branch with no local feature yet, and
+    # a local branch of the same name stands beside it.
+    r, p = repo
+    _run(str(p), "branch", "feature")
+    _run(str(p), "fetch", "-q", "origin")
+    _run(str(p), "branch", "-D", "feature")
+    _run(str(p), "branch", "origin/feature")
+
+    r.checkout_remote_branch("origin/feature")
+
+    assert _tracks(r, "feature") == TrackedBranch("origin", "refs/heads/feature")
 
 
 def test_an_unset_upstream_leaves_the_branch_without_one(repo):
