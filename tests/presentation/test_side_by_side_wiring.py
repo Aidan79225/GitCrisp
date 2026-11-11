@@ -8,8 +8,6 @@ click reads as broken.
 
 from __future__ import annotations
 
-import pytest
-from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QMainWindow, QPlainTextEdit, QVBoxLayout, QWidget
 
 from git_gui.domain.entities import Hunk
@@ -23,13 +21,6 @@ HUNK = Hunk(
     header="@@ -1,2 +1,2 @@",
     lines=[("-", "old\n"), ("+", "new\n")],
 )
-
-
-@pytest.fixture(autouse=True)
-def _clean_settings():
-    QSettings().clear()
-    yield
-    QSettings().clear()
 
 
 def _action(window: QMainWindow, label: str):

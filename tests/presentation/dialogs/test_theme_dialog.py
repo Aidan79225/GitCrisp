@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QDialog, QRadioButton
 
 from git_gui.presentation.dialogs.theme_dialog import ThemeDialog
@@ -39,6 +40,29 @@ def custom_theme_file(tmp_path, monkeypatch) -> Path:
     return custom_path
 
 
+def _live_theme_dialogs() -> list[ThemeDialog]:
+    return [w for w in QApplication.topLevelWidgets() if isinstance(w, ThemeDialog)]
+
+
+@pytest.fixture(autouse=True)
+def _free_the_theme_dialogs():
+    """Delete the dialogs a test built, so the tests after it do not restyle them.
+
+    A ThemeDialog connects closures that capture it to its own widgets, so one
+    nobody references any more stays alive with its 150 or so widgets.
+    ThemeManager restyles every live widget on each theme change, so every
+    later test here and in theme/test_manager.py paid for all of them.
+
+    The DeferredDelete is sent by hand because processEvents leaves a
+    deleteLater() pending outside an event loop, and there is no qtbot here
+    because pytest-qt closes its widgets before fixtures are torn down.
+    """
+    yield
+    for dialog in _live_theme_dialogs():
+        dialog.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 def _write_custom_theme(path: Path, theme: Theme) -> None:
     """Save *theme* to *path* the way Apply would."""
     import json
@@ -55,6 +79,18 @@ def _radios(dialog: ThemeDialog) -> dict[str, QRadioButton]:
         for radio in dialog.findChildren(QRadioButton)
         if radio.property("mode") in ("system", "light", "dark", "custom")
     }
+
+
+# This pair only means something in the order written, which is the order
+# pytest runs a module in (see tests/test_settings_isolation.py).
+def test_a_test_can_leave_a_dialog_alive(app):
+    dlg = ThemeDialog()
+
+    assert dlg in QApplication.topLevelWidgets()
+
+
+def test_the_next_test_starts_with_no_dialog_alive():
+    assert len(_live_theme_dialogs()) == 0
 
 
 def test_dialog_constructs(app, reset_theme):
@@ -254,6 +290,38 @@ def test_dialog_opens_when_the_saved_custom_theme_is_malformed(app, reset_theme,
     get_theme_manager().set_mode("dark")
 
     assert isinstance(ThemeDialog(), QDialog)
+
+
+@pytest.mark.parametrize(
+    "unusable",
+    ["150%", None, float("nan"), float("inf")],
+    ids=["percent-sign", "null", "nan", "infinity"],
+)
+def test_dialog_opens_at_100_percent_when_the_saved_text_scale_is_unusable(
+    app, reset_theme, custom_theme_file, qtbot, unusable
+):
+    """The slider float()ed the saved value on open and raised, so View >
+    Appearance did nothing, and nothing in the app could repair the value."""
+    from git_gui.presentation.theme import settings as s
+
+    s.save_settings({"typography_scale": unusable})
+
+    dlg = ThemeDialog()
+    qtbot.addWidget(dlg)
+
+    assert dlg._typo_slider.value() == 100
+
+
+def test_the_slider_spans_the_range_a_saved_text_scale_is_limited_to(
+    app, reset_theme, custom_theme_file, qtbot
+):
+    from git_gui.presentation.theme import settings as s
+
+    dlg = ThemeDialog()
+    qtbot.addWidget(dlg)
+
+    assert dlg._typo_slider.minimum() == round(s.TYPOGRAPHY_SCALE_MIN * 100)
+    assert dlg._typo_slider.maximum() == round(s.TYPOGRAPHY_SCALE_MAX * 100)
 
 
 def _save_light_based_custom_theme_then_switch_to_dark() -> None:

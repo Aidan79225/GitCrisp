@@ -2,28 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-from PySide6.QtCore import QCoreApplication, QSettings
-
-
-@pytest.fixture(autouse=True)
-def _isolated_settings(tmp_path):
-    """Redirect QSettings to a tmp dir and restore Qt globals on teardown."""
-    prev_format = QSettings.defaultFormat()
-    prev_org = QCoreApplication.organizationName()
-    prev_app = QCoreApplication.applicationName()
-
-    QSettings.setDefaultFormat(QSettings.IniFormat)
-    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path))
-    QCoreApplication.setOrganizationName("GitCrispTest")
-    QCoreApplication.setApplicationName("GitCrispTest")
-    try:
-        yield
-    finally:
-        QSettings.setDefaultFormat(prev_format)
-        QCoreApplication.setOrganizationName(prev_org)
-        QCoreApplication.setApplicationName(prev_app)
-
 
 def test_dialog_checkbox_reflects_current_setting_true(qtbot):
     from git_gui.presentation.app_settings import set_check_updates

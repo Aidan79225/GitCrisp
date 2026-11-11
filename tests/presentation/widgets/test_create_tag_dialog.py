@@ -2,28 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-from PySide6.QtCore import QCoreApplication, QSettings
-
-
-@pytest.fixture(autouse=True)
-def _isolated_settings(tmp_path):
-    """Redirect QSettings to a tmp dir and restore Qt globals on teardown."""
-    prev_format = QSettings.defaultFormat()
-    prev_org = QCoreApplication.organizationName()
-    prev_app = QCoreApplication.applicationName()
-
-    QSettings.setDefaultFormat(QSettings.IniFormat)
-    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path))
-    QCoreApplication.setOrganizationName("GitCrispTest")
-    QCoreApplication.setApplicationName("GitCrispTest")
-    try:
-        yield
-    finally:
-        QSettings.setDefaultFormat(prev_format)
-        QCoreApplication.setOrganizationName(prev_org)
-        QCoreApplication.setApplicationName(prev_app)
-
 
 def _dialog(qtbot, **kwargs):
     from git_gui.presentation.widgets.create_tag_dialog import CreateTagDialog
