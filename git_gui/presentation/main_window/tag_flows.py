@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
 
 from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.presentation.main_window.asked_repo_guard import AskedRepoGuardMixin
@@ -76,7 +76,11 @@ class TagFlowsMixin(AskedRepoGuardMixin):
 
     def _ask_delete_tag(self, name: str, remotes_with_tag: list[str]) -> list[str] | None:
         """Ask how far to delete `name`: the remotes to delete it from as well
-        (empty for local only), or None when the user cancels."""
+        (empty for local only), or None when the user cancels.
+
+        A remote op holding the slot would drop the remote half, so the prompt
+        does not offer it then.
+        """
         if not remotes_with_tag:
             reply = QMessageBox.question(self, "Delete Tag", f"Delete tag '{name}'?")
             return [] if reply == QMessageBox.Yes else None
@@ -89,6 +93,8 @@ class TagFlowsMixin(AskedRepoGuardMixin):
         both_btn = box.addButton("Local + remote", QMessageBox.AcceptRole)
         local_btn = box.addButton("Local only", QMessageBox.DestructiveRole)
         box.addButton(QMessageBox.Cancel)
+        if self._remote_running:
+            self._withhold_remote_delete(box, both_btn, remote_list)
         # The global QSS sets `QDialog QPushButton { min-width: 72px; }`
         # which clips longer labels. Override at the dialog level with the
         # same selector specificity.
@@ -100,6 +106,20 @@ class TagFlowsMixin(AskedRepoGuardMixin):
         if clicked is local_btn:
             return []
         return None
+
+    def _withhold_remote_delete(
+        self, box: QMessageBox, remote_delete: QPushButton, remote_list: str
+    ) -> None:
+        """Say why the remote delete cannot go ahead, and make Cancel the default.
+
+        The local delete needs no slot, so its button stays.
+        """
+        remote_delete.setEnabled(False)
+        box.setInformativeText(
+            f"{self._running_remote_op_name()} is still running, so the tag cannot be deleted "
+            f"from {remote_list} yet. Try again once it finishes, or delete it locally only."
+        )
+        box.setDefaultButton(QMessageBox.Cancel)
 
     def _delete_tag_local_only(self, name: str) -> None:
         try:
@@ -113,7 +133,8 @@ class TagFlowsMixin(AskedRepoGuardMixin):
     def _delete_tag_local_and_remote(self, name: str, remotes: list[str]) -> None:
         op_name = f"Delete tag {name} from {', '.join(remotes)}"
         # Refused before the local delete, so the tag is not left gone here
-        # but still published on the remotes.
+        # but still published on the remotes. The prompt withholds this while
+        # an op runs, but one can start while the prompt is open.
         if self._remote_slot_busy(op_name):
             return
         commands, repo_path = self._commands, self._repo_path

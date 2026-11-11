@@ -62,6 +62,10 @@ def _parse_porcelain_delete(
 class RemoteOps:
     """Remote management + subprocess-based git push/pull/fetch.
 
+    Push, pull, fetch and the ls-remote that lists a remote's tags
+    (`TagOps.get_remote_tags`) all run through `_run_cancellable_remote_git`,
+    which publishes the cancel handle `cancel_remote_op` terminates.
+
     Mixin — not instantiable on its own. Relies on `self._repo` and
     `self._git_env` set up by the composite class.
     """
@@ -89,6 +93,9 @@ class RemoteOps:
         if not branches:
             return []
         refspecs = [f"refs/heads/{b}" for b in branches]
+        # Plain run_git, not _run_cancellable_remote_git: the Remote Branches
+        # dialog runs this on its own thread, outside the window's remote-op
+        # slot, and the cancel handle belongs to the slot's op.
         result = run_git(
             ["git", "push", "--porcelain", remote, "--delete", *refspecs],
             cwd=self._repo.workdir,
@@ -103,8 +110,11 @@ class RemoteOps:
             ]
         return _parse_porcelain_delete(remote, result.stdout, branches)
 
-    def _run_cancellable_remote_git(self, *args: str) -> None:
-        """Run a push, pull or fetch as the one remote op `cancel_remote_op` can stop."""
+    def _run_cancellable_remote_git(self, *args: str) -> str:
+        """Run a git command that talks to a remote, as the one op `cancel_remote_op` can stop.
+
+        Returns git's stdout.
+        """
         # Popen (not subprocess.run) so cancel_remote_op can terminate the
         # process mid-transfer. The active handle is published under a lock so
         # the UI thread can reach it while this worker thread blocks on
@@ -137,9 +147,10 @@ class RemoteOps:
         result = subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
         if result.returncode != 0:
             raise RuntimeError(git_failure_message(result))
+        return stdout
 
     def cancel_remote_op(self) -> None:
-        """Terminate the in-flight git push/pull/fetch subprocess, if any.
+        """Terminate the in-flight remote git subprocess (push, pull, fetch, ls-remote), if any.
 
         Safe to call from any thread (the UI thread calls this while the worker
         thread is blocked in `_run_cancellable_remote_git`). A no-op when

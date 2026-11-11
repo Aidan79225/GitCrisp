@@ -5,7 +5,7 @@ import threading
 from collections.abc import Callable
 from typing import NamedTuple
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
 from git_gui.domain.entities import TrackedBranch
@@ -33,11 +33,14 @@ class _PushTarget(NamedTuple):
 
 
 class RemoteOpQueueMixin:
-    """The remote-op slot: one push, pull or fetch at a time.
+    """The remote-op slot: one long-running git op at a time.
 
-    `_run_remote_op` runs a callable on a background thread and marshals
-    completion back to the main thread via Qt signals. A request made while
-    another op holds the slot is reported as skipped and dropped, not queued.
+    It holds a push, pull, fetch, tag push, remote tag or branch delete, or
+    rebase, so that the window stays usable while git runs. `_run_remote_op`
+    runs a callable on a background thread and marshals completion back to the
+    main thread via Qt signals. A request made while another op holds the slot
+    is reported as skipped and dropped, not queued. What Cancel stops is
+    described under *cancellable* in `_run_remote_op`.
     Also hosts the push, pull and fetch handlers.
 
     Mixin — not instantiable on its own. Relies on composite-provided
@@ -62,6 +65,7 @@ class RemoteOpQueueMixin:
         # follows up on the op must go to the repo it started in.
         self._remote_op_commands: CommandBus | None = None
         self._remote_op_push_target: _PushTarget | None = None
+        self._remote_op_undo_to: str | None = None
 
     def _run_remote_op(
         self,
@@ -70,11 +74,18 @@ class RemoteOpQueueMixin:
         *,
         commands: CommandBus | None = None,
         push_target: _PushTarget | None = None,
+        undo_to: str | None = None,
+        cancellable: bool = True,
     ) -> None:
         """Run *fn* on a worker thread unless another remote op is running.
 
         *commands* is the bus *fn* works on, the active repo's unless given.
         *push_target* marks the op as a push that may be offered a force push.
+        *undo_to* is the HEAD an Undo link goes back to once *fn* has finished.
+        `cancellable=False` hides Cancel for an op that `cancel_remote_op` cannot
+        stop. Cancel stops only what runs through the adapter's cancellable git
+        runner; an op that keeps the default without running through it shows a
+        Cancel that stops nothing and runs on to its own end.
         """
         if self._remote_slot_busy(name):
             return
@@ -85,9 +96,10 @@ class RemoteOpQueueMixin:
         self._remote_op_name = name
         self._remote_op_commands = commands if commands is not None else self._commands
         self._remote_op_push_target = push_target
+        self._remote_op_undo_to = undo_to
         self.statusBar().showMessage(f"⏳ {name}...")
         self._cancel_remote_btn.setEnabled(True)
-        self._cancel_remote_btn.setVisible(True)
+        self._cancel_remote_btn.setVisible(cancellable)
 
         signals = _RemoteSignals()
         signals.finished.connect(self._on_remote_done)
@@ -117,16 +129,26 @@ class RemoteOpQueueMixin:
             self._report_remote_op_skipped(name, retry_hint)
         return self._remote_running
 
+    def _running_remote_op_name(self) -> str:
+        """How a message names the op holding the slot."""
+        return self._remote_op_name or "another remote operation"
+
     def _report_remote_op_skipped(self, name: str, retry_hint: str = _RETRY_WHEN_FREE) -> None:
         """The user may already have confirmed *name*, so dropping it unannounced
         would leave them believing it ran."""
-        running = self._remote_op_name or "another remote operation"
+        running = self._running_remote_op_name()
         self._log_panel.expand()
         self._log_panel.log_error(f"{name} — skipped: {running} is still running. {retry_hint}")
 
     def _cancel_remote_op(self) -> None:
-        """Ask the running push/pull/fetch to abort by terminating its git
-        subprocess. Completion is reported via the `cancelled` signal."""
+        """Ask the running op to abort by terminating its git subprocess.
+
+        Completion is reported via the `cancelled` signal. The exceptions are a
+        Cancel that only cut short the tag refresh after a fetch or tag push
+        (that op had already succeeded, so it ends as done, with a note that
+        the tags were not refreshed) and a Cancel for an op with no cancel
+        handle (it stops nothing, and the op ends as done or failed).
+        """
         commands = self._remote_op_commands
         if not self._remote_running or commands is None:
             return
@@ -143,12 +165,19 @@ class RemoteOpQueueMixin:
         self._remote_op_name = None
         self._remote_op_commands = None
         self._remote_op_push_target = None
+        self._remote_op_undo_to = None
         self.statusBar().clearMessage()
         self._cancel_remote_btn.setVisible(False)
         self._cancel_remote_btn.setEnabled(True)
 
     def _on_remote_done(self, name: str) -> None:
-        self._log_panel.log(f"{name} — done")
+        done = f"{name} — done"
+        # A repo switch retires the Undo links; one logged now would reset the
+        # repo that is open instead of the one the op ran in.
+        if self._remote_op_undo_to and self._remote_op_commands is self._commands:
+            self._log_undoable(done, self._remote_op_undo_to, label=name)
+        else:
+            self._log_panel.log(done)
         self._end_remote_op()
         self._reload()
 
@@ -158,6 +187,7 @@ class RemoteOpQueueMixin:
         self._reload()
 
     def _on_remote_error(self, name: str, error: str) -> None:
+        self._log_panel.expand()  # the user may have collapsed it since the op began
         commands, rejected = self._remote_op_commands, self._remote_op_push_target
         self._log_panel.log_error(f"{name} — ERROR: {error}")
         self._end_remote_op()
@@ -245,13 +275,15 @@ class RemoteOpQueueMixin:
             return []
 
     def _branch_to_sync(self, op: str) -> str | None:
-        """The checked-out branch, or None after logging that HEAD is on none.
+        """The checked-out branch, or None after logging why *op* cannot go ahead.
 
         The toolbar's Push and Pull stay enabled on a detached HEAD (every
         rebase stops on one) and in a repo with no commits yet, so a click
-        there needs an answer.
+        there needs an answer. The slot is asked first: a rebase running in
+        it leaves HEAD detached too, and "check out a branch" would be the
+        wrong advice.
         """
-        if self._queries is None:
+        if self._queries is None or self._remote_slot_busy(op):
             return None
         branch = self._get_current_branch()
         if branch is None:
@@ -311,5 +343,11 @@ class RemoteOpQueueMixin:
             data = self._remote_tag_cache.load(repo_path)
             data[remote] = remote_tags
             self._remote_tag_cache.save(repo_path, data)
+        except RemoteOperationCancelled:
+            # The fetch or push already succeeded, so the op still ends as done and
+            # the log only says the refresh was cut short. This is the worker
+            # thread: given the log panel as context, Qt runs the call on the GUI thread.
+            note = f"Remote tag list of {remote} was not refreshed: cancelled"
+            QTimer.singleShot(0, self._log_panel, lambda: self._log_panel.log(note))
         except Exception:
             pass  # cache update failure is non-critical

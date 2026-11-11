@@ -29,8 +29,13 @@ class ReflogFlowMixin(AskedRepoGuardMixin):
         except Exception:
             return None
 
-    def _log_undoable(self, message: str, head_before: str | None) -> None:
+    def _log_undoable(
+        self, message: str, head_before: str | None, *, label: str | None = None
+    ) -> None:
         """Log an operation, with an Undo returning HEAD to where it started.
+
+        *label* is what a later restore quotes as "(before <label>)", when the
+        logged *message* says more than the operation's name.
 
         The oid is captured before the operation rather than read back from the
         reflog when the link is clicked: it names the state the user was
@@ -41,7 +46,7 @@ class ReflogFlowMixin(AskedRepoGuardMixin):
         if not head_before:
             self._log_panel.log(message)
             return
-        self._undoable[head_before] = message
+        self._undoable[head_before] = label or message
         self._log_panel.log_action(message, "Undo", head_before)
 
     def _forget_undoable(self) -> None:

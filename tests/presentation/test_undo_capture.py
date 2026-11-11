@@ -51,6 +51,12 @@ class _Host(CherryPickRevertFlowsMixin, MergeRebaseFlowsMixin, ResetFlowMixin, R
     def _reload(self) -> None:
         pass
 
+    # A rebase runs in the remote-op slot, and offers its Undo once git has
+    # exited. Here git has exited by the time the op starts.
+    def _run_remote_op(self, name: str, fn, *, undo_to: str | None = None, **_options) -> None:
+        fn()
+        self._log_undoable(f"{name} — done", undo_to)
+
 
 class _AcceptingDialog:
     """Stands in for the merge and reset dialogs: the user confirms."""

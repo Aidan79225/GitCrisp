@@ -112,24 +112,27 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
         return target.target_oid
 
     def _on_rebase(self, branch: str) -> None:
-        head_before = self.head_before_operation()
-        try:
-            self._commands.rebase.execute(branch)
-            self._log_undoable(f"Rebase onto {branch}", head_before)
-        except Exception as e:
-            self._log_panel.expand()
-            self._log_panel.log_error(f"Rebase onto {branch} — ERROR: {e}")
-        self._reload()
+        self._run_rebase(f"Rebase onto {branch}", lambda commands: commands.rebase.execute(branch))
 
     def _on_rebase_onto_commit(self, oid: str) -> None:
-        head_before = self.head_before_operation()
-        try:
-            self._commands.rebase_onto_commit.execute(oid)
-            self._log_undoable(f"Rebase onto commit {oid[:7]}", head_before)
-        except Exception as e:
-            self._log_panel.expand()
-            self._log_panel.log_error(f"Rebase onto commit {oid[:7]} — ERROR: {e}")
-        self._reload()
+        self._run_rebase(
+            f"Rebase onto commit {oid[:7]}",
+            lambda commands: commands.rebase_onto_commit.execute(oid),
+        )
+
+    def _run_rebase(self, op_name: str, run: Callable[[CommandBus], object]) -> None:
+        """Rebase HEAD in the remote-op slot, so that the window stays usable while
+        git replays the commits. *run* rebases on the bus it is given: the one of
+        the repo the user chose the rebase in."""
+        commands = self._commands
+        self._run_remote_op(
+            op_name,
+            lambda: run(commands),
+            commands=commands,
+            undo_to=self.head_before_operation(),
+            # Cancel stops a remote git process; this is local git, so it would do nothing.
+            cancellable=False,
+        )
 
     def _on_interactive_rebase_branch(self, branch: str) -> None:
         try:
@@ -182,6 +185,10 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
         self._reload()
 
     def _on_rebase_abort(self) -> None:
+        # The banner shows while the rebase still runs in the slot: a second git
+        # on its state would lose this abort, or end the rebase behind its worker.
+        if self._remote_slot_busy("Rebase abort"):
+            return
         try:
             self._commands.rebase_abort.execute()
             self._log_panel.log("Rebase aborted")
@@ -205,6 +212,8 @@ class MergeRebaseFlowsMixin(AskedRepoGuardMixin):
         self._reload()
 
     def _on_rebase_continue(self, msg: str) -> None:
+        if self._remote_slot_busy("Rebase continue"):  # see _on_rebase_abort
+            return
         try:
             if self._queries.has_unresolved_conflicts.execute():
                 self._log_panel.expand()
