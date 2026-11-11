@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from git_gui.domain.entities import Worktree
 from git_gui.domain.ports import IRepoStore
+from git_gui.presentation.paths import same_path_text
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.highlighting_tree import HighlightingTreeView
 
@@ -448,8 +449,14 @@ class RepoListWidget(QWidget):
                 item = self._make_repo_item(path, _RowKind.OPEN, is_active=(path == active))
                 if path == group_owner and self._active_worktrees:
                     for wt in self._active_worktrees:
-                        if wt.is_main:
-                            continue  # main worktree IS the owning repo row
+                        # Left out: the main worktree (told by is_main, not by path:
+                        # git names it by its real path, which a row opened through
+                        # a link does not match as text) and the folder of this very
+                        # row (a linked worktree opened on a row of its own). Under a
+                        # linked worktree's row the main worktree is left out too,
+                        # though it is not that row.
+                        if wt.is_main or same_path_text(str(wt.path), path):
+                            continue
                         item.appendRow(
                             self._make_worktree_item(wt, is_active=(str(wt.path) == active))
                         )

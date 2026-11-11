@@ -345,10 +345,20 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._request_repo(_RepoRequest(path, _SwitchReason.OPEN, after=after))
 
     def _on_repo_close(self, path: str) -> None:
+        """Close *path*, as the Close item of a repo's row and Ctrl+W both ask.
+
+        It does nothing for the repo on screen once that was closed or removed
+        and its replacement is opening: the replacement takes the screen.
+        """
+        pending = self._pending_request()
+        if path == self._repo_path and pending is not None and _replaces_a_closed_repo(pending):
+            # What is on screen is already closed or removed, and its
+            # replacement is on its way: closing it again would list it as a
+            # repo of its own under RECENT and blank the window.
+            return
         on_screen = self._closing_takes_what_is_on_screen(path)
         # The repo on its way is never its own fallback: retrying it when it
         # fails would wait out the same dead share a second time.
-        pending = self._pending_request()
         successor = self._repo_after_closing(path, skipping=pending.path if pending else None)
         self._repo_store.close_repo(path)
         if on_screen and self._repo_store.get_active() == self._repo_path:
@@ -382,8 +392,14 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         pending = self._pending_request()
         if pending is not None and pending.path == path and _replaces_a_closed_repo(pending):
             return True
-        in_owned_worktree = self._repo_path not in self._repo_store.get_open_repos()
-        return in_owned_worktree and path == self._repo_list.worktree_owner()
+        return path == self._open_owner_of_worktree_on_screen()
+
+    def _open_owner_of_worktree_on_screen(self) -> str | None:
+        """The open repo the linked worktree on screen is listed under, or None
+        when the repo on screen has a row of its own or its owner is not open."""
+        owner = self._repo_list.worktree_owner()
+        open_repos = self._repo_store.get_open_repos()
+        return owner if self._repo_path not in open_repos and owner in open_repos else None
 
     def _pending_request(self) -> _RepoRequest | None:
         """The request still opening, or None once the latest one has landed."""
@@ -406,10 +422,22 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         return before[-1] if before else next(iter(after), None)
 
     def _close_current_repo(self) -> None:
-        """Ctrl+W: close the active repo and switch to the previous open one."""
+        """Ctrl+W: close the active repo and switch to the previous open one.
+
+        A linked worktree on screen that has no row of its own, and whose owner
+        is open, has nothing to close, only a child row under its owner's:
+        Ctrl+W goes back to the owner, or does nothing while any repo is
+        opening: the one opening takes the screen. Any other repo is closed by
+        _on_repo_close, which does nothing while a repo that replaces a closed
+        or removed one is opening.
+        """
         if not self._repo_path:
             return
-        self._on_repo_close(self._repo_path)
+        owner = self._open_owner_of_worktree_on_screen()
+        if owner is None:
+            self._on_repo_close(self._repo_path)
+        elif self._pending_request() is None:
+            self._switch_repo(owner)
 
     def _switch_to_repo_index(self, index: int) -> None:
         """Ctrl+1..9: switch to the Nth open repo (1-based)."""
@@ -461,7 +489,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if self._repo_path in open_repos:
             return self._repo_path
         main = next((wt.path for wt in worktrees if wt.is_main), None)
-        owner = next((p for p in open_repos if main and same_path_text(p, main)), None)
+        owner = self._open_row_for(main)
         if owner is None:
             owner = self._repo_list.owner_of(self._repo_path)
         return owner if owner in open_repos else None
@@ -655,17 +683,43 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if not self._repo_switched_while_asking(asked_in, f"Remove worktree {path}"):
             self._run_remove_worktree(path, force=force, override_lock=override_lock)
 
+    def _is_on_screen(self, path: str) -> bool:
+        """Whether *path* is the repo on screen, compared as text by same_path_text:
+        separators, a trailing separator and (on Windows) letter case do not
+        matter; a link, a mapped drive or a short name for the same folder does
+        not match.
+        """
+        return self._repo_path is not None and same_path_text(path, self._repo_path)
+
     def _run_remove_worktree(self, path: str, *, force: bool, override_lock: bool = False) -> None:
+        # A reload the watch schedules runs git in the folder git is deleting,
+        # and Windows refuses to delete a folder a process is running in.
+        on_screen = self._is_on_screen(path)
+        if on_screen:
+            self._stop_change_detector()
+
+        def _refused(error: Exception, refused_in: CommandBus) -> bool:
+            if on_screen:
+                self._resume_watching(refused_in)
+            return self._offer_force_remove(
+                path, error, refused_in, force=force, override_lock=override_lock
+            )
+
         self._run_worktree_op(
             "Remove",
             lambda commands: commands.remove_worktree.execute(
                 path, force=force, override_lock=override_lock
             ),
             lambda _: self._on_worktree_removed(path),
-            lambda error, commands: self._offer_force_remove(
-                path, error, commands, force=force, override_lock=override_lock
-            ),
+            _refused,
         )
+
+    def _resume_watching(self, after_failing_in: CommandBus) -> None:
+        """Watch the repo on screen again, once a removal that stopped the
+        watch has failed — unless another repo has opened since, which has
+        its own."""
+        if self._commands is after_failing_in and self._change_detector is None:
+            self._start_change_detector(self._repo_path)
 
     def _offer_force_remove(
         self,
@@ -704,11 +758,12 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         that raised "head reference does not exist" until the user clicked
         another repo themselves.
         """
-        row_above = self._open_repo_above(path)  # forgetting takes its row away
-        self._repo_store.forget(path)
+        listed = self._open_row_for(path) or path
+        row_above = self._open_repo_above(listed)  # forgetting takes its row away
+        self._repo_store.forget(listed)
         self.save_repo_list()
 
-        if path != self._repo_path:
+        if not self._is_on_screen(path):
             self._load_worktrees_for_active_repo()
             self._repo_list.reload()
             return
@@ -720,6 +775,21 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             return
         self._log_panel.log(f"Removed worktree {path} — switched to {home}")
         self._request_repo(self._request_to_replace_removed(home, row_above))
+
+    def _open_row_for(self, folder: str | None) -> str | None:
+        """The open row for *folder* as the store writes it; None when it has
+        none, and for no folder.
+
+        Rows are matched as text, never with ==: Open Repository keeps the
+        dialog's spelling of a folder, forward slashes on Windows, while git
+        lists the same folder another way, and a row looked up as git writes it
+        would be missed.
+        """
+        if not folder:
+            return None
+        return next(
+            (p for p in self._repo_store.get_open_repos() if same_path_text(p, folder)), None
+        )
 
     def _open_repo_above(self, path: str) -> str | None:
         """The open repo listed just above *path*; None when *path* is first
@@ -740,7 +810,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         place once it has opened.
         """
         open_repos = self._repo_store.get_open_repos()
-        has_row = any(same_path_text(p, home) for p in open_repos)
+        has_row = self._open_row_for(home) is not None
         if has_row or self._repo_list.worktree_owner() in open_repos:
             return _RepoRequest(home, _SwitchReason.REPLACE)
         return _RepoRequest(home, _SwitchReason.REPLACE, after=row_above, listed_on_landing=True)

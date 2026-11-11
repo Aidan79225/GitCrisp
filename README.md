@@ -135,7 +135,7 @@ Every feature below is one of three things:
 |-----|--------|
 | F5 | Reload |
 | Ctrl+F | Search commits (message, author, hash, date) |
-| Ctrl+W | Close current repo and switch to previous |
+| Ctrl+W | Close current repo and switch to previous. A linked worktree that appears only nested under its repository, not as a row of its own, goes back to that repository instead (nothing is closed) |
 | Ctrl+1..9 | Switch to Nth open repo |
 | Ctrl+Enter | Commit (from the message editor or anywhere in the working-tree panel) |
 | Esc | Clear the selected file in a file list, back to the all-files diff |

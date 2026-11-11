@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+
+import pytest
 from PySide6.QtCore import Qt
 
 from git_gui.domain.entities import Worktree
@@ -200,6 +203,69 @@ def test_active_worktree_child_is_highlighted_not_parent(qtbot):
     # The clicked worktree is the active row; the parent repo is not.
     assert wt_child.data(_IS_ACTIVE_ROLE) is True
     assert repo_item.data(_IS_ACTIVE_ROLE) is not True
+
+
+# ── A worktree with a row of its own is not listed under it ────────────────
+
+
+def _worktree_children(w: RepoListWidget) -> list[str]:
+    """The paths listed under the first open row."""
+    repo_item = _open_header(w._model).child(0)
+    return [repo_item.child(r).data(Qt.UserRole) for r in range(repo_item.rowCount())]
+
+
+def _group_of(feat_path: str) -> list[Worktree]:
+    return [
+        _main_wt("/tmp/myrepo"),
+        _wt(feat_path, branch="feat"),
+        _wt("/tmp/myrepo-other", branch="other"),
+    ]
+
+
+def _list_with_open_row(qtbot, row: str, group: list[Worktree]) -> RepoListWidget:
+    """A list whose only open row is the active repo *row*, owning *group*."""
+    w = RepoListWidget(_FakeStore(open_=[row], active=row))
+    qtbot.addWidget(w)
+    w.set_active_worktrees(group, owner_path=row)
+    w.reload()
+    return w
+
+
+_FOLDS_CASE = os.path.normcase("A") != "A"
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        pytest.param("/tmp/myrepo-feat", id="spelled as git has it"),
+        pytest.param("/tmp/myrepo-feat/", id="trailing separator"),
+        pytest.param(
+            "/TMP/MyRepo-Feat",
+            id="letter case",
+            marks=pytest.mark.skipif(not _FOLDS_CASE, reason="paths here differ by letter case"),
+        ),
+    ],
+)
+def test_a_linked_worktree_with_a_row_of_its_own_does_not_list_itself(qtbot, row):
+    """Opened on its own row it owns the group, and the group holds it too:
+    the row showed a child for the very folder it stands for, and clicking the
+    child asked to switch to the repo already on screen."""
+    w = _list_with_open_row(qtbot, row, _group_of("/tmp/myrepo-feat"))
+
+    assert _worktree_children(w) == ["/tmp/myrepo-other"]
+
+
+def test_a_main_repo_row_still_lists_every_linked_worktree(qtbot):
+    w = _list_with_open_row(qtbot, "/tmp/myrepo", _group_of("/tmp/myrepo-feat"))
+
+    assert _worktree_children(w) == ["/tmp/myrepo-feat", "/tmp/myrepo-other"]
+
+
+def test_a_main_repo_row_opened_through_a_link_does_not_list_the_main_worktree(qtbot):
+    """Git names the main worktree by its real path, which the row's text is not."""
+    w = _list_with_open_row(qtbot, "/links/myrepo", _group_of("/tmp/myrepo-feat"))
+
+    assert _worktree_children(w) == ["/tmp/myrepo-feat", "/tmp/myrepo-other"]
 
 
 # ── Task 11: context menus ─────────────────────────────────────────────────
