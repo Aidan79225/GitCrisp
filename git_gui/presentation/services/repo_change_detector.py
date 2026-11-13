@@ -18,6 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from time import monotonic
 
+import shiboken6
 from PySide6.QtCore import QFileSystemWatcher, QObject, Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 
@@ -183,15 +184,7 @@ class RepoChangeDetector(QObject):
         if app is not None and self._app_state_connected:
             app.applicationStateChanged.disconnect(self._on_app_state_changed)
             self._app_state_connected = False
-        # Qt warns "removePaths: list is empty" if either argument is empty —
-        # which happens when the watch list never got populated (e.g. no git
-        # directory was found at or above the path).
-        files = self._watcher.files()
-        if files:
-            self._watcher.removePaths(files)
-        directories = self._watcher.directories()
-        if directories:
-            self._watcher.removePaths(directories)
+        self._release_watches()
         self._debouncer.stop()
 
     def notify_self_reload(self) -> None:
@@ -201,11 +194,39 @@ class RepoChangeDetector(QObject):
         events that our own writes produce."""
         self._suppress_until_ms = monotonic() * 1000.0 + self._suppress_ms
 
+    def _release_watches(self) -> None:
+        """Delete the watcher, which releases every handle it holds.
+
+        Not removePaths: on Windows Qt's watcher thread can log while it holds
+        the lock removePaths waits for, when a directory it watches is deleted
+        (git deletes .git/worktrees with the last linked worktree). PySide6
+        takes the GIL before it calls the app's Python message handler, and
+        removePaths keeps the GIL while it waits for the lock, so the two wait
+        for each other and the app freezes for good. Deleting the watcher lets
+        go of the GIL while it waits for that thread, so the thread can finish.
+        Shiboken does that when it runs a C++ destructor; its documentation does
+        not promise it, and the Windows test in test_repo_change_detector_stop.py
+        fails if it stops being true.
+
+        A second call finds the watcher already deleted and does nothing.
+        """
+        if shiboken6.isValid(self._watcher):
+            shiboken6.delete(self._watcher)
+
     # ── Watch-set setup ─────────────────────────────────────────────────
 
     def _add_git_watch_paths(self) -> None:
         """Add every file and directory holding git state that indicates a
-        change. Missing paths are silently skipped."""
+        change. Missing paths are silently skipped.
+
+        Known gap: addPath keeps the GIL while it waits for the lock that the
+        Windows watcher thread holds when it logs about a deleted directory (see
+        _release_watches), so a watched directory deleted while this runs, about
+        3 ms on a local disk, can still freeze the app. No call follows
+        "worktrees", the directory git deletes with the last linked worktree, so
+        that one cannot be caught. The git directory of a linked worktree goes
+        with that worktree and is added first, so it can.
+        """
         resolved = resolve_git_dirs(self._repo_path)
         if resolved is None:
             logger.warning("RepoChangeDetector: no git directory at %s", self._repo_path)
