@@ -5,6 +5,36 @@ import pytest
 from pygit2.enums import ConfigLevel
 
 
+def _discard_qt_message(_mode, _context, _message) -> None:
+    """Take a Qt message and let it go: the point of this handler is that it is there."""
+
+
+def pytest_configure(config) -> None:
+    """Install a Qt message handler before the first test and keep it.
+
+    pytest-qt installs a handler for each test and, once the test's call is
+    reported, puts back the one it found: ``None`` when nothing had installed
+    one. PySide6 reads its handler only after taking the GIL, so a Qt thread
+    that logs just then, as the file watcher's thread can when ``git worktree
+    remove`` deletes ``.git/worktrees`` along with the last linked worktree,
+    finds nothing to call and the whole run dies with an access violation.
+    With a handler installed first, what pytest-qt puts back is a function.
+    tests/test_qt_message_handler_guard.py has the full account and pins it.
+
+    It has to be a hook: pytest-qt's setup runs before any fixture does, and
+    what a session fixture installed would be wiped by the first test's
+    put-back.
+
+    The handler discards what it is given, so a Qt message logged while
+    pytest-qt is not capturing (such as during collection, during teardown and
+    between tests, in a test marked ``no_qt_log``, and for the whole run under
+    ``-s`` or ``--no-qt-log``) is no longer printed.
+    """
+    from PySide6.QtCore import qInstallMessageHandler
+
+    qInstallMessageHandler(_discard_qt_message)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _isolated_gitcrisp_home(tmp_path_factory):
     """Keep the suite out of the developer's real ``~/.gitcrisp``.
