@@ -16,7 +16,12 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import Branch, Stash, Tag
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
-from git_gui.presentation.widgets.background import BackgroundRunner, start_daemon_thread
+from git_gui.presentation.widgets.background import (
+    BackgroundRunner,
+    delete_when_done,
+    start_daemon_thread,
+    worker_signals,
+)
 from git_gui.presentation.widgets.highlighting_tree import HighlightingTreeView
 from git_gui.presentation.widgets.remote_branch_split import (
     REMOTES_UNKNOWN,
@@ -202,10 +207,9 @@ class SidebarWidget(QWidget):
         self._load_generation += 1
         generation = self._load_generation
 
-        signals = _LoadSignals()
+        signals = worker_signals(_LoadSignals)
         signals.done.connect(self._on_worker_done)
         signals.failed.connect(self._on_worker_failed)
-        self._load_signals = signals  # prevent GC
 
         cache = self._remote_tag_cache
         repo_path = self._repo_path
@@ -219,7 +223,7 @@ class SidebarWidget(QWidget):
                 return
             signals.done.emit(generation, *loaded)
 
-        self._run_in_background(_worker)
+        self._run_in_background(delete_when_done(signals, _worker))
 
     def _on_worker_done(
         self,
