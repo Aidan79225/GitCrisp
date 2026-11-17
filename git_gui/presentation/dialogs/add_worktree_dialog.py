@@ -21,7 +21,12 @@ from PySide6.QtWidgets import (
 
 from git_gui.presentation.paths import same_path_text
 from git_gui.presentation.theme import get_theme_manager
-from git_gui.presentation.widgets.background import BackgroundRunner, start_daemon_thread
+from git_gui.presentation.widgets.background import (
+    BackgroundRunner,
+    delete_when_done,
+    start_daemon_thread,
+    worker_signals,
+)
 
 # Most checks answer well inside this; a hint that flashes up is worse than none.
 _CHECKING_HINT_DELAY_MS = 300
@@ -94,7 +99,6 @@ class AddWorktreeDialog(QDialog):
         self._branches_in_use = dict(branches_in_use or {})
         self._location_chosen_by_user = False
         self._run_in_background = run_in_background
-        self._location_checks = _LocationCheckSignals()
         # Bumped by every change of the location: a check that answers after a
         # newer change was made is for text that is no longer in the field.
         self._check_generation = 0
@@ -206,7 +210,6 @@ class AddWorktreeDialog(QDialog):
         self._switch_btn.clicked.connect(self._on_switch_to_existing)
         self._location_edit.textEdited.connect(self._on_location_edited)
         self._location_edit.textChanged.connect(self._on_location_changed)
-        self._location_checks.checked.connect(self._on_location_checked)
         self._hint_timer.timeout.connect(self._location_hint.show)
         self._browse_btn.clicked.connect(self._on_browse)
         self._buttons.accepted.connect(self.submit)
@@ -335,12 +338,13 @@ class AddWorktreeDialog(QDialog):
         self._hint_timer.start()
         self._refresh_add_button()
         generation = self._check_generation
-        signals = self._location_checks
+        signals = worker_signals(_LocationCheckSignals)
+        signals.checked.connect(self._on_location_checked)
 
         def _worker() -> None:
             signals.checked.emit(generation, _disk_problem(location) or "")
 
-        self._run_in_background(_worker)
+        self._run_in_background(delete_when_done(signals, _worker))
 
     def _on_location_checked(self, generation: int, problem: str) -> None:
         if generation == self._check_generation:
