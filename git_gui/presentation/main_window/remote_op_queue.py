@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from collections.abc import Callable
 from typing import NamedTuple
 
@@ -11,6 +10,7 @@ from PySide6.QtWidgets import QMessageBox, QPushButton
 from git_gui.domain.entities import TrackedBranch
 from git_gui.domain.ports import RemoteOperationCancelled
 from git_gui.presentation.bus import CommandBus, QueryBus
+from git_gui.presentation.widgets.background import delete_when_done, worker_signals
 
 logger = logging.getLogger(__name__)
 
@@ -101,11 +101,10 @@ class RemoteOpQueueMixin:
         self._cancel_remote_btn.setEnabled(True)
         self._cancel_remote_btn.setVisible(cancellable)
 
-        signals = _RemoteSignals()
+        signals = worker_signals(_RemoteSignals)
         signals.finished.connect(self._on_remote_done)
         signals.failed.connect(self._on_remote_error)
         signals.cancelled.connect(self._on_remote_cancelled)
-        self._remote_signals = signals  # prevent GC
 
         def _worker():
             try:
@@ -116,8 +115,7 @@ class RemoteOpQueueMixin:
             except Exception as e:
                 signals.failed.emit(name, str(e))
 
-        thread = threading.Thread(target=_worker, daemon=True)
-        thread.start()
+        self._remote_op_runner(delete_when_done(signals, _worker))
 
     def _remote_slot_busy(self, name: str, *, retry_hint: str = _RETRY_WHEN_FREE) -> bool:
         """Whether another remote op holds the slot, logging *name* as skipped if so.

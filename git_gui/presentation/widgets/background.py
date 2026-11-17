@@ -7,13 +7,13 @@ from contextlib import suppress
 
 from PySide6.QtCore import QCoreApplication, QObject
 
-# Runs a widget's slow read off the GUI thread. Widgets take one as a
+# Starts a widget's slow work off the GUI thread. Widgets take one as a
 # parameter, so a test can hold the work and run it in the order it chooses.
 BackgroundRunner = Callable[[Callable[[], None]], None]
 
 
 def start_daemon_thread(work: Callable[[], None]) -> None:
-    """Run *work* on a daemon thread, so a read still going never holds the app open."""
+    """Run *work* on a daemon thread, so work still going never holds the app open."""
     threading.Thread(target=work, daemon=True).start()
 
 

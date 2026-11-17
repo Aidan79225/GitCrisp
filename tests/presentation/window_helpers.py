@@ -15,13 +15,14 @@ def empty_repo_store() -> MagicMock:
     return store
 
 
-def blank_window(qtbot, repo_store: MagicMock | None = None) -> MainWindow:
-    """No buses, and a session factory that never touches git."""
+def blank_window(qtbot, repo_store: MagicMock | None = None, **window_kwargs) -> MainWindow:
+    """No buses, and a session factory that never touches git; `window_kwargs` go to the window."""
     win = MainWindow(
         queries=None,
         commands=None,
         repo_store=repo_store or empty_repo_store(),
         session_factory=lambda _p: (MagicMock(), MagicMock()),
+        **window_kwargs,
     )
     qtbot.addWidget(win)
     return win

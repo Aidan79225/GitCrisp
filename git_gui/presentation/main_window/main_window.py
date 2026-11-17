@@ -35,6 +35,7 @@ from git_gui.presentation.main_window.window_state import WindowStateMixin
 from git_gui.presentation.menus.appearance import install_appearance_menu
 from git_gui.presentation.menus.help_menu import install_help_menu
 from git_gui.presentation.menus.view_menu import install_diff_view_menu
+from git_gui.presentation.widgets.background import BackgroundRunner, start_daemon_thread
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
@@ -70,6 +71,7 @@ class MainWindow(
         parent=None,
         *,
         session_factory: Callable[[str], tuple[QueryBus, CommandBus]],
+        remote_op_runner: BackgroundRunner = start_daemon_thread,
     ) -> None:
         super().__init__(parent)
         self._queries = queries
@@ -81,6 +83,7 @@ class MainWindow(
         # for any other is a request the user has since moved on from.
         self._repo_request = _RepoRequest(repo_path) if repo_path else None
         self._session_factory = session_factory
+        self._remote_op_runner = remote_op_runner
         self._worktree_paths_by_branch: dict[str, str] = {}
         self._worktrees_dialog = None  # WorktreesDialog | None — set while it is open
 
