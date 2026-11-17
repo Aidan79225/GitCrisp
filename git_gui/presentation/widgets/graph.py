@@ -1104,10 +1104,9 @@ class GraphWidget(QWidget):
         path = self._path_filter
         follow = self._path_filter_bar.follow()
 
-        signals = _LoadSignals()
+        signals = worker_signals(_LoadSignals)
         signals.append_done.connect(self._on_append_done)
         signals.load_failed.connect(self._on_load_failed)
-        self._load_signals = signals  # prevent GC
         generation = self._load_generation
 
         def _worker():
@@ -1126,7 +1125,7 @@ class GraphWidget(QWidget):
                 return
             signals.append_done.emit(more, fp, path, generation)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        threading.Thread(target=delete_when_done(signals, _worker), daemon=True).start()
 
     def _on_append_done(
         self,

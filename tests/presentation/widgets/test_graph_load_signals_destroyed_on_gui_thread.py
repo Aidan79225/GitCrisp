@@ -1,13 +1,14 @@
 """A graph load's signals are deleted by Qt on the GUI thread, never by a worker.
 
-Every reload hands its worker a signals object to answer through. Parentless, the graph
-let go of a load's by rebinding the attribute that held it when the user opened another
-repo while the load was in its query, which left the worker the last to let go; and a
-destroyed graph's wrapper, kept alive by a reference cycle of the theme listener, held
-the newest load's until the garbage collector reached it, on whichever thread ran it.
-They belong to the application now (worker_signals) and go when their worker has
-returned, so a graph destroyed under a running load leaves them alive with nobody
-listening.
+The graph reads its commits on a worker in two ways: a reload, which every operation and
+repo switch asks for, and the next page, when the list is scrolled to its end. Each hands
+its worker a signals object to answer through. Parentless, the graph let go of a load's by
+rebinding the attribute that held it when the user opened another repo while the load was
+in its query, which left the worker the last to let go; and a destroyed graph's wrapper,
+kept alive by a reference cycle of the theme listener, held the newest load's until the
+garbage collector reached it, on whichever thread ran it. They belong to the application
+now (worker_signals) and go when their worker has returned, so a graph destroyed under a
+running load leaves them alive with nobody listening.
 """
 
 from __future__ import annotations
@@ -64,7 +65,10 @@ def destroyed_on(monkeypatch) -> list[str]:
 
 
 # What starts a read of the commits on a worker.
-LOADS = [pytest.param(GraphWidget.reload, id="reload")]
+LOADS = [
+    pytest.param(GraphWidget.reload, id="reload"),
+    pytest.param(GraphWidget._load_more, id="page"),  # what scrolling to the end does
+]
 HELD_LOADS = [pytest.param(False, id="answered"), pytest.param(True, id="failed")]
 
 
