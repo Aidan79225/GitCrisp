@@ -356,7 +356,7 @@ class ReflogPane(QWidget):
         header.addWidget(self._show_all_box)
         header.addWidget(self._close_btn)
 
-        self._model = ReflogModel()
+        self._model = ReflogModel(parent=self)
         self._view = QTableView()
         self._view.setModel(self._model)
         self._view.setItemDelegate(ReflogDelegate(self._model, self._view))

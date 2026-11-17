@@ -9,12 +9,14 @@ from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
+import shiboken6
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import QAbstractItemView, QStyleOptionViewItem
 
 from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.theme import ColorRole, get_theme_manager
+from git_gui.presentation.widgets import reflog_pane
 from git_gui.presentation.widgets.reflog_pane import (
     _OPERATION_ROLES,
     ORPHAN_STRIPE_W,
@@ -23,6 +25,8 @@ from git_gui.presentation.widgets.reflog_pane import (
     ReflogPane,
     _operation_color,
 )
+from tests.presentation.thread_helpers import deliver_queued_answers, recording
+from tests.presentation.widgets.hunk_diff_helpers import workers_joined_on_exit
 
 
 def _entry(
@@ -185,6 +189,27 @@ def test_model_lookup_is_bounded(qtbot):
 def test_widest_operation_of_an_empty_model_is_zero(qtbot):
 
     assert ReflogModel([]).widest_operation(QFontMetrics(QFont())) == 0
+
+
+def test_a_closed_panes_model_is_destroyed_with_it_on_the_gui_thread(qapp, monkeypatch):
+    """A model nobody parented died with its last Python reference, on whichever thread let go.
+
+    A closed pane's wrapper outlives it in a reference cycle of the theme listener,
+    and the model it held did too, until the garbage collector freed both on the
+    thread it happened to run on.
+    """
+    destroyed_on: list[str] = []
+    monkeypatch.setattr(reflog_pane, "ReflogModel", recording(ReflogModel, destroyed_on))
+    queries = MagicMock()
+    queries.get_reflog.execute.return_value = list(ENTRIES)
+    queries.get_repo_state.execute.return_value.head_branch = "master"
+    with workers_joined_on_exit():
+        # Not _pane(): qtbot closes the widgets it adopts, and this one is gone by then.
+        pane = ReflogPane(queries)
+        shiboken6.delete(pane)
+    deliver_queued_answers()  # the load's own signals, which its worker asked Qt to delete
+
+    assert destroyed_on == [threading.current_thread().name]
 
 
 # ── Loading ──────────────────────────────────────────────────────────────────
