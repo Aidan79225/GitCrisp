@@ -101,10 +101,8 @@ def test_a_superseded_loads_signals_are_destroyed_on_the_gui_thread(
 
 @pytest.mark.parametrize("held_load_fails", HELD_LOADS)
 def test_a_worker_finishing_after_its_pane_was_destroyed_raises_nothing(
-    monkeypatch, held_load_fails
+    worker_errors, held_load_fails
 ):
-    raised: list[BaseException | None] = []
-    monkeypatch.setattr(threading, "excepthook", lambda args: raised.append(args.exc_value))
     held = _HeldBlame(None, fails=held_load_fails)  # the pane's own first load, of HEAD
     with workers_joined_on_exit():
         pane = _pane(held)
@@ -118,4 +116,4 @@ def test_a_worker_finishing_after_its_pane_was_destroyed_raises_nothing(
         worker.join(5)
         assert not worker.is_alive()
 
-    assert raised == []
+    assert worker_errors == []

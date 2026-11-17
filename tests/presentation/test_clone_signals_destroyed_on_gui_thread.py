@@ -89,10 +89,8 @@ def test_a_clones_signals_are_deleted_on_the_gui_thread_once_it_has_ended(qtbot,
 
 
 def test_a_dialog_destroyed_mid_clone_takes_its_signals_along_and_the_worker_raises_nothing(
-    monkeypatch, destroyed_on
+    destroyed_on, worker_errors
 ):
-    raised: list[BaseException | None] = []
-    monkeypatch.setattr(threading, "excepthook", lambda args: raised.append(args.exc_value))
     in_clone, git_finishes = threading.Event(), threading.Event()
     workers: list[threading.Thread] = []
 
@@ -116,4 +114,4 @@ def test_a_dialog_destroyed_mid_clone_takes_its_signals_along_and_the_worker_rai
     workers[0].join(5)
     assert not workers[0].is_alive()
 
-    assert raised == []
+    assert worker_errors == []
