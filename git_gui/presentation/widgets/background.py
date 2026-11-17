@@ -41,9 +41,11 @@ def worker_signals[SignalsT: QObject](signals_type: type[SignalsT]) -> SignalsT:
     reference deletes it.
 
     Build one per worker and hand it to delete_when_done: shared, the first worker
-    to return would delete them under the others. Call it on the GUI thread. Off it
-    Qt refuses the parent and warns, and the signals stay parentless, living in the
-    caller's thread.
+    to return would delete them under the others. The exception is an object that
+    serves a window for its whole life, MainWindow's repo-ready signals: built once
+    and never handed over, it lives until the application exits. Call it on the GUI
+    thread. Off it Qt refuses the parent and warns, and the signals stay parentless,
+    living in the caller's thread.
     """
     return signals_type(QCoreApplication.instance())
 
