@@ -1,10 +1,13 @@
-"""Helpers for the test files that pin which thread a worker's signals are freed on.
+"""Helpers for the test files that pin which thread a QObject is freed on.
 
 Qt documents deleting a QObject from a thread other than its own as unsafe, so
-recording() notes the name of the thread that ran a signals class's C++
-destructor; the clone, blame and load test files all use it. The blame and load
-test files, whose tests hold a worker inside its query, also share Gate and
-deliver_queued_answers().
+recording() notes the name of the thread that ran a QObject subclass's C++
+destructor. Gate holds a worker where it is until the test lets it go, and
+deliver_queued_answers() lets Qt carry out every deletion asked for by then, by
+the workers themselves or by the slots they queued.
+
+The tests also join the workers they start with workers_joined_on_exit(), and wait
+for a deletion with wait_until_deleted(); both live in widgets/hunk_diff_helpers.py.
 """
 
 from __future__ import annotations
@@ -34,14 +37,18 @@ def recording(base: type[QObject], destroyed_on: list[str]) -> type[QObject]:
 
 
 def deliver_queued_answers() -> None:
-    """Run the slots the workers queued, then the deletions those slots scheduled."""
+    """Carry out every deleteLater asked for so far, after what the workers queued for the GUI thread.
+
+    That includes the deletions a worker asked for itself as it returned, and the
+    ones the slots it queued ask for.
+    """
     for _ in range(2):
         QCoreApplication.sendPostedEvents()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 class Gate:
-    """Holds a worker inside its query until the test lets it go."""
+    """Holds a worker where it calls hold(), inside a read, a check or an operation, until the test lets it go."""
 
     def __init__(self) -> None:
         self.holder: threading.Thread | None = None
@@ -55,8 +62,8 @@ class Gate:
         self._open.wait(5)
 
     def held_worker(self) -> threading.Thread:
-        """The worker inside the query, once it is there."""
-        assert self._entered.wait(5), "the held load never reached its query"
+        """The worker inside hold(), once it is there."""
+        assert self._entered.wait(5), "the held worker never reached the gate"
         assert self.holder is not None
         return self.holder
 
