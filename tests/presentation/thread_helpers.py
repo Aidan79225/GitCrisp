@@ -3,8 +3,9 @@
 Qt documents deleting a QObject from a thread other than its own as unsafe, so
 recording() notes the name of the thread that ran a QObject subclass's C++
 destructor. Gate holds a worker where it is until the test lets it go, and
-deliver_queued_answers() lets Qt carry out every deletion asked for by then, by
-the workers themselves or by the slots they queued.
+HeldFirstCall is a fake read whose first call waits at one. deliver_queued_answers()
+lets Qt carry out every deletion asked for by then, by the workers themselves or by
+the slots they queued.
 
 The tests also join the workers they start with workers_joined_on_exit(), and wait
 for a deletion with wait_until_deleted(); both live in widgets/hunk_diff_helpers.py.
@@ -12,7 +13,10 @@ for a deletion with wait_until_deleted(); both live in widgets/hunk_diff_helpers
 
 from __future__ import annotations
 
+import copy
+import itertools
 import threading
+from collections.abc import Callable
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt
 
@@ -48,7 +52,7 @@ def deliver_queued_answers() -> None:
 
 
 class Gate:
-    """Holds a worker where it calls hold(), inside a read, a check or an operation, until the test lets it go."""
+    """Holds a worker where it calls hold(), whatever it is doing, until the test lets it go."""
 
     def __init__(self) -> None:
         self.holder: threading.Thread | None = None
@@ -69,3 +73,28 @@ class Gate:
 
     def open(self) -> None:
         self._open.set()
+
+
+class HeldFirstCall:
+    """A fake for what a worker calls: its first call waits at ``gate``, later ones answer at once.
+
+    So a test can hold the first load while a second runs past it. The held call, let
+    go, raises *fails_with* if given, and answers like every other call if not.
+    """
+
+    def __init__(
+        self, answer: Callable[[], object], *, fails_with: BaseException | None = None
+    ) -> None:
+        self.gate = Gate()
+        self._answer = answer
+        self._fails_with = fails_with
+        self._calls = itertools.count()
+
+    def __call__(self, *_args, **_kwargs) -> object:
+        if next(self._calls) == 0:
+            self.gate.hold()
+            if self._fails_with is not None:
+                # A copy: a raised exception keeps its traceback, and so the frames of the
+                # worker that raised it and the signals in them, for as long as it lives.
+                raise copy.copy(self._fails_with)
+        return self._answer()
