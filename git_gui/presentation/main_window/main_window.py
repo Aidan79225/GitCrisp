@@ -35,7 +35,11 @@ from git_gui.presentation.main_window.window_state import WindowStateMixin
 from git_gui.presentation.menus.appearance import install_appearance_menu
 from git_gui.presentation.menus.help_menu import install_help_menu
 from git_gui.presentation.menus.view_menu import install_diff_view_menu
-from git_gui.presentation.widgets.background import BackgroundRunner, start_daemon_thread
+from git_gui.presentation.widgets.background import (
+    BackgroundRunner,
+    start_daemon_thread,
+    worker_signals,
+)
 from git_gui.presentation.widgets.diff import DiffWidget
 from git_gui.presentation.widgets.graph import GraphWidget
 from git_gui.presentation.widgets.log_panel import LogPanel
@@ -152,7 +156,11 @@ class MainWindow(
         install_diff_view_menu(self, self._on_diff_view_changed)
 
     def _build_widgets(self) -> None:
-        self._repo_ready_signals = _RepoReadySignals()
+        # One for the window's life, serving every repo open. Owned by the application, so a
+        # window that goes away under an open still running leaves it for that worker to answer
+        # into, and no thread that lets go of the window deletes it. It lives until the
+        # application exits: nothing hands it to delete_when_done.
+        self._repo_ready_signals = worker_signals(_RepoReadySignals)
         self._sidebar = SidebarWidget(
             self._queries, self._commands, self._remote_tag_cache, self._repo_path
         )

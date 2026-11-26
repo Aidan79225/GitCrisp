@@ -5,7 +5,9 @@ recording() notes the name of the thread that ran a QObject subclass's C++
 destructor. Gate holds a worker where it is until the test lets it go, and
 HeldFirstCall is a fake read whose first call waits at one. deliver_queued_answers()
 lets Qt carry out every deletion asked for by then, by the workers themselves or by
-the slots they queued.
+the slots they queued. For a QObject that only the garbage collector frees, the
+collection is made by collect_garbage_on_another_thread(), inside a
+garbage_collected_only_where_the_test_says() block.
 
 The tests also join the workers they start with workers_joined_on_exit(), and wait
 for a deletion with wait_until_deleted(); both live in widgets/hunk_diff_helpers.py.
@@ -14,9 +16,11 @@ for a deletion with wait_until_deleted(); both live in widgets/hunk_diff_helpers
 from __future__ import annotations
 
 import copy
+import gc
 import itertools
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt
 
@@ -98,3 +102,24 @@ class HeldFirstCall:
                 # worker that raised it and the signals in them, for as long as it lives.
                 raise copy.copy(self._fails_with)
         return self._answer()
+
+
+@contextmanager
+def garbage_collected_only_where_the_test_says() -> Iterator[None]:
+    """Free the garbage there is now, here, and collect none until the test makes a pass."""
+    was_enabled = gc.isenabled()
+    gc.collect()  # so the test's own pass has none of an earlier test's garbage to free
+    gc.disable()
+    try:
+        yield
+    finally:
+        if was_enabled:
+            gc.enable()
+
+
+def collect_garbage_on_another_thread() -> None:
+    """A collection pass on a thread of its own, as a busy worker's allocations would start."""
+    collector = threading.Thread(target=gc.collect, name="a-busy-worker")
+    collector.start()
+    collector.join(10)
+    assert not collector.is_alive()

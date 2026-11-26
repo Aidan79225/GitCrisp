@@ -15,7 +15,6 @@ must not fail for it.
 
 from __future__ import annotations
 
-import gc
 import threading
 from unittest.mock import patch
 
@@ -25,7 +24,11 @@ from PySide6.QtWidgets import QDialog
 
 from git_gui.presentation.widgets import clone_dialog
 from git_gui.presentation.widgets.clone_dialog import CloneDialog
-from tests.presentation.thread_helpers import recording
+from tests.presentation.thread_helpers import (
+    collect_garbage_on_another_thread,
+    garbage_collected_only_where_the_test_says,
+    recording,
+)
 from tests.presentation.window_helpers import blank_window
 
 _URL = "https://example.com/user/repo.git"
@@ -37,13 +40,6 @@ def destroyed_on(monkeypatch) -> list[str]:
     names: list[str] = []
     monkeypatch.setattr(clone_dialog, "_CloneSignals", recording(clone_dialog._CloneSignals, names))
     return names
-
-
-def _collect_garbage_on_another_thread() -> None:
-    collector = threading.Thread(target=gc.collect, name="a-busy-worker")
-    collector.start()
-    collector.join(10)
-    assert not collector.is_alive()
 
 
 def test_a_clones_signals_are_destroyed_on_the_gui_thread_when_another_thread_collects_garbage(
@@ -59,18 +55,14 @@ def test_a_clones_signals_are_destroyed_on_the_gui_thread_when_another_thread_co
             dialog._on_clone()
         return QDialog.DialogCode.Accepted
 
-    gc.collect()  # what is garbage by now is freed here, on the GUI thread
-    gc.disable()  # from here on, garbage is collected only where the test says
-    try:
+    with garbage_collected_only_where_the_test_says():
         with (
             patch.object(clone_dialog, "clone_repo"),
             patch.object(CloneDialog, "exec", clone_to_the_end),
         ):
             win._on_clone_requested()
         qtbot.waitUntil(lambda: win.findChildren(CloneDialog) == [])
-        _collect_garbage_on_another_thread()
-    finally:
-        gc.enable()
+        collect_garbage_on_another_thread()
 
     assert destroyed_on == [threading.current_thread().name]
 
