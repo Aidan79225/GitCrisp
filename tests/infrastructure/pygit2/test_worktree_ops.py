@@ -31,6 +31,26 @@ def fresh_repo(tmp_path):
     return p
 
 
+@pytest.fixture
+def unreadable():
+    """chmod a path to 000 for the test, restoring it after so tmp_path cleans up."""
+    restored: list[tuple[Path, int]] = []
+
+    def _make(path: Path) -> None:
+        restored.append((path, path.stat().st_mode))
+        path.chmod(0)
+
+    yield _make
+    for path, mode in reversed(restored):
+        path.chmod(mode)
+
+
+_needs_permission_bits = pytest.mark.skipif(
+    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod 000 does not deny access on Windows or to root",
+)
+
+
 def test_list_worktrees_returns_just_main_when_no_extra(fresh_repo):
     impl = Pygit2Repository(str(fresh_repo))
     wts = impl.list_worktrees()
@@ -149,26 +169,6 @@ def test_a_worktree_pygit2_will_not_open_still_reports_its_branch(fresh_repo, li
     assert feat.is_missing is False
     assert feat.branch == "feat"
     assert feat.head_sha != ""
-
-
-@pytest.fixture
-def unreadable():
-    """chmod a path to 000 for the test, restoring it after so tmp_path cleans up."""
-    restored: list[tuple[Path, int]] = []
-
-    def _make(path: Path) -> None:
-        restored.append((path, path.stat().st_mode))
-        path.chmod(0)
-
-    yield _make
-    for path, mode in reversed(restored):
-        path.chmod(mode)
-
-
-_needs_permission_bits = pytest.mark.skipif(
-    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
-    reason="chmod 000 does not deny access on Windows or to root",
-)
 
 
 @_needs_permission_bits

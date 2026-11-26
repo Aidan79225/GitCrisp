@@ -95,27 +95,6 @@ def test_the_window_knows_which_worktrees_are_not_here(window, missing_worktree)
     assert window._missing_worktree_paths == {missing_worktree}
 
 
-def test_a_listing_that_fails_leaves_the_window_knowing_no_worktrees(
-    window, missing_worktree, monkeypatch
-):
-    """What the last listing found must not stand in for one that failed: the
-    repo on screen may be another one, whose branches would wear the other
-    repo's worktree badges and whose opens would be explained from its list."""
-
-    class _Failing:
-        def execute(self):
-            raise RuntimeError("refused by git")
-
-    assert window._missing_worktree_paths == {missing_worktree}
-    monkeypatch.setattr(window._queries, "list_worktrees", _Failing())
-
-    window._load_worktrees_for_active_repo()
-
-    assert window._missing_worktree_paths == set()
-    assert window._worktree_paths_by_branch == {}
-    assert "Failed to list worktrees" in _log_text(window)
-
-
 def test_a_failed_open_of_a_missing_worktree_is_explained(
     qtbot, window, missing_worktree, opened_paths
 ):

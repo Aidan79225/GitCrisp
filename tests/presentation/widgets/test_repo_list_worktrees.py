@@ -329,11 +329,7 @@ def test_worktree_action_signal_emits(qtbot):
 
 
 def test_a_worktree_with_a_checkout_here_is_not_marked_missing(qtbot):
-    store = _FakeStore(open_=["/tmp/myrepo"], active="/tmp/myrepo")
-    w = RepoListWidget(store)
-    qtbot.addWidget(w)
-    w.set_active_worktrees([_wt("/tmp/myrepo-feat")])
-    w.reload()
+    w = _list_with_open_row(qtbot, "/tmp/myrepo", [_wt("/tmp/myrepo-feat")])
 
     child = _worktree_child(w)
     assert not child.data(_IS_MISSING_ROLE)
@@ -344,11 +340,9 @@ def test_a_missing_worktree_row_says_so_and_keeps_its_branch(qtbot):
     """A worktree registered from another machine or container is listed with
     the branch it holds, marked so the delegate can draw it apart and the
     tooltip explains before anyone clicks it."""
-    store = _FakeStore(open_=["/tmp/myrepo"], active="/tmp/myrepo")
-    w = RepoListWidget(store)
-    qtbot.addWidget(w)
-    w.set_active_worktrees([_wt("/workspace/wt-feat", branch="feat", missing=True)])
-    w.reload()
+    w = _list_with_open_row(
+        qtbot, "/tmp/myrepo", [_wt("/workspace/wt-feat", branch="feat", missing=True)]
+    )
 
     child = _worktree_child(w)
     assert child.text() == "feat"
@@ -360,11 +354,7 @@ def test_clicking_a_missing_worktree_still_asks_for_the_switch(qtbot):
     """The window answers the click, with the reason it cannot open: the
     list has no log to say so in, and a click that did nothing would look
     like a broken row."""
-    store = _FakeStore(open_=["/tmp/myrepo"], active="/tmp/myrepo")
-    w = RepoListWidget(store)
-    qtbot.addWidget(w)
-    w.set_active_worktrees([_wt("/workspace/wt-feat", missing=True)])
-    w.reload()
+    w = _list_with_open_row(qtbot, "/tmp/myrepo", [_wt("/workspace/wt-feat", missing=True)])
     received: list[str] = []
     w.repo_switch_requested.connect(received.append)
 

@@ -8,6 +8,8 @@ looked exactly like nothing having happened.
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from git_gui.infrastructure.remote_tag_cache import JsonRemoteTagCache
@@ -98,6 +100,28 @@ def test_failing_to_list_worktrees_opens_the_log(window, monkeypatch):
 
     assert "Failed to list worktrees: refused by git" in _log_text(window)
     assert _log_is_open(window)
+
+
+def test_a_listing_that_fails_leaves_the_window_knowing_no_worktrees(
+    window, repo_path, tmp_path_factory, monkeypatch
+):
+    """What the last listing found must not stand in for one that failed: the
+    repo on screen may be another one, whose branches would wear the other
+    repo's worktree badges and whose failed opens would be explained from the
+    other repo's list."""
+    wt_path = tmp_path_factory.mktemp("wt") / "feat"
+    subprocess.run(
+        ["git", "-C", str(repo_path), "worktree", "add", "-b", "feat", str(wt_path)],
+        check=True,
+        capture_output=True,
+    )
+    window._load_worktrees_for_active_repo()
+    monkeypatch.setattr(window._queries, "list_worktrees", _Failing())
+
+    window._load_worktrees_for_active_repo()
+
+    assert window._worktree_paths_by_branch == {}
+    assert window._missing_worktree_paths == set()
 
 
 @pytest.mark.parametrize(
