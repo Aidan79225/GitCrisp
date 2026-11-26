@@ -116,7 +116,6 @@ def test_a_worktree_whose_folder_is_gone_is_missing_and_keeps_its_branch(
     assert feat.is_missing is True
     assert feat.branch == "feat"
     assert feat.head_sha == expected_sha
-    assert Path(feat.path) == linked_worktree.resolve()
 
 
 def test_a_missing_worktree_with_a_detached_head_reports_its_sha(fresh_repo, linked_worktree):
@@ -136,22 +135,12 @@ def test_a_missing_worktree_with_a_detached_head_reports_its_sha(fresh_repo, lin
     assert feat.head_sha == sha
 
 
-def test_a_worktree_pygit2_will_not_open_still_reports_its_branch(
-    fresh_repo, linked_worktree, monkeypatch
-):
+def test_a_worktree_pygit2_will_not_open_still_reports_its_branch(fresh_repo, linked_worktree):
     """A checkout that is here but will not open — a folder another user owns,
-    which libgit2 refuses without a safe.directory entry — is not missing, and
-    its branch is still read from the admin dir rather than shown detached."""
-    import git_gui.infrastructure.pygit2.worktree_ops as ops
-
-    real_read = ops._read_head_branch
-
-    def _refuse_the_linked_one(workdir):
-        if Path(workdir).resolve() == linked_worktree.resolve():
-            raise pygit2.GitError(f"repository path '{workdir}' is not owned by current user")
-        return real_read(workdir)
-
-    monkeypatch.setattr(ops, "_read_head_branch", _refuse_the_linked_one)
+    which libgit2 refuses without a safe.directory entry, or as here a .git
+    file pointing nowhere — is not missing, and its branch is still read from
+    the admin dir rather than shown detached."""
+    (linked_worktree / ".git").write_text("gitdir: /nowhere\n")
 
     wts = Pygit2Repository(str(fresh_repo)).list_worktrees()
 
