@@ -29,6 +29,21 @@ class LaneData:
     has_incoming: bool = False
     # True if this lane was already active before this commit (draw line from top to node)
 
+    @property
+    def span(self) -> int:
+        """How many lane columns this single row actually paints into.
+
+        Unlike ``n_lanes`` (the lane count of the whole history at this point),
+        this looks only at what is drawn on this row: the commit node plus both
+        endpoints of every line and edge.
+        """
+        lanes = [self.lane]
+        for endpoints in (self.lines, self.edges_in, self.edges_out):
+            for from_lane, to_lane, _ in endpoints:
+                lanes.append(from_lane)
+                lanes.append(to_lane)
+        return max(lanes) + 1
+
 
 @dataclass
 class CommitInfo:
@@ -243,7 +258,18 @@ class GraphModel(QAbstractTableModel):
         self._first_parent = first_parent
         self._show_graph = show_graph
         self._lane_data: list[LaneData] = _compute_lanes(commits, first_parent)
+        self._widest_lane_span = self._measure_widest_lane_span()
         self.endResetModel()
+
+    @property
+    def widest_lane_span(self) -> int:
+        """Lane columns the widest row paints into, or 0 when no lanes are drawn."""
+        return self._widest_lane_span
+
+    def _measure_widest_lane_span(self) -> int:
+        if not self._show_graph:
+            return 0
+        return max((lane_data.span for lane_data in self._lane_data), default=0)
 
     def append(self, commits: list[Commit], refs: dict[str, list[str]]) -> None:
         # A tip pinned onto the first page (see get_commits' pin_unreachable)
@@ -260,4 +286,5 @@ class GraphModel(QAbstractTableModel):
         self._commits.extend(commits)
         self._refs.update(refs)
         self._lane_data = _compute_lanes(self._commits, self._first_parent)
+        self._widest_lane_span = self._measure_widest_lane_span()
         self.endInsertRows()

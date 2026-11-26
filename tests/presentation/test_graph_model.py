@@ -290,3 +290,52 @@ def test_a_ninth_lane_gets_its_own_colour_index_for_the_theme_to_wrap(qtbot):
 
     ninth = model.data(model.index(8, 0), LANE_ROLE)
     assert (ninth.lane, ninth.color_idx) == (8, 8)
+
+
+def _many_tips(count: int) -> list[Commit]:
+    """`count` tips that all descend from one root, so each needs a lane of its own."""
+    return [
+        *(_make_commit(f"tip{i}", parents=["root"]) for i in range(count)),
+        _make_commit("root"),
+    ]
+
+
+def test_a_rows_span_is_how_many_lane_columns_it_paints_into(qtbot):
+    model = GraphModel([_make_commit("M", parents=["B", "D"]), _make_commit("B")], {})
+
+    assert model.data(model.index(0, 0), LANE_ROLE).span == 2
+
+
+def test_the_widest_lane_span_is_the_widest_row_of_the_listing(qtbot):
+    # The root row converges all twenty lanes; the tips each reach only as far as their own.
+    model = GraphModel(_many_tips(20), {})
+
+    assert model.widest_lane_span == 20
+
+
+def test_the_widest_lane_span_follows_a_reload(qtbot):
+    model = GraphModel(_many_tips(20), {})
+
+    model.reload(_many_tips(3), {})
+
+    assert model.widest_lane_span == 3
+
+
+def test_the_widest_lane_span_grows_when_a_later_page_widens_the_graph(qtbot):
+    model = GraphModel([_make_commit("tip0", parents=["root"])], {})
+    assert model.widest_lane_span == 1
+
+    model.append([_make_commit(f"tip{i}", parents=["root"]) for i in range(1, 6)], {})
+
+    assert model.widest_lane_span == 6
+
+
+def test_a_listing_without_a_graph_has_no_lane_span(qtbot):
+    """A path-filtered listing draws no lanes, so there is nothing to scroll."""
+    model = GraphModel(_many_tips(20), {}, show_graph=False)
+
+    assert model.widest_lane_span == 0
+
+
+def test_an_empty_listing_has_no_lane_span(qtbot):
+    assert GraphModel([], {}).widest_lane_span == 0
