@@ -35,6 +35,7 @@ from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.bus import CommandBus, QueryBus
 from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE, GraphModel
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets.background import delete_when_done, worker_signals
 from git_gui.presentation.widgets.commit_row_delegate import CommitRowDelegate
 from git_gui.presentation.widgets.remote_branch_split import (
     REMOTES_UNKNOWN,
@@ -728,10 +729,9 @@ class GraphWidget(QWidget):
         path = self._path_filter
         follow = self._path_filter_bar.follow()
 
-        signals = _LoadSignals()
+        signals = worker_signals(_LoadSignals)
         signals.reload_done.connect(self._on_reload_done)
         signals.load_failed.connect(self._on_load_failed)
-        self._load_signals = signals  # prevent GC
         generation = self._load_generation
 
         # Pinning an out-of-page tip draws it with no descendants — a merged
@@ -776,7 +776,7 @@ class GraphWidget(QWidget):
                 generation,
             )
 
-        threading.Thread(target=_worker, daemon=True).start()
+        threading.Thread(target=delete_when_done(signals, _worker), daemon=True).start()
 
     def reload_with_extra_tip(self, oid: str, extra_tips: list[str] | None = None) -> None:
         """Reload graph including the given oid as an extra walker tip, then
@@ -1104,10 +1104,9 @@ class GraphWidget(QWidget):
         path = self._path_filter
         follow = self._path_filter_bar.follow()
 
-        signals = _LoadSignals()
+        signals = worker_signals(_LoadSignals)
         signals.append_done.connect(self._on_append_done)
         signals.load_failed.connect(self._on_load_failed)
-        self._load_signals = signals  # prevent GC
         generation = self._load_generation
 
         def _worker():
@@ -1126,7 +1125,7 @@ class GraphWidget(QWidget):
                 return
             signals.append_done.emit(more, fp, path, generation)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        threading.Thread(target=delete_when_done(signals, _worker), daemon=True).start()
 
     def _on_append_done(
         self,
