@@ -53,6 +53,13 @@ class _RepoRequest:
     attempt: object = field(default_factory=object, compare=False, repr=False)
 
 
+def _missing_worktree_message(path: str) -> str:
+    return (
+        f"Cannot open {path}: this worktree is not on this machine. It was added "
+        "from another machine or container, or its folder has been deleted."
+    )
+
+
 def _replaces_a_closed_repo(request: _RepoRequest) -> bool:
     return request.reason is _SwitchReason.REPLACE or request.fallback is not None
 
@@ -197,6 +204,11 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._change_detector = None
 
     def _switch_repo(self, path: str) -> None:
+        if path in self._missing_worktree_paths:
+            # Opening it would fail on a thread with pygit2's "Repository not
+            # found", which says nothing about why. The reason is known here.
+            self._report_worktree_error(_missing_worktree_message(path))
+            return
         self._request_repo(_RepoRequest(path))
 
     def _request_repo(self, request: _RepoRequest) -> None:
@@ -327,6 +339,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._commands = None
         self._repo_path = None
         self._worktree_paths_by_branch = {}
+        self._missing_worktree_paths = set()
         self._sidebar.set_repo_path(None)
         self._sidebar.set_buses(None, None)
         self._sidebar.set_worktree_branches(set())
@@ -472,6 +485,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         wt_paths = {wt.branch: str(wt.path) for wt in wts if wt.branch and not wt.is_main}
         self._sidebar.set_worktree_branches(wt_branches)
         self._worktree_paths_by_branch = wt_paths
+        self._missing_worktree_paths = {str(wt.path) for wt in wts if wt.is_missing}
 
     def _worktree_group_owner(self, worktrees: list[Worktree]) -> str | None:
         """The open row the worktree group hangs under, spelled as the store has it.

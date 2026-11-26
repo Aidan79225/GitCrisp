@@ -279,6 +279,16 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         wt = None if branch.is_head else self._worktree_for_branch(branch.name)
         if wt is None:
             return False
+        if wt.is_missing:
+            # Nothing to switch to, and git would refuse the checkout here
+            # all the same: the branch is held by a worktree the admin dir
+            # still lists.
+            self._log_panel.expand()
+            self._log_panel.log_error(
+                f"Branch {branch.name} is checked out in {wt.path}, which is not on this "
+                "machine. Check it out there, or remove that worktree first."
+            )
+            return True
         self._log_panel.log(
             f"Branch {branch.name} is checked out in {wt.path} — switching to that worktree"
         )

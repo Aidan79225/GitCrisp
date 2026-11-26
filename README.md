@@ -104,6 +104,7 @@ Every feature below is one of three things:
 ### Worktrees
 - List, add, lock/unlock, and remove `git worktree` instances from inside GitCrisp
 - Worktrees appear nested under their parent repo in the sidebar; click to switch
+- A worktree with no checkout on this machine (added from another machine or a container, or its folder deleted) is listed dimmed and marked "Not on this machine"; opening it, or checking out the branch it holds, explains why that cannot happen here
 - **Smart checkout** — picking a branch already checked out in another worktree transparently switches to that worktree instead of erroring
 - **Add Worktree dialog** — branch combo with disabled state for already-used branches, "Create new branch" toggle with base-ref picker, templated default path (`{repo_parent}/{repo_name}-{branch}`)
 - **Two-stage remove** — confirm, then a force prompt if the worktree is dirty or locked
