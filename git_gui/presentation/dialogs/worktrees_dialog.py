@@ -85,11 +85,11 @@ class WorktreesDialog(QDialog):
     def row_path(self, row: int) -> str:
         return self._table.item(row, 1).text()
 
-    def row_status_text(self, row: int) -> str:
-        return self._table.item(row, 3).text()
-
     def row_locked_text(self, row: int) -> str:
         return self._table.item(row, 2).text()
+
+    def row_status_text(self, row: int) -> str:
+        return self._table.item(row, 3).text()
 
     def select_row(self, row: int) -> None:
         self._table.selectRow(row)

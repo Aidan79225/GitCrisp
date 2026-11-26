@@ -316,15 +316,8 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._stop_waiting_for_request()
 
     def _open_failure_message(self, path: str, error: str) -> str:
-        """Why *path* did not open, in the user's terms where they are known.
-
-        pygit2's "Repository not found" names the path and nothing else. For a
-        worktree the last listing found no checkout for here, the reason is
-        known, and pygit2's words are kept after it in case the folder is
-        back but broken. The open is still tried first: the listing is a
-        snapshot, and a worktree on a drive that has come back since should
-        open, not be refused on what was true at the last listing.
-        """
+        """Why *path* did not open: the reason, for a worktree the latest listing
+        found no checkout for here, ahead of pygit2's words; otherwise those alone."""
         if path in self._missing_worktree_paths:
             return _missing_worktree_message(path, error)
         return f"Cannot open {path}: {error}"
@@ -347,8 +340,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         self._queries = None
         self._commands = None
         self._repo_path = None
-        self._worktree_paths_by_branch = {}
-        self._missing_worktree_paths = set()
+        self._remember_worktrees([])
         self._sidebar.set_repo_path(None)
         self._sidebar.set_buses(None, None)
         self._sidebar.set_worktree_branches(set())
@@ -484,26 +476,29 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             return
         self._refresh_worktrees_dialog()
         try:
-            wts = self._queries.list_worktrees.execute()
+            wts = self._list_worktrees()
         except Exception as e:
             self._report_worktree_error(f"Failed to list worktrees: {e}")
             wts = []
         self._repo_list.set_active_worktrees(wts, owner_path=self._worktree_group_owner(wts))
         self._repo_list.reload()
-        wt_branches = {wt.branch for wt in wts if wt.branch and not wt.is_main}
-        wt_paths = {wt.branch: str(wt.path) for wt in wts if wt.branch and not wt.is_main}
-        self._sidebar.set_worktree_branches(wt_branches)
-        self._worktree_paths_by_branch = wt_paths
-        self._remember_missing_worktrees(wts)
+        self._sidebar.set_worktree_branches(set(self._worktree_paths_by_branch))
 
-    def _remember_missing_worktrees(self, worktrees: list[Worktree]) -> None:
-        """Keep the latest listing's word on which worktrees have no checkout here.
+    def _list_worktrees(self) -> list[Worktree]:
+        """The worktrees as git lists them now, remembered as the window's latest word.
 
-        The repo load and both worktree dialogs feed this: what a dialog shows
-        or offers to switch to and what a failed open is explained as must
-        agree.
+        Every listing goes through here, the dialogs' included: what a dialog
+        shows or offers to switch to, which branch a checkout is steered to,
+        and what a failed open is explained as all come from one snapshot.
         """
-        self._missing_worktree_paths = {str(wt.path) for wt in worktrees if wt.is_missing}
+        wts = self._queries.list_worktrees.execute()
+        self._remember_worktrees(wts)
+        return wts
+
+    def _remember_worktrees(self, worktrees: list[Worktree]) -> None:
+        linked = [wt for wt in worktrees if not wt.is_main]
+        self._worktree_paths_by_branch = {wt.branch: str(wt.path) for wt in linked if wt.branch}
+        self._missing_worktree_paths = {str(wt.path) for wt in linked if wt.is_missing}
 
     def _worktree_group_owner(self, worktrees: list[Worktree]) -> str | None:
         """The open row the worktree group hangs under, spelled as the store has it.
@@ -560,12 +555,10 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         # already checked out as free, or offer nothing at all.
         try:
             branches = [b.name for b in self._queries.get_branches.execute() if not b.is_remote]
-            worktrees = self._queries.list_worktrees.execute()
+            worktrees = self._list_worktrees()
         except Exception as e:
             self._report_worktree_error(f"Cannot add a worktree: {e}")
             return
-        # Its "switch to that worktree" starts a switch, like the Worktrees dialog's Open.
-        self._remember_missing_worktrees(worktrees)
         dlg = AddWorktreeDialog(
             repo_path=_worktree_root(self._repo_path, worktrees),
             branches=branches,
@@ -589,11 +582,10 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         from git_gui.presentation.dialogs.worktrees_dialog import WorktreesDialog
 
         try:
-            wts = self._queries.list_worktrees.execute()
+            wts = self._list_worktrees()
         except Exception as e:
             self._report_worktree_error(f"Failed to list worktrees: {e}")
             return
-        self._remember_missing_worktrees(wts)
         dlg = WorktreesDialog(worktrees=wts, parent=self)
         dlg.open_requested.connect(self._switch_repo)
         dlg.remove_requested.connect(self._begin_remove_worktree)
@@ -618,7 +610,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         if dlg is None:
             return
         try:
-            dlg.set_worktrees(self._queries.list_worktrees.execute())
+            dlg.set_worktrees(self._list_worktrees())
         except Exception as e:
             self._report_worktree_error(f"Failed to list worktrees: {e}")
 
