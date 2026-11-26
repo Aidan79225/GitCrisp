@@ -18,7 +18,8 @@ NODE_R = 5  # commit node circle radius (outline centre)
 NODE_STROKE_W = 2  # commit node outline thickness
 LANE_STROKE_W = 2  # thickness of every lane line and edge, so rows join seamlessly
 GRAPH_GAP = 4  # breathing room between the last lane and the commit info
-MAX_GRAPH_LANES = 16  # cap so a very wide graph can't crowd out the commit info
+GRAPH_COLUMN_SHARE = 0.4  # most of the list's width the graph takes; wider histories scroll
+MIN_GRAPH_COLUMN_LANES = 4  # lanes the graph keeps even in a list too narrow for its share
 
 
 def _lane_colors() -> list[str]:
@@ -45,19 +46,14 @@ def _lane_center_x(rect_left: int, lane: int) -> int:
     return rect_left + lane * LANE_W + LANE_W // 2
 
 
-def row_lane_span(lane_data: LaneData) -> int:
-    """How many lane columns this single row actually paints into.
-
-    Rows below a merge that has already closed report a narrower span than the
-    history's lane count, letting their commit info sit further left.
-    """
-    return lane_data.span
-
-
 def graph_width(n_lanes: int) -> int:
     """Pixel width needed to paint ``n_lanes`` parallel lanes, plus the gap."""
-    lanes = min(max(n_lanes, 1), MAX_GRAPH_LANES)
-    return lanes * LANE_W + GRAPH_GAP
+    return max(n_lanes, 1) * LANE_W + GRAPH_GAP
+
+
+def graph_column_width(viewport_width: int) -> int:
+    """The most of a list `viewport_width` pixels wide that its graph may take."""
+    return max(int(viewport_width * GRAPH_COLUMN_SHARE), graph_width(MIN_GRAPH_COLUMN_LANES))
 
 
 def row_graph_width(lane_data: LaneData | None) -> int:
@@ -69,7 +65,7 @@ def row_graph_width(lane_data: LaneData | None) -> int:
     """
     if lane_data is None:
         return 0
-    return graph_width(row_lane_span(lane_data))
+    return graph_width(lane_data.span)
 
 
 def paint_lanes(

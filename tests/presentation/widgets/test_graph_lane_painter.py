@@ -13,13 +13,11 @@ from git_gui.presentation.theme import get_theme_manager
 from git_gui.presentation.widgets.graph_lane_painter import (
     GRAPH_GAP,
     LANE_W,
-    MAX_GRAPH_LANES,
     NODE_R,
     NODE_STROKE_W,
     graph_width,
     paint_lanes,
     row_graph_width,
-    row_lane_span,
 )
 
 
@@ -53,8 +51,9 @@ def test_graph_width_floors_at_one_lane():
     assert graph_width(-3) == graph_width(1)
 
 
-def test_graph_width_caps_so_commit_info_survives():
-    assert graph_width(999) == graph_width(MAX_GRAPH_LANES)
+def test_graph_width_has_no_cap_so_no_lane_is_left_undrawn():
+    """A history of any width gets room for every lane; the list scrolls it."""
+    assert graph_width(999) == 999 * LANE_W + GRAPH_GAP
 
 
 def test_row_graph_width_without_lane_data_is_zero():
@@ -72,10 +71,10 @@ def test_node_fits_within_its_lane():
     assert outer_diameter < LANE_W
 
 
-# ── row_lane_span ────────────────────────────────────────────────────────────
+# ── LaneData.span ────────────────────────────────────────────────────────────
 
 
-def test_row_lane_span_linear_history_is_one_everywhere(qtbot):
+def test_lane_span_linear_history_is_one_everywhere(qtbot):
     model = GraphModel(
         [
             _make_commit("c", parents=["b"]),
@@ -84,16 +83,16 @@ def test_row_lane_span_linear_history_is_one_everywhere(qtbot):
         ],
         {},
     )
-    assert [row_lane_span(_lane_data(model, r)) for r in range(3)] == [1, 1, 1]
+    assert [_lane_data(model, r).span for r in range(3)] == [1, 1, 1]
 
 
-def test_row_lane_span_covers_the_merge_diagonal(qtbot):
+def test_lane_span_covers_the_merge_diagonal(qtbot):
     """The merge row draws out to the side lane, so its span includes it."""
     model = GraphModel([_make_commit("M", parents=["B", "D"]), _make_commit("B")], {})
-    assert row_lane_span(_lane_data(model, 0)) == 2
+    assert _lane_data(model, 0).span == 2
 
 
-def test_row_lane_span_narrows_once_the_side_lane_closes(qtbot):
+def test_lane_span_narrows_once_the_side_lane_closes(qtbot):
     """A row past the end of a side lane must not be indented by it.
 
     This is the whole point of a per-row indent: rows below the branch point
@@ -118,13 +117,13 @@ def test_row_lane_span_narrows_once_the_side_lane_closes(qtbot):
         ],
         {},
     )
-    spans = [row_lane_span(_lane_data(model, r)) for r in range(5)]
+    spans = [_lane_data(model, r).span for r in range(5)]
     assert spans == [2, 2, 2, 2, 1]
     # The last row is therefore indented less than the rows above it.
     assert row_graph_width(_lane_data(model, 4)) < row_graph_width(_lane_data(model, 0))
 
 
-def test_row_lane_span_never_clips_a_line_it_draws(qtbot):
+def test_lane_span_never_clips_a_line_it_draws(qtbot):
     """Every lane a row paints into must fall inside that row's own span.
 
     Guards the indent against hiding graph geometry behind the commit info.
@@ -141,7 +140,7 @@ def test_row_lane_span_never_clips_a_line_it_draws(qtbot):
     )
     for row in range(5):
         ld = _lane_data(model, row)
-        span = row_lane_span(ld)
+        span = ld.span
         drawn = [ld.lane]
         for group in (ld.lines, ld.edges_in, ld.edges_out):
             for from_lane, to_lane, _ in group:
