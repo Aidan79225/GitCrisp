@@ -204,11 +204,6 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._change_detector = None
 
     def _switch_repo(self, path: str) -> None:
-        if path in self._missing_worktree_paths:
-            # Opening it would fail on a thread with pygit2's "Repository not
-            # found", which says nothing about why. The reason is known here.
-            self._report_worktree_error(_missing_worktree_message(path))
-            return
         self._request_repo(_RepoRequest(path))
 
     def _request_repo(self, request: _RepoRequest) -> None:
@@ -302,7 +297,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
     def _on_repo_failed(self, opened: _RepoRequest, error: str) -> None:
         self._log_panel.expand()
-        self._log_panel.log_error(f"Cannot open {opened.path}: {error}")
+        self._log_panel.log_error(self._open_failure_message(opened.path, error))
         request = self._request_answered_by(opened)
         if request is None:
             return  # superseded: the user has asked for something else since
@@ -319,6 +314,19 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             # this request. Left pending, the failed request would be what
             # Ctrl+W hands over to, and it never lands.
             self._stop_waiting_for_request()
+
+    def _open_failure_message(self, path: str, error: str) -> str:
+        """Why *path* did not open, in the user's terms where they are known.
+
+        pygit2's "Repository not found" names the path and nothing else. For a
+        worktree the last listing found no checkout for here, the reason is
+        known. The open is still tried first: the listing is a snapshot, and a
+        worktree on a drive that has come back since should open, not be
+        refused on what was true at the last listing.
+        """
+        if path in self._missing_worktree_paths:
+            return _missing_worktree_message(path)
+        return f"Cannot open {path}: {error}"
 
     def _stop_waiting_for_request(self) -> None:
         """Count nothing as on its way: the repo on screen is the latest request."""
@@ -485,7 +493,15 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         wt_paths = {wt.branch: str(wt.path) for wt in wts if wt.branch and not wt.is_main}
         self._sidebar.set_worktree_branches(wt_branches)
         self._worktree_paths_by_branch = wt_paths
-        self._missing_worktree_paths = {str(wt.path) for wt in wts if wt.is_missing}
+        self._remember_missing_worktrees(wts)
+
+    def _remember_missing_worktrees(self, worktrees: list[Worktree]) -> None:
+        """Keep the latest listing's word on which worktrees have no checkout here.
+
+        Every listing feeds this, the dialog's included: what it shows as not
+        on this machine and what a failed open is explained as must agree.
+        """
+        self._missing_worktree_paths = {str(wt.path) for wt in worktrees if wt.is_missing}
 
     def _worktree_group_owner(self, worktrees: list[Worktree]) -> str | None:
         """The open row the worktree group hangs under, spelled as the store has it.
@@ -573,6 +589,7 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         except Exception as e:
             self._report_worktree_error(f"Failed to list worktrees: {e}")
             return
+        self._remember_missing_worktrees(wts)
         dlg = WorktreesDialog(worktrees=wts, parent=self)
         dlg.open_requested.connect(self._switch_repo)
         dlg.remove_requested.connect(self._begin_remove_worktree)
