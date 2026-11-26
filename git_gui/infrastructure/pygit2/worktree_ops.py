@@ -213,18 +213,17 @@ class WorktreeOps:
         if not is_missing:
             try:
                 return _read_head_branch(path)
-            except Exception as e:
+            except pygit2.GitError as e:
                 logger.warning("Failed to open worktree %r to read its HEAD: %s", name, e)
         try:
             return self._read_admin_head(name)
-        except Exception as e:
+        except (OSError, pygit2.GitError) as e:
             logger.warning("Failed to read HEAD for worktree %r: %s", name, e)
             return None, ""
 
     def _read_admin_head(self, name: str) -> tuple[str | None, str]:
         """(branch_name_or_None, head_sha) from the admin dir's copy of HEAD."""
-        head = (self._common_dir() / "worktrees" / name / "HEAD").read_text(encoding="utf-8")
-        head = head.strip()
+        head = (self._admin_dir(name) / "HEAD").read_text(encoding="utf-8").strip()
         if not head.startswith("ref: "):
             return None, head
         ref_name = head[len("ref: ") :]
@@ -234,7 +233,12 @@ class WorktreeOps:
 
     def _lock_file(self, name: str) -> Path:
         """pygit2's Worktree has no lock API, so locks are git's sentinel file."""
-        return self._common_dir() / "worktrees" / name / "locked"
+        return self._admin_dir(name) / "locked"
+
+    def _admin_dir(self, name: str) -> Path:
+        """Where git keeps what it knows of linked worktree *name*: its HEAD,
+        its lock sentinel, the path of its checkout."""
+        return self._common_dir() / "worktrees" / name
 
     def _base_commit(self, base: str) -> pygit2.Commit:
         # The dialog offers local branch names, and revparse's DWIM order

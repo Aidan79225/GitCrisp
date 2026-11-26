@@ -498,8 +498,9 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _remember_missing_worktrees(self, worktrees: list[Worktree]) -> None:
         """Keep the latest listing's word on which worktrees have no checkout here.
 
-        Every listing feeds this, the dialog's included: what it shows as not
-        on this machine and what a failed open is explained as must agree.
+        The repo load and the Worktrees dialog both feed this: what the dialog
+        shows as not on this machine and what a failed open is explained as
+        must agree.
         """
         self._missing_worktree_paths = {str(wt.path) for wt in worktrees if wt.is_missing}
 

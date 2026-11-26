@@ -268,8 +268,10 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
         return any(f.status != StagingState.UNTRACKED for f in changes)
 
     def _switch_to_worktree_holding(self, branch: Branch) -> bool:
-        """Open the worktree that has `branch` checked out, in place of
-        checking it out here. Returns True when it did.
+        """Answer for a branch another worktree holds, in place of checking it
+        out here: open that worktree, or say why it cannot be opened when it
+        is not on this machine. Returns True when the checkout here must not
+        go ahead.
 
         This has to be asked before checking out rather than after it fails:
         libgit2 rewrites the working tree and index first, and only then
@@ -283,8 +285,7 @@ class BranchFlowsMixin(AskedRepoGuardMixin):
             # Nothing to switch to, and git would refuse the checkout here
             # all the same: the branch is held by a worktree the admin dir
             # still lists.
-            self._log_panel.expand()
-            self._log_panel.log_error(
+            self._report_worktree_error(
                 f"Branch {branch.name} is checked out in {wt.path}, which is not on this "
                 "machine. Check it out there, or remove that worktree first."
             )
