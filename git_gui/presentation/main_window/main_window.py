@@ -81,8 +81,9 @@ class MainWindow(
         # for any other is a request the user has since moved on from.
         self._repo_request = _RepoRequest(repo_path) if repo_path else None
         self._session_factory = session_factory
-        self._worktree_paths_by_branch: dict[str, str] = {}
-        self._missing_worktree_paths: set[str] = set()
+        self._worktree_paths_by_branch: dict[str, str]
+        self._missing_worktree_paths: set[str]
+        self._remember_worktrees([])
         self._worktrees_dialog = None  # WorktreesDialog | None — set while it is open
 
         self._build_chrome()

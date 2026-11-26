@@ -482,7 +482,9 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             wts = []
         self._repo_list.set_active_worktrees(wts, owner_path=self._worktree_group_owner(wts))
         self._repo_list.reload()
-        self._sidebar.set_worktree_branches(set(self._worktree_paths_by_branch))
+        self._sidebar.set_worktree_branches(
+            {wt.branch for wt in wts if wt.branch and not wt.is_main}
+        )
 
     def _list_worktrees(self) -> list[Worktree]:
         """The worktrees as git lists them now, remembered as the window's latest word.

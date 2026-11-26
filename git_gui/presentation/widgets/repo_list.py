@@ -493,12 +493,14 @@ class RepoListWidget(QWidget):
         label = wt.branch or "(detached)"
         item = QStandardItem(label)
         item.setEditable(False)
-        item.setToolTip(str(wt.path))
         item.setData(str(wt.path), Qt.UserRole)
         item.setData(_RowKind.WORKTREE, _KIND_ROLE)
         if wt.is_missing:
-            item.setToolTip(f"{_MISSING_WORKTREE_NOTE}\n{wt.path}")
             item.setData(True, _IS_MISSING_ROLE)
+            tooltip = f"{_MISSING_WORKTREE_NOTE}\n{wt.path}"
+        else:
+            tooltip = str(wt.path)
+        item.setToolTip(tooltip)
         if is_active:
             font = item.font()
             font.setBold(True)
