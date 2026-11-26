@@ -174,6 +174,11 @@ class CommitRowDelegate(QStyledItemDelegate):
         self._graph_limit = limit
         self._graph_scroll = scroll
 
+    @property
+    def graph_scroll(self) -> int:
+        """How many pixels the graph is scrolled sideways."""
+        return self._graph_scroll
+
     def _graph_indent(self, lane_data: LaneData | None) -> int:
         """Where this row's commit info starts: right of the part of its graph shown."""
         indent = row_graph_width(lane_data)

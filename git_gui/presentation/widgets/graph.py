@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QScrollBar,
     QSizePolicy,
     QTableView,
     QVBoxLayout,
@@ -33,10 +34,15 @@ from git_gui.domain.entities import (
 )
 from git_gui.domain.ports import IRepoStore
 from git_gui.presentation.bus import CommandBus, QueryBus
-from git_gui.presentation.models.graph_model import INFO_ROLE, OID_ROLE, GraphModel
+from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, OID_ROLE, GraphModel
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
 from git_gui.presentation.widgets.background import delete_when_done, worker_signals
 from git_gui.presentation.widgets.commit_row_delegate import CommitRowDelegate
+from git_gui.presentation.widgets.graph_lane_painter import (
+    LANE_W,
+    graph_column_width,
+    graph_width,
+)
 from git_gui.presentation.widgets.remote_branch_split import (
     REMOTES_UNKNOWN,
     listed_remotes,
@@ -46,15 +52,56 @@ from git_gui.resources import get_resource_path
 
 PAGE_SIZE = 50
 MAX_RELOAD_LIMIT = 2000  # cap doubling retry to avoid unbounded loads
+_WHEEL_LANES_PER_NOTCH = 3  # lanes a sideways wheel notch scrolls the graph by
+_WHEEL_NOTCH = 120  # Qt's angle delta for one notch of a wheel
 
 
 class _GraphTableView(QTableView):
-    """QTableView with full-row hover highlight."""
+    """QTableView with full-row hover highlight, and a signal for sideways gestures.
+
+    The view has no horizontal scrollbar of its own (its one column always fits),
+    so a sideways wheel, or the wheel with Shift held, would scroll nothing. They
+    are handed to whoever scrolls the lane graph instead.
+    """
+
+    graph_scroll_requested = Signal(
+        int
+    )  # the wheel's angle delta; 120 is one notch, left is positive
+    resized = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMouseTracking(True)
         self._hover_row = -1
+        # Whether there is a graph to scroll; off, every wheel event is the list's.
+        self.graph_scrollable = False
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resized.emit()
+
+    def wheelEvent(self, event):
+        sideways = self._sideways_delta(event)
+        if sideways and self.graph_scrollable:
+            self.graph_scroll_requested.emit(sideways)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    @staticmethod
+    def _sideways_delta(event) -> int:
+        """The wheel's sideways travel, or 0 when the event is for scrolling the list.
+
+        A touchpad swipe that is mostly vertical still carries a little x, so x
+        only counts when it is the larger part. Shift turns a vertical wheel
+        sideways.
+        """
+        delta = event.angleDelta()
+        if abs(delta.x()) > abs(delta.y()):
+            return delta.x()
+        if delta.x() == 0 and event.modifiers() & Qt.ShiftModifier:
+            return delta.y()
+        return 0
 
     def mouseMoveEvent(self, event):
         index = self.indexAt(event.pos())
@@ -487,6 +534,20 @@ class GraphWidget(QWidget):
         # Single column, stretched to fill the panel
         self._view.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        # A history with more lanes than fit beside the commit info scrolls its
+        # graph sideways, under a bar the width of the graph column.
+        self._graph_scrollbar = QScrollBar(Qt.Horizontal)
+        self._graph_scrollbar.setAccessibleName("Graph lanes")
+        self._graph_scrollbar.setSingleStep(LANE_W)
+        self._graph_scrollbar.setVisible(False)
+        self._graph_wheel_carry = 0
+        self._graph_scrollbar.valueChanged.connect(self._on_graph_scrolled)
+        self._view.resized.connect(self._sync_graph_column)
+        self._view.graph_scroll_requested.connect(self._scroll_graph_by_wheel)
+        self._model.modelReset.connect(self._sync_graph_column)
+        self._model.rowsInserted.connect(self._sync_graph_column)
+
         self._view.selectionModel().currentRowChanged.connect(self._on_row_changed)
         self._view.pressed.connect(self._on_row_pressed)
         self._view.doubleClicked.connect(self._on_double_clicked)
@@ -578,6 +639,11 @@ class GraphWidget(QWidget):
         layout.addWidget(self._path_filter_bar)
         layout.addWidget(self._search_bar)
         layout.addWidget(self._view)
+        graph_scroll_row = QHBoxLayout()
+        graph_scroll_row.setContentsMargins(self._view.frameWidth(), 0, 0, 0)
+        graph_scroll_row.addWidget(self._graph_scrollbar)
+        graph_scroll_row.addStretch(1)
+        layout.addLayout(graph_scroll_row)
 
         self._rebuild_styles()
         connect_widget(self, rebuild=self._rebuild_styles)
@@ -1507,7 +1573,54 @@ class GraphWidget(QWidget):
     def _oid_at(self, row: int) -> str:
         return self._model.data(self._model.index(row, 0), OID_ROLE)
 
+    def _sync_graph_column(self) -> None:
+        """Size the graph column and its scrollbar to the list and to the history.
+
+        The column takes a share of the list's width. When the widest row's lanes
+        need more than that, the scrollbar covers the difference; otherwise it is
+        hidden and the graph sits as it always did.
+        """
+        bar = self._graph_scrollbar
+        column = graph_column_width(self._view.viewport().width())
+        widest = self._model.widest_lane_span
+        overflow = max(graph_width(widest) - column, 0) if widest else 0
+        bar.setFixedWidth(column)
+        bar.setPageStep(column)
+        bar.setRange(0, overflow)  # clamps the value, so a narrower history rewinds the graph
+        bar.setVisible(overflow > 0)
+        self._view.graph_scrollable = overflow > 0
+        self._view.itemDelegate().set_graph_column(column, bar.value())
+        self._view.viewport().update()
+
+    def _on_graph_scrolled(self, value: int) -> None:
+        delegate = self._view.itemDelegate()
+        delegate.set_graph_column(self._graph_scrollbar.pageStep(), value)
+        self._view.viewport().update()
+
+    def _scroll_graph_by_wheel(self, angle_delta: int) -> None:
+        # A touchpad sends many small deltas; the part of a pixel each one leaves
+        # over is carried to the next, so none of them rounds away to nothing.
+        # Counted in 1/_WHEEL_NOTCH of a pixel, so nothing is lost to floating point.
+        self._graph_wheel_carry += angle_delta * _WHEEL_LANES_PER_NOTCH * LANE_W
+        pixels = int(self._graph_wheel_carry / _WHEEL_NOTCH)  # toward zero, either way
+        self._graph_wheel_carry -= pixels * _WHEEL_NOTCH
+        bar = self._graph_scrollbar
+        bar.setValue(bar.value() - pixels)
+
+    def _reveal_graph_lane(self, row: int) -> None:
+        """Scroll the graph, if need be, so the node of `row` is inside the column."""
+        lane_data = self._model.data(self._model.index(row, 0), LANE_ROLE)
+        bar = self._graph_scrollbar
+        if lane_data is None or bar.maximum() == 0:
+            return
+        centre = lane_data.lane * LANE_W + LANE_W // 2
+        if centre - LANE_W < bar.value():
+            bar.setValue(centre - LANE_W)
+        elif centre + LANE_W > bar.value() + bar.pageStep():
+            bar.setValue(centre + LANE_W - bar.pageStep())
+
     def _on_row_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
+        self._reveal_graph_lane(current.row())
         oid = self._oid_at(current.row())
         if oid:
             self._supersede_pending_landing(oid)
