@@ -75,11 +75,7 @@ def _wt(path, branch="feat", locked=False, missing=False):
 
 
 def _worktree_child(w, row=0):
-    model = w._model
-    open_header = next(
-        model.item(r) for r in range(model.rowCount()) if model.item(r).text() == "OPEN"
-    )
-    return open_header.child(0).child(row)
+    return _open_header(w._model).child(0).child(row)
 
 
 # ── Task 10: nesting ───────────────────────────────────────────────────────

@@ -96,8 +96,8 @@ def _painted_lines(w: RepoListWidget, item) -> list[str]:
     return painter.texts
 
 
-def _worktree_row(w: RepoListWidget, path: str, branch: str | None):
-    w.set_active_worktrees([_wt(path, branch=branch)], owner_path="C:/a/one")
+def _worktree_row(w: RepoListWidget, path: str, branch: str | None, *, missing: bool = False):
+    w.set_active_worktrees([_wt(path, branch=branch, missing=missing)], owner_path="C:/a/one")
     w.reload()
     owner = w._model.itemFromIndex(_open_row_index(w, "C:/a/one"))
     return owner.child(0)
@@ -121,11 +121,8 @@ def test_a_detached_worktree_row_says_so(qtbot):
 
 def test_a_worktree_row_with_no_checkout_here_says_so_under_its_branch(qtbot):
     w = _shown_list(qtbot, _FakeStore(open_=["C:/a/one"], active="C:/a/one"))
-    w.set_active_worktrees([_wt("C:/wt/feat", branch="feat", missing=True)], owner_path="C:/a/one")
-    w.reload()
-    owner = w._model.itemFromIndex(_open_row_index(w, "C:/a/one"))
 
-    lines = _painted_lines(w, owner.child(0))
+    lines = _painted_lines(w, _worktree_row(w, "C:/wt/feat", "feat", missing=True))
 
     assert lines == ["feat", "Not on this machine · C:/wt/feat"]
 

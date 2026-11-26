@@ -78,17 +78,3 @@ def test_worktree_is_present_unless_said_otherwise():
         is_main=False,
     )
     assert wt.is_missing is False
-
-
-def test_worktree_can_be_missing_on_this_machine():
-    wt = Worktree(
-        path="/tmp/r",
-        branch="main",
-        head_sha="abc",
-        is_locked=False,
-        lock_reason=None,
-        is_bare=False,
-        is_main=False,
-        is_missing=True,
-    )
-    assert wt.is_missing is True

@@ -29,19 +29,18 @@ def _git(cwd: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
 
 
-@pytest.fixture
-def missing_worktree(repo_path, tmp_path_factory) -> str:
-    """A linked worktree of repo_path on branch feat whose folder is gone."""
-    wt_path = tmp_path_factory.mktemp("wt") / "feat"
-    _git(repo_path, "worktree", "add", "-b", "feat", str(wt_path))
-    shutil.rmtree(wt_path)
-    return str(wt_path.resolve())
-
-
 def _add_worktree(repo_path: Path, tmp_path_factory, branch: str) -> Path:
     wt_path = tmp_path_factory.mktemp("wt") / branch
     _git(repo_path, "worktree", "add", "-b", branch, str(wt_path))
     return wt_path
+
+
+@pytest.fixture
+def missing_worktree(repo_path, tmp_path_factory) -> str:
+    """A linked worktree of repo_path on branch feat whose folder is gone."""
+    wt_path = _add_worktree(repo_path, tmp_path_factory, "feat")
+    shutil.rmtree(wt_path)
+    return str(wt_path.resolve())
 
 
 @pytest.fixture
