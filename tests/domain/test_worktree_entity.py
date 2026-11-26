@@ -65,3 +65,30 @@ def test_worktree_is_frozen():
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         wt.branch = "other"  # type: ignore[misc]
+
+
+def test_worktree_is_present_unless_said_otherwise():
+    wt = Worktree(
+        path="/tmp/r",
+        branch="main",
+        head_sha="abc",
+        is_locked=False,
+        lock_reason=None,
+        is_bare=False,
+        is_main=False,
+    )
+    assert wt.is_missing is False
+
+
+def test_worktree_can_be_missing_on_this_machine():
+    wt = Worktree(
+        path="/workspace/.claude/worktrees/x",
+        branch="worktree-x",
+        head_sha="abc",
+        is_locked=True,
+        lock_reason="claude session x",
+        is_bare=False,
+        is_main=False,
+        is_missing=True,
+    )
+    assert wt.is_missing is True

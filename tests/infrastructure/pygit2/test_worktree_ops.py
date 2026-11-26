@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -90,6 +91,63 @@ def test_list_worktrees_from_a_linked_worktree_names_the_real_main(fresh_repo, l
     main = next(wt for wt in from_linked if wt.is_main)
     assert Path(main.path) == fresh_repo.resolve()
     assert main.branch == "master"
+
+
+def test_a_linked_worktree_with_a_checkout_here_is_not_missing(fresh_repo, linked_worktree):
+    wts = Pygit2Repository(str(fresh_repo)).list_worktrees()
+
+    assert all(wt.is_missing is False for wt in wts)
+
+
+def test_a_worktree_whose_folder_is_gone_is_missing_and_keeps_its_branch(
+    fresh_repo, linked_worktree
+):
+    """A worktree registered from another machine or container, or whose folder
+    was deleted, has no checkout here. It used to be listed as detached with an
+    empty HEAD, since HEAD was read through the checkout: the row said
+    "(detached)" for a worktree holding a branch, and the branch counted as free
+    for a checkout here, which git would then refuse."""
+    shutil.rmtree(linked_worktree)
+    expected_sha = str(pygit2.Repository(str(fresh_repo)).references["refs/heads/feat"].target)
+
+    wts = Pygit2Repository(str(fresh_repo)).list_worktrees()
+
+    feat = next(wt for wt in wts if not wt.is_main)
+    assert feat.is_missing is True
+    assert feat.branch == "feat"
+    assert feat.head_sha == expected_sha
+    assert Path(feat.path) == linked_worktree.resolve()
+
+
+def test_a_missing_worktree_with_a_detached_head_reports_its_sha(fresh_repo, linked_worktree):
+    subprocess.run(
+        ["git", "-C", str(linked_worktree), "checkout", "--detach"],
+        check=True,
+        capture_output=True,
+    )
+    sha = str(pygit2.Repository(str(fresh_repo)).head.target)
+    shutil.rmtree(linked_worktree)
+
+    wts = Pygit2Repository(str(fresh_repo)).list_worktrees()
+
+    feat = next(wt for wt in wts if not wt.is_main)
+    assert feat.is_missing is True
+    assert feat.branch is None
+    assert feat.head_sha == sha
+
+
+def test_a_missing_worktree_still_reports_its_lock(fresh_repo, linked_worktree):
+    """The lock sentinel lives in the admin dir, which is here even when the
+    checkout is not — as with a lock a Claude session took in a container."""
+    Pygit2Repository(str(fresh_repo)).lock_worktree(str(linked_worktree), reason="in a container")
+    shutil.rmtree(linked_worktree)
+
+    wts = Pygit2Repository(str(fresh_repo)).list_worktrees()
+
+    feat = next(wt for wt in wts if not wt.is_main)
+    assert feat.is_missing is True
+    assert feat.is_locked is True
+    assert feat.lock_reason == "in a container"
 
 
 def test_lock_state_is_read_from_a_linked_worktree_session(fresh_repo, linked_worktree):

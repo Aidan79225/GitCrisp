@@ -287,3 +287,6 @@ class Worktree:
     lock_reason: str | None  # None when not locked or no reason given
     is_bare: bool
     is_main: bool  # True for the primary worktree
+    # True when nothing is checked out at *path* on this machine: the worktree
+    # was added from another machine or container, or its folder was deleted.
+    is_missing: bool = False

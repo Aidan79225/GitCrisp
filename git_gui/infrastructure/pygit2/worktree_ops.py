@@ -83,8 +83,12 @@ class WorktreeOps:
             except Exception as e:
                 logger.warning("Failed to look up worktree %r: %s", name, e)
                 continue
+            is_missing = not Path(wt.path).is_dir()
             try:
-                wt_branch, wt_sha = _read_head_branch(wt.path)
+                if is_missing:
+                    wt_branch, wt_sha = self._read_admin_head(name)
+                else:
+                    wt_branch, wt_sha = _read_head_branch(wt.path)
             except Exception as e:
                 logger.warning("Failed to read HEAD for worktree %r: %s", name, e)
                 wt_branch, wt_sha = None, ""
@@ -99,6 +103,7 @@ class WorktreeOps:
                     lock_reason=_read_lock_reason(lock_file) if is_locked else None,
                     is_bare=False,
                     is_main=False,
+                    is_missing=is_missing,
                 )
             )
         return result
@@ -201,6 +206,24 @@ class WorktreeOps:
             with suppress(FileNotFoundError):
                 lock_file.write_bytes(reason)
             raise
+
+    def _read_admin_head(self, name: str) -> tuple[str | None, str]:
+        """(branch_name_or_None, head_sha) of a linked worktree with no checkout here.
+
+        HEAD is normally read through the checkout, which is where pygit2 opens
+        a worktree. A worktree registered from another machine or container has
+        none on this one, but git keeps a copy of its HEAD in the admin dir, so
+        the branch it holds is still known: it shows on its row, and it stays
+        out of reach for a checkout here.
+        """
+        head = (self._common_dir() / "worktrees" / name / "HEAD").read_text(encoding="utf-8")
+        head = head.strip()
+        if not head.startswith("ref: "):
+            return None, head
+        ref_name = head[len("ref: ") :]
+        ref = self._repo.references.get(ref_name)
+        sha = str(ref.resolve().target) if ref is not None else ""
+        return ref_name.removeprefix("refs/heads/"), sha
 
     def _lock_file(self, name: str) -> Path:
         """pygit2's Worktree has no lock API, so locks are git's sentinel file."""
