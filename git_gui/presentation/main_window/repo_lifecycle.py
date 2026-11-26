@@ -478,12 +478,12 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _load_worktrees_for_active_repo(self) -> None:
         if self._queries is None or self._repo_path is None:
             return
-        self._refresh_worktrees_dialog()
         try:
             wts = self._list_worktrees()
         except Exception as e:
             self._report_worktree_error(f"Failed to list worktrees: {e}")
             wts = []
+        self._refresh_worktrees_dialog(wts)
         self._repo_list.set_active_worktrees(wts, owner_path=self._worktree_group_owner(wts))
         self._repo_list.reload()
         self._sidebar.set_worktree_branches(
@@ -611,19 +611,14 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         finally:
             self._worktrees_dialog = None
 
-    def _refresh_worktrees_dialog(self) -> None:
+    def _refresh_worktrees_dialog(self, worktrees: list[Worktree]) -> None:
         """Give the open Worktrees dialog the list as it is now.
 
         Its actions finish on background threads after it has emitted them,
         so without this its table keeps showing the state from before them.
         """
-        dlg = self._worktrees_dialog
-        if dlg is None:
-            return
-        try:
-            dlg.set_worktrees(self._list_worktrees())
-        except Exception as e:
-            self._report_worktree_error(f"Failed to list worktrees: {e}")
+        if self._worktrees_dialog is not None:
+            self._worktrees_dialog.set_worktrees(worktrees)
 
     def _run_worktree_op(
         self,
