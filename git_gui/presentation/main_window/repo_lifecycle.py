@@ -491,7 +491,12 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         shows or offers to switch to, which branch a checkout is steered to,
         and what a failed open is explained as all come from one snapshot.
         """
-        wts = self._queries.list_worktrees.execute()
+        try:
+            wts = self._queries.list_worktrees.execute()
+        except Exception:
+            # Nothing is known now; what the last repo had must not stand in.
+            self._remember_worktrees([])
+            raise
         self._remember_worktrees(wts)
         return wts
 
