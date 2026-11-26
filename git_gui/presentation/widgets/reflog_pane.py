@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from git_gui.domain.entities import ReflogEntry
 from git_gui.presentation.bus import QueryBus
 from git_gui.presentation.theme import ColorRole, connect_widget, get_theme_manager
+from git_gui.presentation.widgets.background import delete_when_done, worker_signals
 from git_gui.presentation.widgets.eliding_label import ElidingLabel
 
 ENTRY_ROLE = Qt.UserRole + 1  # ReflogEntry for the row
@@ -355,7 +356,7 @@ class ReflogPane(QWidget):
         header.addWidget(self._show_all_box)
         header.addWidget(self._close_btn)
 
-        self._model = ReflogModel()
+        self._model = ReflogModel(parent=self)
         self._view = QTableView()
         self._view.setModel(self._model)
         self._view.setItemDelegate(ReflogDelegate(self._model, self._view))
@@ -391,10 +392,12 @@ class ReflogPane(QWidget):
         generation = self._load_generation
         self._status.setText(f"Reading the {ref} reflog …")
 
-        signals = _LoadSignals()
+        # The application's, so closing the pane cannot delete them under a worker that
+        # is inside its emit: see worker_signals, and delete_when_done below.
+        signals = worker_signals(_LoadSignals)
         signals.done.connect(self._on_loaded)
         signals.failed.connect(self._on_failed)
-        self._load_signals = signals  # prevent GC while the worker runs
+        self._load_signals = signals  # the newest load's, for tests to wait on
 
         queries = self._queries
 
@@ -410,7 +413,7 @@ class ReflogPane(QWidget):
                 return
             signals.done.emit(generation, entries, branch)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        threading.Thread(target=delete_when_done(signals, _worker), daemon=True).start()
 
     def _on_loaded(self, generation: int, entries: list[ReflogEntry], branch: str | None) -> None:
         if generation != self._load_generation:

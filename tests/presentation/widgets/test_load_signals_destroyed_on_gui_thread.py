@@ -224,9 +224,9 @@ def test_a_superseded_loads_signals_are_destroyed_on_the_gui_thread(
 
 
 @pytest.mark.parametrize("make_scenario", SCENARIOS)
-def test_a_worker_finishing_after_its_pane_was_destroyed_raises_nothing(monkeypatch, make_scenario):
-    raised: list[BaseException | None] = []
-    monkeypatch.setattr(threading, "excepthook", lambda args: raised.append(args.exc_value))
+def test_a_worker_finishing_after_its_pane_was_destroyed_raises_nothing(
+    monkeypatch, worker_errors, make_scenario
+):
     with workers_joined_on_exit():
         scenario = make_scenario(monkeypatch, [])
         try:
@@ -239,7 +239,7 @@ def test_a_worker_finishing_after_its_pane_was_destroyed_raises_nothing(monkeypa
         worker.join(5)
         assert not worker.is_alive()
 
-    assert raised == []
+    assert worker_errors == []
 
 
 def _shown_text(widget: HunkDiffWidget) -> str:
