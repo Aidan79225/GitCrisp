@@ -38,6 +38,23 @@ def missing_worktree(repo_path, tmp_path_factory) -> str:
     return str(wt_path.resolve())
 
 
+def _add_worktree(repo_path: Path, tmp_path_factory, branch: str) -> Path:
+    wt_path = tmp_path_factory.mktemp("wt") / branch
+    _git(repo_path, "worktree", "add", "-b", branch, str(wt_path))
+    return wt_path
+
+
+@pytest.fixture
+def worktree_gone_after_the_load(window, repo_path, tmp_path_factory) -> str:
+    """A linked worktree the window listed, whose folder went after that listing."""
+    wt_path = _add_worktree(repo_path, tmp_path_factory, "gone-later")
+    window._load_worktrees_for_active_repo()
+    shutil.rmtree(wt_path)
+    gone = str(wt_path.resolve())
+    assert gone not in window._missing_worktree_paths
+    return gone
+
+
 @pytest.fixture
 def opened_paths() -> list[str]:
     """Every path the window's session factory was asked to open."""
@@ -109,8 +126,7 @@ def test_a_missing_worktree_that_has_come_back_opens(
 def test_opening_a_worktree_that_is_here_is_not_held_back(
     qtbot, window, repo_path, opened_paths, tmp_path_factory
 ):
-    wt_path = tmp_path_factory.mktemp("wt") / "here"
-    _git(repo_path, "worktree", "add", "-b", "here", str(wt_path))
+    wt_path = _add_worktree(repo_path, tmp_path_factory, "here")
     window._load_worktrees_for_active_repo()
 
     with qtbot.waitSignal(window._repo_ready_signals.ready, timeout=2000):
@@ -120,18 +136,14 @@ def test_opening_a_worktree_that_is_here_is_not_held_back(
     assert not _log_is_open(window)
 
 
-def test_the_worktrees_dialog_and_the_explanation_agree(qtbot, window, repo_path, tmp_path_factory):
-    """A worktree whose folder went after the last listing: the dialog lists
-    afresh and says "not on this machine", so Open on that row must be
-    explained the same way, not with pygit2's bare error."""
+def test_the_worktrees_dialog_and_the_explanation_agree(
+    qtbot, window, worktree_gone_after_the_load
+):
+    """The dialog lists afresh and says "not on this machine", so Open on that
+    row must be explained the same way, not with pygit2's bare error."""
     from PySide6.QtCore import QTimer
 
-    wt_path = tmp_path_factory.mktemp("wt") / "gone-later"
-    _git(repo_path, "worktree", "add", "-b", "gone-later", str(wt_path))
-    window._load_worktrees_for_active_repo()
-    shutil.rmtree(wt_path)
-    gone = str(wt_path.resolve())
-    assert gone not in window._missing_worktree_paths
+    gone = worktree_gone_after_the_load
 
     def _press_open_on_the_gone_row():
         dlg = window._worktrees_dialog
@@ -163,18 +175,14 @@ def test_checking_out_a_branch_held_by_a_missing_worktree_says_where_it_is(
 
 
 def test_the_add_worktree_dialogs_switch_and_the_explanation_agree(
-    qtbot, window, repo_path, tmp_path_factory, monkeypatch
+    qtbot, window, worktree_gone_after_the_load, monkeypatch
 ):
     """Add Worktree lists afresh too, and offers "Switch to That Worktree" for
-    a branch a worktree holds; a folder gone since the last repo load must be
-    explained the same way when that switch fails."""
+    a branch a worktree holds; that switch failing must be explained the same
+    way."""
     from git_gui.presentation.dialogs.add_worktree_dialog import AddWorktreeDialog
 
-    wt_path = tmp_path_factory.mktemp("wt") / "gone-later"
-    _git(repo_path, "worktree", "add", "-b", "gone-later", str(wt_path))
-    window._load_worktrees_for_active_repo()
-    shutil.rmtree(wt_path)
-    gone = str(wt_path.resolve())
+    gone = worktree_gone_after_the_load
     shown: list[AddWorktreeDialog] = []
     monkeypatch.setattr(AddWorktreeDialog, "exec", lambda self: shown.append(self) or 0)
 

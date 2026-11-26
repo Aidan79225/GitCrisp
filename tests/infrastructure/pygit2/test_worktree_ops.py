@@ -152,7 +152,7 @@ def test_a_worktree_pygit2_will_not_open_still_reports_its_branch(fresh_repo, li
 
 
 @pytest.fixture
-def unreadable(request):
+def unreadable():
     """chmod a path to 000 for the test, restoring it after so tmp_path cleans up."""
     restored: list[tuple[Path, int]] = []
 
