@@ -14,6 +14,13 @@ from git_gui.domain.entities import Worktree
 logger = logging.getLogger(__name__)
 
 
+# What reading a worktree's HEAD can raise and still leave the rest of the list
+# standing: pygit2 raises OSError for a checkout it cannot read (a .git file
+# without permission) and ValueError for a ref name it will not parse, beside
+# GitError; the admin dir's HEAD raises OSError from the read itself.
+_HEAD_READ_ERRORS = (OSError, ValueError, pygit2.GitError)
+
+
 def _read_head_branch(workdir: str) -> tuple[str | None, str]:
     """Return (branch_name_or_None, head_sha) for a worktree at *workdir*.
 
@@ -101,7 +108,11 @@ class WorktreeOps:
                 logger.warning("Failed to look up worktree %r: %s", name, e)
                 continue
             is_missing = _nothing_is_at(wt.path)
-            wt_branch, wt_sha = self._read_linked_head(name, wt.path, is_missing)
+            wt_branch, wt_sha = (
+                self._read_admin_head_or_detached(name)
+                if is_missing
+                else self._read_checkout_head_or_admin(name, wt.path)
+            )
             lock_file = self._lock_file(name)
             is_locked = lock_file.exists()
             result.append(
@@ -217,37 +228,39 @@ class WorktreeOps:
                 lock_file.write_bytes(reason)
             raise
 
-    def _read_linked_head(self, name: str, path: str, is_missing: bool) -> tuple[str | None, str]:
-        """(branch_name_or_None, head_sha) of the linked worktree *name* at *path*.
+    def _read_checkout_head_or_admin(self, name: str, path: str) -> tuple[str | None, str]:
+        """(branch_name_or_None, head_sha) of linked worktree *name*, checked out at *path*.
 
-        HEAD is read through the checkout, where pygit2 opens a worktree. When
-        that cannot be — no checkout on this machine, or one pygit2 refuses to
-        open, say a folder another user owns — it is read from git's copy in
-        the admin dir instead, so the branch the worktree holds is still known:
-        it shows on the row, and stays out of reach for a checkout here. Only
-        when neither can be read is the worktree listed as detached.
+        HEAD is read through the checkout, where pygit2 opens a worktree. One
+        pygit2 refuses to open, a folder another user owns say, is read from
+        the admin dir instead, like a worktree with no checkout here.
         """
-        # OSError as well as GitError: pygit2 raises the former for a checkout
-        # it cannot read, a .git file without permission say, and ValueError
-        # for a ref name it will not parse.
-        if not is_missing:
-            try:
-                return _read_head_branch(path)
-            except (OSError, ValueError, pygit2.GitError) as e:
-                logger.warning("Failed to open worktree %r to read its HEAD: %s", name, e)
+        try:
+            return _read_head_branch(path)
+        except _HEAD_READ_ERRORS as e:
+            logger.warning("Failed to open worktree %r to read its HEAD: %s", name, e)
+            return self._read_admin_head_or_detached(name)
+
+    def _read_admin_head_or_detached(self, name: str) -> tuple[str | None, str]:
+        """(branch_name_or_None, head_sha) from git's copy of HEAD in the admin dir.
+
+        That copy is here even when the checkout is not, so the branch the
+        worktree holds is still known: it shows on the row, and stays out of
+        reach for a checkout here. Only when it cannot be read either is the
+        worktree listed as detached.
+        """
         try:
             return self._read_admin_head(name)
-        except (OSError, ValueError, pygit2.GitError) as e:
+        except _HEAD_READ_ERRORS as e:
             logger.warning("Failed to read HEAD for worktree %r: %s", name, e)
             return None, ""
 
     def _read_admin_head(self, name: str) -> tuple[str | None, str]:
-        """(branch_name_or_None, head_sha) from the admin dir's copy of HEAD."""
         head_file = self._admin_dir(name) / "HEAD"
         head = head_file.read_text(encoding="utf-8", errors="replace").strip()
         if not head.startswith("ref: "):
             return None, head
-        ref_name = head[len("ref: ") :]
+        ref_name = head.removeprefix("ref: ")
         ref = self._repo.references.get(ref_name)
         sha = str(ref.resolve().target) if ref is not None else ""
         return ref_name.removeprefix("refs/heads/"), sha
