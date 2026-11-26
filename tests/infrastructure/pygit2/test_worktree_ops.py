@@ -136,6 +136,31 @@ def test_a_missing_worktree_with_a_detached_head_reports_its_sha(fresh_repo, lin
     assert feat.head_sha == sha
 
 
+def test_a_worktree_pygit2_will_not_open_still_reports_its_branch(
+    fresh_repo, linked_worktree, monkeypatch
+):
+    """A checkout that is here but will not open — a folder another user owns,
+    which libgit2 refuses without a safe.directory entry — is not missing, and
+    its branch is still read from the admin dir rather than shown detached."""
+    import git_gui.infrastructure.pygit2.worktree_ops as ops
+
+    real_read = ops._read_head_branch
+
+    def _refuse_the_linked_one(workdir):
+        if Path(workdir).resolve() == linked_worktree.resolve():
+            raise pygit2.GitError(f"repository path '{workdir}' is not owned by current user")
+        return real_read(workdir)
+
+    monkeypatch.setattr(ops, "_read_head_branch", _refuse_the_linked_one)
+
+    wts = Pygit2Repository(str(fresh_repo)).list_worktrees()
+
+    feat = next(wt for wt in wts if not wt.is_main)
+    assert feat.is_missing is False
+    assert feat.branch == "feat"
+    assert feat.head_sha != ""
+
+
 def test_a_missing_worktree_still_reports_its_lock(fresh_repo, linked_worktree):
     """The lock sentinel lives in the admin dir, which is here even when the
     checkout is not — as with a lock a Claude session took in a container."""

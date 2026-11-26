@@ -84,14 +84,7 @@ class WorktreeOps:
                 logger.warning("Failed to look up worktree %r: %s", name, e)
                 continue
             is_missing = not Path(wt.path).is_dir()
-            try:
-                if is_missing:
-                    wt_branch, wt_sha = self._read_admin_head(name)
-                else:
-                    wt_branch, wt_sha = _read_head_branch(wt.path)
-            except Exception as e:
-                logger.warning("Failed to read HEAD for worktree %r: %s", name, e)
-                wt_branch, wt_sha = None, ""
+            wt_branch, wt_sha = self._read_linked_head(name, wt.path, is_missing)
             lock_file = self._lock_file(name)
             is_locked = lock_file.exists()
             result.append(
@@ -207,15 +200,29 @@ class WorktreeOps:
                 lock_file.write_bytes(reason)
             raise
 
-    def _read_admin_head(self, name: str) -> tuple[str | None, str]:
-        """(branch_name_or_None, head_sha) of a linked worktree with no checkout here.
+    def _read_linked_head(self, name: str, path: str, is_missing: bool) -> tuple[str | None, str]:
+        """(branch_name_or_None, head_sha) of the linked worktree *name* at *path*.
 
-        HEAD is normally read through the checkout, which is where pygit2 opens
-        a worktree. A worktree registered from another machine or container has
-        none on this one, but git keeps a copy of its HEAD in the admin dir, so
-        the branch it holds is still known: it shows on its row, and it stays
-        out of reach for a checkout here.
+        HEAD is read through the checkout, where pygit2 opens a worktree. When
+        that cannot be — no checkout on this machine, or one pygit2 refuses to
+        open, say a folder another user owns — it is read from git's copy in
+        the admin dir instead, so the branch the worktree holds is still known:
+        it shows on the row, and stays out of reach for a checkout here. Only
+        when neither can be read is the worktree listed as detached.
         """
+        if not is_missing:
+            try:
+                return _read_head_branch(path)
+            except Exception as e:
+                logger.warning("Failed to open worktree %r to read its HEAD: %s", name, e)
+        try:
+            return self._read_admin_head(name)
+        except Exception as e:
+            logger.warning("Failed to read HEAD for worktree %r: %s", name, e)
+            return None, ""
+
+    def _read_admin_head(self, name: str) -> tuple[str | None, str]:
+        """(branch_name_or_None, head_sha) from the admin dir's copy of HEAD."""
         head = (self._common_dir() / "worktrees" / name / "HEAD").read_text(encoding="utf-8")
         head = head.strip()
         if not head.startswith("ref: "):
