@@ -90,7 +90,6 @@ def test_a_failed_open_of_a_missing_worktree_is_explained(
     assert f"Cannot open {missing_worktree}: this worktree is not on this machine" in _log_text(
         window
     )
-    assert "Repository not found" not in _log_text(window)
 
 
 def test_a_missing_worktree_that_has_come_back_opens(
@@ -161,3 +160,26 @@ def test_checking_out_a_branch_held_by_a_missing_worktree_says_where_it_is(
     assert f"Branch feat is checked out in {missing_worktree}, which is not on this machine" in (
         _log_text(window)
     )
+
+
+def test_the_add_worktree_dialogs_switch_and_the_explanation_agree(
+    qtbot, window, repo_path, tmp_path_factory, monkeypatch
+):
+    """Add Worktree lists afresh too, and offers "Switch to That Worktree" for
+    a branch a worktree holds; a folder gone since the last repo load must be
+    explained the same way when that switch fails."""
+    from git_gui.presentation.dialogs.add_worktree_dialog import AddWorktreeDialog
+
+    wt_path = tmp_path_factory.mktemp("wt") / "gone-later"
+    _git(repo_path, "worktree", "add", "-b", "gone-later", str(wt_path))
+    window._load_worktrees_for_active_repo()
+    shutil.rmtree(wt_path)
+    gone = str(wt_path.resolve())
+    shown: list[AddWorktreeDialog] = []
+    monkeypatch.setattr(AddWorktreeDialog, "exec", lambda self: shown.append(self) or 0)
+
+    window._open_add_worktree_dialog(preselect_branch="gone-later", default_create=False)
+    with qtbot.waitSignal(window._repo_ready_signals.failed, timeout=2000):
+        shown[0]._on_switch_to_existing()
+
+    assert f"Cannot open {gone}: this worktree is not on this machine" in _log_text(window)

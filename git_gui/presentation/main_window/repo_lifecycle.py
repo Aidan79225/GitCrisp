@@ -53,10 +53,10 @@ class _RepoRequest:
     attempt: object = field(default_factory=object, compare=False, repr=False)
 
 
-def _missing_worktree_message(path: str) -> str:
+def _missing_worktree_message(path: str, error: str) -> str:
     return (
         f"Cannot open {path}: this worktree is not on this machine. It was added "
-        "from another machine or container, or its folder has been deleted."
+        f"from another machine or container, or its folder has been deleted. ({error})"
     )
 
 
@@ -320,12 +320,13 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
 
         pygit2's "Repository not found" names the path and nothing else. For a
         worktree the last listing found no checkout for here, the reason is
-        known. The open is still tried first: the listing is a snapshot, and a
-        worktree on a drive that has come back since should open, not be
-        refused on what was true at the last listing.
+        known, and pygit2's words are kept after it in case the folder is
+        back but broken. The open is still tried first: the listing is a
+        snapshot, and a worktree on a drive that has come back since should
+        open, not be refused on what was true at the last listing.
         """
         if path in self._missing_worktree_paths:
-            return _missing_worktree_message(path)
+            return _missing_worktree_message(path, error)
         return f"Cannot open {path}: {error}"
 
     def _stop_waiting_for_request(self) -> None:
@@ -498,9 +499,9 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
     def _remember_missing_worktrees(self, worktrees: list[Worktree]) -> None:
         """Keep the latest listing's word on which worktrees have no checkout here.
 
-        The repo load and the Worktrees dialog both feed this: what the dialog
-        shows as not on this machine and what a failed open is explained as
-        must agree.
+        The repo load and both worktree dialogs feed this: what a dialog shows
+        or offers to switch to and what a failed open is explained as must
+        agree.
         """
         self._missing_worktree_paths = {str(wt.path) for wt in worktrees if wt.is_missing}
 
@@ -563,6 +564,8 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
         except Exception as e:
             self._report_worktree_error(f"Cannot add a worktree: {e}")
             return
+        # Its "switch to that worktree" starts a switch, like the Worktrees dialog's Open.
+        self._remember_missing_worktrees(worktrees)
         dlg = AddWorktreeDialog(
             repo_path=_worktree_root(self._repo_path, worktrees),
             branches=branches,
