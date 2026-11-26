@@ -48,18 +48,10 @@ def _lane_center_x(rect_left: int, lane: int) -> int:
 def row_lane_span(lane_data: LaneData) -> int:
     """How many lane columns this single row actually paints into.
 
-    Unlike ``LaneData.n_lanes`` (the lane count of the whole history at this
-    point), this looks only at what is drawn on this row: the commit node plus
-    both endpoints of every line and edge. Rows below a merge that has already
-    closed therefore report a narrower span, letting their commit info sit
-    further left.
+    Rows below a merge that has already closed report a narrower span than the
+    history's lane count, letting their commit info sit further left.
     """
-    lanes = [lane_data.lane]
-    for endpoints in (lane_data.lines, lane_data.edges_in, lane_data.edges_out):
-        for from_lane, to_lane, _ in endpoints:
-            lanes.append(from_lane)
-            lanes.append(to_lane)
-    return max(lanes) + 1
+    return lane_data.span
 
 
 def graph_width(n_lanes: int) -> int:
@@ -80,18 +72,26 @@ def row_graph_width(lane_data: LaneData | None) -> int:
     return graph_width(row_lane_span(lane_data))
 
 
-def paint_lanes(painter: QPainter, rect: QRect, lane_data: LaneData, *, selected: bool) -> None:
+def paint_lanes(
+    painter: QPainter,
+    rect: QRect,
+    lane_data: LaneData,
+    *,
+    selected: bool,
+    x_offset: int = 0,
+) -> None:
     """Draw one row of the lane graph inside ``rect``.
 
-    ``rect`` is the graph's slice of the row; painting is clipped to it so a
-    history wider than ``MAX_GRAPH_LANES`` can never bleed into the commit info.
+    ``rect`` is the graph's slice of the row; painting is clipped to it so lanes
+    past its edge can never bleed into the commit info. ``x_offset`` is how far
+    the graph is scrolled sideways: every lane moves that many pixels left.
     """
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setClipRect(rect)
 
     lane_colors = _lane_colors()
-    left = rect.left()
+    left = rect.left() - x_offset
     top = rect.top()
     bot = rect.bottom()
     mid = (top + bot) // 2

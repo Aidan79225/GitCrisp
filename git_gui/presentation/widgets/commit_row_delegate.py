@@ -13,7 +13,7 @@ from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QTextLayout, QTextOption
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
-from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, CommitInfo
+from git_gui.presentation.models.graph_model import INFO_ROLE, LANE_ROLE, CommitInfo, LaneData
 from git_gui.presentation.theme import ColorRole, get_theme_manager
 from git_gui.presentation.widgets.graph_lane_painter import paint_lanes, row_graph_width
 from git_gui.presentation.widgets.ref_badge_delegate import (
@@ -158,13 +158,34 @@ def _badge_line_count(placed: list[_PlacedBadge]) -> int:
 
 
 class CommitRowDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._graph_limit: int | None = None
+        self._graph_scroll = 0
+
+    def set_graph_column(self, limit: int | None, scroll: int) -> None:
+        """How much of the row the lane graph may take, and how far it is scrolled.
+
+        A row whose lanes reach past `limit` pixels shows only that much of them
+        (the rest is scrolled into view by `scroll`), so the commit info keeps
+        its room however wide the history gets. Narrower rows are unaffected.
+        `None` lets every row take what its own lanes need.
+        """
+        self._graph_limit = limit
+        self._graph_scroll = scroll
+
+    def _graph_indent(self, lane_data: LaneData | None) -> int:
+        """Where this row's commit info starts: right of the part of its graph shown."""
+        indent = row_graph_width(lane_data)
+        return indent if self._graph_limit is None else min(indent, self._graph_limit)
+
     def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
         fm = option.fontMetrics
         info: CommitInfo | None = index.data(INFO_ROLE)
         if info is None:
             return QSize(option.rect.width(), _row_height(fm, badge_lines=1))
 
-        indent = row_graph_width(index.data(LANE_ROLE))
+        indent = self._graph_indent(index.data(LANE_ROLE))
         row_w = option.rect.width() if option.rect.width() > 0 else indent + FALLBACK_ROW_WIDTH
         badge_lines = _badge_line_count(_place_badges(fm, info, _info_width(row_w, indent)))
         return QSize(option.rect.width(), _row_height(fm, badge_lines))
@@ -187,10 +208,12 @@ class CommitRowDelegate(QStyledItemDelegate):
             painter.fillRect(row_rect, _selection_color())
 
         # ── Lane graph, then the commit info clear of it ──────────────────────
-        indent = row_graph_width(lane_data)
+        indent = self._graph_indent(lane_data)
         if lane_data is not None:
             graph_rect = QRect(row_rect.left(), row_rect.top(), indent, row_rect.height())
-            paint_lanes(painter, graph_rect, lane_data, selected=selected)
+            paint_lanes(
+                painter, graph_rect, lane_data, selected=selected, x_offset=self._graph_scroll
+            )
 
         if info is None:
             self._paint_divider(painter, row_rect)
