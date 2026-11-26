@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import stat
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext, suppress
 from pathlib import Path
@@ -27,6 +28,22 @@ def _read_head_branch(workdir: str) -> tuple[str | None, str]:
     if repo.head_is_detached:
         return None, str(head.target)
     return head.shorthand, str(head.target)
+
+
+def _nothing_is_at(path: str) -> bool:
+    """Whether *path* is known to hold no folder.
+
+    A path that cannot be looked at — under a folder this user may not enter,
+    as another user's home is — is not known to be empty, so it counts as
+    present and reading its HEAD decides what to show. Raising here would
+    take every worktree off the list for the one that cannot be seen.
+    """
+    try:
+        return not stat.S_ISDIR(os.stat(path).st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False
 
 
 def _read_lock_reason(lock_file: Path) -> str | None:
@@ -83,7 +100,7 @@ class WorktreeOps:
             except Exception as e:
                 logger.warning("Failed to look up worktree %r: %s", name, e)
                 continue
-            is_missing = not Path(wt.path).is_dir()
+            is_missing = _nothing_is_at(wt.path)
             wt_branch, wt_sha = self._read_linked_head(name, wt.path, is_missing)
             lock_file = self._lock_file(name)
             is_locked = lock_file.exists()
@@ -210,20 +227,24 @@ class WorktreeOps:
         it shows on the row, and stays out of reach for a checkout here. Only
         when neither can be read is the worktree listed as detached.
         """
+        # OSError as well as GitError: pygit2 raises the former for a checkout
+        # it cannot read, a .git file without permission say, and ValueError
+        # for a ref name it will not parse.
         if not is_missing:
             try:
                 return _read_head_branch(path)
-            except pygit2.GitError as e:
+            except (OSError, ValueError, pygit2.GitError) as e:
                 logger.warning("Failed to open worktree %r to read its HEAD: %s", name, e)
         try:
             return self._read_admin_head(name)
-        except (OSError, pygit2.GitError) as e:
+        except (OSError, ValueError, pygit2.GitError) as e:
             logger.warning("Failed to read HEAD for worktree %r: %s", name, e)
             return None, ""
 
     def _read_admin_head(self, name: str) -> tuple[str | None, str]:
         """(branch_name_or_None, head_sha) from the admin dir's copy of HEAD."""
-        head = (self._admin_dir(name) / "HEAD").read_text(encoding="utf-8").strip()
+        head_file = self._admin_dir(name) / "HEAD"
+        head = head_file.read_text(encoding="utf-8", errors="replace").strip()
         if not head.startswith("ref: "):
             return None, head
         ref_name = head[len("ref: ") :]

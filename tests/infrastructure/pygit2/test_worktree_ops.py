@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -148,6 +149,64 @@ def test_a_worktree_pygit2_will_not_open_still_reports_its_branch(fresh_repo, li
     assert feat.is_missing is False
     assert feat.branch == "feat"
     assert feat.head_sha != ""
+
+
+@pytest.fixture
+def unreadable(request):
+    """chmod a path to 000 for the test, restoring it after so tmp_path cleans up."""
+    restored: list[tuple[Path, int]] = []
+
+    def _make(path: Path) -> None:
+        restored.append((path, path.stat().st_mode))
+        path.chmod(0)
+
+    yield _make
+    for path, mode in reversed(restored):
+        path.chmod(mode)
+
+
+_needs_permission_bits = pytest.mark.skipif(
+    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod 000 does not deny access on Windows or to root",
+)
+
+
+@_needs_permission_bits
+def test_a_worktree_whose_git_file_cannot_be_read_still_reports_its_branch(
+    fresh_repo, linked_worktree, unreadable
+):
+    """pygit2 raises OSError, not GitError, for a checkout it cannot read; that
+    used to escape list_worktrees and take every worktree off the list."""
+    unreadable(linked_worktree / ".git")
+
+    wts = Pygit2Repository(str(fresh_repo)).list_worktrees()
+
+    feat = next(wt for wt in wts if not wt.is_main)
+    assert feat.is_missing is False
+    assert feat.branch == "feat"
+
+
+@_needs_permission_bits
+def test_a_worktree_under_a_folder_this_user_cannot_enter_is_still_listed(
+    fresh_repo, tmp_path, unreadable
+):
+    """A worktree under another user's home cannot even be stat-ed. It counts
+    as present, not missing, and its branch comes from the admin dir."""
+    repo = pygit2.Repository(str(fresh_repo))
+    repo.references.create("refs/heads/feat", repo.head.target)
+    closed_folder = tmp_path / "other-user"
+    subprocess.run(
+        ["git", "-C", str(fresh_repo), "worktree", "add", str(closed_folder / "wt"), "feat"],
+        check=True,
+        capture_output=True,
+    )
+    unreadable(closed_folder)
+
+    wts = Pygit2Repository(str(fresh_repo)).list_worktrees()
+
+    feat = next(wt for wt in wts if not wt.is_main)
+    assert feat.is_missing is False
+    assert feat.branch == "feat"
 
 
 def test_a_missing_worktree_still_reports_its_lock(fresh_repo, linked_worktree):
