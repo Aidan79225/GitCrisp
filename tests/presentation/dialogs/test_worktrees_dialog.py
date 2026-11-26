@@ -9,7 +9,7 @@ from git_gui.domain.entities import Worktree
 from git_gui.presentation.dialogs.worktrees_dialog import WorktreesDialog
 
 
-def _wt(branch="feat", path="/tmp/wt", locked=False, reason=None, main=False):
+def _wt(branch="feat", path="/tmp/wt", locked=False, reason=None, main=False, missing=False):
     return Worktree(
         path=path,
         branch=branch,
@@ -18,6 +18,7 @@ def _wt(branch="feat", path="/tmp/wt", locked=False, reason=None, main=False):
         lock_reason=reason,
         is_bare=False,
         is_main=main,
+        is_missing=missing,
     )
 
 
@@ -32,6 +33,18 @@ def test_rows_render_branch_and_path(qtbot):
     assert dlg.row_count() == 2
     assert dlg.row_branch(0) == "main"
     assert dlg.row_path(1) == "/tmp/wt-feat"
+
+
+def test_status_column_names_the_main_worktree_and_says_nothing_for_a_linked_one(qtbot):
+    dlg = _open(qtbot, [_wt("main", "/tmp/main", main=True), _wt("feat", "/tmp/wt-feat")])
+    assert dlg.row_status_text(0) == "main"
+    assert dlg.row_status_text(1) == ""
+
+
+def test_status_column_says_when_a_worktree_is_not_on_this_machine(qtbot):
+    dlg = _open(qtbot, [_wt("feat", "/workspace/wt-feat", missing=True)])
+    assert dlg.row_branch(0) == "feat"
+    assert dlg.row_status_text(0) == "not on this machine"
 
 
 def test_locked_column_shows_reason(qtbot):

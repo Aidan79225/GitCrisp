@@ -61,6 +61,9 @@ def _counts_as_a_repo(path: str) -> bool:
 
 _KIND_ROLE = Qt.UserRole + 1
 _IS_ACTIVE_ROLE = Qt.UserRole + 2
+_IS_MISSING_ROLE = Qt.UserRole + 3  # a worktree with no checkout on this machine
+
+_MISSING_WORKTREE_NOTE = "Not on this machine"
 
 
 class _RowKind(Enum):
@@ -209,6 +212,10 @@ class _RepoItemDelegate(QStyledItemDelegate):
     Line 1: the row's label — the repo name, or a worktree's branch — default font.
     Line 2: _display_path(path), smaller font, dimmer color, middle-elided.
 
+    A worktree with no checkout on this machine is drawn in the dimmer color
+    throughout, its path line saying so: the row looks like what it is, a
+    worktree that cannot be opened from here, before anyone clicks it.
+
     Section header rows keep their default rendering by deferring to
     super().paint/sizeHint.
     """
@@ -231,14 +238,18 @@ class _RepoItemDelegate(QStyledItemDelegate):
         name = index.data(Qt.DisplayRole)
         disp = _display_path(path)
         is_active = bool(index.data(_IS_ACTIVE_ROLE))
+        is_missing = bool(index.data(_IS_MISSING_ROLE))
+        if is_missing:
+            disp = f"{_MISSING_WORKTREE_NOTE} · {disp}"
 
         colors = get_theme_manager().current.colors
-        name_color = (
-            colors.as_qcolor(ColorRole.ON_PRIMARY)
-            if is_active
-            else colors.as_qcolor(ColorRole.ON_SURFACE)
-        )
         path_color = colors.as_qcolor(ColorRole.ON_SURFACE_VARIANT)
+        if is_active:
+            name_color = colors.as_qcolor(ColorRole.ON_PRIMARY)
+        elif is_missing:
+            name_color = path_color
+        else:
+            name_color = colors.as_qcolor(ColorRole.ON_SURFACE)
 
         rect = option.rect
         text_left = rect.left() + _ROW_H_PADDING
@@ -485,6 +496,9 @@ class RepoListWidget(QWidget):
         item.setToolTip(str(wt.path))
         item.setData(str(wt.path), Qt.UserRole)
         item.setData(_RowKind.WORKTREE, _KIND_ROLE)
+        if wt.is_missing:
+            item.setData(True, _IS_MISSING_ROLE)
+            item.setToolTip(f"{_MISSING_WORKTREE_NOTE}\n{wt.path}")
         if is_active:
             font = item.font()
             font.setBold(True)

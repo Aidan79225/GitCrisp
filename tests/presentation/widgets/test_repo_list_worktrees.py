@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from git_gui.domain.entities import Worktree
 from git_gui.presentation.widgets.repo_list import (
     _IS_ACTIVE_ROLE,
+    _IS_MISSING_ROLE,
     _KIND_ROLE,
     RepoListWidget,
     _RowKind,
@@ -60,7 +61,7 @@ class _FakeStore:
         self._open = list(paths)
 
 
-def _wt(path, branch="feat", locked=False):
+def _wt(path, branch="feat", locked=False, missing=False):
     return Worktree(
         path=path,
         branch=branch,
@@ -69,7 +70,16 @@ def _wt(path, branch="feat", locked=False):
         lock_reason=None,
         is_bare=False,
         is_main=False,
+        is_missing=missing,
     )
+
+
+def _worktree_child(w, row=0):
+    model = w._model
+    open_header = next(
+        model.item(r) for r in range(model.rowCount()) if model.item(r).text() == "OPEN"
+    )
+    return open_header.child(0).child(row)
 
 
 # ── Task 10: nesting ───────────────────────────────────────────────────────
@@ -317,3 +327,51 @@ def test_worktree_action_signal_emits(qtbot):
     w._emit_worktree_action("add", "/tmp/myrepo")
     w._emit_worktree_action("remove", "/tmp/myrepo-feat")
     assert received == [("add", "/tmp/myrepo"), ("remove", "/tmp/myrepo-feat")]
+
+
+# ── A worktree with no checkout on this machine ─────────────────────────────
+
+
+def test_a_worktree_with_a_checkout_here_is_not_marked_missing(qtbot):
+    store = _FakeStore(open_=["/tmp/myrepo"], active="/tmp/myrepo")
+    w = RepoListWidget(store)
+    qtbot.addWidget(w)
+    w.set_active_worktrees([_wt("/tmp/myrepo-feat")])
+    w.reload()
+
+    child = _worktree_child(w)
+    assert not child.data(_IS_MISSING_ROLE)
+    assert child.toolTip() == "/tmp/myrepo-feat"
+
+
+def test_a_missing_worktree_row_says_so_and_keeps_its_branch(qtbot):
+    """A worktree registered from another machine or container is listed with
+    the branch it holds, marked so the delegate can draw it apart and the
+    tooltip explains before anyone clicks it."""
+    store = _FakeStore(open_=["/tmp/myrepo"], active="/tmp/myrepo")
+    w = RepoListWidget(store)
+    qtbot.addWidget(w)
+    w.set_active_worktrees([_wt("/workspace/wt-feat", branch="feat", missing=True)])
+    w.reload()
+
+    child = _worktree_child(w)
+    assert child.text() == "feat"
+    assert child.data(_IS_MISSING_ROLE) is True
+    assert child.toolTip() == "Not on this machine\n/workspace/wt-feat"
+
+
+def test_clicking_a_missing_worktree_still_asks_for_the_switch(qtbot):
+    """The window answers the click, with the reason it cannot open: the
+    list has no log to say so in, and a click that did nothing would look
+    like a broken row."""
+    store = _FakeStore(open_=["/tmp/myrepo"], active="/tmp/myrepo")
+    w = RepoListWidget(store)
+    qtbot.addWidget(w)
+    w.set_active_worktrees([_wt("/workspace/wt-feat", missing=True)])
+    w.reload()
+    received: list[str] = []
+    w.repo_switch_requested.connect(received.append)
+
+    w._on_item_clicked(w._model.indexFromItem(_worktree_child(w)))
+
+    assert received == ["/workspace/wt-feat"]

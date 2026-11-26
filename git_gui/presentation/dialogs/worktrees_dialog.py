@@ -85,6 +85,9 @@ class WorktreesDialog(QDialog):
     def row_path(self, row: int) -> str:
         return self._table.item(row, 1).text()
 
+    def row_status_text(self, row: int) -> str:
+        return self._table.item(row, 3).text()
+
     def row_locked_text(self, row: int) -> str:
         return self._table.item(row, 2).text()
 
@@ -120,7 +123,7 @@ class WorktreesDialog(QDialog):
             if wt.is_locked:
                 locked_text = wt.lock_reason or "Locked"
             self._table.setItem(row, 2, QTableWidgetItem(locked_text))
-            self._table.setItem(row, 3, QTableWidgetItem("main" if wt.is_main else ""))
+            self._table.setItem(row, 3, QTableWidgetItem(_status_text(wt)))
 
     def _selected_path(self) -> str | None:
         rows = self._table.selectionModel().selectedRows()
@@ -148,3 +151,11 @@ class WorktreesDialog(QDialog):
         path = self._selected_path()
         if path:
             self.unlock_requested.emit(path)
+
+
+def _status_text(wt: Worktree) -> str:
+    if wt.is_main:
+        return "main"
+    if wt.is_missing:
+        return "not on this machine"
+    return ""
