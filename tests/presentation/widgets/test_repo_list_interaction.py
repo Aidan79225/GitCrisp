@@ -119,6 +119,17 @@ def test_a_detached_worktree_row_says_so(qtbot):
     assert lines == ["(detached)", "C:/wt/tmp"]
 
 
+def test_a_worktree_row_with_no_checkout_here_says_so_under_its_branch(qtbot):
+    w = _shown_list(qtbot, _FakeStore(open_=["C:/a/one"], active="C:/a/one"))
+    w.set_active_worktrees([_wt("C:/wt/feat", branch="feat", missing=True)], owner_path="C:/a/one")
+    w.reload()
+    owner = w._model.itemFromIndex(_open_row_index(w, "C:/a/one"))
+
+    lines = _painted_lines(w, owner.child(0))
+
+    assert lines == ["feat", "Not on this machine · C:/wt/feat"]
+
+
 def test_a_repo_row_names_its_folder(qtbot):
     w = _shown_list(qtbot, _FakeStore(open_=["C:/a/one"], active="C:/a/one"))
     row = w._model.itemFromIndex(_open_row_index(w, "C:/a/one"))
