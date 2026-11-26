@@ -296,6 +296,10 @@ class RepoLifecycleMixin(AskedRepoGuardMixin):
             self._repo_store.set_active(request.path)
 
     def _on_repo_failed(self, opened: _RepoRequest, error: str) -> None:
+        # A folder deleted since the repo load is the usual way a worktree goes
+        # missing, and nothing lists between the load and the click: list now,
+        # so the failure is worded from what is there and the row redrawn.
+        self._load_worktrees_for_active_repo()
         self._log_panel.expand()
         self._log_panel.log_error(self._open_failure_message(opened.path, error))
         request = self._request_answered_by(opened)

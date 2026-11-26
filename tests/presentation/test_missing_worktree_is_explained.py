@@ -156,6 +156,21 @@ def test_opening_a_worktree_that_is_here_is_not_held_back(
     assert not _log_is_open(window)
 
 
+def test_a_worktree_deleted_after_the_load_is_explained_when_its_row_is_clicked(
+    qtbot, window, worktree_gone_after_the_load
+):
+    """Nothing lists between the repo load and a click on the sidebar row, so
+    the failed open lists again: the reason is given and the row redrawn as
+    not on this machine."""
+    gone = worktree_gone_after_the_load
+
+    with qtbot.waitSignal(window._repo_ready_signals.failed, timeout=2000):
+        window._switch_repo(gone)
+
+    assert f"Cannot open {gone}: this worktree is not on this machine" in _log_text(window)
+    assert gone in window._missing_worktree_paths
+
+
 def test_the_worktrees_dialog_and_the_explanation_agree(
     qtbot, window, worktree_gone_after_the_load
 ):
