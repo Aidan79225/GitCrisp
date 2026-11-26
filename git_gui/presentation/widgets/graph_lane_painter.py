@@ -72,18 +72,26 @@ def row_graph_width(lane_data: LaneData | None) -> int:
     return graph_width(row_lane_span(lane_data))
 
 
-def paint_lanes(painter: QPainter, rect: QRect, lane_data: LaneData, *, selected: bool) -> None:
+def paint_lanes(
+    painter: QPainter,
+    rect: QRect,
+    lane_data: LaneData,
+    *,
+    selected: bool,
+    x_offset: int = 0,
+) -> None:
     """Draw one row of the lane graph inside ``rect``.
 
-    ``rect`` is the graph's slice of the row; painting is clipped to it so a
-    history wider than ``MAX_GRAPH_LANES`` can never bleed into the commit info.
+    ``rect`` is the graph's slice of the row; painting is clipped to it so lanes
+    past its edge can never bleed into the commit info. ``x_offset`` is how far
+    the graph is scrolled sideways: every lane moves that many pixels left.
     """
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setClipRect(rect)
 
     lane_colors = _lane_colors()
-    left = rect.left()
+    left = rect.left() - x_offset
     top = rect.top()
     bot = rect.bottom()
     mid = (top + bot) // 2
